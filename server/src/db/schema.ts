@@ -1,0 +1,157 @@
+import { sql } from 'drizzle-orm';
+import { index, integer, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
+import type { OrderStatusKey, RoleKey, Unit } from '@rivoora/shared';
+
+const nowIso = sql`(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`;
+
+const id = () => integer('id').primaryKey({ autoIncrement: true });
+const createdAt = () => text('created_at').notNull().default(nowIso);
+const updatedAt = () =>
+  text('updated_at')
+    .notNull()
+    .default(nowIso)
+    .$onUpdate(() => new Date().toISOString());
+const isDeleted = () => integer('is_deleted', { mode: 'boolean' }).notNull().default(false);
+
+export const customers = sqliteTable(
+  'customers',
+  {
+    id: id(),
+    name: text('name').notNull(),
+    phone: text('phone'),
+    alternatePhone: text('alternate_phone'),
+    email: text('email'),
+    address: text('address'),
+    city: text('city'),
+    gstNumber: text('gst_number'),
+    notes: text('notes'),
+    isDeleted: isDeleted(),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index('customers_name_idx').on(t.name)],
+);
+
+export const materials = sqliteTable(
+  'materials',
+  {
+    id: id(),
+    name: text('name').notNull(),
+    code: text('code'),
+    notes: text('notes'),
+    isDeleted: isDeleted(),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    index('materials_name_idx').on(t.name),
+    uniqueIndex('materials_name_active_unique')
+      .on(sql`lower(${t.name})`)
+      .where(sql`${t.isDeleted} = 0`),
+  ],
+);
+
+export const designs = sqliteTable(
+  'designs',
+  {
+    id: id(),
+    code: text('code').notNull(),
+    name: text('name'),
+    imageUrl: text('image_url'),
+    thumbUrl: text('thumb_url'),
+    notes: text('notes'),
+    isDeleted: isDeleted(),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    index('designs_code_idx').on(t.code),
+    uniqueIndex('designs_code_active_unique').on(t.code).where(sql`${t.isDeleted} = 0`),
+  ],
+);
+
+export const designVariations = sqliteTable(
+  'design_variations',
+  {
+    id: id(),
+    designId: integer('design_id')
+      .notNull()
+      .references(() => designs.id),
+    variationNo: integer('variation_no').notNull(),
+    code: text('code').notNull(),
+    imageUrl: text('image_url'),
+    thumbUrl: text('thumb_url'),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    index('design_variations_design_idx').on(t.designId),
+    index('design_variations_code_idx').on(t.code),
+    uniqueIndex('design_variations_design_no_unique').on(t.designId, t.variationNo),
+  ],
+);
+
+export const orders = sqliteTable(
+  'orders',
+  {
+    id: id(),
+    orderNo: integer('order_no').notNull(),
+    customerId: integer('customer_id')
+      .notNull()
+      .references(() => customers.id),
+    materialId: integer('material_id')
+      .notNull()
+      .references(() => materials.id),
+    designId: integer('design_id').references(() => designs.id),
+    variationId: integer('variation_id').references(() => designVariations.id),
+    quantity: real('quantity').notNull(),
+    unit: text('unit').$type<Unit>().notNull(),
+    rate: real('rate'),
+    orderDate: text('order_date').notNull(),
+    notes: text('notes'),
+    status: text('status').$type<OrderStatusKey>().notNull(),
+    sentToProductionAt: text('sent_to_production_at'),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    uniqueIndex('orders_order_no_unique').on(t.orderNo),
+    index('orders_status_idx').on(t.status),
+    index('orders_order_date_idx').on(t.orderDate),
+    index('orders_customer_idx').on(t.customerId),
+    index('orders_material_idx').on(t.materialId),
+    index('orders_design_idx').on(t.designId),
+  ],
+);
+
+export const orderNoteImages = sqliteTable(
+  'order_note_images',
+  {
+    id: id(),
+    orderId: integer('order_id')
+      .notNull()
+      .references(() => orders.id, { onDelete: 'cascade' }),
+    imageUrl: text('image_url').notNull(),
+    thumbUrl: text('thumb_url').notNull(),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index('order_note_images_order_idx').on(t.orderId)],
+);
+
+export const orderStatusHistory = sqliteTable(
+  'order_status_history',
+  {
+    id: id(),
+    orderId: integer('order_id')
+      .notNull()
+      .references(() => orders.id, { onDelete: 'cascade' }),
+    fromStatus: text('from_status').$type<OrderStatusKey>(),
+    toStatus: text('to_status').$type<OrderStatusKey>().notNull(),
+    role: text('role').$type<RoleKey>().notNull(),
+    changedAt: text('changed_at').notNull().default(nowIso),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index('order_status_history_order_idx').on(t.orderId)],
+);

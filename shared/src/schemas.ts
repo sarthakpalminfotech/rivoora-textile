@@ -1,0 +1,118 @@
+import { z } from 'zod';
+import { normalizeCode } from './codes';
+import { UNITS } from './units';
+
+export const PHONE_REGEX = /^[6-9]\d{9}$/;
+
+/** Optional text: empty strings become null. */
+const optText = (max: number) =>
+  z
+    .string()
+    .trim()
+    .max(max, `Must be at most ${max} characters`)
+    .nullish()
+    .transform((v) => (v ? v : null));
+
+export function normalizePhone(v: string | null | undefined): string | null {
+  if (!v) return null;
+  const cleaned = v.replace(/[\s-]/g, '').replace(/^(\+91|0)/, '');
+  return cleaned || null;
+}
+
+const phone = z
+  .string()
+  .trim()
+  .nullish()
+  .transform(normalizePhone)
+  .refine((v) => v === null || PHONE_REGEX.test(v), 'Enter a valid 10-digit mobile number');
+
+const email = z
+  .string()
+  .trim()
+  .nullish()
+  .transform((v) => (v ? v.toLowerCase() : null))
+  .refine((v) => v === null || z.string().email().safeParse(v).success, 'Enter a valid email address');
+
+export const codeSchema = z
+  .string()
+  .trim()
+  .min(1, 'Code is required')
+  .max(30, 'Code must be at most 30 characters')
+  .transform(normalizeCode)
+  .refine((v) => /^[A-Z0-9_\-/.]+$/.test(v), 'Use only letters, numbers and - / _ .');
+
+const imageUrl = z.string().trim().min(1).max(500);
+
+export const customerInputSchema = z.object({
+  name: z.string().trim().min(1, 'Name is required').max(120, 'Name is too long'),
+  phone,
+  alternatePhone: phone,
+  email,
+  address: optText(500),
+  city: optText(80),
+  gstNumber: optText(20).transform((v) => (v ? v.toUpperCase() : null)),
+  notes: optText(1000),
+});
+export type CustomerInput = z.input<typeof customerInputSchema>;
+
+export const materialInputSchema = z.object({
+  name: z.string().trim().min(1, 'Name is required').max(80, 'Name is too long'),
+  code: optText(30),
+  notes: optText(1000),
+});
+export type MaterialInput = z.input<typeof materialInputSchema>;
+
+export const designInputSchema = z.object({
+  code: codeSchema,
+  name: optText(120),
+  notes: optText(1000),
+  imageUrl: imageUrl.nullish().transform((v) => v ?? null),
+  thumbUrl: imageUrl.nullish().transform((v) => v ?? null),
+});
+export type DesignInput = z.input<typeof designInputSchema>;
+
+export const variationInputSchema = z.object({
+  imageUrl,
+  thumbUrl: imageUrl,
+});
+export type VariationInput = z.input<typeof variationInputSchema>;
+
+export const orderCreateSchema = z
+  .object({
+    customerId: z.number().int().positive('Select a client'),
+    materialId: z.number().int().positive('Select a material'),
+    designId: z.number().int().positive().nullish().transform((v) => v ?? null),
+    variationId: z.number().int().positive().nullish().transform((v) => v ?? null),
+    newDesign: z
+      .object({ code: codeSchema, imageUrl, thumbUrl: imageUrl })
+      .nullish()
+      .transform((v) => v ?? null),
+    quantity: z.number().positive('Quantity must be more than 0').max(100_000_000),
+    unit: z.enum(UNITS),
+    rate: z
+      .number()
+      .min(0, 'Rate cannot be negative')
+      .max(100_000_000)
+      .nullish()
+      .transform((v) => v ?? null),
+    orderDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date'),
+    notes: optText(4000),
+    noteImages: z
+      .array(z.object({ url: imageUrl, thumbUrl: imageUrl }))
+      .max(10, 'At most 10 images')
+      .default([]),
+  })
+  .refine((v) => !(v.newDesign && v.designId), {
+    message: 'Pick either a saved design or upload a new one',
+    path: ['designId'],
+  })
+  .refine((v) => !v.variationId || v.designId, {
+    message: 'Variation needs a design',
+    path: ['variationId'],
+  });
+export type OrderCreateInput = z.input<typeof orderCreateSchema>;
+
+export const sendToProductionSchema = z.object({
+  orderIds: z.array(z.number().int().positive()).min(1, 'Select at least one order').max(500),
+});
+export type SendToProductionInput = z.infer<typeof sendToProductionSchema>;

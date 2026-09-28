@@ -1,0 +1,13 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1790597353741,
+      "tag": "0000_tiresome_mandroid",
+      "breakpoints": true
+    }
+  ]
+}

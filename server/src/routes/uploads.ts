@@ -1,0 +1,38 @@
+import { Router } from 'express';
+import multer from 'multer';
+import { extname } from 'node:path';
+import { z } from 'zod';
+import type { UploadResult } from '@rivoora/shared';
+import { badRequest } from '../lib/errors';
+import { ah } from '../lib/http';
+import { requirePermission } from '../middleware/role';
+import { storage } from '../storage';
+
+const MAX_BYTES = 10 * 1024 * 1024;
+const ALLOWED_EXT = new Set(['.jpg', '.jpeg', '.png', '.webp', '.heic', '.heif']);
+const ALLOWED_MIME = /^image\/(jpeg|png|webp|heic|heif)$/;
+
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: MAX_BYTES, files: 1 },
+  fileFilter: (_req, file, cb) => {
+    const ext = extname(file.originalname).toLowerCase();
+    if (ALLOWED_MIME.test(file.mimetype) || ALLOWED_EXT.has(ext)) cb(null, true);
+    else cb(badRequest('Only image files are allowed (JPG, PNG, WebP or HEIC).', 'file'));
+  },
+});
+
+export const uploadsRouter = Router();
+
+uploadsRouter.post(
+  '/',
+  requirePermission('canManageMasters', 'canAddOrder'),
+  upload.single('file'),
+  ah(async (req, res) => {
+    const { folder } = z.object({ folder: z.enum(['designs', 'notes']).default('designs') }).parse(req.query);
+    if (!req.file) throw badRequest('Choose an image to upload.', 'file');
+    const saved = await storage.saveImage(req.file.buffer, { folder });
+    const body: UploadResult = { url: saved.url, thumbUrl: saved.thumbUrl };
+    res.status(201).json(body);
+  }),
+);

@@ -1,0 +1,105 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Theme tokens — change the brand here only. Values are HSL channels. */
+@layer base {
+  :root {
+    --background: 210 40% 98%; /* #F8FAFC */
+    --foreground: 222 47% 11%;
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+
+    --primary: 342 64% 33%; /* #8B1E3F maroon */
+    --primary-hover: 342 64% 29%;
+    --primary-active: 342 64% 25%;
+    --primary-soft: 342 60% 96%;
+    --primary-foreground: 0 0% 100%;
+
+    --accent: 46 68% 47%; /* #C9A227 muted gold */
+    --accent-soft: 46 80% 94%;
+    --accent-foreground: 36 60% 20%;
+
+    --muted: 210 40% 96%;
+    --muted-foreground: 215 16% 47%;
+    --border: 214 32% 91%;
+    --input: 214 28% 86%;
+    --ring: 342 64% 33%;
+
+    --destructive: 0 72% 45%;
+    --destructive-soft: 0 86% 97%;
+    --destructive-foreground: 0 0% 100%;
+
+    --radius: 0.75rem; /* 12px */
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  body {
+    @apply bg-background font-sans text-foreground antialiased;
+    font-feature-settings: 'ss01';
+    overflow-x: hidden;
+  }
+
+  :focus-visible {
+    @apply outline-none ring-2 ring-ring/40 ring-offset-1 ring-offset-background;
+  }
+
+  input[type='number']::-webkit-outer-spin-button,
+  input[type='number']::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+  input[type='number'] {
+    -moz-appearance: textfield;
+  }
+}
+
+@layer components {
+  .page-container {
+    @apply mx-auto w-full max-w-[1920px] px-4 md:px-6 lg:px-8 2xl:px-10;
+  }
+  .pb-safe {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+}
+
+@layer utilities {
+  .scrollbar-thin {
+    scrollbar-width: thin;
+  }
+}
+
+/* react-day-picker theme */
+.rdp-root {
+  --rdp-accent-color: hsl(var(--primary));
+  --rdp-accent-background-color: hsl(var(--primary-soft));
+  --rdp-range_middle-background-color: hsl(var(--primary-soft));
+  --rdp-range_middle-color: hsl(var(--primary));
+  --rdp-day-height: 40px;
+  --rdp-day-width: 40px;
+  --rdp-day_button-height: 38px;
+  --rdp-day_button-width: 38px;
+  --rdp-day_button-border-radius: 10px;
+  --rdp-selected-border: 2px solid hsl(var(--primary));
+  font-size: 0.875rem;
+}
+.rdp-root .rdp-today:not(.rdp-outside) {
+  color: hsl(var(--primary));
+  font-weight: 700;
+}
+@media (max-width: 380px) {
+  .rdp-root {
+    --rdp-day-height: 36px;
+    --rdp-day-width: 36px;
+    --rdp-day_button-height: 34px;
+    --rdp-day_button-width: 34px;
+  }
+}
