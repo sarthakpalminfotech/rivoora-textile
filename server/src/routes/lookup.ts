@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { ah } from '../lib/http';
 import { lookupCustomers } from '../services/customers';
+import { lookupMachines } from '../services/machines';
 import { lookupMaterials } from '../services/materials';
 
 /** Lightweight id + name endpoints for dropdowns. */
@@ -29,5 +30,13 @@ lookupRouter.get(
   ah(async (req, res) => {
     res.set('Cache-Control', 'private, max-age=10');
     res.json(await lookupMaterials(querySchema.parse(req.query).search));
+  }),
+);
+
+lookupRouter.get(
+  '/machines',
+  ah(async (req, res) => {
+    res.set('Cache-Control', 'private, max-age=10');
+    res.json(await lookupMachines(querySchema.parse(req.query).search));
   }),
 );

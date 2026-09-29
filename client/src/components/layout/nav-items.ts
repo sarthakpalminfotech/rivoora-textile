@@ -1,4 +1,4 @@
-import { ClipboardList, Layers, Palette, Users, type LucideIcon } from 'lucide-react';
+import { ClipboardList, Factory, Layers, Palette, Users, type LucideIcon } from 'lucide-react';
 
 export interface NavItem {
   to: string;
@@ -11,4 +11,5 @@ export const NAV_ITEMS: NavItem[] = [
   { to: '/customers', label: 'Customers', icon: Users },
   { to: '/materials', label: 'Materials', icon: Layers },
   { to: '/designs', label: 'Designs', icon: Palette },
+  { to: '/machines', label: 'Machines', icon: Factory },
 ];

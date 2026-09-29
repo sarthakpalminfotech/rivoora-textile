@@ -1,11 +1,12 @@
 # Rivoora Textile — Project State
 
-Snapshot of what the code actually does as of **2026-09-29** (branch `main`, last commit `4cee33a first time
-implementation` **plus a set of uncommitted changes** — see [§8.1](#81-repository-state)). Written so a developer
+Snapshot of what the code actually does as of **2026-09-29** (branch `main`, last commit `056a3a9 changes in order ui
+and flow` **plus the uncommitted Sprint 2 work** — Machine Master + jobsheets, see [§9](#9-sprint-2--machines--jobsheets)). Written so a developer
 can continue the project without reading the code first. The original brief is `rivoora-claude-code-prompt.md`;
 day-to-day conventions are in `CLAUDE.md`.
 
-`npm run typecheck` passes for all three packages at the time of writing. There are no automated tests.
+`npm run typecheck` passes for all three packages at the time of writing. `npm test` runs the vitest suite for the shared
+jobsheet calculations (19 tests, all passing). There are no server or UI tests.
 
 ---
 
@@ -224,7 +225,8 @@ All other FKs are `ON DELETE NO ACTION`; masters are soft-deleted, so FKs are ne
 | # | File | What it does | Git state |
 |---|---|---|---|
 | 0000 | `0000_tiresome_mandroid.sql` | Creates all 7 tables and indexes above (without `designs.material_id`) | committed |
-| 0001 | `0001_curious_mulholland_black.sql` | `ALTER TABLE designs ADD material_id integer REFERENCES materials(id)` + `designs_material_idx` | **untracked** (journal change uncommitted) |
+| 0001 | `0001_curious_mulholland_black.sql` | `ALTER TABLE designs ADD material_id integer REFERENCES materials(id)` + `designs_material_idx` | committed |
+| 0002 | `0002_jobsheets_machines.sql` | `machines`, `jobsheets`, `jobsheet_machines`, `counters` (+ row `jobsheet_no = 0`), orders `jobsheet_pieces` / `target_frames` / `frames_per_jobsheet` | uncommitted; **applied to Turso** on 2026-09-29 |
 
 Whether 0001 has been applied to the Turso DB can't be told from the code. `npm run db:migrate` is idempotent,
 so run it to be sure.
@@ -481,6 +483,7 @@ redirects to `/orders`.
 |---|---|---|---|---|
 | `pending_production` | Pending for production | 10 | `#FEF3C7` / `#92400E` / `#F59E0B` (amber) | `['jemish']` |
 | `ready_production` | Ready for production | 20 | `#DCFCE7` / `#166534` / `#22C55E` (green) | `FROM_READY` = `['jemish','gaurang']` |
+| `jobsheet_created` | Jobsheet created | 30 | `#E0E7FF` / `#3730A3` / `#6366F1` (indigo) | `FROM_READY` |
 
 Helpers: `getStatus(key)` (unknown keys fall back to a grey badge), `isStatusKey`, `statusesForRole(role)`
 (sorted by sequence), `visibleStatusKeys(role)`, `canRoleSeeStatus(role, status)`, and the constant
@@ -496,6 +499,8 @@ Ready → Pending (undo), both via `changeStatus()` in `server/src/services/orde
 | `canSendToProduction` | ✅ | ❌ |
 | `canUndoProduction` | ✅ | ❌ |
 | `canManageMasters` | ✅ | ❌ |
+| `canManageJobsheets` (create, edit, delete, print) | ✅ | ✅ |
+| `canManageMachines` | ✅ | ✅ |
 
 `DEFAULT_ROLE = 'jemish'`, `ROLE_HEADER = 'X-Role'`. Order visibility isn't a permission; it comes from each
 status's `visibleTo`. `client/src/config/roles.ts` and `server/src/config/roles.ts` just re-export the shared file.
@@ -670,3 +675,59 @@ Other shared components:
 - `order_status_history` has both `changed_at` and `created_at` (redundant).
 - Rate is visible to both current roles by config. Any new role must keep `canSeeRate: false` unless allowed; the
   list endpoint never returns rate regardless of role.
+
+---
+
+## 9. Sprint 2 — Machines + jobsheets
+
+Spec: `rivoora-sprint2-jobsheets-prompt.md`. Built in one go (no plan-approval stop, at the user's request).
+
+### Data
+- `machines`: `machine_no` (int ≥1, unique among non-deleted via `machines_machine_no_active_unique`), `name` ≤80, `notes`,
+  `is_active`, `is_deleted`. Seed adds machines 1–12 when missing.
+- `jobsheets`: `jobsheet_no` (UNIQUE, global, never reused), `order_id` (indexed), `frames`, `picks` ≤20 text,
+  `created_by` role, `is_deleted`. `jobsheet_machines (jobsheet_id cascade, machine_id)` composite PK + machine index.
+- `counters (name PK, value)`: numbers are reserved with an upsert `value = value + n RETURNING value` inside the write
+  transaction (verified: create 3, delete the last, create 1 → the new one gets the next number, not the deleted one).
+- `orders.jobsheet_pieces`, `target_frames` (default 0) and `frames_per_jobsheet` (nullable) = the order's jobsheet plan.
+
+### Shared logic (`shared/src/jobsheets.ts`, tests in `jobsheets.test.ts`)
+`planJobsheets` (7.1), `planFramesEdit` (7.4 auto-adjust: last absorbs −delta; splits into new jobsheets of ≤F when it grows
+past F; only the last is removed when it drops to ≤0; F = null → just grows; editing the last changes nothing else),
+`coverageWarnings` (7.5, none while an order has 0 jobsheets), `jobsheetQuantityWarning`, `remainingPieces`,
+`describeFrameGroups`. `SECTIONS_PER_BEAM` is in `shared/src/production.ts`. `MAX_JOBSHEETS_PER_RUN = 500` guards typos.
+
+### API (see CLAUDE.md for the list)
+Services in `server/src/services/jobsheets.ts` and `machines.ts`. Generate, single add, edit+adjust and delete(+plan reset
++ status back) are each one transaction. Lists are one query (jobsheets ⟕ machines, grouped in JS); details/print use
+`db.batch`. Status: first jobsheet on a Ready order → `jobsheet_created`; last active jobsheet deleted → plan reset and
+back to `ready_production` (history written with the role). Undo send-for-production returns 409 while jobsheets exist.
+
+### Screens
+- **Machines** (`/machines`, nav item after Designs, `Factory` icon): `MasterList` table (Machine No, Name, Status pill,
+  Notes) / phone cards; full-screen form (number*, name, Active switch — new `components/ui/switch.tsx`, notes).
+  `useDeleteFlow` got an optional `options.description`. Bottom nav now has 5 tabs (labels fit at 360px).
+- **Order details → Jobsheets card** (only Ready or later; non-pcs → "coming soon" EmptyState): Create jobsheets /
+  Add single jobsheet / Print all, 5 stat tiles, amber warnings, then a **card grid** (jobsheet number, status badge —
+  "Pending" by default from `JOBSHEET_STATUSES`, frames, picks, machines). Cards have no date or icons; tapping one
+  opens the details page. On desktop the card sits in the left column under Dates (beside Status history); on
+  phone/tablet it comes right after Order details. Undo send is hidden when `jobsheetCount > 0`.
+- **Create jobsheets** / **Add jobsheet** full-screen forms with live preview + quantity warning (shared functions).
+  Machines use `MultiSelect` (client-side search over active machines) plus removable chips.
+- **`/jobsheets/:id`**: back link to the order, Print / Edit / Delete, coverage warnings, details (incl. status) + design
+  cards, 404 state.
+  **Edit** dialog shows "What will change" from `planFramesEdit` and toasts each server change.
+- **`/print/jobsheets?ids=`** (outside the layout): sticky Back/Print toolbar, grey A4 preview scaled to the screen width,
+  Print waits for all images + Noto Sans Devanagari. 2 pages per jobsheet (front form + design back with code and a
+  small "Jobsheet N" tag; "No design attached" when there's none).
+
+### Verified
+API flows exercised with curl against a local SQLite copy (generate, single, edit with adjust/split/remove, delete + reset,
+number reuse, 404/409 cases, Gaurang visibility). UI checked in Chrome at 1280px and at 360px (no horizontal overflow on
+orders, order details, machines, jobsheet details, print preview). **Not verified:** a real printout from Chrome
+desktop / Android (check the A4 pairs on paper once).
+
+### Known gaps
+- `frames_per_jobsheet` is only set by multi runs; single adds don't change it.
+- Deleting a jobsheet leaves `jobsheet_pieces` / `target_frames` unchanged unless it was the last one (by spec).
+- Machine dropdown shows up to 200 active machines (client-side search).

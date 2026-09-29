@@ -15,11 +15,13 @@ import { getStatus } from '@/config/statuses';
 import { useRole } from '@/hooks/useRole';
 import { ApiError } from '@/lib/api';
 import { formatDate, formatDateTime, formatMoney, formatOrderNo, formatQuantity } from '@/lib/format';
+import { OrderJobsheetsSection } from '../jobsheets/order-jobsheets-section';
+import { cn } from '@/lib/utils';
 import { useOrder, useUndoProduction } from './api';
 
-function Card({ title, children, action }: { title: string; children: ReactNode; action?: ReactNode }) {
+function Card({ title, children, action, className }: { title: string; children: ReactNode; action?: ReactNode; className?: string }) {
   return (
-    <section className="rounded-xl border border-border bg-white p-4 shadow-soft md:p-5">
+    <section className={cn('rounded-xl border border-border bg-white p-4 shadow-soft md:p-5', className)}>
       <div className="mb-4 flex items-center justify-between gap-2">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">{title}</h2>
         {action}
@@ -117,7 +119,8 @@ export default function OrderDetailsPage() {
     );
   }
 
-  const canUndo = can('canUndoProduction') && order.status === STATUS.READY_PRODUCTION;
+  // Undo is only possible while no jobsheets exist (the server enforces the same rule).
+  const canUndo = can('canUndoProduction') && order.status === STATUS.READY_PRODUCTION && order.jobsheetCount === 0;
   const image = order.variation ?? order.design;
   const code = order.variation?.code ?? order.design?.code;
 
@@ -135,9 +138,14 @@ export default function OrderDetailsPage() {
         )}
       </div>
 
-      <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
-        <div className="min-w-0 space-y-4">
-          <Card title="Order details">
+      {/*
+        Phone / tablet: one column ordered by priority (details → jobsheets → design → notes → dates → history).
+        Desktop: two independent columns, so a long status history never pushes the jobsheets down.
+        The column wrappers are `display: contents` below lg, which lets the `order-*` classes interleave the cards.
+      */}
+      <div className="flex flex-col gap-4 lg:grid lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start">
+        <div className="contents lg:block lg:min-w-0 lg:space-y-4">
+          <Card title="Order details" className="order-1 lg:order-none">
             <dl className="grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-2">
               <Item label="Client">
                 {order.customer.name}
@@ -162,7 +170,7 @@ export default function OrderDetailsPage() {
             </dl>
           </Card>
 
-          <Card title="Notes">
+          <Card title="Notes" className="order-4 lg:order-none">
             {order.notes ? (
               <p className="whitespace-pre-line text-[15px] leading-relaxed text-slate-700">{order.notes}</p>
             ) : (
@@ -179,7 +187,7 @@ export default function OrderDetailsPage() {
             )}
           </Card>
 
-          <Card title="Dates">
+          <Card title="Dates" className="order-5 lg:order-none">
             <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <Item label="Created">{formatDateTime(order.createdAt)}</Item>
               <Item label="Sent to production">
@@ -191,10 +199,14 @@ export default function OrderDetailsPage() {
               </Item>
             </dl>
           </Card>
+
+          <div className="order-2 min-w-0 empty:hidden lg:order-none">
+            <OrderJobsheetsSection order={order} />
+          </div>
         </div>
 
-        <div className="min-w-0 space-y-4">
-          <Card title="Design">
+        <div className="contents lg:block lg:min-w-0 lg:space-y-4">
+          <Card title="Design" className="order-3 lg:order-none">
             {image && code ? (
               <div className="space-y-3">
                 <ImageThumb thumbUrl={image.thumbUrl} fullUrl={image.imageUrl} alt={`Design ${code}`} className="aspect-square w-full" rounded="rounded-xl" />
@@ -217,7 +229,7 @@ export default function OrderDetailsPage() {
             )}
           </Card>
 
-          <Card title="Status history" action={<CalendarClock className="size-4 text-slate-400" aria-hidden />}>
+          <Card title="Status history" className="order-6 lg:order-none" action={<CalendarClock className="size-4 text-slate-400" aria-hidden />}>
             <History order={order} />
           </Card>
         </div>

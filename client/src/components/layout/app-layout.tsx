@@ -119,21 +119,21 @@ function BottomNav() {
       aria-label="Main"
       className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-white/95 pb-safe backdrop-blur md:hidden"
     >
-      <div className="grid h-16 grid-cols-4">
+      <div className="grid h-16" style={{ gridTemplateColumns: `repeat(${NAV_ITEMS.length}, minmax(0, 1fr))` }}>
         {NAV_ITEMS.map(({ to, label, icon: Icon }) => (
           <NavLink
             key={to}
             to={to}
             className={({ isActive }) =>
               cn(
-                'flex flex-col items-center justify-center gap-1 text-[11px] font-semibold text-slate-500 transition-colors',
+                'flex min-w-0 flex-col items-center justify-center gap-1 text-[11px] font-semibold text-slate-500 transition-colors',
                 isActive && 'text-primary',
               )
             }
           >
             {({ isActive }) => (
               <>
-                <span className={cn('flex h-7 w-12 items-center justify-center rounded-full transition-colors', isActive && 'bg-primary-soft')}>
+                <span className={cn('flex h-7 w-11 items-center justify-center rounded-full transition-colors', isActive && 'bg-primary-soft')}>
                   <Icon className="size-5" aria-hidden />
                 </span>
                 {label}

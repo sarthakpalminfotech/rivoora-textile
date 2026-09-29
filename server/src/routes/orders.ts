@@ -10,6 +10,7 @@ import {
   sendToProduction,
   undoSendToProduction,
 } from '../services/orders';
+import { addSingleJobsheet, generateJobsheets, listOrderJobsheets } from '../services/jobsheets';
 
 export const ordersRouter = Router();
 
@@ -51,5 +52,28 @@ ordersRouter.post(
     const id = parseId(req.params.id);
     await undoSendToProduction(req.role, id);
     res.json(await getOrder(req.role, id));
+  }),
+);
+
+ordersRouter.get(
+  '/:id/jobsheets',
+  ah(async (req, res) => {
+    res.json(await listOrderJobsheets(req.role, parseId(req.params.id)));
+  }),
+);
+
+ordersRouter.post(
+  '/:id/jobsheets/generate',
+  requirePermission('canManageJobsheets'),
+  ah(async (req, res) => {
+    res.status(201).json(await generateJobsheets(req.role, parseId(req.params.id), req.body));
+  }),
+);
+
+ordersRouter.post(
+  '/:id/jobsheets',
+  requirePermission('canManageJobsheets'),
+  ah(async (req, res) => {
+    res.status(201).json(await addSingleJobsheet(req.role, parseId(req.params.id), req.body));
   }),
 );

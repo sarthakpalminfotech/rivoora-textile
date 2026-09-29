@@ -18,6 +18,9 @@ const CustomersPage = lazy(() => import('@/features/masters/customers/customers-
 const MaterialsPage = lazy(() => import('@/features/masters/materials/materials-page'));
 const DesignsPage = lazy(() => import('@/features/masters/designs/designs-page'));
 const DesignDetailPage = lazy(() => import('@/features/masters/designs/design-detail-page'));
+const MachinesPage = lazy(() => import('@/features/masters/machines/machines-page'));
+const JobsheetDetailsPage = lazy(() => import('@/features/jobsheets/jobsheet-details-page'));
+const JobsheetPrintPage = lazy(() => import('@/features/jobsheets/print-page'));
 const NotFoundPage = lazy(() => import('@/pages/not-found-page'));
 
 const router = createBrowserRouter([
@@ -34,6 +37,14 @@ const router = createBrowserRouter([
         ),
       },
       {
+        path: '/print/jobsheets',
+        element: (
+          <Suspense fallback={<PageSkeleton />}>
+            <JobsheetPrintPage />
+          </Suspense>
+        ),
+      },
+      {
         element: <AppLayout />,
         children: [
           { index: true, element: <Navigate to="/orders" replace /> },
@@ -43,6 +54,8 @@ const router = createBrowserRouter([
           { path: 'materials', element: <MaterialsPage /> },
           { path: 'designs', element: <DesignsPage /> },
           { path: 'designs/:id', element: <DesignDetailPage /> },
+          { path: 'machines', element: <MachinesPage /> },
+          { path: 'jobsheets/:id', element: <JobsheetDetailsPage /> },
           { path: '*', element: <NotFoundPage /> },
         ],
       },

@@ -8,6 +8,7 @@ export function useDeleteFlow<T extends { id: number }>(
   mutation: UseMutationResult<unknown, Error, number>,
   describe: (row: T) => string,
   onDeleted?: () => void,
+  options: { description?: string } = {},
 ) {
   const [target, setTarget] = useState<T | null>(null);
 
@@ -16,7 +17,7 @@ export function useDeleteFlow<T extends { id: number }>(
       open={!!target}
       onOpenChange={(o) => !o && setTarget(null)}
       title={`Delete ${target ? describe(target) : ''}?`}
-      description="This will remove it from the list. Records used in orders can't be deleted."
+      description={options.description ?? "This will remove it from the list. Records used in orders can't be deleted."}
       confirmLabel="Delete"
       destructive
       loading={mutation.isPending}

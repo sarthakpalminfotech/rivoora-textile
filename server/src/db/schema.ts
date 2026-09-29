@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { index, integer, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
+import { index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
 import type { OrderStatusKey, RoleKey, Unit } from '@rivoora/shared';
 
 const nowIso = sql`(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`;
@@ -114,6 +114,12 @@ export const orders = sqliteTable(
     notes: text('notes'),
     status: text('status').$type<OrderStatusKey>().notNull(),
     sentToProductionAt: text('sent_to_production_at'),
+    /** Jobsheet plan: total pieces planned across all jobsheet runs ("jobsheet quantity"). */
+    jobsheetPieces: integer('jobsheet_pieces').notNull().default(0),
+    /** Jobsheet plan: total frames the jobsheets should cover. */
+    targetFrames: integer('target_frames').notNull().default(0),
+    /** Jobsheet plan: frames per jobsheet of the latest multi-jobsheet run (used when splitting). */
+    framesPerJobsheet: integer('frames_per_jobsheet'),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
@@ -158,3 +164,56 @@ export const orderStatusHistory = sqliteTable(
   },
   (t) => [index('order_status_history_order_idx').on(t.orderId)],
 );
+
+export const machines = sqliteTable(
+  'machines',
+  {
+    id: id(),
+    machineNo: integer('machine_no').notNull(),
+    name: text('name'),
+    notes: text('notes'),
+    isActive: integer('is_active', { mode: 'boolean' }).notNull().default(true),
+    isDeleted: isDeleted(),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [uniqueIndex('machines_machine_no_active_unique').on(t.machineNo).where(sql`${t.isDeleted} = 0`)],
+);
+
+export const jobsheets = sqliteTable(
+  'jobsheets',
+  {
+    id: id(),
+    /** Global running number from the `counters` table — never reused, even after deletion. */
+    jobsheetNo: integer('jobsheet_no').notNull(),
+    orderId: integer('order_id')
+      .notNull()
+      .references(() => orders.id),
+    frames: integer('frames').notNull(),
+    picks: text('picks'),
+    createdBy: text('created_by').$type<RoleKey>().notNull(),
+    isDeleted: isDeleted(),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [uniqueIndex('jobsheets_jobsheet_no_unique').on(t.jobsheetNo), index('jobsheets_order_idx').on(t.orderId)],
+);
+
+export const jobsheetMachines = sqliteTable(
+  'jobsheet_machines',
+  {
+    jobsheetId: integer('jobsheet_id')
+      .notNull()
+      .references(() => jobsheets.id, { onDelete: 'cascade' }),
+    machineId: integer('machine_id')
+      .notNull()
+      .references(() => machines.id),
+  },
+  (t) => [primaryKey({ columns: [t.jobsheetId, t.machineId] }), index('jobsheet_machines_machine_idx').on(t.machineId)],
+);
+
+/** Named running counters (e.g. `jobsheet_no`). Allocate inside the write transaction. */
+export const counters = sqliteTable('counters', {
+  name: text('name').primaryKey(),
+  value: integer('value').notNull().default(0),
+});

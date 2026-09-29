@@ -119,3 +119,53 @@ export const sendToProductionSchema = z.object({
   orderIds: z.array(z.number().int().positive()).min(1, 'Select at least one order').max(500),
 });
 export type SendToProductionInput = z.infer<typeof sendToProductionSchema>;
+
+/* ---------- machines & jobsheets ---------- */
+
+const posInt = (label: string, max: number) =>
+  z
+    .number({ required_error: `Enter ${label}`, invalid_type_error: `Enter ${label}` })
+    .int('Use a whole number')
+    .min(1, 'Must be at least 1')
+    .max(max, `Must be at most ${max.toLocaleString('en-IN')}`);
+
+export const machineInputSchema = z.object({
+  machineNo: posInt('the machine number', 100_000),
+  name: optText(80),
+  notes: optText(1000),
+  isActive: z.boolean().default(true),
+});
+export type MachineInput = z.input<typeof machineInputSchema>;
+
+const picks = optText(20);
+const machineIds = z
+  .array(z.number().int().positive(), { required_error: 'Select at least one machine' })
+  .min(1, 'Select at least one machine')
+  .max(50, 'At most 50 machines')
+  .transform((ids) => [...new Set(ids)]);
+
+/** Upper limit for one multi-jobsheet run, so a typo can't create thousands of jobsheets. */
+export const MAX_JOBSHEETS_PER_RUN = 500;
+
+export const jobsheetGenerateSchema = z.object({
+  pieces: posInt('the number of pieces', 10_000_000),
+  picks,
+  framesPerJobsheet: posInt('frames per jobsheet', 100_000),
+  machineIds,
+});
+export type JobsheetGenerateInput = z.input<typeof jobsheetGenerateSchema>;
+
+export const jobsheetSingleSchema = z.object({
+  frames: posInt('the frames', 100_000),
+  pieces: posInt('the pieces', 10_000_000),
+  picks,
+  machineIds,
+});
+export type JobsheetSingleInput = z.input<typeof jobsheetSingleSchema>;
+
+export const jobsheetUpdateSchema = z.object({
+  frames: posInt('the frames', 100_000),
+  picks,
+  machineIds,
+});
+export type JobsheetUpdateInput = z.input<typeof jobsheetUpdateSchema>;

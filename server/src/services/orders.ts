@@ -29,6 +29,7 @@ import {
 import { badRequest, conflict, notFound } from '../lib/errors';
 import { csv, likePattern, paginationSchema } from '../lib/http';
 import { insertDesign } from './designs';
+import { countActiveJobsheets } from './jobsheets';
 
 const dateString = z
   .string()
@@ -128,6 +129,7 @@ export async function getOrder(role: RoleKey, id: number): Promise<OrderDetail> 
         orderDate: orders.orderDate,
         notes: orders.notes,
         sentToProductionAt: orders.sentToProductionAt,
+        jobsheetCount: sql<number>`(SELECT COUNT(*) FROM jobsheets j WHERE j.order_id = "orders"."id" AND j.is_deleted = 0)`,
         createdAt: orders.createdAt,
         updatedAt: orders.updatedAt,
         customer: { id: customers.id, name: customers.name, phone: customers.phone, city: customers.city },
@@ -179,6 +181,7 @@ export async function getOrder(role: RoleKey, id: number): Promise<OrderDetail> 
     orderDate: r.orderDate,
     notes: r.notes,
     sentToProductionAt: r.sentToProductionAt,
+    jobsheetCount: Number(r.jobsheetCount),
     createdAt: r.createdAt,
     updatedAt: r.updatedAt,
     customer: r.customer,
@@ -313,6 +316,9 @@ export async function undoSendToProduction(role: RoleKey, id: number): Promise<v
   if (!order) throw notFound('Order');
   if (order.status !== STATUS.READY_PRODUCTION) {
     throw conflict('Only orders that are Ready for production can be moved back.');
+  }
+  if ((await countActiveJobsheets(db, id)) > 0) {
+    throw conflict('This order already has jobsheets. Delete its jobsheets before moving it back to Pending.');
   }
   const updated = await changeStatus(role, [id], STATUS.READY_PRODUCTION, STATUS.PENDING_PRODUCTION, null);
   if (updated.length === 0) throw conflict('This order was changed by someone else. Refresh and try again.');

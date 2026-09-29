@@ -1,7 +1,8 @@
 /**
  * Demo data. Safe to run more than once:
  * - customers / materials / designs / variations are matched by name / code and only inserted when missing;
- * - orders are only seeded when the orders table is empty.
+ * - orders are only seeded when the orders table is empty;
+ * - machines 1–12 are inserted when missing.
  */
 import { and, count, eq } from 'drizzle-orm';
 import { format, subDays } from 'date-fns';
@@ -13,7 +14,7 @@ import { env } from '../env';
 import { storage } from '../storage';
 import { db, libsql } from './client';
 import { PATTERNS, type Palette, type PatternName } from './patterns';
-import { customers, designVariations, designs, materials, orderStatusHistory, orders } from './schema';
+import { customers, designVariations, designs, machines, materials, orderStatusHistory, orders } from './schema';
 
 const CUSTOMERS = [
   { name: 'Ramesh Patel', phone: '9824012345', city: 'Surat', gstNumber: '24ABCPP1234F1Z5', address: 'Ring Road, Surat' },
@@ -211,6 +212,15 @@ async function seedOrders(customerIds: number[], materialIds: number[], designRe
   console.log(`  orders: ${plan.length} created`);
 }
 
+/** Machines (looms) 1–12, inserted only when that number doesn't exist yet. */
+async function seedMachines() {
+  const existing = await db.select({ no: machines.machineNo }).from(machines).where(eq(machines.isDeleted, false));
+  const have = new Set(existing.map((m) => m.no));
+  const missing = Array.from({ length: 12 }, (_, i) => i + 1).filter((no) => !have.has(no));
+  if (missing.length) await db.insert(machines).values(missing.map((machineNo) => ({ machineNo })));
+  return 12;
+}
+
 async function main() {
   console.log('Seeding demo data…');
   const customerIds = await seedCustomers();
@@ -220,6 +230,7 @@ async function main() {
   const designRefs = await seedDesigns();
   console.log(`  designs: ${designRefs.length} (with variations)`);
   await seedOrders(customerIds, materialIds, designRefs);
+  console.log(`  machines: 1–${await seedMachines()}`);
   console.log('Done.');
   libsql.close();
 }

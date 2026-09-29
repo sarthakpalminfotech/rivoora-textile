@@ -7,6 +7,9 @@ import type {
   DesignListItem,
   DesignVariation,
   LookupItem,
+  Machine,
+  MachineInput,
+  MachineLookupItem,
   Material,
   MaterialInput,
   VariationInput,
@@ -21,6 +24,8 @@ export const masterKeys = {
   design: (id: number) => ['designs', 'detail', id] as const,
   lookupCustomers: ['lookup', 'customers'] as const,
   lookupMaterials: ['lookup', 'materials'] as const,
+  machines: ['machines'] as const,
+  lookupMachines: ['lookup', 'machines'] as const,
 };
 
 /* ---------- lookups (dropdowns) ---------- */
@@ -164,6 +169,46 @@ export function useDeleteVariation(designId: number) {
         d ? { ...d, variations: d.variations.filter((v) => v.id !== variationId) } : d,
       );
       void qc.invalidateQueries({ queryKey: [...masterKeys.designs, 'list'] });
+    },
+  });
+}
+
+/* ---------- machines ---------- */
+
+export const useMachines = (search: string) =>
+  useInfiniteList<Machine>([...masterKeys.machines, 'list'], '/machines', { search });
+
+/** Active machines for the jobsheet dropdowns (small list, filtered client-side). */
+export function useMachineLookup() {
+  return useQuery({
+    queryKey: masterKeys.lookupMachines,
+    queryFn: ({ signal }) => api.get<MachineLookupItem[]>('/lookup/machines', undefined, signal),
+    staleTime: 60_000,
+  });
+}
+
+export function useSaveMachine() {
+  const qc = useQueryClient();
+  return useMutation({
+    meta: { silentFieldErrors: true },
+    mutationFn: ({ id, data }: { id?: number; data: MachineInput }) =>
+      id ? api.put<Machine>(`/machines/${id}`, data) : api.post<Machine>('/machines', data),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: masterKeys.machines });
+      void qc.invalidateQueries({ queryKey: masterKeys.lookupMachines });
+      // Machine names / status appear on jobsheets.
+      void qc.invalidateQueries({ queryKey: ['jobsheets'] });
+    },
+  });
+}
+
+export function useDeleteMachine() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => api.delete(`/machines/${id}`),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: masterKeys.machines });
+      void qc.invalidateQueries({ queryKey: masterKeys.lookupMachines });
     },
   });
 }

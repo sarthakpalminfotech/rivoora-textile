@@ -1,8 +1,18 @@
+import { getJobsheetStatus } from '@rivoora/shared';
 import { getStatus } from '@/config/statuses';
 import { cn } from '@/lib/utils';
 
-export function StatusBadge({ status, className }: { status: string; className?: string }) {
-  const s = getStatus(status);
+/** Status pill; colours and label come from the status config (order statuses by default). */
+export function StatusBadge({
+  status,
+  kind = 'order',
+  className,
+}: {
+  status: string;
+  kind?: 'order' | 'jobsheet';
+  className?: string;
+}) {
+  const s = kind === 'jobsheet' ? getJobsheetStatus(status) : getStatus(status);
   return (
     <span
       className={cn(

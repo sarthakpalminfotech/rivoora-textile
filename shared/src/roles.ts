@@ -15,6 +15,10 @@ export interface RolePermissions {
   canUndoProduction: boolean;
   /** Add / edit / delete customers, materials and designs. */
   canManageMasters: boolean;
+  /** Create, edit, delete and print jobsheets. */
+  canManageJobsheets: boolean;
+  /** Add / edit / delete machines (looms). */
+  canManageMachines: boolean;
 }
 
 export interface RoleConfig {
@@ -37,6 +41,8 @@ export const ROLES: Record<RoleKey, RoleConfig> = {
       canSendToProduction: true,
       canUndoProduction: true,
       canManageMasters: true,
+      canManageJobsheets: true,
+      canManageMachines: true,
     },
   },
   gaurang: {
@@ -50,6 +56,8 @@ export const ROLES: Record<RoleKey, RoleConfig> = {
       canSendToProduction: false,
       canUndoProduction: false,
       canManageMasters: false,
+      canManageJobsheets: true,
+      canManageMachines: true,
     },
   },
 };
