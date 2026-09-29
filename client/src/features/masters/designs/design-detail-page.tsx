@@ -1,19 +1,19 @@
-import { ArrowLeft, Layers, Pencil, Trash2, X } from 'lucide-react';
+import { ArrowLeft, ImagePlus, Layers, Pencil, Trash2, X } from 'lucide-react';
 import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
-import { variationCode, type DesignVariation } from '@rivoora/shared';
+import type { DesignVariation } from '@rivoora/shared';
 import { usePageTitle } from '@/components/layout/page-title';
 import { ErrorState } from '@/components/list-parts';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { ImageThumb } from '@/components/ui/image-thumb';
-import { ImageDropzone } from '@/components/ui/image-upload';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useRole } from '@/hooks/useRole';
 import { formatDate } from '@/lib/format';
-import { useAddVariation, useDeleteDesign, useDeleteVariation, useDesign } from '../api';
+import { useDeleteDesign, useDeleteVariation, useDesign } from '../api';
 import { DesignFormDialog } from './design-form';
+import { VariationFormDialog } from './variation-form';
 
 export default function DesignDetailPage() {
   const id = Number(useParams().id);
@@ -23,10 +23,10 @@ export default function DesignDetailPage() {
   const { data: design, isPending, isError, error, refetch } = useDesign(id);
   usePageTitle(design ? `Design ${design.code}` : 'Design');
 
-  const addVariation = useAddVariation(id);
   const deleteVariation = useDeleteVariation(id);
   const deleteDesign = useDeleteDesign();
   const [editOpen, setEditOpen] = useState(false);
+  const [variationOpen, setVariationOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [removeTarget, setRemoveTarget] = useState<DesignVariation | null>(null);
 
@@ -58,8 +58,6 @@ export default function DesignDetailPage() {
       </div>
     );
   }
-
-  const nextNo = Math.max(0, ...design.variations.map((v) => v.variationNo)) + 1;
 
   return (
     <div className="page-container space-y-5 py-5">
@@ -96,6 +94,10 @@ export default function DesignDetailPage() {
             )}
           </div>
           <dl className="grid grid-cols-2 gap-3 text-sm">
+            <div className="col-span-2">
+              <dt className="text-muted-foreground">Material / Quality</dt>
+              <dd className="font-semibold text-slate-900">{design.material?.name ?? 'Any material'}</dd>
+            </div>
             <div>
               <dt className="text-muted-foreground">Variations</dt>
               <dd className="font-semibold text-slate-900">{design.variations.length}</dd>
@@ -140,18 +142,15 @@ export default function DesignDetailPage() {
             </div>
           ))}
           {canManage && (
-            <ImageDropzone
-              folder="designs"
-              label="Add variation"
-              hint={`Will be ${variationCode(design.code, nextNo)}`}
-              className="[&_button]:aspect-square [&_button]:h-full"
-              onUploaded={(img) =>
-                addVariation.mutate(
-                  { imageUrl: img.url, thumbUrl: img.thumbUrl },
-                  { onSuccess: (v) => toast.success(`Variation ${v.code} added`) },
-                )
-              }
-            />
+            <button
+              type="button"
+              onClick={() => setVariationOpen(true)}
+              className="flex min-h-40 flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-slate-300 bg-slate-50/60 px-3 text-center transition-colors hover:border-primary/50 hover:bg-primary-soft/50"
+            >
+              <ImagePlus className="size-6 text-primary" aria-hidden />
+              <span className="text-sm font-semibold text-slate-800">Add variation</span>
+              <span className="text-xs text-muted-foreground">Image + variation code</span>
+            </button>
           )}
         </div>
         {!canManage && design.variations.length === 0 && (
@@ -160,6 +159,7 @@ export default function DesignDetailPage() {
       </section>
 
       <DesignFormDialog open={editOpen} onOpenChange={setEditOpen} design={design} />
+      {canManage && <VariationFormDialog open={variationOpen} onOpenChange={setVariationOpen} design={design} />}
       <ConfirmDialog
         open={confirmDelete}
         onOpenChange={setConfirmDelete}

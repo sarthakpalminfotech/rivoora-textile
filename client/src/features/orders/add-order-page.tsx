@@ -1,5 +1,4 @@
 import { zodResolver } from '@hookform/resolvers/zod';
-import { useQuery } from '@tanstack/react-query';
 import { CheckCircle2, FolderOpen, ImagePlus, Mic, Plus, RefreshCw, Trash2, X, XCircle } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Controller, useForm, useWatch } from 'react-hook-form';
@@ -19,13 +18,13 @@ import { Select } from '@/components/ui/select';
 import { Tooltip } from '@/components/ui/tooltip';
 import { useDebounce } from '@/hooks/useDebounce';
 import { useRole } from '@/hooks/useRole';
-import { api, errorMessage } from '@/lib/api';
+import { errorMessage } from '@/lib/api';
 import { toApiDate } from '@/lib/format';
 import { applyServerFieldError } from '@/lib/form';
 import { cn, toNumber } from '@/lib/utils';
 import { useCustomerLookup, useMaterialLookup } from '../masters/api';
 import { CustomerFormDialog } from '../masters/customers/customer-form';
-import { designCodeField } from '../masters/designs/design-form';
+import { designCodeField, useCodeAvailability } from '../masters/designs/design-form';
 import { useCreateOrder } from './api';
 import { SavedDesignsDrawer, type SavedDesignPick } from './saved-designs-drawer';
 
@@ -78,19 +77,6 @@ const defaults = (): FormValues => ({
 
 const unitOptions = UNITS.map((u) => ({ value: u, label: u }));
 
-/** Live "is this design code free?" check for uploaded designs. */
-function useCodeAvailability(code: string, enabled: boolean) {
-  const normalized = normalizeCode(code);
-  const debounced = useDebounce(normalized, 400);
-  const valid = designCodeField.safeParse(debounced).success;
-  return useQuery({
-    queryKey: ['designs', 'check-code', debounced],
-    queryFn: ({ signal }) => api.get<{ available: boolean }>('/designs/check-code', { code: debounced }, signal),
-    enabled: enabled && valid && debounced.length > 0,
-    staleTime: 10_000,
-  });
-}
-
 function SectionCard({ title, children, className }: { title: string; children: React.ReactNode; className?: string }) {
   return (
     <section className={cn('rounded-xl border border-border bg-white p-4 shadow-soft md:p-5', className)}>
@@ -129,6 +115,8 @@ export default function AddOrderPage() {
   const customers = useCustomerLookup(useDebounce(customerSearch.trim(), 300));
   const materials = useMaterialLookup(useDebounce(materialSearch.trim(), 300));
   const [labels, setLabels] = useState<{ customer?: string; material?: string }>({});
+  /** Design code whose fixed material was pre-selected (cleared when the user changes the material). */
+  const [materialFromDesign, setMaterialFromDesign] = useState<string | null>(null);
 
   const customerOptions = useMemo(
     () => (customers.data ?? []).map((c) => ({ value: c.id, label: c.name, description: c.city })),
@@ -259,7 +247,13 @@ export default function AddOrderPage() {
                 )}
               />
             </Field>
-            <Field label="Material / Quality" htmlFor="order-material" required error={errors.materialId?.message}>
+            <Field
+              label="Material / Quality"
+              htmlFor="order-material"
+              required
+              error={errors.materialId?.message}
+              hint={materialFromDesign ? `Pre-selected from design ${materialFromDesign}` : undefined}
+            >
               <Controller
                 control={control}
                 name="materialId"
@@ -270,6 +264,7 @@ export default function AddOrderPage() {
                     onChange={(id, opt) => {
                       field.onChange(id);
                       setLabels((l) => ({ ...l, material: opt.label }));
+                      setMaterialFromDesign(null);
                     }}
                     selectedLabel={labels.material}
                     options={materialOptions}
@@ -374,6 +369,7 @@ export default function AddOrderPage() {
                     onClick={() => {
                       setDesign(null);
                       setValue('newDesignCode', '');
+                      setMaterialFromDesign(null);
                     }}
                   >
                     <Trash2 /> Remove
@@ -513,7 +509,17 @@ export default function AddOrderPage() {
         customerId={customerId}
         customerName={labels.customer}
         current={design?.kind === 'saved' ? { designId: design.designId, variationId: design.variationId } : null}
-        onPick={(p) => setDesign({ kind: 'saved', ...p })}
+        onPick={(p) => {
+          setDesign({ kind: 'saved', ...p });
+          // A design made only in one material pre-selects it (still changeable).
+          if (p.material) {
+            setValue('materialId', p.material.id, { shouldDirty: true, shouldValidate: true });
+            setLabels((l) => ({ ...l, material: p.material!.name }));
+            setMaterialFromDesign(p.code);
+          } else {
+            setMaterialFromDesign(null);
+          }
+        }}
       />
       <ConfirmDialog
         open={blocker.state === 'blocked'}

@@ -68,10 +68,13 @@ export const designInputSchema = z.object({
   notes: optText(1000),
   imageUrl: imageUrl.nullish().transform((v) => v ?? null),
   thumbUrl: imageUrl.nullish().transform((v) => v ?? null),
+  /** Fixed material for this design (optional) — pre-selected when the design is picked on an order. */
+  materialId: z.number().int().positive().nullish().transform((v) => v ?? null),
 });
 export type DesignInput = z.input<typeof designInputSchema>;
 
 export const variationInputSchema = z.object({
+  code: codeSchema,
   imageUrl,
   thumbUrl: imageUrl,
 });

@@ -25,7 +25,7 @@ export function DesignCard({ design, onClick }: { design: DesignListItem; onClic
       <div className="flex min-w-0 items-center gap-2 px-3 py-2.5">
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-bold text-slate-900">{design.code}</p>
-          <p className="truncate text-xs text-slate-500">{design.name ?? ' '}</p>
+          <p className="truncate text-xs text-slate-500">{[design.name, design.materialName].filter(Boolean).join(' · ') || ' '}</p>
         </div>
         {design.variationCount > 0 && (
           <span

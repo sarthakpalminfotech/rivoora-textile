@@ -61,6 +61,7 @@ export interface DesignListItem {
   thumbUrl: string | null;
   imageUrl: string | null;
   variationCount: number;
+  materialName: string | null;
 }
 
 export interface Design {
@@ -70,6 +71,8 @@ export interface Design {
   imageUrl: string | null;
   thumbUrl: string | null;
   notes: string | null;
+  /** Fixed material for this design, if any. */
+  material: { id: number; name: string } | null;
   createdAt: string;
   updatedAt: string;
   variations: DesignVariation[];
@@ -84,6 +87,10 @@ export interface OrderListItem {
   unit: Unit;
   status: OrderStatusKey;
   orderDate: string;
+  /** Variation code if the order uses one, otherwise the design code. */
+  designCode: string | null;
+  /** Thumbnail of the variation (or design) — the list never returns full images. */
+  designThumbUrl: string | null;
 }
 
 export interface OrderStatusHistoryEntry {
@@ -132,6 +139,8 @@ export interface PreviousDesign {
   orderNo: number;
   orderDate: string;
   timesUsed: number;
+  /** The design's fixed material, if any. */
+  material: { id: number; name: string } | null;
 }
 
 export interface UploadResult {

@@ -2,7 +2,6 @@ import { and, asc, count, desc, eq, ne, or, sql } from 'drizzle-orm';
 import {
   designInputSchema,
   normalizeCode,
-  variationCode,
   variationInputSchema,
   type Design,
   type DesignListItem,
@@ -10,8 +9,8 @@ import {
   type Paginated,
 } from '@rivoora/shared';
 import { db, type DbOrTx } from '../db/client';
-import { designVariations, designs, orders } from '../db/schema';
-import { conflict, notFound } from '../lib/errors';
+import { designVariations, designs, materials, orders } from '../db/schema';
+import { badRequest, conflict, notFound } from '../lib/errors';
 import { likePattern, type PaginationQuery } from '../lib/http';
 
 const variationColumns = {
@@ -31,6 +30,8 @@ const designColumns = {
   imageUrl: designs.imageUrl,
   thumbUrl: designs.thumbUrl,
   notes: designs.notes,
+  materialId: materials.id,
+  materialName: materials.name,
   createdAt: designs.createdAt,
   updatedAt: designs.updatedAt,
 };
@@ -56,8 +57,10 @@ export async function listDesigns({ page, limit, search }: PaginationQuery): Pro
         thumbUrl: designs.thumbUrl,
         imageUrl: designs.imageUrl,
         variationCount: sql<number>`(SELECT COUNT(*) FROM ${designVariations} dv WHERE dv.design_id = "designs"."id")`,
+        materialName: materials.name,
       })
       .from(designs)
+      .leftJoin(materials, eq(materials.id, designs.materialId))
       .where(where)
       .orderBy(desc(designs.id))
       .limit(limit)
@@ -72,6 +75,7 @@ export async function getDesign(id: number): Promise<Design> {
     db
       .select(designColumns)
       .from(designs)
+      .leftJoin(materials, eq(materials.id, designs.materialId))
       .where(and(eq(designs.id, id), eq(designs.isDeleted, false))),
     db
       .select(variationColumns)
@@ -81,36 +85,65 @@ export async function getDesign(id: number): Promise<Design> {
   ]);
   const row = rows[0];
   if (!row) throw notFound('Design');
-  return { ...row, variations };
+  const { materialId, materialName, ...rest } = row;
+  return {
+    ...rest,
+    material: materialId !== null && materialName !== null ? { id: materialId, name: materialName } : null,
+    variations,
+  };
 }
 
+/** Codes of active designs and of their variations share one namespace. */
 export async function isDesignCodeTaken(code: string, exceptId?: number, tx: DbOrTx = db): Promise<boolean> {
-  const [dupe] = await tx
+  const normalized = normalizeCode(code);
+  const [design] = await tx
     .select({ id: designs.id })
     .from(designs)
-    .where(
-      and(
-        eq(designs.isDeleted, false),
-        eq(designs.code, normalizeCode(code)),
-        exceptId ? ne(designs.id, exceptId) : undefined,
-      ),
-    )
+    .where(and(eq(designs.isDeleted, false), eq(designs.code, normalized), exceptId ? ne(designs.id, exceptId) : undefined))
     .limit(1);
-  return Boolean(dupe);
+  if (design) return true;
+  return Boolean(await findActiveVariationByCode(normalized, undefined, tx));
+}
+
+async function findActiveVariationByCode(code: string, exceptId?: number, tx: DbOrTx = db) {
+  const [row] = await tx
+    .select({ id: designVariations.id })
+    .from(designVariations)
+    .innerJoin(designs, and(eq(designs.id, designVariations.designId), eq(designs.isDeleted, false)))
+    .where(and(eq(designVariations.code, code), exceptId ? ne(designVariations.id, exceptId) : undefined))
+    .limit(1);
+  return row;
+}
+
+async function assertMaterialExists(materialId: number | null, tx: DbOrTx = db) {
+  if (!materialId) return;
+  const [row] = await tx
+    .select({ id: materials.id })
+    .from(materials)
+    .where(and(eq(materials.id, materialId), eq(materials.isDeleted, false)));
+  if (!row) throw badRequest('Selected material no longer exists', 'materialId');
 }
 
 async function assertCodeFree(code: string, exceptId?: number, tx: DbOrTx = db, field = 'code') {
   if (await isDesignCodeTaken(code, exceptId, tx)) {
-    throw conflict(`Design code ${code} is already used by another design`, field);
+    throw conflict(`Code ${code} is already used by another design or variation`, field);
   }
 }
 
 export async function insertDesign(
   tx: DbOrTx,
-  data: { code: string; name?: string | null; notes?: string | null; imageUrl: string | null; thumbUrl: string | null },
+  data: {
+    code: string;
+    name?: string | null;
+    notes?: string | null;
+    imageUrl: string | null;
+    thumbUrl: string | null;
+    materialId?: number | null;
+  },
   field = 'code',
 ) {
   await assertCodeFree(data.code, undefined, tx, field);
+  await assertMaterialExists(data.materialId ?? null, tx);
   const [row] = await tx.insert(designs).values(data).returning({ id: designs.id, code: designs.code });
   return row;
 }
@@ -123,20 +156,11 @@ export async function createDesign(input: unknown): Promise<Design> {
 
 export async function updateDesign(id: number, input: unknown): Promise<Design> {
   const data = designInputSchema.parse(input);
-  const current = await getDesign(id);
+  await getDesign(id);
   await assertCodeFree(data.code, id);
-  await db.transaction(async (tx) => {
-    await tx.update(designs).set(data).where(eq(designs.id, id));
-    // Variation codes are derived from the design code — keep them in step.
-    if (current.code !== data.code) {
-      for (const v of current.variations) {
-        await tx
-          .update(designVariations)
-          .set({ code: variationCode(data.code, v.variationNo) })
-          .where(eq(designVariations.id, v.id));
-      }
-    }
-  });
+  await assertMaterialExists(data.materialId);
+  // Variation codes are entered by hand, so they are not renamed with the design.
+  await db.update(designs).set(data).where(eq(designs.id, id));
   return getDesign(id);
 }
 
@@ -151,8 +175,16 @@ export async function deleteDesign(id: number): Promise<void> {
 
 export async function addVariation(designId: number, input: unknown): Promise<DesignVariation> {
   const data = variationInputSchema.parse(input);
-  const design = await getDesign(designId);
+  await getDesign(designId);
   return db.transaction(async (tx) => {
+    const [designDupe] = await tx
+      .select({ id: designs.id })
+      .from(designs)
+      .where(and(eq(designs.isDeleted, false), eq(designs.code, data.code)))
+      .limit(1);
+    if (designDupe || (await findActiveVariationByCode(data.code, undefined, tx))) {
+      throw conflict(`Code ${data.code} is already used by another design or variation`, 'code');
+    }
     const [{ maxNo }] = await tx
       .select({ maxNo: sql<number>`COALESCE(MAX(${designVariations.variationNo}), 0)` })
       .from(designVariations)
@@ -160,7 +192,7 @@ export async function addVariation(designId: number, input: unknown): Promise<De
     const variationNo = Number(maxNo) + 1;
     const [row] = await tx
       .insert(designVariations)
-      .values({ designId, variationNo, code: variationCode(design.code, variationNo), ...data })
+      .values({ designId, variationNo, ...data })
       .returning(variationColumns);
     return row;
   });

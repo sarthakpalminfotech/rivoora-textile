@@ -60,12 +60,15 @@ export const designs = sqliteTable(
     imageUrl: text('image_url'),
     thumbUrl: text('thumb_url'),
     notes: text('notes'),
+    /** Optional fixed material — pre-selected on new orders using this design. */
+    materialId: integer('material_id').references(() => materials.id),
     isDeleted: isDeleted(),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
   (t) => [
     index('designs_code_idx').on(t.code),
+    index('designs_material_idx').on(t.materialId),
     uniqueIndex('designs_code_active_unique').on(t.code).where(sql`${t.isDeleted} = 0`),
   ],
 );

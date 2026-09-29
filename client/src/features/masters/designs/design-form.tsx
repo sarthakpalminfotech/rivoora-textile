@@ -1,19 +1,22 @@
 import { zodResolver } from '@hookform/resolvers/zod';
-import { RefreshCw, Trash2 } from 'lucide-react';
-import { useEffect, useState } from 'react';
-import { useForm } from 'react-hook-form';
+import { useQuery } from '@tanstack/react-query';
+import { RefreshCw, Trash2, X } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { Controller, useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 import { z } from 'zod';
-import type { Design, UploadResult } from '@rivoora/shared';
+import { normalizeCode, type Design, type UploadResult } from '@rivoora/shared';
 import { Button } from '@/components/ui/button';
 import { Field } from '@/components/ui/field';
 import { ImageThumb } from '@/components/ui/image-thumb';
 import { ImageDropzone, ImagePickButton } from '@/components/ui/image-upload';
 import { Input, Textarea } from '@/components/ui/input';
 import { ResponsiveModal } from '@/components/ui/modal';
-import { errorMessage } from '@/lib/api';
+import { Select } from '@/components/ui/select';
+import { useDebounce } from '@/hooks/useDebounce';
+import { api, errorMessage } from '@/lib/api';
 import { applyServerFieldError } from '@/lib/form';
-import { useSaveDesign } from '../api';
+import { useMaterialLookup, useSaveDesign } from '../api';
 
 export const designCodeField = z
   .string()
@@ -22,10 +25,24 @@ export const designCodeField = z
   .max(30, 'Code must be at most 30 characters')
   .regex(/^[A-Za-z0-9_\-/.\s]+$/, 'Use only letters, numbers and - / _ .');
 
+
+/** Live "is this code free?" check — design and variation codes share one namespace. */
+export function useCodeAvailability(code: string, enabled: boolean) {
+  const debounced = useDebounce(normalizeCode(code), 400);
+  const valid = designCodeField.safeParse(debounced).success;
+  return useQuery({
+    queryKey: ['designs', 'check-code', debounced],
+    queryFn: ({ signal }) => api.get<{ available: boolean }>('/designs/check-code', { code: debounced }, signal),
+    enabled: enabled && valid && debounced.length > 0,
+    staleTime: 10_000,
+  });
+}
+
 const schema = z.object({
   code: designCodeField,
   name: z.string().max(120),
   notes: z.string().max(1000),
+  materialId: z.number().nullable(),
 });
 type FormValues = z.infer<typeof schema>;
 
@@ -39,7 +56,15 @@ interface DesignFormDialogProps {
 export function DesignFormDialog({ open, onOpenChange, design, onSaved }: DesignFormDialogProps) {
   const save = useSaveDesign();
   const [image, setImage] = useState<UploadResult | null>(null);
+  const [materialSearch, setMaterialSearch] = useState('');
+  const [materialLabel, setMaterialLabel] = useState<string>();
+  const materials = useMaterialLookup(useDebounce(materialSearch.trim(), 300));
+  const materialOptions = useMemo(
+    () => (materials.data ?? []).map((m) => ({ value: m.id, label: m.name, description: m.code })),
+    [materials.data],
+  );
   const {
+    control,
     register,
     handleSubmit,
     reset,
@@ -49,7 +74,13 @@ export function DesignFormDialog({ open, onOpenChange, design, onSaved }: Design
 
   useEffect(() => {
     if (!open) return;
-    reset({ code: design?.code ?? '', name: design?.name ?? '', notes: design?.notes ?? '' });
+    reset({
+      code: design?.code ?? '',
+      name: design?.name ?? '',
+      notes: design?.notes ?? '',
+      materialId: design?.material?.id ?? null,
+    });
+    setMaterialLabel(design?.material?.name);
     setImage(design?.imageUrl && design.thumbUrl ? { url: design.imageUrl, thumbUrl: design.thumbUrl } : null);
   }, [open, design, reset]);
 
@@ -63,7 +94,7 @@ export function DesignFormDialog({ open, onOpenChange, design, onSaved }: Design
           onSaved?.(saved);
         },
         onError: (err) => {
-          if (!applyServerFieldError(err, setError, ['code', 'name', 'notes'])) toast.error(errorMessage(err));
+          if (!applyServerFieldError(err, setError, ['code', 'name', 'notes', 'materialId'])) toast.error(errorMessage(err));
         },
       },
     ),
@@ -115,15 +146,56 @@ export function DesignFormDialog({ open, onOpenChange, design, onSaved }: Design
           <Field label="Name" htmlFor="d-name" error={errors.name?.message}>
             <Input id="d-name" placeholder="Optional" {...register('name')} />
           </Field>
+          <Field
+            label="Material / Quality"
+            htmlFor="d-material"
+            error={errors.materialId?.message}
+            hint="Optional · set it if this design is made only in one material — it is pre-selected on new orders"
+          >
+            <Controller
+              control={control}
+              name="materialId"
+              render={({ field }) => (
+                <Select
+                  id="d-material"
+                  value={field.value}
+                  onChange={(id, opt) => {
+                    field.onChange(id);
+                    setMaterialLabel(opt.label);
+                  }}
+                  selectedLabel={materialLabel}
+                  options={materialOptions}
+                  placeholder="Any material"
+                  searchable
+                  searchPlaceholder="Search materials…"
+                  onSearchChange={setMaterialSearch}
+                  loading={materials.isFetching}
+                  emptyText="No materials found"
+                  invalid={!!errors.materialId}
+                  action={
+                    field.value ? (
+                      <Button
+                        variant="secondary"
+                        size="icon"
+                        className="shrink-0"
+                        onClick={() => {
+                          field.onChange(null);
+                          setMaterialLabel(undefined);
+                        }}
+                        aria-label="Clear material"
+                        title="Clear material"
+                      >
+                        <X className="!size-5" />
+                      </Button>
+                    ) : undefined
+                  }
+                />
+              )}
+            />
+          </Field>
           <Field label="Notes" htmlFor="d-notes" error={errors.notes?.message}>
             <Textarea id="d-notes" rows={3} {...register('notes')} />
           </Field>
-          {design && design.variations.length > 0 && (
-            <p className="rounded-lg bg-accent-soft px-3 py-2 text-[13px] text-accent-foreground">
-              Changing the code also renames its {design.variations.length} variation code
-              {design.variations.length === 1 ? '' : 's'}.
-            </p>
-          )}
         </div>
       </form>
     </ResponsiveModal>

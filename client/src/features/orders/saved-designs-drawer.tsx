@@ -20,6 +20,8 @@ export interface SavedDesignPick {
   code: string;
   imageUrl: string | null;
   thumbUrl: string | null;
+  /** The design's fixed material — pre-selected on the order. */
+  material: { id: number; name: string } | null;
 }
 
 interface SavedDesignsDrawerProps {
@@ -121,7 +123,14 @@ function PreviousOrdersTab({
             </>
           }
           onClick={() =>
-            onPick({ designId: d.designId, variationId: d.variationId, code: d.code, imageUrl: d.imageUrl, thumbUrl: d.thumbUrl })
+            onPick({
+              designId: d.designId,
+              variationId: d.variationId,
+              code: d.code,
+              imageUrl: d.imageUrl,
+              thumbUrl: d.thumbUrl,
+              material: d.material,
+            })
           }
         />
       ))}
@@ -142,7 +151,7 @@ function DesignVariationsView({
 }) {
   const { data: design, isPending, isError, error, refetch } = useDesign(designId);
   const pickBase = (d: Design) =>
-    onPick({ designId: d.id, variationId: null, code: d.code, imageUrl: d.imageUrl, thumbUrl: d.thumbUrl });
+    onPick({ designId: d.id, variationId: null, code: d.code, imageUrl: d.imageUrl, thumbUrl: d.thumbUrl, material: d.material });
 
   return (
     <div className="space-y-4">
@@ -158,6 +167,7 @@ function DesignVariationsView({
           <div>
             <h3 className="text-lg font-bold text-slate-900">{design.code}</h3>
             {design.name && <p className="text-sm text-slate-500">{design.name}</p>}
+            {design.material && <p className="text-sm text-slate-500">Material: {design.material.name}</p>}
             <p className="mt-1 text-sm text-muted-foreground">Choose the base design or one of its variations.</p>
           </div>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
@@ -176,7 +186,14 @@ function DesignVariationsView({
                 sub={`Variation ${v.variationNo}`}
                 selected={current?.variationId === v.id}
                 onClick={() =>
-                  onPick({ designId: design.id, variationId: v.id, code: v.code, imageUrl: v.imageUrl, thumbUrl: v.thumbUrl })
+                  onPick({
+                    designId: design.id,
+                    variationId: v.id,
+                    code: v.code,
+                    imageUrl: v.imageUrl,
+                    thumbUrl: v.thumbUrl,
+                    material: design.material,
+                  })
                 }
               />
             ))}

@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { EmptyState } from '@/components/ui/empty-state';
+import { ImageThumb } from '@/components/ui/image-thumb';
 import { Skeleton } from '@/components/ui/skeleton';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { useDebounce } from '@/hooks/useDebounce';
@@ -48,7 +49,13 @@ function ListSkeleton() {
             <Skeleton className="h-4 w-10" />
             <Skeleton className="h-6 w-32 rounded-full" />
           </div>
-          <Skeleton className="h-4 w-2/3" />
+          <div className="flex items-center gap-3">
+            <Skeleton className="size-16 shrink-0 rounded-lg" />
+            <div className="flex-1 space-y-2">
+              <Skeleton className="h-4 w-2/3" />
+              <Skeleton className="h-3 w-1/3" />
+            </div>
+          </div>
           <div className="grid grid-cols-2 gap-2 border-t border-border pt-3">
             <Skeleton className="h-8" />
             <Skeleton className="h-8" />
@@ -164,7 +171,7 @@ export default function OrdersPage() {
         <SearchBar
           value={searchText}
           onChange={setSearchText}
-          placeholder="Search by client, order no, quantity, material…"
+          placeholder="Search by client, order no, design, quantity, material…"
         />
         <FetchingIndicator show={query.isFetching && !loading && !query.isFetchingNextPage} />
         <Button
@@ -271,9 +278,25 @@ export default function OrdersPage() {
                         <span className="text-sm font-bold text-slate-900">{formatOrderNo(o.orderNo)}</span>
                         <StatusBadge status={o.status} className="min-w-0" />
                       </div>
-                      <p className="mt-2 truncate text-[15px] font-semibold text-slate-900" title={o.customerName}>
-                        {o.customerName}
-                      </p>
+                      <div className="mt-3 flex items-center gap-3">
+                        <ImageThumb
+                          thumbUrl={o.designThumbUrl}
+                          alt={o.designCode ? `Design ${o.designCode}` : 'No design'}
+                          preview={false}
+                          className="size-16 shrink-0 ring-1 ring-inset ring-black/5"
+                        />
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-[15px] font-semibold text-slate-900" title={o.customerName}>
+                            {o.customerName}
+                          </p>
+                          <p
+                            className={cn('mt-0.5 truncate text-xs', o.designCode ? 'font-medium text-slate-500' : 'text-slate-400')}
+                            title={o.designCode ?? undefined}
+                          >
+                            {o.designCode ? `Design ${o.designCode}` : 'No design'}
+                          </p>
+                        </div>
+                      </div>
                       <dl className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 border-t border-border pt-3">
                         <Field label="Quality" value={o.materialName} />
                         <Field label="Quantity" value={formatQuantity(o.quantity, o.unit)} />

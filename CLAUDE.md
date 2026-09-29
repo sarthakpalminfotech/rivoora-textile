@@ -15,7 +15,7 @@ shared/   @rivoora/shared — TS source used by BOTH client and server (no build
   src/roles.ts      role config + permissions (single source of truth)
   src/statuses.ts   order status config (label, sequence, badge colours, visibleTo roles)
   src/units.ts      kg | pcs | g | meters
-  src/codes.ts      variationCode() — design code + "N" + number (D101 → D101N1)
+  src/codes.ts      normalizeCode(); variationCode() is only a placeholder suggestion (D101 → D101N1)
   src/schemas.ts    zod request schemas (server validates with these)
   src/types.ts      API DTO types
 server/   Express + Drizzle + Turso (libSQL)
@@ -60,6 +60,10 @@ The Vite dev server uses port **5180** (not 5173) and `host: true`, so it is rea
 - All tables: `id`, `created_at`, `updated_at` (ISO strings). Masters are soft-deleted (`is_deleted`); deleting is
   blocked (409) when any order references the record. Variations are hard-deleted (only if unused).
 - Unique among non-deleted rows via partial indexes: `lower(materials.name)`, `designs.code`.
+- Variation codes are typed in by the user (not generated, not renamed with the design). Design codes and variation
+  codes share one namespace — `isDesignCodeTaken` / `GET /designs/check-code` check both.
+- `designs.material_id` (optional) = the material a design is only made in. Picking that design on a new order
+  pre-selects the material (still changeable). Deleting a material unlinks it from designs.
 - `orders.order_no` is assigned inside the insert transaction: `(SELECT COALESCE(MAX(order_no),0)+1 FROM orders)`,
   plus a unique index. Never generated on the client.
 - Multi-row changes use transactions (`db.transaction`); read endpoints use `db.batch` (list + count in one round trip).
@@ -88,7 +92,8 @@ The Vite dev server uses port **5180** (not 5173) and `host: true`, so it is rea
 
 ## API (all under /api, JSON)
 
-- `GET /orders?search=&status=a,b&material=1,2&from=&to=&page=&limit=` — lean list (customer + material joined)
+- `GET /orders?search=&status=a,b&material=1,2&from=&to=&page=&limit=` — lean list (customer + material joined,
+  plus `designCode` / `designThumbUrl` = variation, else design; search also matches design/variation codes)
 - `GET /orders/:id` · `POST /orders` · `POST /orders/send-to-production {orderIds}` · `POST /orders/:id/undo-production`
 - `GET /customers/:id/previous-designs` — latest order per design/variation for that client
 - CRUD `/customers`, `/materials`, `/designs`, `/designs/:id/variations[/:variationId]`, `GET /designs/check-code?code=`
@@ -110,6 +115,7 @@ The Vite dev server uses port **5180** (not 5173) and `host: true`, so it is rea
   Exceptions: confirmations (`ConfirmDialog`) stay centred dialogs; the Saved designs drawer slides in from the right
   on tablet/desktop (full screen on phones).
 - Orders list is a **card grid** on all breakpoints (1 / 2 / 3 / 4 / 5 columns at phone / md / lg / xl / 2xl) — no table.
+  Each card: `#N` + status row, then a 64px design thumbnail beside client name + design code, then details.
 - `.page-container` is capped at 1920px (not 1280px) so wide monitors use the side space. Screens add `2xl: 1536px`.
 - Images: lists/cards show thumbnails only (`ImageThumb`, lazy + placeholder); the full image loads in the lightbox.
 - Breakpoints: phone < 768 (bottom nav, cards, FAB), tablet 768–1023 (icon rail, 2-col order cards),

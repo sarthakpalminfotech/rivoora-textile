@@ -4,6 +4,7 @@ import {
   can,
   canRoleSeeStatus,
   isStatusKey,
+  normalizeCode,
   orderCreateSchema,
   STATUS,
   visibleStatusKeys,
@@ -64,9 +65,12 @@ export async function listOrders(role: RoleKey, q: OrderListQuery): Promise<Pagi
   if (q.search) {
     const term = q.search.replace(/^#/, '').trim();
     const p = likePattern(term);
+    const codeP = likePattern(normalizeCode(term));
     const parts: (SQL | undefined)[] = [
       sql`${customers.name} LIKE ${p} ESCAPE '\\'`,
       sql`${materials.name} LIKE ${p} ESCAPE '\\'`,
+      sql`${designs.code} LIKE ${codeP} ESCAPE '\\'`,
+      sql`${designVariations.code} LIKE ${codeP} ESCAPE '\\'`,
     ];
     if (/^\d+(\.\d+)?$/.test(term)) {
       if (/^\d+$/.test(term)) parts.push(eq(orders.orderNo, Number(term)));
@@ -87,10 +91,14 @@ export async function listOrders(role: RoleKey, q: OrderListQuery): Promise<Pagi
         unit: orders.unit,
         status: orders.status,
         orderDate: orders.orderDate,
+        designCode: sql<string | null>`COALESCE(${designVariations.code}, ${designs.code})`,
+        designThumbUrl: sql<string | null>`COALESCE(${designVariations.thumbUrl}, ${designs.thumbUrl})`,
       })
       .from(orders)
       .innerJoin(customers, eq(customers.id, orders.customerId))
       .innerJoin(materials, eq(materials.id, orders.materialId))
+      .leftJoin(designs, eq(designs.id, orders.designId))
+      .leftJoin(designVariations, eq(designVariations.id, orders.variationId))
       .where(where)
       .orderBy(desc(orders.orderNo))
       .limit(q.limit)
@@ -100,6 +108,8 @@ export async function listOrders(role: RoleKey, q: OrderListQuery): Promise<Pagi
       .from(orders)
       .innerJoin(customers, eq(customers.id, orders.customerId))
       .innerJoin(materials, eq(materials.id, orders.materialId))
+      .leftJoin(designs, eq(designs.id, orders.designId))
+      .leftJoin(designVariations, eq(designVariations.id, orders.variationId))
       .where(where),
   ]);
   return { items, page: q.page, limit: q.limit, total, hasMore: q.page * q.limit < total };
@@ -323,11 +333,14 @@ export async function previousDesigns(customerId: number): Promise<PreviousDesig
       orderId: orders.id,
       orderNo: orders.orderNo,
       orderDate: orders.orderDate,
+      materialId: materials.id,
+      materialName: materials.name,
       timesUsed: sql<number>`(SELECT COUNT(*) FROM ${orders} o3 WHERE o3.customer_id = ${orders.customerId} AND o3.design_id = ${orders.designId} AND o3.variation_id IS ${orders.variationId})`,
     })
     .from(orders)
     .innerJoin(designs, and(eq(designs.id, orders.designId), eq(designs.isDeleted, false)))
     .leftJoin(designVariations, eq(designVariations.id, orders.variationId))
+    .leftJoin(materials, and(eq(materials.id, designs.materialId), eq(materials.isDeleted, false)))
     .where(
       and(
         eq(orders.customerId, customerId),
@@ -349,5 +362,6 @@ export async function previousDesigns(customerId: number): Promise<PreviousDesig
     orderNo: r.orderNo,
     orderDate: r.orderDate,
     timesUsed: Number(r.timesUsed),
+    material: r.materialId !== null && r.materialName !== null ? { id: r.materialId, name: r.materialName } : null,
   }));
 }
