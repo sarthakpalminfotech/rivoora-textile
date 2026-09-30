@@ -1,12 +1,16 @@
 # Rivoora Textile — Project State
 
-Snapshot of what the code actually does as of **2026-09-29** (branch `main`, last commit `056a3a9 changes in order ui
-and flow` **plus the uncommitted Sprint 2 work** — Machine Master + jobsheets, see [§9](#9-sprint-2--machines--jobsheets)). Written so a developer
-can continue the project without reading the code first. The original brief is `rivoora-claude-code-prompt.md`;
-day-to-day conventions are in `CLAUDE.md`.
+Snapshot of what the code actually does as of **2026-09-30** (branch `main`, last commit `8e3a7bb Jobsheet creation full
+flow` **plus the uncommitted Sprint 3 work** — supervisor role, jobsheet workflow, Machine view, see
+[§10](#10-sprint-3--supervisor-machine-production-flow-machine-view)). Sprint 2 is described in [§9](#9-sprint-2--machines--jobsheets).
+Written so a developer can continue the project without reading the code first. The original brief is
+`rivoora-claude-code-prompt.md`; day-to-day conventions are in `CLAUDE.md`.
+
+> Where §1–§9 disagree with §10 (e.g. "Ready for production" label, two roles, 4-tab bottom nav), **§10 is current.**
 
 `npm run typecheck` passes for all three packages at the time of writing. `npm test` runs the vitest suite for the shared
-jobsheet calculations (19 tests, all passing). There are no server or UI tests.
+jobsheet calculations (37 tests, all passing). There are no server or UI tests in the repo (the Sprint 3 API flows were
+verified with a throwaway script, see §10).
 
 ---
 
@@ -731,3 +735,84 @@ desktop / Android (check the A4 pairs on paper once).
 - `frames_per_jobsheet` is only set by multi runs; single adds don't change it.
 - Deleting a jobsheet leaves `jobsheet_pieces` / `target_frames` unchanged unless it was the last one (by spec).
 - Machine dropdown shows up to 200 active machines (client-side search).
+
+---
+
+## 10. Sprint 3 — Supervisor, machine production flow, Machine view
+
+Spec: `rivoora-sprint3-supervisor-prompt.md`. Built in one go at the user's request (no plan-approval stop).
+
+### Data (migration `0003_jobsheet_workflow.sql`)
+- `jobsheets` + `status` (default `pending`, indexed; existing rows backfilled as pending), `sent_at`, `started_at`,
+  `completed_at`, `running_machine_id` → machines (indexed), `completed_frames`, `parent_jobsheet_id` → jobsheets,
+  `suggested_machine_id` → machines.
+- New `jobsheet_events` (`jobsheet_id` cascade + index, `event`, `machine_id`, `frames`, `note`, `role`, timestamps).
+  The migration also inserts a `created` event for every existing jobsheet so their Activity isn't empty.
+- **Not yet applied to Turso** — run `npm run db:migrate` (additive only: one new table, new nullable/defaulted columns).
+
+### Config
+- Order status `ready_production` is now labelled **Jobsheet pending** (key unchanged). New `in_production` (40, sky)
+  and `production_completed` (50, teal), visible to Jemish + Gaurang.
+- `JOBSHEET_STATUSES`: pending (slate) · sent ("Sent to supervisor", amber; supervisor label "Pending") · ongoing (blue)
+  · completed (green). `jobsheetStatusLabel(status, role)`; `StatusBadge kind="jobsheet"` uses it.
+- Role `supervisor` ("Supervisor — Production", initial S, landing `/jobsheets`). Permissions added:
+  `canViewOrders`, `canViewMasters` (jemish/gaurang ✅, supervisor ❌ — used to lock him out of order and master
+  endpoints), `canViewJobsheetsModule`, `canRunJobsheets` (supervisor only), `canPrintJobsheets`, `canViewMachineView`
+  (all three). Every role has a `landing` route.
+
+### Shared logic (tests in `jobsheets.test.ts`, 18 new)
+- `planFramesEdit` only adjusts Pending jobsheets (last = highest-numbered Pending; refuses a non-Pending edit).
+- `effectiveFrames` / `coverageFrames`: Completed jobsheets count `completed_frames`.
+- `orderStatusForJobsheets(statuses)` — the pure rules behind the server's `recomputeOrderStatus`.
+- Change machine: `MAX_FRAMES_PICK = 100`, `nextFramesMax`, `remainingFrames` (≥1), `nextFramesAfterCompletedChange`
+  (prefill follows "completed" until the user picks), `changeMachineSummary`, `completedFramesNote`.
+
+### Server
+- `recomputeOrderStatus(orderId, role, tx)` in `services/jobsheets.ts`, called at the end of generate / single add /
+  edit / delete / send / pull back / start / complete / change machine. History only on a real change; never touches
+  pending_production orders.
+- Edit / delete: 409 unless Pending ("…Pull it back from the supervisor first."). Auto-adjust updates are conditional on
+  the last jobsheet still being Pending.
+- New endpoints: `POST /orders/:id/jobsheets/send`, `POST /jobsheets/:id/pull-back|start|complete|change-machine`,
+  `GET /jobsheets` (supervisor list + tab counts, one batch), `GET /machine-view`. `GET /jobsheets/:id` is role-aware and
+  now returns status fields, running machine, parent/children, events and `design`; for the supervisor `order`,
+  `coverage` are null and `siblings` empty. Print is allowed for the supervisor (Sent/Ongoing/Completed only).
+- Change machine refuses completed > assigned (400 `completedFrames`) and the same machine (400 `newMachineId`).
+- Supervisor lockout: `router.use(requirePermission('canViewOrders'|'canViewMasters'))` on orders, customers,
+  materials, designs, machines; customer/material lookups also need `canViewMasters`.
+
+### Client
+- Nav: Machine view after Orders for Jemish/Gaurang; the supervisor sees Jobsheets + Machine view only. Phone bottom
+  nav: main items + **More** (bottom sheet listing the masters) — 3 tabs for Jemish/Gaurang, 2 for the supervisor.
+  `RequirePermission` guards every route (redirect to the role's landing).
+- Order details → Jobsheets card: ⬆ "Send to supervisor" icon (disabled with tooltip when nothing is Pending) →
+  selection mode (only Pending selectable, banner, action bar "N selected · Select all pending · Cancel · Send for
+  machine production (N)" / "Send (N)" on phones, Escape exits) → confirm → toast. Cards: status badge, actual/assigned
+  frames (amber when short), "Running on Machine 7", "continued from 319". Tiles: + **Completed X of Y**. Card grids
+  use `auto-fill` columns so they fit the narrow desktop column.
+- Jobsheet details: Pull back (Sent), Edit/Delete (Pending only), supervisor actions (Start / Complete / Change
+  machine), running machine + started time, continued from/as links, **Activity** timeline (`activity.tsx`).
+- `/jobsheets` (supervisor): search (number or design code), tabs with counts (URL-kept), 1/2/3/4-col cards with a
+  16:10 design image (lightbox), actions at the bottom (48px). Dialogs: Start (square machine chips, suggested
+  pre-selected, "busy · 321" notes), Complete (− / number / + stepper, difference note), Change machine (three
+  `Select`s + live summary; toast with a **Print** action for the new jobsheet).
+- `/machine-view`: All / Running / Idle stat pills (filters), "Last updated hh:mm" + refresh, tile board 2/3/4/5/6 cols,
+  pulsing green "Running" tiles with jobsheet rows (thumb, number, code, frames, running time; +N more), muted idle
+  tiles ("since 3h"), collapsed "Inactive machines (N)". 30 s auto-refresh + on focus; times tick via `useNow`.
+- Renamed texts: "No orders pending for jobsheets yet", send-for-production confirm, delete toast, server messages.
+
+### Verified
+- API: a 62-check script against a local SQLite copy (`TURSO_DATABASE_URL=file:…`, migrated + seeded) — supervisor
+  403s on every order/master endpoint, 404 on Pending jobsheets, send/pull-back/409 rules, Pending-only auto-adjust,
+  start/complete/change-machine incl. conditional-update 409s, actual-frame coverage, order status through
+  jobsheet_created → in_production → production_completed without duplicate history, machine view, tab sorting/search.
+- UI (Chrome, local dev): no horizontal overflow at 360 / 768 / 1024 / 1280 for all new screens as supervisor and
+  Gaurang; redirects for forbidden routes; send selection flow; Start and Change machine dialogs end to end.
+  **Not verified:** a real tablet/phone device, and printing the new jobsheet from the toast on paper.
+
+### Known gaps / decisions
+- "Select all pending" in the order Jobsheets card covers that order's jobsheets (all are loaded; no pagination there).
+- Tab counts on `/jobsheets` respect the current search.
+- A change-machine child's machine list is **all** active machines at that moment (by spec).
+- Change machine keeps `jobsheet_pieces` / `target_frames` unchanged; any difference only shows as a coverage warning.
+- The machine view shows every active machine in one response (no pagination) — fine for a mill-sized floor.

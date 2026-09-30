@@ -10,9 +10,11 @@ import {
   sendToProduction,
   undoSendToProduction,
 } from '../services/orders';
-import { addSingleJobsheet, generateJobsheets, listOrderJobsheets } from '../services/jobsheets';
+import { addSingleJobsheet, generateJobsheets, listOrderJobsheets, sendJobsheets } from '../services/jobsheets';
 
 export const ordersRouter = Router();
+// The supervisor has no access to orders at all.
+ordersRouter.use(requirePermission('canViewOrders'));
 
 ordersRouter.get(
   '/',
@@ -75,5 +77,14 @@ ordersRouter.post(
   requirePermission('canManageJobsheets'),
   ah(async (req, res) => {
     res.status(201).json(await addSingleJobsheet(req.role, parseId(req.params.id), req.body));
+  }),
+);
+
+/** Send Pending jobsheets to the supervisor (Pending → Sent). */
+ordersRouter.post(
+  '/:id/jobsheets/send',
+  requirePermission('canManageJobsheets'),
+  ah(async (req, res) => {
+    res.json(await sendJobsheets(req.role, parseId(req.params.id), req.body));
   }),
 );

@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { ah } from '../lib/http';
+import { requirePermission } from '../middleware/role';
 import { lookupCustomers } from '../services/customers';
 import { lookupMachines } from '../services/machines';
 import { lookupMaterials } from '../services/materials';
@@ -19,6 +20,7 @@ const querySchema = z.object({
 
 lookupRouter.get(
   '/customers',
+  requirePermission('canViewMasters'),
   ah(async (req, res) => {
     res.set('Cache-Control', 'private, max-age=10');
     res.json(await lookupCustomers(querySchema.parse(req.query).search));
@@ -27,6 +29,7 @@ lookupRouter.get(
 
 lookupRouter.get(
   '/materials',
+  requirePermission('canViewMasters'),
   ah(async (req, res) => {
     res.set('Cache-Control', 'private, max-age=10');
     res.json(await lookupMaterials(querySchema.parse(req.query).search));

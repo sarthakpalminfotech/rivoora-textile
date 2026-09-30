@@ -1,15 +1,24 @@
 import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import type {
+  JobsheetActionResult,
+  JobsheetChangeMachineInput,
+  JobsheetChangeMachineResult,
   JobsheetCreateResult,
   JobsheetDeleteResult,
   JobsheetDetail,
   JobsheetGenerateInput,
   JobsheetPrintItem,
+  JobsheetSendResult,
   JobsheetSingleInput,
+  JobsheetTab,
   JobsheetUpdateInput,
   JobsheetUpdateResult,
+  MachineViewData,
   OrderJobsheets,
+  SupervisorJobsheetItem,
+  SupervisorJobsheetPage,
 } from '@rivoora/shared';
+import { useInfiniteList } from '@/hooks/useInfiniteList';
 import { api } from '@/lib/api';
 import { orderKeys } from '../orders/api';
 
@@ -18,13 +27,22 @@ export const jobsheetKeys = {
   order: (orderId: number) => ['jobsheets', 'order', orderId] as const,
   detail: (id: number) => ['jobsheets', 'detail', id] as const,
   print: (ids: number[]) => ['jobsheets', 'print', ids.join(',')] as const,
+  /** The supervisor's module list. */
+  list: ['jobsheets', 'list'] as const,
 };
 
-/** Every jobsheet write can change the order's status and coverage. */
-function invalidateAfterWrite(qc: QueryClient, orderId: number) {
+export const machineViewKey = ['machine-view'] as const;
+
+/**
+ * Every jobsheet write can change the jobsheets, the order's status and coverage, the supervisor's list and the
+ * machine board — refresh all of them.
+ */
+function invalidateAfterWrite(qc: QueryClient, orderId?: number) {
   void qc.invalidateQueries({ queryKey: jobsheetKeys.all });
-  void qc.invalidateQueries({ queryKey: orderKeys.detail(orderId) });
+  if (orderId) void qc.invalidateQueries({ queryKey: orderKeys.detail(orderId) });
+  else void qc.invalidateQueries({ queryKey: ['orders', 'detail'] });
   void qc.invalidateQueries({ queryKey: orderKeys.lists });
+  void qc.invalidateQueries({ queryKey: machineViewKey });
 }
 
 export function useOrderJobsheets(orderId: number, enabled = true) {
@@ -49,6 +67,22 @@ export function useJobsheetPrint(ids: number[]) {
     queryFn: ({ signal }) => api.get<JobsheetPrintItem[]>('/jobsheets/print', { ids }, signal),
     enabled: ids.length > 0,
     staleTime: 0,
+  });
+}
+
+/** The supervisor's Jobsheets module: one tab + search, paginated, with tab counts on every page. */
+export function useSupervisorJobsheets(tab: JobsheetTab, search: string) {
+  const q = useInfiniteList<SupervisorJobsheetItem>(jobsheetKeys.list, '/jobsheets', { tab, search });
+  const counts = (q.data?.pages[0] as SupervisorJobsheetPage | undefined)?.counts;
+  return { ...q, counts };
+}
+
+export function useMachineView() {
+  return useQuery({
+    queryKey: machineViewKey,
+    queryFn: ({ signal }) => api.get<MachineViewData>('/machine-view', undefined, signal),
+    refetchInterval: 30_000,
+    refetchOnWindowFocus: true,
   });
 }
 
@@ -88,6 +122,54 @@ export function useDeleteJobsheet(orderId: number) {
       qc.removeQueries({ queryKey: jobsheetKeys.detail(id) });
       invalidateAfterWrite(qc, orderId);
     },
+  });
+}
+
+/** Pending → Sent (to the supervisor). */
+export function useSendJobsheets(orderId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (jobsheetIds: number[]) =>
+      api.post<JobsheetSendResult>(`/orders/${orderId}/jobsheets/send`, { jobsheetIds }),
+    onSuccess: () => invalidateAfterWrite(qc, orderId),
+  });
+}
+
+export function usePullBackJobsheet(orderId?: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => api.post<JobsheetActionResult>(`/jobsheets/${id}/pull-back`),
+    onSuccess: () => invalidateAfterWrite(qc, orderId),
+  });
+}
+
+export function useStartJobsheet() {
+  const qc = useQueryClient();
+  return useMutation({
+    meta: { silentFieldErrors: true },
+    mutationFn: ({ id, machineId }: { id: number; machineId: number }) =>
+      api.post<JobsheetActionResult>(`/jobsheets/${id}/start`, { machineId }),
+    onSuccess: () => invalidateAfterWrite(qc),
+  });
+}
+
+export function useCompleteJobsheet() {
+  const qc = useQueryClient();
+  return useMutation({
+    meta: { silentFieldErrors: true },
+    mutationFn: ({ id, completedFrames }: { id: number; completedFrames: number }) =>
+      api.post<JobsheetActionResult>(`/jobsheets/${id}/complete`, { completedFrames }),
+    onSuccess: () => invalidateAfterWrite(qc),
+  });
+}
+
+export function useChangeMachine() {
+  const qc = useQueryClient();
+  return useMutation({
+    meta: { silentFieldErrors: true },
+    mutationFn: ({ id, ...data }: JobsheetChangeMachineInput & { id: number }) =>
+      api.post<JobsheetChangeMachineResult>(`/jobsheets/${id}/change-machine`, data),
+    onSuccess: () => invalidateAfterWrite(qc),
   });
 }
 

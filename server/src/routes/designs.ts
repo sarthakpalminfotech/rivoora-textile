@@ -15,6 +15,8 @@ import {
 } from '../services/designs';
 
 export const designsRouter = Router();
+// Masters are hidden from roles without master access (the supervisor).
+designsRouter.use(requirePermission('canViewMasters'));
 const manage = requirePermission('canManageMasters');
 
 designsRouter.get(

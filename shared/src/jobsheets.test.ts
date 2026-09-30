@@ -1,7 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import {
+  changeMachineSummary,
+  completedFramesNote,
+  coverageFrames,
   coverageWarnings,
   describeFrameGroups,
+  effectiveFrames,
+  MAX_FRAMES_PICK,
+  nextFramesAfterCompletedChange,
+  nextFramesMax,
+  remainingFrames,
   formatExactFrames,
   jobsheetQuantityWarning,
   planFramesEdit,
@@ -10,6 +18,7 @@ import {
   type AdjustJobsheet,
 } from './jobsheets';
 import { SECTIONS_PER_BEAM } from './production';
+import { jobsheetStatusLabel, orderStatusForJobsheets, type JobsheetStatusKey } from './statuses';
 
 /** n jobsheets numbered from `start`, each with `frames` frames (ids = numbers). */
 function sheets(frames: number[], start = 1): AdjustJobsheet[] {
@@ -189,5 +198,160 @@ describe('coverage (7.5)', () => {
     expect(remainingPieces(300, 0)).toBe(300);
     expect(remainingPieces(300, 120)).toBe(180);
     expect(remainingPieces(300, 304)).toBeNull();
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* Sprint 3                                                             */
+/* ------------------------------------------------------------------ */
+
+/** Jobsheets with explicit statuses: [frames, status, completedFrames?]. */
+function withStatus(rows: [number, JobsheetStatusKey, number?][], start = 1): AdjustJobsheet[] {
+  return rows.map(([frames, status, completedFrames], i) => ({
+    id: start + i,
+    jobsheetNo: start + i,
+    frames,
+    status,
+    completedFrames: completedFrames ?? null,
+  }));
+}
+
+describe('planFramesEdit — only Pending jobsheets are adjusted', () => {
+  it('the last PENDING jobsheet absorbs the change, not a later Sent one', () => {
+    // #1 pending, #2 pending, #3 sent (highest number but not pending).
+    const js = withStatus([[10, 'pending'], [10, 'pending'], [10, 'sent']]);
+    const p = planFramesEdit({ jobsheets: js, editedId: 1, newFrames: 12, framesPerJobsheet: 10 });
+    expect(p.last.id).toBe(2);
+    expect(p.editedIsLast).toBe(false);
+    expect(p.updated).toEqual([
+      { id: 1, jobsheetNo: 1, from: 10, to: 12, edited: true },
+      { id: 2, jobsheetNo: 2, from: 10, to: 8, edited: false },
+    ]);
+    expect(p.totalFramesAfter).toBe(30);
+  });
+
+  it('editing the only Pending jobsheet is "editing the last" — Sent/Ongoing/Completed never change', () => {
+    const js = withStatus([[10, 'completed', 10], [10, 'ongoing'], [10, 'pending'], [10, 'sent']]);
+    const p = planFramesEdit({ jobsheets: js, editedId: 3, newFrames: 4, framesPerJobsheet: 10 });
+    expect(p.editedIsLast).toBe(true);
+    expect(p.updated).toEqual([{ id: 3, jobsheetNo: 3, from: 10, to: 4, edited: true }]);
+    expect(p.created).toEqual([]);
+    expect(p.removed).toEqual([]);
+    expect(p.totalFramesAfter).toBe(34);
+  });
+
+  it('the edited jobsheet being the last Pending one changes nothing else, even with later Sent ones', () => {
+    const js = withStatus([[10, 'pending'], [10, 'pending'], [10, 'sent'], [10, 'sent']]);
+    const p = planFramesEdit({ jobsheets: js, editedId: 2, newFrames: 25, framesPerJobsheet: 10 });
+    expect(p.editedIsLast).toBe(true);
+    expect(p.created).toEqual([]);
+    expect(p.updated.map((u) => u.id)).toEqual([2]);
+  });
+
+  it('removing / splitting only ever touches the last Pending jobsheet', () => {
+    const js = withStatus([[10, 'pending'], [4, 'pending'], [10, 'ongoing']]);
+    const removed = planFramesEdit({ jobsheets: js, editedId: 1, newFrames: 15, framesPerJobsheet: 10 });
+    expect(removed.removed).toEqual([{ id: 2, jobsheetNo: 2, frames: 4 }]);
+    const split = planFramesEdit({ jobsheets: js, editedId: 1, newFrames: 2, framesPerJobsheet: 10 });
+    expect(split.updated).toEqual([
+      { id: 1, jobsheetNo: 1, from: 10, to: 2, edited: true },
+      { id: 2, jobsheetNo: 2, from: 4, to: 10, edited: false },
+    ]);
+    expect(split.created).toEqual([{ frames: 2 }]);
+  });
+
+  it('refuses to edit a jobsheet that is not Pending', () => {
+    const js = withStatus([[10, 'pending'], [10, 'sent']]);
+    expect(() => planFramesEdit({ jobsheets: js, editedId: 2, newFrames: 5, framesPerJobsheet: 10 })).toThrow(RangeError);
+  });
+
+  it('totals use the actual frames of Completed jobsheets', () => {
+    const js = withStatus([[10, 'completed', 8], [10, 'pending'], [10, 'pending']]);
+    const p = planFramesEdit({ jobsheets: js, editedId: 2, newFrames: 11, framesPerJobsheet: 10 });
+    expect(p.totalFramesBefore).toBe(28);
+    expect(p.totalFramesAfter).toBe(28);
+  });
+});
+
+describe('coverage with actual frames', () => {
+  it('Completed counts completed_frames, everything else the assigned frames', () => {
+    expect(effectiveFrames({ frames: 10, status: 'completed', completedFrames: 8 })).toBe(8);
+    expect(effectiveFrames({ frames: 10, status: 'completed', completedFrames: 12 })).toBe(12);
+    expect(effectiveFrames({ frames: 10, status: 'ongoing', completedFrames: null })).toBe(10);
+    expect(effectiveFrames({ frames: 10, status: 'sent' })).toBe(10);
+    expect(effectiveFrames({ frames: 10 })).toBe(10);
+    const list = withStatus([[10, 'completed', 8], [10, 'ongoing'], [10, 'sent'], [10, 'pending']]);
+    expect(coverageFrames(list)).toBe(38);
+  });
+
+  it('a shortfall of actual frames shows as a warning (no auto-adjust)', () => {
+    const list = withStatus([[10, 'completed', 8], [10, 'completed', 10]]);
+    const w = coverageWarnings({ orderedPieces: 60, jobsheetPieces: 60, targetFrames: 20, totalFrames: coverageFrames(list), jobsheetCount: 2 });
+    expect(w.map((x) => x.kind)).toEqual(['frames_short']);
+    expect(w[0].message).toBe('Jobsheets cover 18 frames, but 20 frames are needed (2 short).');
+  });
+
+  it('change machine: 4 done on the old jobsheet + 6 on the new one still covers the plan', () => {
+    const list = withStatus([[10, 'completed', 4], [6, 'sent']]);
+    expect(coverageWarnings({ orderedPieces: 30, jobsheetPieces: 30, targetFrames: 10, totalFrames: coverageFrames(list), jobsheetCount: 2 })).toEqual([]);
+  });
+});
+
+describe('order status from jobsheet statuses (recomputeOrderStatus rules)', () => {
+  it('no active jobsheets → Jobsheet pending', () => {
+    expect(orderStatusForJobsheets([])).toBe('ready_production');
+  });
+  it('all Pending / Sent → Jobsheet created', () => {
+    expect(orderStatusForJobsheets(['pending'])).toBe('jobsheet_created');
+    expect(orderStatusForJobsheets(['pending', 'sent', 'sent'])).toBe('jobsheet_created');
+  });
+  it('any Ongoing or Completed (not all Completed) → In production', () => {
+    expect(orderStatusForJobsheets(['pending', 'ongoing'])).toBe('in_production');
+    expect(orderStatusForJobsheets(['completed', 'sent'])).toBe('in_production');
+    expect(orderStatusForJobsheets(['completed', 'pending'])).toBe('in_production');
+    expect(orderStatusForJobsheets(['ongoing'])).toBe('in_production');
+  });
+  it('all Completed → Production completed', () => {
+    expect(orderStatusForJobsheets(['completed'])).toBe('production_completed');
+    expect(orderStatusForJobsheets(['completed', 'completed'])).toBe('production_completed');
+  });
+});
+
+describe('jobsheet status labels per role', () => {
+  it('the supervisor sees Sent as Pending', () => {
+    expect(jobsheetStatusLabel('sent', 'jemish')).toBe('Sent to supervisor');
+    expect(jobsheetStatusLabel('sent', 'supervisor')).toBe('Pending');
+    expect(jobsheetStatusLabel('ongoing', 'supervisor')).toBe('Ongoing');
+    expect(jobsheetStatusLabel('pending', 'gaurang')).toBe('Pending');
+  });
+});
+
+describe('change machine helpers', () => {
+  it('prefills the remaining frames (at least 1)', () => {
+    expect(remainingFrames(10, 4)).toBe(6);
+    expect(remainingFrames(10, 0)).toBe(10);
+    expect(remainingFrames(10, 10)).toBe(1);
+  });
+
+  it('follows "completed" until the user picks "next" themselves', () => {
+    expect(nextFramesAfterCompletedChange({ assigned: 10, completed: 3, current: 6, touched: false })).toBe(7);
+    expect(nextFramesAfterCompletedChange({ assigned: 10, completed: 3, current: 6, touched: true })).toBe(6);
+  });
+
+  it('the next-frames dropdown goes up to MAX_FRAMES_PICK (or the assigned frames when larger)', () => {
+    expect(nextFramesMax(10)).toBe(MAX_FRAMES_PICK);
+    expect(nextFramesMax(150)).toBe(150);
+  });
+
+  it('summary and completed-frames notes', () => {
+    expect(changeMachineSummary({ jobsheetNo: 319, completed: 4, next: 6, newMachineNo: 9 })).toBe(
+      'Jobsheet 319 will be completed with 4 frames. A new jobsheet with 6 frames will be created for Machine 9.',
+    );
+    expect(changeMachineSummary({ jobsheetNo: 319, completed: 1, next: 1, newMachineNo: null })).toBe(
+      'Jobsheet 319 will be completed with 1 frame. A new jobsheet with 1 frame will be created.',
+    );
+    expect(completedFramesNote(10, 8)).toBe("Assigned 10 — you're recording 8 (2 fewer).");
+    expect(completedFramesNote(10, 11)).toBe("Assigned 10 — you're recording 11 (1 more).");
+    expect(completedFramesNote(10, 10)).toBeNull();
   });
 });

@@ -5,6 +5,7 @@ import type { JobsheetPrintItem } from '@rivoora/shared';
 import { usePageTitle } from '@/components/layout/page-title';
 import { ErrorState } from '@/components/list-parts';
 import { Button } from '@/components/ui/button';
+import { useRole } from '@/hooks/useRole';
 import { ApiError } from '@/lib/api';
 import { useJobsheetPrint } from './api';
 
@@ -293,6 +294,7 @@ function usePageScale() {
 export default function JobsheetPrintPage() {
   const [params] = useSearchParams();
   const navigate = useNavigate();
+  const { config: { landing } } = useRole();
   const location = useLocation();
   const ids = useMemo(
     () =>
@@ -318,7 +320,7 @@ export default function JobsheetPrintPage() {
 
   const goBack = () => {
     if (location.key !== 'default') navigate(-1);
-    else navigate('/orders');
+    else navigate(landing);
   };
 
   const pagePxH = 297 * MM_TO_PX;
@@ -350,7 +352,7 @@ export default function JobsheetPrintPage() {
           <div className="mx-auto max-w-md rounded-xl bg-white p-8 text-center shadow-soft">
             <p className="font-semibold text-slate-900">Nothing to print</p>
             <Button asChild variant="secondary" className="mt-4">
-              <Link to="/orders">Go to orders</Link>
+              <Link to={landing}>Go back</Link>
             </Button>
           </div>
         ) : isPending ? (

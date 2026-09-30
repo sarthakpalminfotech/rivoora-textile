@@ -10,6 +10,8 @@ import {
 } from '../services/machines';
 
 export const machinesRouter = Router();
+// Masters are hidden from roles without master access (the supervisor).
+machinesRouter.use(requirePermission('canViewMasters'));
 const manage = requirePermission('canManageMachines');
 
 machinesRouter.get(

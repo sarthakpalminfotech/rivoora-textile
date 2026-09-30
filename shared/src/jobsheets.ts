@@ -3,6 +3,7 @@
  * Used by the server (the real write) and by the client (live previews). Pure functions only.
  */
 import { SECTIONS_PER_BEAM } from './production';
+import { JOBSHEET_STATUS, type JobsheetStatusKey } from './statuses';
 
 const isPositiveInt = (n: unknown): n is number => typeof n === 'number' && Number.isInteger(n) && n >= 1;
 
@@ -86,11 +87,30 @@ export function formatExactFrames(n: number): string {
 export interface AdjustJobsheet {
   id: number;
   jobsheetNo: number;
+  /** Assigned frames. */
   frames: number;
+  /** Defaults to Pending. Only Pending jobsheets are ever changed by the auto-adjust. */
+  status?: JobsheetStatusKey;
+  /** Actual frames made (Completed jobsheets only). */
+  completedFrames?: number | null;
 }
 
+/** Frames a jobsheet counts for in the coverage: the actual frames once Completed, otherwise the assigned frames. */
+export function effectiveFrames(j: Pick<AdjustJobsheet, 'frames' | 'status' | 'completedFrames'>): number {
+  return j.status === JOBSHEET_STATUS.COMPLETED && j.completedFrames !== null && j.completedFrames !== undefined
+    ? j.completedFrames
+    : j.frames;
+}
+
+/** Sum of the effective frames. */
+export function coverageFrames(list: Pick<AdjustJobsheet, 'frames' | 'status' | 'completedFrames'>[]): number {
+  return list.reduce((s, j) => s + effectiveFrames(j), 0);
+}
+
+const isPendingSheet = (j: AdjustJobsheet) => (j.status ?? JOBSHEET_STATUS.PENDING) === JOBSHEET_STATUS.PENDING;
+
 export interface AdjustInput {
-  /** All ACTIVE jobsheets of the order (any order). */
+  /** All ACTIVE jobsheets of the order (any order, any status). */
   jobsheets: AdjustJobsheet[];
   editedId: number;
   newFrames: number;
@@ -114,8 +134,9 @@ export interface AdjustPlan {
   created: { frames: number }[];
   /** Jobsheets to soft-delete. */
   removed: { id: number; jobsheetNo: number; frames: number }[];
+  /** The edited jobsheet is the last (or only) Pending one — nothing else changes. */
   editedIsLast: boolean;
-  /** Last active jobsheet before the edit. */
+  /** Highest-numbered Pending jobsheet before the edit (the one that absorbs the change). */
   last: AdjustJobsheet;
   totalFramesBefore: number;
   totalFramesAfter: number;
@@ -126,8 +147,11 @@ export function planFramesEdit({ jobsheets, editedId, newFrames, framesPerJobshe
   const sorted = [...jobsheets].sort((a, b) => a.jobsheetNo - b.jobsheetNo);
   const edited = sorted.find((j) => j.id === editedId);
   if (!edited) throw new RangeError('Jobsheet is not active');
-  const last = sorted[sorted.length - 1];
-  const totalFramesBefore = sorted.reduce((s, j) => s + j.frames, 0);
+  if (!isPendingSheet(edited)) throw new RangeError('Only Pending jobsheets can be edited');
+  // Sent / Ongoing / Completed jobsheets are never changed, split or removed.
+  const pending = sorted.filter(isPendingSheet);
+  const last = pending[pending.length - 1];
+  const totalFramesBefore = coverageFrames(sorted);
   const delta = newFrames - edited.frames;
   const editedIsLast = edited.id === last.id;
 
@@ -180,7 +204,7 @@ export interface Coverage {
   jobsheetPieces: number;
   /** `order.target_frames` */
   targetFrames: number;
-  /** Sum of the active jobsheets' frames. */
+  /** Sum of the active jobsheets' frames (actual frames for Completed ones — see `coverageFrames`). */
   totalFrames: number;
   jobsheetCount: number;
 }
@@ -236,4 +260,53 @@ export function jobsheetQuantityWarning(orderedPieces: number, jobsheetPieces: n
 export function remainingPieces(orderedPieces: number, jobsheetPieces: number): number | null {
   const left = Math.floor(orderedPieces - jobsheetPieces);
   return left > 0 ? left : null;
+}
+
+/* ------------------------------------------------------------------ */
+/* Change machine (supervisor)                                          */
+/* ------------------------------------------------------------------ */
+
+/** Upper end of the "Frames to make next" dropdown (the assigned frames are used when larger). */
+export const MAX_FRAMES_PICK = 100;
+
+/** Options of the "Frames to make next" dropdown: 1 … max(MAX_FRAMES_PICK, assigned). */
+export function nextFramesMax(assigned: number): number {
+  return Math.max(MAX_FRAMES_PICK, assigned);
+}
+
+/** Frames left after `completed` of `assigned` — at least 1, because a new jobsheet needs a frame. */
+export function remainingFrames(assigned: number, completed: number): number {
+  return Math.max(1, assigned - completed);
+}
+
+/**
+ * "Frames to make next" after "Frames completed" changes: follows the remaining frames until the user has
+ * picked a value themselves (`touched`).
+ */
+export function nextFramesAfterCompletedChange(p: {
+  assigned: number;
+  completed: number;
+  current: number;
+  touched: boolean;
+}): number {
+  return p.touched ? p.current : remainingFrames(p.assigned, p.completed);
+}
+
+/** Live summary line of the Change machine dialog. */
+export function changeMachineSummary(p: {
+  jobsheetNo: number;
+  completed: number;
+  next: number;
+  newMachineNo: number | null;
+}): string {
+  const fr = (n: number) => `${n} frame${n === 1 ? '' : 's'}`;
+  const target = p.newMachineNo !== null ? ` for Machine ${p.newMachineNo}` : '';
+  return `Jobsheet ${p.jobsheetNo} will be completed with ${fr(p.completed)}. A new jobsheet with ${fr(p.next)} will be created${target}.`;
+}
+
+/** "Assigned 10 — you're recording 8 (2 fewer)." or null when equal. */
+export function completedFramesNote(assigned: number, completed: number): string | null {
+  if (completed === assigned) return null;
+  const diff = Math.abs(assigned - completed);
+  return `Assigned ${assigned} — you're recording ${completed} (${diff} ${completed < assigned ? 'fewer' : 'more'}).`;
 }

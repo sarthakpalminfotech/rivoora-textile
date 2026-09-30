@@ -1,6 +1,15 @@
 import { sql } from 'drizzle-orm';
-import { index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
-import type { OrderStatusKey, RoleKey, Unit } from '@rivoora/shared';
+import {
+  index,
+  integer,
+  primaryKey,
+  real,
+  sqliteTable,
+  text,
+  uniqueIndex,
+  type AnySQLiteColumn,
+} from 'drizzle-orm/sqlite-core';
+import type { JobsheetEventKind, JobsheetStatusKey, OrderStatusKey, RoleKey, Unit } from '@rivoora/shared';
 
 const nowIso = sql`(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`;
 
@@ -189,14 +198,52 @@ export const jobsheets = sqliteTable(
     orderId: integer('order_id')
       .notNull()
       .references(() => orders.id),
+    /** Assigned frames. */
     frames: integer('frames').notNull(),
     picks: text('picks'),
     createdBy: text('created_by').$type<RoleKey>().notNull(),
+    /** pending → sent → ongoing → completed (see JOBSHEET_STATUSES in shared). */
+    status: text('status').$type<JobsheetStatusKey>().notNull().default('pending'),
+    sentAt: text('sent_at'),
+    startedAt: text('started_at'),
+    completedAt: text('completed_at'),
+    /** The machine it was started on. */
+    runningMachineId: integer('running_machine_id').references(() => machines.id),
+    /** Actual frames made (set on Complete / Change machine). */
+    completedFrames: integer('completed_frames'),
+    /** Set on the new jobsheet created by Change machine. */
+    parentJobsheetId: integer('parent_jobsheet_id').references((): AnySQLiteColumn => jobsheets.id),
+    /** Machine chosen in Change machine — pre-selected at Start. */
+    suggestedMachineId: integer('suggested_machine_id').references(() => machines.id),
     isDeleted: isDeleted(),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
-  (t) => [uniqueIndex('jobsheets_jobsheet_no_unique').on(t.jobsheetNo), index('jobsheets_order_idx').on(t.orderId)],
+  (t) => [
+    uniqueIndex('jobsheets_jobsheet_no_unique').on(t.jobsheetNo),
+    index('jobsheets_order_idx').on(t.orderId),
+    index('jobsheets_status_idx').on(t.status),
+    index('jobsheets_running_machine_idx').on(t.runningMachineId),
+  ],
+);
+
+/** Activity timeline of a jobsheet. One row per action. */
+export const jobsheetEvents = sqliteTable(
+  'jobsheet_events',
+  {
+    id: id(),
+    jobsheetId: integer('jobsheet_id')
+      .notNull()
+      .references(() => jobsheets.id, { onDelete: 'cascade' }),
+    event: text('event').$type<JobsheetEventKind>().notNull(),
+    machineId: integer('machine_id').references(() => machines.id),
+    frames: integer('frames'),
+    note: text('note'),
+    role: text('role').$type<RoleKey>().notNull(),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index('jobsheet_events_jobsheet_idx').on(t.jobsheetId)],
 );
 
 export const jobsheetMachines = sqliteTable(

@@ -25,7 +25,8 @@ type FormValues = z.infer<typeof schema>;
 
 /** Human-readable "What will change" lines + coverage warnings for a frames edit (shared calculation). */
 export function describeFramesEdit(js: JobsheetDetail, newFrames: number | null) {
-  if (newFrames === null || newFrames === js.frames) return null;
+  if (newFrames === null || newFrames === js.frames || !js.order || !js.coverage) return null;
+  // Only Pending jobsheets are adjusted; the last PENDING one absorbs the change.
   const plan = planFramesEdit({
     jobsheets: js.siblings,
     editedId: js.id,
@@ -34,7 +35,7 @@ export function describeFramesEdit(js: JobsheetDetail, newFrames: number | null)
   });
   const lastId = plan.last.id;
   const lines = [
-    ...plan.updated.map((u) => `Jobsheet ${u.jobsheetNo}${u.id === lastId ? ' (last)' : ''}: ${u.from} → ${u.to} frames`),
+    ...plan.updated.map((u) => `Jobsheet ${u.jobsheetNo}${u.id === lastId && !u.edited ? ' (last pending)' : ''}: ${u.from} → ${u.to} frames`),
     ...plan.created.map((c) => `New jobsheet will be created with ${c.frames} frame${c.frames === 1 ? '' : 's'}`),
     ...plan.removed.map((r) => `Jobsheet ${r.jobsheetNo} will be removed`),
   ];
@@ -136,7 +137,7 @@ function EditForm({ js, onDone, formId, update }: { js: JobsheetDetail; onDone: 
             ))}
           </ul>
           <p className="mt-2 text-sm text-slate-500">
-            Frames in jobsheets after saving: {preview.totalAfter} (needed: {js.order.targetFrames})
+            Frames in jobsheets after saving: {preview.totalAfter} (needed: {js.order?.targetFrames ?? 0})
           </p>
           <WarningList messages={preview.warnings} className="mt-3" />
         </section>
@@ -150,7 +151,7 @@ export function EditJobsheetDialog({ jobsheetId, onOpenChange }: { jobsheetId: n
   const open = jobsheetId !== null;
   const q = useJobsheet(jobsheetId ?? 0);
   const js = q.data;
-  const update = useUpdateJobsheet(js?.id ?? 0, js?.order.id ?? 0);
+  const update = useUpdateJobsheet(js?.id ?? 0, js?.order?.id ?? 0);
   const formId = 'jobsheet-edit-form';
   const ready = js && js.id === jobsheetId ? js : null;
 

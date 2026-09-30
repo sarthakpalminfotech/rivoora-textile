@@ -233,7 +233,7 @@ export default function OrdersPage() {
           ) : (
             <EmptyState
               icon={ClipboardList}
-              title="No orders ready for production yet"
+              title="No orders pending for jobsheets yet"
               description="Orders appear here once they are sent for production."
             />
           )}
@@ -357,7 +357,7 @@ export default function OrdersPage() {
         open={confirmOpen}
         onOpenChange={setConfirmOpen}
         title={`Send ${count} order${count === 1 ? '' : 's'} for production?`}
-        description="They will move to Ready for production and become visible to the production team."
+        description="They will move to Jobsheet pending and become visible to the production team."
         confirmLabel="Confirm"
         loading={send.isPending}
         onConfirm={confirmSend}

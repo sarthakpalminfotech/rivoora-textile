@@ -10,6 +10,8 @@ import {
 } from '../services/materials';
 
 export const materialsRouter = Router();
+// Masters are hidden from roles without master access (the supervisor).
+materialsRouter.use(requirePermission('canViewMasters'));
 const manage = requirePermission('canManageMasters');
 
 materialsRouter.get(

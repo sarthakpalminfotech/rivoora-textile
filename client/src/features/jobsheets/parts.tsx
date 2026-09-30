@@ -1,7 +1,7 @@
 import { AlertTriangle, X } from 'lucide-react';
 import { useMemo, type ReactNode } from 'react';
 import { z } from 'zod';
-import type { JobsheetMachine } from '@rivoora/shared';
+import { JOBSHEET_STATUS, type JobsheetMachine } from '@rivoora/shared';
 import { MultiSelect, type SelectOption } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
 import { useMachineLookup } from '../masters/api';
@@ -29,6 +29,44 @@ export function machineNumbers(machines: Pick<JobsheetMachine, 'machineNo'>[]): 
 
 export function machineLabel(m: { machineNo: number; name: string | null }) {
   return m.name ? `Machine ${m.machineNo} · ${m.name}` : `Machine ${m.machineNo}`;
+}
+
+/**
+ * Frames of a jobsheet: "10" — or "8/10" (actual/assigned) once Completed, in amber when fewer frames were made.
+ * `withUnit` appends "frames".
+ */
+export function FramesValue({
+  status,
+  frames,
+  completedFrames,
+  withUnit,
+  className,
+}: {
+  status: string;
+  frames: number;
+  completedFrames: number | null;
+  withUnit?: boolean;
+  className?: string;
+}) {
+  const unit = withUnit ? ` frame${frames === 1 ? '' : 's'}` : '';
+  if (status !== JOBSHEET_STATUS.COMPLETED || completedFrames === null) {
+    return (
+      <span className={className}>
+        {frames}
+        {unit}
+      </span>
+    );
+  }
+  const short = completedFrames < frames;
+  return (
+    <span
+      className={cn(short && 'text-amber-600', className)}
+      title={short ? `${frames - completedFrames} fewer than assigned` : undefined}
+    >
+      {completedFrames}/{frames}
+      {unit}
+    </span>
+  );
 }
 
 /** Amber, non-blocking warnings. */

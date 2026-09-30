@@ -79,7 +79,7 @@ export function ProfileMenu({ compact }: { compact?: boolean }) {
             if (!isRoleKey(v) || v === role) return;
             setRole(v);
             toast.success(`Switched to ${ROLES[v].name} — ${ROLES[v].title}`);
-            navigate('/orders');
+            navigate(ROLES[v].landing);
           }}
         >
           {ROLE_KEYS.map((key) => (

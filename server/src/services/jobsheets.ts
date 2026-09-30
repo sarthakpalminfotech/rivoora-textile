@@ -1,27 +1,48 @@
-import { and, asc, eq, inArray, sql } from 'drizzle-orm';
+import { and, asc, count, eq, inArray, or, sql, type SQL } from 'drizzle-orm';
+import { alias } from 'drizzle-orm/sqlite-core';
 import {
+  can,
+  canRoleSeeJobsheetStatus,
   canRoleSeeStatus,
+  coverageFrames,
   coverageWarnings,
   isReadyOrLater,
+  JOBSHEET_STATUS,
+  jobsheetChangeMachineSchema,
+  jobsheetCompleteSchema,
   jobsheetGenerateSchema,
+  jobsheetSendSchema,
   jobsheetSingleSchema,
+  jobsheetStartSchema,
+  jobsheetStatusesForRole,
   jobsheetUpdateSchema,
   MAX_JOBSHEETS_PER_RUN,
+  normalizeCode,
+  orderStatusForJobsheets,
   planFramesEdit,
   planJobsheets,
-  STATUS,
   type Coverage,
+  type JobsheetActionResult,
+  type JobsheetChangeMachineResult,
   type JobsheetCreateResult,
   type JobsheetDeleteResult,
   type JobsheetDetail,
+  type JobsheetEventKind,
   type JobsheetListItem,
+  type JobsheetListQuery,
   type JobsheetMachine,
   type JobsheetPrintItem,
   type JobsheetRef,
+  type JobsheetSendResult,
+  type JobsheetStatusKey,
+  type JobsheetTabCounts,
   type JobsheetUpdateResult,
+  type MachineRef,
   type OrderJobsheets,
   type OrderStatusKey,
   type RoleKey,
+  type SupervisorJobsheetItem,
+  type SupervisorJobsheetPage,
   type Unit,
 } from '@rivoora/shared';
 import { db, type DbOrTx, type Tx } from '../db/client';
@@ -30,6 +51,7 @@ import {
   customers,
   designVariations,
   designs,
+  jobsheetEvents,
   jobsheetMachines,
   jobsheets,
   machines,
@@ -38,8 +60,19 @@ import {
   orders,
 } from '../db/schema';
 import { badRequest, conflict, notFound } from '../lib/errors';
+import { likePattern } from '../lib/http';
 
 const JOBSHEET_COUNTER = 'jobsheet_no';
+const now = () => new Date().toISOString();
+
+/** The machine a jobsheet runs on (second join of `machines`). */
+const runningMachine = alias(machines, 'running_machine');
+
+/**
+ * Roles without order access (the supervisor) get the restricted jobsheet view: no Pending jobsheets,
+ * no client / order details — only the order number.
+ */
+const isRestricted = (role: RoleKey) => !can(role, 'canViewOrders');
 
 /* ------------------------------------------------------------------ */
 /* helpers                                                              */
@@ -79,7 +112,7 @@ function assertJobsheetsAllowed(order: OrderPlanRow) {
     throw conflict('Jobsheets are only available for orders in pcs for now (kg / g / meter orders are coming soon).');
   }
   if (!isReadyOrLater(order.status)) {
-    throw conflict('Jobsheets can only be created once the order is Ready for production.');
+    throw conflict('Jobsheets can only be created once the order has been sent for production.');
   }
 }
 
@@ -110,6 +143,40 @@ async function allocateJobsheetNumbers(tx: Tx, n: number): Promise<number[]> {
   return Array.from({ length: n }, (_, i) => first + i);
 }
 
+interface EventInput {
+  jobsheetId: number;
+  event: JobsheetEventKind;
+  machineId?: number | null;
+  frames?: number | null;
+  note?: string | null;
+}
+
+async function writeEvents(tx: Tx, role: RoleKey, events: EventInput[]) {
+  if (events.length === 0) return;
+  const at = now();
+  await tx.insert(jobsheetEvents).values(
+    events.map((e) => ({
+      jobsheetId: e.jobsheetId,
+      event: e.event,
+      machineId: e.machineId ?? null,
+      frames: e.frames ?? null,
+      note: e.note ?? null,
+      role,
+      createdAt: at,
+      updatedAt: at,
+    })),
+  );
+}
+
+interface InsertOptions {
+  /** Default Pending. `sent` also writes a "sent" event. */
+  status?: JobsheetStatusKey;
+  parentJobsheetId?: number;
+  suggestedMachineId?: number;
+  /** Note on the "created" event. */
+  note?: string;
+}
+
 async function insertJobsheets(
   tx: Tx,
   role: RoleKey,
@@ -117,18 +184,41 @@ async function insertJobsheets(
   frames: number[],
   picks: string | null,
   machineIds: number[],
+  opts: InsertOptions = {},
 ): Promise<JobsheetRef[]> {
   if (frames.length === 0) return [];
   const numbers = await allocateJobsheetNumbers(tx, frames.length);
+  const status = opts.status ?? JOBSHEET_STATUS.PENDING;
+  const sentAt = status === JOBSHEET_STATUS.SENT ? now() : null;
   const created = await tx
     .insert(jobsheets)
-    .values(frames.map((f, i) => ({ jobsheetNo: numbers[i], orderId, frames: f, picks, createdBy: role })))
+    .values(
+      frames.map((f, i) => ({
+        jobsheetNo: numbers[i],
+        orderId,
+        frames: f,
+        picks,
+        createdBy: role,
+        status,
+        sentAt,
+        parentJobsheetId: opts.parentJobsheetId ?? null,
+        suggestedMachineId: opts.suggestedMachineId ?? null,
+      })),
+    )
     .returning({ id: jobsheets.id, jobsheetNo: jobsheets.jobsheetNo, frames: jobsheets.frames });
   if (machineIds.length) {
     await tx
       .insert(jobsheetMachines)
       .values(created.flatMap((j) => machineIds.map((machineId) => ({ jobsheetId: j.id, machineId }))));
   }
+  await writeEvents(
+    tx,
+    role,
+    created.flatMap((j) => [
+      { jobsheetId: j.id, event: 'created' as const, frames: j.frames, note: opts.note },
+      ...(status === JOBSHEET_STATUS.SENT ? [{ jobsheetId: j.id, event: 'sent' as const }] : []),
+    ]),
+  );
   return created.sort((a, b) => a.jobsheetNo - b.jobsheetNo);
 }
 
@@ -139,26 +229,52 @@ async function writeStatus(tx: Tx, role: RoleKey, orderId: number, from: OrderSt
     .where(and(eq(orders.id, orderId), eq(orders.status, from)))
     .returning({ id: orders.id });
   if (updated.length) {
-    await tx.insert(orderStatusHistory).values({ orderId, fromStatus: from, toStatus: to, role, changedAt: new Date().toISOString() });
+    await tx.insert(orderStatusHistory).values({ orderId, fromStatus: from, toStatus: to, role, changedAt: now() });
   }
   return updated.length > 0;
 }
 
+/**
+ * Moves the order to the status that follows from its active jobsheets (see `orderStatusForJobsheets`).
+ * Call at the end of EVERY jobsheet write, inside the same transaction. History is only written when the status
+ * actually changes, and an order that is still Pending for production is never moved.
+ */
+export async function recomputeOrderStatus(orderId: number, role: RoleKey, tx: Tx): Promise<boolean> {
+  const [order] = await tx.select({ status: orders.status }).from(orders).where(eq(orders.id, orderId));
+  if (!order || !isReadyOrLater(order.status)) return false;
+  const rows = await tx
+    .select({ status: jobsheets.status })
+    .from(jobsheets)
+    .where(and(eq(jobsheets.orderId, orderId), eq(jobsheets.isDeleted, false)));
+  const next = orderStatusForJobsheets(rows.map((r) => r.status));
+  if (next === order.status) return false;
+  return writeStatus(tx, role, orderId, order.status, next);
+}
+
 async function activeJobsheets(tx: DbOrTx, orderId: number) {
   return tx
-    .select({ id: jobsheets.id, jobsheetNo: jobsheets.jobsheetNo, frames: jobsheets.frames, picks: jobsheets.picks })
+    .select({
+      id: jobsheets.id,
+      jobsheetNo: jobsheets.jobsheetNo,
+      frames: jobsheets.frames,
+      picks: jobsheets.picks,
+      status: jobsheets.status,
+      completedFrames: jobsheets.completedFrames,
+    })
     .from(jobsheets)
     .where(and(eq(jobsheets.orderId, orderId), eq(jobsheets.isDeleted, false)))
     .orderBy(asc(jobsheets.jobsheetNo));
 }
 
-function coverageOf(order: Pick<OrderPlanRow, 'quantity' | 'jobsheetPieces' | 'targetFrames'>, frames: number[]): Coverage {
+type CoverageSheet = Parameters<typeof coverageFrames>[0][number];
+
+function coverageOf(order: Pick<OrderPlanRow, 'quantity' | 'jobsheetPieces' | 'targetFrames'>, list: CoverageSheet[]): Coverage {
   return {
     orderedPieces: order.quantity,
     jobsheetPieces: order.jobsheetPieces,
     targetFrames: order.targetFrames,
-    totalFrames: frames.reduce((s, f) => s + f, 0),
-    jobsheetCount: frames.length,
+    totalFrames: coverageFrames(list),
+    jobsheetCount: list.length,
   };
 }
 
@@ -177,6 +293,41 @@ const machineColumns = {
   jobsheetId: jobsheetMachines.jobsheetId,
   machine: { id: machines.id, machineNo: machines.machineNo, name: machines.name, isActive: machines.isActive },
 };
+
+const runningMachineColumns = {
+  runningMachineId: runningMachine.id,
+  runningMachineNo: runningMachine.machineNo,
+  runningMachineName: runningMachine.name,
+};
+
+function toMachineRef(r: { runningMachineId: number | null; runningMachineNo: number | null; runningMachineName: string | null }): MachineRef | null {
+  return r.runningMachineId !== null && r.runningMachineNo !== null
+    ? { id: r.runningMachineId, machineNo: r.runningMachineNo, name: r.runningMachineName }
+    : null;
+}
+
+/** Number of the jobsheet this one continues (outer column written explicitly — see the Drizzle gotcha). */
+const parentJobsheetNo = sql<number | null>`(SELECT p.jobsheet_no FROM jobsheets p WHERE p.id = "jobsheets"."parent_jobsheet_id")`;
+
+/** Machines of a jobsheet as a JSON array (one query for a whole list page). */
+const machinesJson = sql<string | null>`(SELECT json_group_array(json_object('id', m.id, 'machineNo', m.machine_no, 'name', m.name, 'isActive', m.is_active)) FROM jobsheet_machines jm JOIN machines m ON m.id = jm.machine_id WHERE jm.jobsheet_id = "jobsheets"."id")`;
+
+function parseMachinesJson(raw: string | null): JobsheetMachine[] {
+  if (!raw) return [];
+  const list = JSON.parse(raw) as { id: number; machineNo: number; name: string | null; isActive: number | boolean }[];
+  return list
+    .filter((m) => m.id !== null)
+    .map((m) => ({ id: m.id, machineNo: m.machineNo, name: m.name, isActive: Boolean(m.isActive) }))
+    .sort((a, b) => a.machineNo - b.machineNo);
+}
+
+/** 409 unless the jobsheet is Pending (only Pending jobsheets can be edited or deleted). */
+function assertPending(status: JobsheetStatusKey) {
+  if (status === JOBSHEET_STATUS.SENT) throw conflict('This jobsheet is with the supervisor. Pull it back from the supervisor first.');
+  if (status !== JOBSHEET_STATUS.PENDING) {
+    throw conflict('This jobsheet is already in production and can no longer be changed.');
+  }
+}
 
 /* ------------------------------------------------------------------ */
 /* create                                                               */
@@ -207,9 +358,7 @@ export async function generateJobsheets(role: RoleKey, orderId: number, input: u
         framesPerJobsheet: data.framesPerJobsheet,
       })
       .where(eq(orders.id, orderId));
-    const statusChanged =
-      order.status === STATUS.READY_PRODUCTION &&
-      (await writeStatus(tx, role, orderId, STATUS.READY_PRODUCTION, STATUS.JOBSHEET_CREATED));
+    const statusChanged = await recomputeOrderStatus(orderId, role, tx);
     return { created, statusChanged };
   });
 }
@@ -229,9 +378,7 @@ export async function addSingleJobsheet(role: RoleKey, orderId: number, input: u
         targetFrames: sql`${orders.targetFrames} + ${data.frames}`,
       })
       .where(eq(orders.id, orderId));
-    const statusChanged =
-      order.status === STATUS.READY_PRODUCTION &&
-      (await writeStatus(tx, role, orderId, STATUS.READY_PRODUCTION, STATUS.JOBSHEET_CREATED));
+    const statusChanged = await recomputeOrderStatus(orderId, role, tx);
     return { created, statusChanged };
   });
 }
@@ -247,9 +394,16 @@ export async function listOrderJobsheets(role: RoleKey, orderId: number): Promis
       .select({
         id: jobsheets.id,
         jobsheetNo: jobsheets.jobsheetNo,
+        status: jobsheets.status,
         frames: jobsheets.frames,
+        completedFrames: jobsheets.completedFrames,
         picks: jobsheets.picks,
+        sentAt: jobsheets.sentAt,
+        startedAt: jobsheets.startedAt,
+        completedAt: jobsheets.completedAt,
         createdAt: jobsheets.createdAt,
+        parentJobsheetNo,
+        ...runningMachineColumns,
         machineId: machines.id,
         machineNo: machines.machineNo,
         machineName: machines.name,
@@ -258,6 +412,7 @@ export async function listOrderJobsheets(role: RoleKey, orderId: number): Promis
       .from(jobsheets)
       .leftJoin(jobsheetMachines, eq(jobsheetMachines.jobsheetId, jobsheets.id))
       .leftJoin(machines, eq(machines.id, jobsheetMachines.machineId))
+      .leftJoin(runningMachine, eq(runningMachine.id, jobsheets.runningMachineId))
       .where(and(eq(jobsheets.orderId, orderId), eq(jobsheets.isDeleted, false)))
       .orderBy(asc(jobsheets.jobsheetNo), asc(machines.machineNo)),
   ]);
@@ -268,14 +423,28 @@ export async function listOrderJobsheets(role: RoleKey, orderId: number): Promis
   for (const r of rows) {
     let item = list[list.length - 1];
     if (!item || item.id !== r.id) {
-      item = { id: r.id, jobsheetNo: r.jobsheetNo, frames: r.frames, picks: r.picks, createdAt: r.createdAt, machines: [] };
+      item = {
+        id: r.id,
+        jobsheetNo: r.jobsheetNo,
+        status: r.status,
+        frames: r.frames,
+        completedFrames: r.completedFrames,
+        picks: r.picks,
+        machines: [],
+        runningMachine: toMachineRef(r),
+        parentJobsheetNo: r.parentJobsheetNo,
+        sentAt: r.sentAt,
+        startedAt: r.startedAt,
+        completedAt: r.completedAt,
+        createdAt: r.createdAt,
+      };
       list.push(item);
     }
     if (r.machineId !== null && r.machineNo !== null) {
       item.machines.push({ id: r.machineId, machineNo: r.machineNo, name: r.machineName, isActive: r.machineActive ?? true });
     }
   }
-  const coverage = coverageOf(order, list.map((j) => j.frames));
+  const coverage = coverageOf(order, list);
   return {
     orderId: order.id,
     orderNo: order.orderNo,
@@ -283,32 +452,39 @@ export async function listOrderJobsheets(role: RoleKey, orderId: number): Promis
     status: order.status,
     framesPerJobsheet: order.framesPerJobsheet,
     jobsheets: list,
+    completedCount: list.filter((j) => j.status === JOBSHEET_STATUS.COMPLETED).length,
     coverage,
     warnings: coverageWarnings(coverage),
   };
 }
 
 export async function getJobsheet(role: RoleKey, id: number): Promise<JobsheetDetail> {
-  const [rows, machineRows, siblings] = await db.batch([
+  const [rows, machineRows, siblings, events, children] = await db.batch([
     db
       .select({
         id: jobsheets.id,
         jobsheetNo: jobsheets.jobsheetNo,
+        status: jobsheets.status,
         frames: jobsheets.frames,
+        completedFrames: jobsheets.completedFrames,
         picks: jobsheets.picks,
         createdBy: jobsheets.createdBy,
         isDeleted: jobsheets.isDeleted,
         createdAt: jobsheets.createdAt,
         updatedAt: jobsheets.updatedAt,
+        sentAt: jobsheets.sentAt,
+        startedAt: jobsheets.startedAt,
+        completedAt: jobsheets.completedAt,
+        suggestedMachineId: jobsheets.suggestedMachineId,
+        parentJobsheetId: jobsheets.parentJobsheetId,
+        parentJobsheetNo,
+        ...runningMachineColumns,
         order: orderPlanColumns,
         customer: { id: customers.id, name: customers.name, city: customers.city },
         material: { id: materials.id, name: materials.name, code: materials.code },
-        designId: designs.id,
         designCode: designs.code,
-        designName: designs.name,
         designImageUrl: designs.imageUrl,
         designThumbUrl: designs.thumbUrl,
-        variationId: designVariations.id,
         variationCode: designVariations.code,
         variationImageUrl: designVariations.imageUrl,
         variationThumbUrl: designVariations.thumbUrl,
@@ -319,6 +495,7 @@ export async function getJobsheet(role: RoleKey, id: number): Promise<JobsheetDe
       .innerJoin(materials, eq(materials.id, orders.materialId))
       .leftJoin(designs, eq(designs.id, orders.designId))
       .leftJoin(designVariations, eq(designVariations.id, orders.variationId))
+      .leftJoin(runningMachine, eq(runningMachine.id, jobsheets.runningMachineId))
       .where(eq(jobsheets.id, id)),
     db
       .select(machineColumns)
@@ -327,7 +504,13 @@ export async function getJobsheet(role: RoleKey, id: number): Promise<JobsheetDe
       .where(eq(jobsheetMachines.jobsheetId, id))
       .orderBy(asc(machines.machineNo)),
     db
-      .select({ id: jobsheets.id, jobsheetNo: jobsheets.jobsheetNo, frames: jobsheets.frames })
+      .select({
+        id: jobsheets.id,
+        jobsheetNo: jobsheets.jobsheetNo,
+        frames: jobsheets.frames,
+        status: jobsheets.status,
+        completedFrames: jobsheets.completedFrames,
+      })
       .from(jobsheets)
       .where(
         and(
@@ -337,36 +520,67 @@ export async function getJobsheet(role: RoleKey, id: number): Promise<JobsheetDe
         ),
       )
       .orderBy(asc(jobsheets.jobsheetNo)),
+    db
+      .select({
+        id: jobsheetEvents.id,
+        event: jobsheetEvents.event,
+        machineNo: machines.machineNo,
+        frames: jobsheetEvents.frames,
+        note: jobsheetEvents.note,
+        role: jobsheetEvents.role,
+        createdAt: jobsheetEvents.createdAt,
+      })
+      .from(jobsheetEvents)
+      .leftJoin(machines, eq(machines.id, jobsheetEvents.machineId))
+      .where(eq(jobsheetEvents.jobsheetId, id))
+      .orderBy(asc(jobsheetEvents.createdAt), asc(jobsheetEvents.id)),
+    db
+      .select({ id: jobsheets.id, jobsheetNo: jobsheets.jobsheetNo })
+      .from(jobsheets)
+      .where(and(eq(jobsheets.parentJobsheetId, id), eq(jobsheets.isDeleted, false)))
+      .orderBy(asc(jobsheets.jobsheetNo)),
   ]);
 
   const r = rows[0];
-  if (!r || r.isDeleted || !canRoleSeeStatus(role, r.order.status)) throw notFound('Jobsheet');
-  const coverage = coverageOf(r.order, siblings.map((s) => s.frames));
+  if (!r || r.isDeleted || !canRoleSeeJobsheetStatus(role, r.status)) throw notFound('Jobsheet');
+  const restricted = isRestricted(role);
+  if (!restricted && !canRoleSeeStatus(role, r.order.status)) throw notFound('Jobsheet');
+
+  const code = r.variationCode ?? r.designCode;
+  const coverage = restricted ? null : coverageOf(r.order, siblings);
   return {
     id: r.id,
     jobsheetNo: r.jobsheetNo,
+    status: r.status,
     frames: r.frames,
+    completedFrames: r.completedFrames,
     picks: r.picks,
     createdBy: r.createdBy,
     createdAt: r.createdAt,
     updatedAt: r.updatedAt,
+    sentAt: r.sentAt,
+    startedAt: r.startedAt,
+    completedAt: r.completedAt,
     machines: machineRows.map((m) => m.machine),
-    order: {
-      ...r.order,
-      customer: r.customer,
-      material: r.material,
-      design:
-        r.designId !== null && r.designCode !== null
-          ? { id: r.designId, code: r.designCode, name: r.designName, imageUrl: r.designImageUrl, thumbUrl: r.designThumbUrl }
-          : null,
-      variation:
-        r.variationId !== null && r.variationCode !== null
-          ? { id: r.variationId, code: r.variationCode, imageUrl: r.variationImageUrl, thumbUrl: r.variationThumbUrl }
-          : null,
-    },
-    siblings,
+    runningMachine: toMachineRef(r),
+    suggestedMachineId: r.suggestedMachineId,
+    parent: r.parentJobsheetId !== null && r.parentJobsheetNo !== null ? { id: r.parentJobsheetId, jobsheetNo: r.parentJobsheetNo } : null,
+    // A restricted role can't open a child that is still Pending — none are (children are created as Sent).
+    children,
+    events,
+    orderNo: r.order.orderNo,
+    design: code
+      ? {
+          code,
+          baseCode: r.variationCode ? r.designCode : null,
+          imageUrl: r.variationCode ? r.variationImageUrl : r.designImageUrl,
+          thumbUrl: r.variationCode ? r.variationThumbUrl : r.designThumbUrl,
+        }
+      : null,
+    order: restricted ? null : { ...r.order, customer: r.customer, material: r.material },
+    siblings: restricted ? [] : siblings,
     coverage,
-    warnings: coverageWarnings(coverage),
+    warnings: coverage ? coverageWarnings(coverage) : [],
   };
 }
 
@@ -379,8 +593,9 @@ export async function printJobsheets(role: RoleKey, ids: number[]): Promise<Jobs
         jobsheetNo: jobsheets.jobsheetNo,
         frames: jobsheets.frames,
         picks: jobsheets.picks,
+        status: jobsheets.status,
         orderNo: orders.orderNo,
-        status: orders.status,
+        orderStatus: orders.status,
         jobsheetPieces: orders.jobsheetPieces,
         designCode: sql<string | null>`COALESCE(${designVariations.code}, ${designs.code})`,
         imageUrl: sql<string | null>`CASE WHEN ${designVariations.id} IS NOT NULL THEN ${designVariations.imageUrl} ELSE ${designs.imageUrl} END`,
@@ -398,7 +613,11 @@ export async function printJobsheets(role: RoleKey, ids: number[]): Promise<Jobs
       .orderBy(asc(machines.machineNo)),
   ]);
   const machinesById = groupMachines(machineRows);
-  const byId = new Map(rows.filter((r) => canRoleSeeStatus(role, r.status)).map((r) => [r.id, r]));
+  const restricted = isRestricted(role);
+  const visible = rows.filter(
+    (r) => canRoleSeeJobsheetStatus(role, r.status) && (restricted || canRoleSeeStatus(role, r.orderStatus)),
+  );
+  const byId = new Map(visible.map((r) => [r.id, r]));
   const items: JobsheetPrintItem[] = [];
   for (const id of ids) {
     const r = byId.get(id);
@@ -420,26 +639,153 @@ export async function printJobsheets(role: RoleKey, ids: number[]): Promise<Jobs
 }
 
 /* ------------------------------------------------------------------ */
+/* supervisor list (Jobsheets module)                                   */
+/* ------------------------------------------------------------------ */
+
+const TAB_STATUS: Record<Exclude<JobsheetListQuery['tab'], 'all'>, JobsheetStatusKey> = {
+  pending: JOBSHEET_STATUS.SENT,
+  ongoing: JOBSHEET_STATUS.ONGOING,
+  completed: JOBSHEET_STATUS.COMPLETED,
+};
+
+/**
+ * Pending (Sent) first, then Ongoing, then Completed. Pending and Ongoing by number (oldest first);
+ * Completed most recently completed first.
+ */
+const supervisorOrder = [
+  sql`CASE ${jobsheets.status} WHEN 'sent' THEN 0 WHEN 'ongoing' THEN 1 ELSE 2 END`,
+  sql`CASE WHEN ${jobsheets.status} = 'completed' THEN ${jobsheets.completedAt} END DESC`,
+  asc(jobsheets.jobsheetNo),
+];
+
+export async function listSupervisorJobsheets(role: RoleKey, q: JobsheetListQuery): Promise<SupervisorJobsheetPage> {
+  // Never Pending (not yet sent) — the visible set comes from the status config.
+  const visible = jobsheetStatusesForRole(role).filter((s) => s !== JOBSHEET_STATUS.PENDING);
+  const base: (SQL | undefined)[] = [eq(jobsheets.isDeleted, false), inArray(jobsheets.status, visible)];
+  if (q.search) {
+    const term = q.search.replace(/^(#|jobsheet\s*)/i, '').trim() || q.search;
+    const codeP = likePattern(normalizeCode(term));
+    const parts: (SQL | undefined)[] = [
+      sql`${designs.code} LIKE ${codeP} ESCAPE '\\'`,
+      sql`${designVariations.code} LIKE ${codeP} ESCAPE '\\'`,
+    ];
+    if (/^\d+$/.test(term)) {
+      parts.push(sql`CAST(${jobsheets.jobsheetNo} AS TEXT) LIKE ${likePattern(term, 'prefix')} ESCAPE '\\'`);
+    }
+    base.push(or(...parts));
+  }
+  const listWhere = and(...base, q.tab === 'all' ? undefined : eq(jobsheets.status, TAB_STATUS[q.tab]));
+
+  const [items, [{ total }], countRows] = await db.batch([
+    db
+      .select({
+        id: jobsheets.id,
+        jobsheetNo: jobsheets.jobsheetNo,
+        status: jobsheets.status,
+        frames: jobsheets.frames,
+        completedFrames: jobsheets.completedFrames,
+        picks: jobsheets.picks,
+        orderNo: orders.orderNo,
+        designCode: sql<string | null>`COALESCE(${designVariations.code}, ${designs.code})`,
+        thumbUrl: sql<string | null>`CASE WHEN ${designVariations.id} IS NOT NULL THEN ${designVariations.thumbUrl} ELSE ${designs.thumbUrl} END`,
+        imageUrl: sql<string | null>`CASE WHEN ${designVariations.id} IS NOT NULL THEN ${designVariations.imageUrl} ELSE ${designs.imageUrl} END`,
+        machinesJson,
+        ...runningMachineColumns,
+        suggestedMachineId: jobsheets.suggestedMachineId,
+        parentJobsheetNo,
+        startedAt: jobsheets.startedAt,
+        completedAt: jobsheets.completedAt,
+      })
+      .from(jobsheets)
+      .innerJoin(orders, eq(orders.id, jobsheets.orderId))
+      .leftJoin(designs, eq(designs.id, orders.designId))
+      .leftJoin(designVariations, eq(designVariations.id, orders.variationId))
+      .leftJoin(runningMachine, eq(runningMachine.id, jobsheets.runningMachineId))
+      .where(listWhere)
+      .orderBy(...supervisorOrder)
+      .limit(q.limit)
+      .offset((q.page - 1) * q.limit),
+    db
+      .select({ total: count() })
+      .from(jobsheets)
+      .innerJoin(orders, eq(orders.id, jobsheets.orderId))
+      .leftJoin(designs, eq(designs.id, orders.designId))
+      .leftJoin(designVariations, eq(designVariations.id, orders.variationId))
+      .where(listWhere),
+    db
+      .select({ status: jobsheets.status, n: count() })
+      .from(jobsheets)
+      .innerJoin(orders, eq(orders.id, jobsheets.orderId))
+      .leftJoin(designs, eq(designs.id, orders.designId))
+      .leftJoin(designVariations, eq(designVariations.id, orders.variationId))
+      .where(and(...base))
+      .groupBy(jobsheets.status),
+  ]);
+
+  const byStatus = new Map(countRows.map((c) => [c.status, c.n]));
+  const counts: JobsheetTabCounts = {
+    all: countRows.reduce((s, c) => s + c.n, 0),
+    pending: byStatus.get(JOBSHEET_STATUS.SENT) ?? 0,
+    ongoing: byStatus.get(JOBSHEET_STATUS.ONGOING) ?? 0,
+    completed: byStatus.get(JOBSHEET_STATUS.COMPLETED) ?? 0,
+  };
+  return {
+    items: items.map(
+      (r): SupervisorJobsheetItem => ({
+        id: r.id,
+        jobsheetNo: r.jobsheetNo,
+        status: r.status,
+        frames: r.frames,
+        completedFrames: r.completedFrames,
+        picks: r.picks,
+        orderNo: r.orderNo,
+        designCode: r.designCode,
+        thumbUrl: r.thumbUrl,
+        imageUrl: r.imageUrl,
+        machines: parseMachinesJson(r.machinesJson),
+        runningMachine: toMachineRef(r),
+        suggestedMachineId: r.suggestedMachineId,
+        parentJobsheetNo: r.parentJobsheetNo,
+        startedAt: r.startedAt,
+        completedAt: r.completedAt,
+      }),
+    ),
+    page: q.page,
+    limit: q.limit,
+    total,
+    hasMore: q.page * q.limit < total,
+    counts,
+  };
+}
+
+/* ------------------------------------------------------------------ */
 /* edit + auto-adjust (7.4)                                             */
 /* ------------------------------------------------------------------ */
 
 async function loadJobsheetForWrite(tx: Tx, role: RoleKey, id: number) {
   const [js] = await tx
-    .select({ id: jobsheets.id, orderId: jobsheets.orderId, isDeleted: jobsheets.isDeleted })
+    .select({
+      id: jobsheets.id,
+      jobsheetNo: jobsheets.jobsheetNo,
+      orderId: jobsheets.orderId,
+      status: jobsheets.status,
+      isDeleted: jobsheets.isDeleted,
+    })
     .from(jobsheets)
     .where(eq(jobsheets.id, id));
   if (!js || js.isDeleted) throw notFound('Jobsheet');
   const order = await loadVisibleOrder(tx, role, js.orderId).catch(() => {
     throw notFound('Jobsheet');
   });
-  return { orderId: js.orderId, order };
+  return { js, orderId: js.orderId, order };
 }
 
 export async function updateJobsheet(role: RoleKey, id: number, input: unknown): Promise<JobsheetUpdateResult> {
   const data = jobsheetUpdateSchema.parse(input);
 
   return db.transaction(async (tx) => {
-    const { orderId, order } = await loadJobsheetForWrite(tx, role, id);
+    const { js, orderId, order } = await loadJobsheetForWrite(tx, role, id);
+    assertPending(js.status);
     const active = await activeJobsheets(tx, orderId);
     const current = active.find((j) => j.id === id)!;
     const currentMachines = await tx
@@ -450,12 +796,14 @@ export async function updateJobsheet(role: RoleKey, id: number, input: unknown):
     // Machines that are already on this jobsheet may stay even if they are inactive now.
     await assertMachines(tx, data.machineIds, currentIds);
 
+    // Only Pending jobsheets are adjusted; the last PENDING one absorbs the change.
     const plan = planFramesEdit({
       jobsheets: active,
       editedId: id,
       newFrames: data.frames,
       framesPerJobsheet: order.framesPerJobsheet,
     });
+    const pendingIds = active.filter((j) => j.status === JOBSHEET_STATUS.PENDING).map((j) => j.id);
 
     // The edited jobsheet: frames + picks + machines.
     const sameMachines =
@@ -469,19 +817,26 @@ export async function updateJobsheet(role: RoleKey, id: number, input: unknown):
       await tx.insert(jobsheetMachines).values(data.machineIds.map((machineId) => ({ jobsheetId: id, machineId })));
     }
 
-    // Auto-adjust of the last jobsheet.
+    // Auto-adjust of the last Pending jobsheet — conditional on it still being Pending.
     for (const u of plan.updated) {
-      if (u.id !== id) await tx.update(jobsheets).set({ frames: u.to }).where(eq(jobsheets.id, u.id));
+      if (u.id === id) continue;
+      const done = await tx
+        .update(jobsheets)
+        .set({ frames: u.to })
+        .where(and(eq(jobsheets.id, u.id), eq(jobsheets.status, JOBSHEET_STATUS.PENDING)))
+        .returning({ id: jobsheets.id });
+      if (!done.length) throw conflict('Another jobsheet of this order was just sent. Refresh and try again.');
     }
     if (plan.removed.length) {
+      const removedIds = plan.removed.map((r) => r.id).filter((rid) => pendingIds.includes(rid));
       await tx
         .update(jobsheets)
         .set({ isDeleted: true })
-        .where(inArray(jobsheets.id, plan.removed.map((r) => r.id)));
+        .where(and(inArray(jobsheets.id, removedIds), eq(jobsheets.status, JOBSHEET_STATUS.PENDING)));
     }
     let created: JobsheetRef[] = [];
     if (plan.created.length) {
-      // New jobsheets copy the picks and machines of the last jobsheet (after this edit).
+      // New jobsheets copy the picks and machines of the last Pending jobsheet (after this edit).
       const last = plan.last;
       const lastPicks = last.id === id ? data.picks : (active.find((j) => j.id === last.id)?.picks ?? null);
       const lastMachines =
@@ -503,8 +858,9 @@ export async function updateJobsheet(role: RoleKey, id: number, input: unknown):
       );
     }
 
+    await recomputeOrderStatus(orderId, role, tx);
     const after = await activeJobsheets(tx, orderId);
-    const coverage = coverageOf(order, after.map((j) => j.frames));
+    const coverage = coverageOf(order, after);
     return {
       updated: plan.updated,
       created,
@@ -522,20 +878,24 @@ export async function updateJobsheet(role: RoleKey, id: number, input: unknown):
 
 export async function deleteJobsheet(role: RoleKey, id: number): Promise<JobsheetDeleteResult> {
   return db.transaction(async (tx) => {
-    const { orderId, order } = await loadJobsheetForWrite(tx, role, id);
-    await tx.update(jobsheets).set({ isDeleted: true }).where(eq(jobsheets.id, id));
+    const { js, orderId } = await loadJobsheetForWrite(tx, role, id);
+    assertPending(js.status);
+    const deleted = await tx
+      .update(jobsheets)
+      .set({ isDeleted: true })
+      .where(and(eq(jobsheets.id, id), eq(jobsheets.status, JOBSHEET_STATUS.PENDING)))
+      .returning({ id: jobsheets.id });
+    if (!deleted.length) throw conflict('This jobsheet was just sent to the supervisor. Refresh and try again.');
     const remaining = await activeJobsheets(tx, orderId);
-    if (remaining.length > 0) return { orderId, orderReset: false };
-
-    // That was the last one: reset the jobsheet plan and move the order back.
-    await tx
-      .update(orders)
-      .set({ jobsheetPieces: 0, targetFrames: 0, framesPerJobsheet: null })
-      .where(eq(orders.id, orderId));
-    if (order.status === STATUS.JOBSHEET_CREATED) {
-      await writeStatus(tx, role, orderId, STATUS.JOBSHEET_CREATED, STATUS.READY_PRODUCTION);
+    if (remaining.length === 0) {
+      // That was the last one: reset the jobsheet plan (the status moves back below).
+      await tx
+        .update(orders)
+        .set({ jobsheetPieces: 0, targetFrames: 0, framesPerJobsheet: null })
+        .where(eq(orders.id, orderId));
     }
-    return { orderId, orderReset: true };
+    await recomputeOrderStatus(orderId, role, tx);
+    return { orderId, orderReset: remaining.length === 0 };
   });
 }
 
@@ -547,3 +907,203 @@ export async function countActiveJobsheets(tx: DbOrTx, orderId: number): Promise
     .where(and(eq(jobsheets.orderId, orderId), eq(jobsheets.isDeleted, false)));
   return Number(row?.n ?? 0);
 }
+
+/* ------------------------------------------------------------------ */
+/* send to supervisor / pull back                                       */
+/* ------------------------------------------------------------------ */
+
+/** Pending → Sent for the given jobsheets of one order. Others are skipped; 409 if none were Pending. */
+export async function sendJobsheets(role: RoleKey, orderId: number, input: unknown): Promise<JobsheetSendResult> {
+  const { jobsheetIds } = jobsheetSendSchema.parse(input);
+  return db.transaction(async (tx) => {
+    await loadVisibleOrder(tx, role, orderId);
+    const updated = await tx
+      .update(jobsheets)
+      .set({ status: JOBSHEET_STATUS.SENT, sentAt: now() })
+      .where(
+        and(
+          inArray(jobsheets.id, jobsheetIds),
+          eq(jobsheets.orderId, orderId),
+          eq(jobsheets.isDeleted, false),
+          eq(jobsheets.status, JOBSHEET_STATUS.PENDING),
+        ),
+      )
+      .returning({ id: jobsheets.id });
+    if (updated.length === 0) {
+      throw conflict('None of the selected jobsheets are pending any more. Refresh and try again.');
+    }
+    await writeEvents(tx, role, updated.map((j) => ({ jobsheetId: j.id, event: 'sent' as const })));
+    await recomputeOrderStatus(orderId, role, tx);
+    return { updated: updated.length, jobsheetIds: updated.map((j) => j.id) };
+  });
+}
+
+/** Sent → Pending (only while the supervisor hasn't started it). */
+export async function pullBackJobsheet(role: RoleKey, id: number): Promise<JobsheetActionResult> {
+  return db.transaction(async (tx) => {
+    const { js, orderId } = await loadJobsheetForWrite(tx, role, id);
+    const updated = await tx
+      .update(jobsheets)
+      .set({ status: JOBSHEET_STATUS.PENDING, sentAt: null })
+      .where(and(eq(jobsheets.id, id), eq(jobsheets.status, JOBSHEET_STATUS.SENT)))
+      .returning({ id: jobsheets.id });
+    if (!updated.length) {
+      throw conflict(
+        js.status === JOBSHEET_STATUS.PENDING
+          ? 'This jobsheet has not been sent to the supervisor.'
+          : 'The supervisor has already started this jobsheet, so it can no longer be pulled back.',
+      );
+    }
+    await writeEvents(tx, role, [{ jobsheetId: id, event: 'pulled_back' }]);
+    await recomputeOrderStatus(orderId, role, tx);
+    return { id, jobsheetNo: js.jobsheetNo, status: JOBSHEET_STATUS.PENDING, machineNo: null };
+  });
+}
+
+/* ------------------------------------------------------------------ */
+/* supervisor: start / complete / change machine                        */
+/* ------------------------------------------------------------------ */
+
+/** A jobsheet the role may run: exists, not deleted, and its status is visible (never Pending for the supervisor). */
+async function loadJobsheetForRun(tx: Tx, role: RoleKey, id: number) {
+  const [js] = await tx
+    .select({
+      id: jobsheets.id,
+      jobsheetNo: jobsheets.jobsheetNo,
+      orderId: jobsheets.orderId,
+      status: jobsheets.status,
+      frames: jobsheets.frames,
+      picks: jobsheets.picks,
+      runningMachineId: jobsheets.runningMachineId,
+      isDeleted: jobsheets.isDeleted,
+    })
+    .from(jobsheets)
+    .where(eq(jobsheets.id, id));
+  if (!js || js.isDeleted || !canRoleSeeJobsheetStatus(role, js.status)) throw notFound('Jobsheet');
+  if (js.status === JOBSHEET_STATUS.PENDING) throw notFound('Jobsheet');
+  return js;
+}
+
+async function activeMachine(tx: Tx, machineId: number, field: string) {
+  const [m] = await tx
+    .select({ id: machines.id, machineNo: machines.machineNo, isActive: machines.isActive, isDeleted: machines.isDeleted })
+    .from(machines)
+    .where(eq(machines.id, machineId));
+  if (!m || m.isDeleted) throw conflict('This machine no longer exists. Refresh and pick again.', field);
+  if (!m.isActive) throw conflict(`Machine ${m.machineNo} is inactive. Pick an active machine.`, field);
+  return m;
+}
+
+/** Sent → Ongoing on one of the jobsheet's machines. */
+export async function startJobsheet(role: RoleKey, id: number, input: unknown): Promise<JobsheetActionResult> {
+  const { machineId } = jobsheetStartSchema.parse(input);
+  return db.transaction(async (tx) => {
+    const js = await loadJobsheetForRun(tx, role, id);
+    if (js.status !== JOBSHEET_STATUS.SENT) throw conflict(`Jobsheet ${js.jobsheetNo} has already been started.`);
+    const [assigned] = await tx
+      .select({ machineId: jobsheetMachines.machineId })
+      .from(jobsheetMachines)
+      .where(and(eq(jobsheetMachines.jobsheetId, id), eq(jobsheetMachines.machineId, machineId)));
+    if (!assigned) throw conflict('This machine is not assigned to this jobsheet.', 'machineId');
+    const machine = await activeMachine(tx, machineId, 'machineId');
+
+    const updated = await tx
+      .update(jobsheets)
+      .set({ status: JOBSHEET_STATUS.ONGOING, runningMachineId: machineId, startedAt: now() })
+      .where(and(eq(jobsheets.id, id), eq(jobsheets.status, JOBSHEET_STATUS.SENT)))
+      .returning({ id: jobsheets.id });
+    if (!updated.length) throw conflict(`Jobsheet ${js.jobsheetNo} has already been started.`);
+    await writeEvents(tx, role, [{ jobsheetId: id, event: 'started', machineId }]);
+    await recomputeOrderStatus(js.orderId, role, tx);
+    return { id, jobsheetNo: js.jobsheetNo, status: JOBSHEET_STATUS.ONGOING, machineNo: machine.machineNo };
+  });
+}
+
+/** Ongoing → Completed with the actual frames made. */
+export async function completeJobsheet(role: RoleKey, id: number, input: unknown): Promise<JobsheetActionResult> {
+  const { completedFrames } = jobsheetCompleteSchema.parse(input);
+  return db.transaction(async (tx) => {
+    const js = await loadJobsheetForRun(tx, role, id);
+    if (js.status !== JOBSHEET_STATUS.ONGOING) {
+      throw conflict(
+        js.status === JOBSHEET_STATUS.COMPLETED
+          ? `Jobsheet ${js.jobsheetNo} is already completed.`
+          : `Jobsheet ${js.jobsheetNo} hasn't been started yet.`,
+      );
+    }
+    const updated = await tx
+      .update(jobsheets)
+      .set({ status: JOBSHEET_STATUS.COMPLETED, completedFrames, completedAt: now() })
+      .where(and(eq(jobsheets.id, id), eq(jobsheets.status, JOBSHEET_STATUS.ONGOING)))
+      .returning({ id: jobsheets.id });
+    if (!updated.length) throw conflict(`Jobsheet ${js.jobsheetNo} is already completed.`);
+    await writeEvents(tx, role, [{ jobsheetId: id, event: 'completed', machineId: js.runningMachineId, frames: completedFrames }]);
+    await recomputeOrderStatus(js.orderId, role, tx);
+    const [m] = js.runningMachineId
+      ? await tx.select({ machineNo: machines.machineNo }).from(machines).where(eq(machines.id, js.runningMachineId))
+      : [];
+    return { id, jobsheetNo: js.jobsheetNo, status: JOBSHEET_STATUS.COMPLETED, machineNo: m?.machineNo ?? null };
+  });
+}
+
+/**
+ * Completes the running jobsheet with the frames made so far and creates a new Sent jobsheet for the rest,
+ * with the chosen machine pre-selected at Start. The order's jobsheet plan doesn't change.
+ */
+export async function changeMachine(role: RoleKey, id: number, input: unknown): Promise<JobsheetChangeMachineResult> {
+  const data = jobsheetChangeMachineSchema.parse(input);
+  return db.transaction(async (tx) => {
+    const js = await loadJobsheetForRun(tx, role, id);
+    if (js.status !== JOBSHEET_STATUS.ONGOING) {
+      throw conflict(`Jobsheet ${js.jobsheetNo} isn't running, so its machine can't be changed.`);
+    }
+    if (data.completedFrames > js.frames) {
+      throw badRequest(`Can't be more than the ${js.frames} frames assigned.`, 'completedFrames');
+    }
+    if (data.newMachineId === js.runningMachineId) throw badRequest('Pick a different machine.', 'newMachineId');
+    const newMachine = await activeMachine(tx, data.newMachineId, 'newMachineId');
+
+    const updated = await tx
+      .update(jobsheets)
+      .set({ status: JOBSHEET_STATUS.COMPLETED, completedFrames: data.completedFrames, completedAt: now() })
+      .where(and(eq(jobsheets.id, id), eq(jobsheets.status, JOBSHEET_STATUS.ONGOING)))
+      .returning({ id: jobsheets.id });
+    if (!updated.length) throw conflict(`Jobsheet ${js.jobsheetNo} was just completed. Refresh and try again.`);
+
+    // The new jobsheet may run on any active machine; the chosen one is pre-selected at Start.
+    const allActive = await tx
+      .select({ id: machines.id })
+      .from(machines)
+      .where(and(eq(machines.isDeleted, false), eq(machines.isActive, true)));
+    const [created] = await insertJobsheets(
+      tx,
+      role,
+      js.orderId,
+      [data.nextFrames],
+      js.picks,
+      allActive.map((m) => m.id),
+      {
+        status: JOBSHEET_STATUS.SENT,
+        parentJobsheetId: id,
+        suggestedMachineId: data.newMachineId,
+        note: `Continued from jobsheet ${js.jobsheetNo}`,
+      },
+    );
+    await writeEvents(tx, role, [
+      {
+        jobsheetId: id,
+        event: 'machine_changed',
+        machineId: js.runningMachineId,
+        frames: data.completedFrames,
+        note: `Continued as jobsheet ${created.jobsheetNo} on Machine ${newMachine.machineNo}`,
+      },
+    ]);
+    await recomputeOrderStatus(js.orderId, role, tx);
+    return {
+      completed: { id, jobsheetNo: js.jobsheetNo, frames: data.completedFrames },
+      created,
+      newMachineNo: newMachine.machineNo,
+    };
+  });
+}
+

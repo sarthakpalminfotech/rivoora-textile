@@ -4,10 +4,14 @@
  * To add a role: add its key to ROLE_KEYS, give it a config below and
  * add it to `visibleTo` of the statuses it may see (see statuses.ts).
  */
-export const ROLE_KEYS = ['jemish', 'gaurang'] as const;
+export const ROLE_KEYS = ['jemish', 'gaurang', 'supervisor'] as const;
 export type RoleKey = (typeof ROLE_KEYS)[number];
 
 export interface RolePermissions {
+  /** Orders module (list, details, order endpoints). */
+  canViewOrders: boolean;
+  /** Master data (customers, materials, designs, machine master) — read access. */
+  canViewMasters: boolean;
   /** Can see the rate of an order (details screen / add form only, never the list). */
   canSeeRate: boolean;
   canAddOrder: boolean;
@@ -15,10 +19,17 @@ export interface RolePermissions {
   canUndoProduction: boolean;
   /** Add / edit / delete customers, materials and designs. */
   canManageMasters: boolean;
-  /** Create, edit, delete and print jobsheets. */
+  /** Create, edit, delete, send to the supervisor and pull back jobsheets. */
   canManageJobsheets: boolean;
   /** Add / edit / delete machines (looms). */
   canManageMachines: boolean;
+  /** The supervisor's Jobsheets module (`/jobsheets`). */
+  canViewJobsheetsModule: boolean;
+  /** Start / complete / change machine on a jobsheet. */
+  canRunJobsheets: boolean;
+  canPrintJobsheets: boolean;
+  /** The machine floor board (`/machine-view`). */
+  canViewMachineView: boolean;
 }
 
 export interface RoleConfig {
@@ -26,6 +37,8 @@ export interface RoleConfig {
   name: string;
   title: string;
   initials: string;
+  /** Where `/` and a role switch land. */
+  landing: string;
   permissions: RolePermissions;
 }
 
@@ -35,7 +48,10 @@ export const ROLES: Record<RoleKey, RoleConfig> = {
     name: 'Jemish',
     title: 'Owner',
     initials: 'J',
+    landing: '/orders',
     permissions: {
+      canViewOrders: true,
+      canViewMasters: true,
       canSeeRate: true,
       canAddOrder: true,
       canSendToProduction: true,
@@ -43,6 +59,10 @@ export const ROLES: Record<RoleKey, RoleConfig> = {
       canManageMasters: true,
       canManageJobsheets: true,
       canManageMachines: true,
+      canViewJobsheetsModule: false,
+      canRunJobsheets: false,
+      canPrintJobsheets: true,
+      canViewMachineView: true,
     },
   },
   gaurang: {
@@ -50,7 +70,10 @@ export const ROLES: Record<RoleKey, RoleConfig> = {
     name: 'Gaurang',
     title: 'Partner',
     initials: 'G',
+    landing: '/orders',
     permissions: {
+      canViewOrders: true,
+      canViewMasters: true,
       canSeeRate: true,
       canAddOrder: false,
       canSendToProduction: false,
@@ -58,6 +81,32 @@ export const ROLES: Record<RoleKey, RoleConfig> = {
       canManageMasters: false,
       canManageJobsheets: true,
       canManageMachines: true,
+      canViewJobsheetsModule: false,
+      canRunJobsheets: false,
+      canPrintJobsheets: true,
+      canViewMachineView: true,
+    },
+  },
+  supervisor: {
+    key: 'supervisor',
+    name: 'Supervisor',
+    title: 'Production',
+    initials: 'S',
+    landing: '/jobsheets',
+    permissions: {
+      canViewOrders: false,
+      canViewMasters: false,
+      canSeeRate: false,
+      canAddOrder: false,
+      canSendToProduction: false,
+      canUndoProduction: false,
+      canManageMasters: false,
+      canManageJobsheets: false,
+      canManageMachines: false,
+      canViewJobsheetsModule: true,
+      canRunJobsheets: true,
+      canPrintJobsheets: true,
+      canViewMachineView: true,
     },
   },
 };
@@ -71,4 +120,8 @@ export function isRoleKey(value: unknown): value is RoleKey {
 
 export function can(role: RoleKey, permission: keyof RolePermissions): boolean {
   return ROLES[role].permissions[permission];
+}
+
+export function landingRoute(role: RoleKey): string {
+  return ROLES[role].landing;
 }

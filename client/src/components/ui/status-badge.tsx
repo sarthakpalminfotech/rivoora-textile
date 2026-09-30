@@ -1,8 +1,12 @@
-import { getJobsheetStatus } from '@rivoora/shared';
+import { getJobsheetStatus, jobsheetStatusLabel } from '@rivoora/shared';
 import { getStatus } from '@/config/statuses';
+import { useRole } from '@/hooks/useRole';
 import { cn } from '@/lib/utils';
 
-/** Status pill; colours and label come from the status config (order statuses by default). */
+/**
+ * Status pill; colours and label come from the status config (order statuses by default).
+ * Jobsheet labels depend on the role (the supervisor sees "Sent" as "Pending").
+ */
 export function StatusBadge({
   status,
   kind = 'order',
@@ -12,7 +16,9 @@ export function StatusBadge({
   kind?: 'order' | 'jobsheet';
   className?: string;
 }) {
+  const { role } = useRole();
   const s = kind === 'jobsheet' ? getJobsheetStatus(status) : getStatus(status);
+  const label = kind === 'jobsheet' ? jobsheetStatusLabel(status, role) : s.label;
   return (
     <span
       className={cn(
@@ -22,7 +28,7 @@ export function StatusBadge({
       style={{ backgroundColor: s.badge.bg, color: s.badge.text }}
     >
       <span className="size-1.5 shrink-0 rounded-full" style={{ backgroundColor: s.badge.dot }} aria-hidden />
-      <span className="truncate">{s.label}</span>
+      <span className="truncate">{label}</span>
     </span>
   );
 }

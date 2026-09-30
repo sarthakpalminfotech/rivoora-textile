@@ -1,7 +1,8 @@
 import type { RoleKey } from './roles';
-import type { OrderStatusKey } from './statuses';
+import type { JobsheetStatusKey, OrderStatusKey } from './statuses';
 import type { Unit } from './units';
 import type { Coverage, CoverageWarning } from './jobsheets';
+import type { JobsheetTab } from './schemas';
 
 export interface ApiErrorBody {
   error: { message: string; field?: string };
@@ -183,12 +184,29 @@ export interface JobsheetMachine {
   isActive: boolean;
 }
 
+export interface MachineRef {
+  id: number;
+  machineNo: number;
+  name: string | null;
+}
+
 export interface JobsheetListItem {
   id: number;
   jobsheetNo: number;
+  status: JobsheetStatusKey;
+  /** Assigned frames. */
   frames: number;
+  /** Actual frames made (Completed only). */
+  completedFrames: number | null;
   picks: string | null;
   machines: JobsheetMachine[];
+  /** The machine it was started on (Ongoing / Completed). */
+  runningMachine: MachineRef | null;
+  /** Number of the jobsheet this one continues (created by Change machine). */
+  parentJobsheetNo: number | null;
+  sentAt: string | null;
+  startedAt: string | null;
+  completedAt: string | null;
   createdAt: string;
 }
 
@@ -200,36 +218,85 @@ export interface OrderJobsheets {
   status: OrderStatusKey;
   framesPerJobsheet: number | null;
   jobsheets: JobsheetListItem[];
+  /** Completed jobsheets among the active ones. */
+  completedCount: number;
   coverage: Coverage;
   warnings: CoverageWarning[];
+}
+
+export type JobsheetEventKind = 'created' | 'sent' | 'pulled_back' | 'started' | 'completed' | 'machine_changed';
+
+export interface JobsheetEvent {
+  id: number;
+  event: JobsheetEventKind;
+  machineNo: number | null;
+  frames: number | null;
+  note: string | null;
+  role: RoleKey;
+  createdAt: string;
+}
+
+/** Order information on a jobsheet — only for Jemish / Gaurang (the supervisor gets `null`). */
+export interface JobsheetOrderInfo {
+  id: number;
+  orderNo: number;
+  status: OrderStatusKey;
+  quantity: number;
+  unit: Unit;
+  jobsheetPieces: number;
+  targetFrames: number;
+  framesPerJobsheet: number | null;
+  customer: { id: number; name: string; city: string | null };
+  material: { id: number; name: string; code: string | null };
+}
+
+export interface JobsheetSibling {
+  id: number;
+  jobsheetNo: number;
+  frames: number;
+  status: JobsheetStatusKey;
+  completedFrames: number | null;
+}
+
+export interface JobsheetDesign {
+  /** Variation code if the order has one, otherwise the design code. */
+  code: string;
+  /** Base design code when `code` is a variation. */
+  baseCode: string | null;
+  imageUrl: string | null;
+  thumbUrl: string | null;
 }
 
 export interface JobsheetDetail {
   id: number;
   jobsheetNo: number;
+  status: JobsheetStatusKey;
   frames: number;
+  completedFrames: number | null;
   picks: string | null;
   createdBy: RoleKey;
   createdAt: string;
   updatedAt: string;
+  sentAt: string | null;
+  startedAt: string | null;
+  completedAt: string | null;
   machines: JobsheetMachine[];
-  order: {
-    id: number;
-    orderNo: number;
-    status: OrderStatusKey;
-    quantity: number;
-    unit: Unit;
-    jobsheetPieces: number;
-    targetFrames: number;
-    framesPerJobsheet: number | null;
-    customer: { id: number; name: string; city: string | null };
-    material: { id: number; name: string; code: string | null };
-    design: { id: number; code: string; name: string | null; imageUrl: string | null; thumbUrl: string | null } | null;
-    variation: { id: number; code: string; imageUrl: string | null; thumbUrl: string | null } | null;
-  };
-  /** All active jobsheets of the order (for the edit preview), by number. */
-  siblings: { id: number; jobsheetNo: number; frames: number }[];
-  coverage: Coverage;
+  runningMachine: MachineRef | null;
+  /** Machine chosen in Change machine — pre-selected at Start. */
+  suggestedMachineId: number | null;
+  parent: { id: number; jobsheetNo: number } | null;
+  children: { id: number; jobsheetNo: number }[];
+  /** Activity timeline, oldest first. */
+  events: JobsheetEvent[];
+  /** Always present (the supervisor sees it as plain text). */
+  orderNo: number;
+  design: JobsheetDesign | null;
+  /** Null for the supervisor: no client, rate or order details. */
+  order: JobsheetOrderInfo | null;
+  /** All active jobsheets of the order (for the edit preview), by number. Empty for the supervisor. */
+  siblings: JobsheetSibling[];
+  /** Null for the supervisor. */
+  coverage: Coverage | null;
   warnings: CoverageWarning[];
 }
 
@@ -241,7 +308,7 @@ export interface JobsheetRef {
 
 export interface JobsheetCreateResult {
   created: JobsheetRef[];
-  /** The order moved to Jobsheet created. */
+  /** The order status changed. */
   statusChanged: boolean;
 }
 
@@ -257,8 +324,53 @@ export interface JobsheetUpdateResult {
 
 export interface JobsheetDeleteResult {
   orderId: number;
-  /** It was the last active jobsheet: the plan was reset and the order moved back to Ready for production. */
+  /** It was the last active jobsheet: the plan was reset and the order moved back to Jobsheet pending. */
   orderReset: boolean;
+}
+
+export interface JobsheetSendResult {
+  updated: number;
+  jobsheetIds: number[];
+}
+
+/** Result of pull back / start / complete. */
+export interface JobsheetActionResult {
+  id: number;
+  jobsheetNo: number;
+  status: JobsheetStatusKey;
+  machineNo: number | null;
+}
+
+export interface JobsheetChangeMachineResult {
+  completed: JobsheetRef;
+  created: JobsheetRef;
+  newMachineNo: number;
+}
+
+/** One card of the supervisor's Jobsheets module. */
+export interface SupervisorJobsheetItem {
+  id: number;
+  jobsheetNo: number;
+  status: JobsheetStatusKey;
+  frames: number;
+  completedFrames: number | null;
+  picks: string | null;
+  orderNo: number;
+  designCode: string | null;
+  thumbUrl: string | null;
+  imageUrl: string | null;
+  machines: JobsheetMachine[];
+  runningMachine: MachineRef | null;
+  suggestedMachineId: number | null;
+  parentJobsheetNo: number | null;
+  startedAt: string | null;
+  completedAt: string | null;
+}
+
+export type JobsheetTabCounts = Record<JobsheetTab, number>;
+
+export interface SupervisorJobsheetPage extends Paginated<SupervisorJobsheetItem> {
+  counts: JobsheetTabCounts;
 }
 
 export interface JobsheetPrintItem {
@@ -274,4 +386,34 @@ export interface JobsheetPrintItem {
   designCode: string | null;
   /** Full image of the variation (or design). */
   imageUrl: string | null;
+}
+
+/* ---------- machine view ---------- */
+
+export interface MachineViewJobsheet {
+  id: number;
+  jobsheetNo: number;
+  frames: number;
+  designCode: string | null;
+  thumbUrl: string | null;
+  startedAt: string | null;
+}
+
+export interface MachineViewMachine {
+  id: number;
+  machineNo: number;
+  name: string | null;
+  isActive: boolean;
+  /** Ongoing jobsheets on this machine, oldest start first. */
+  ongoing: MachineViewJobsheet[];
+  /** When the last jobsheet on this machine was completed (null if it never ran). */
+  lastCompletedAt: string | null;
+}
+
+export interface MachineViewData {
+  /** Active machines, by number. */
+  machines: MachineViewMachine[];
+  /** Inactive machines (collapsed section on the board). */
+  inactive: MachineViewMachine[];
+  generatedAt: string;
 }

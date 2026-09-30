@@ -315,7 +315,7 @@ export async function undoSendToProduction(role: RoleKey, id: number): Promise<v
   const [order] = await db.select({ status: orders.status }).from(orders).where(eq(orders.id, id));
   if (!order) throw notFound('Order');
   if (order.status !== STATUS.READY_PRODUCTION) {
-    throw conflict('Only orders that are Ready for production can be moved back.');
+    throw conflict('Only orders in Jobsheet pending can be moved back.');
   }
   if ((await countActiveJobsheets(db, id)) > 0) {
     throw conflict('This order already has jobsheets. Delete its jobsheets before moving it back to Pending.');

@@ -169,3 +169,55 @@ export const jobsheetUpdateSchema = z.object({
   machineIds,
 });
 export type JobsheetUpdateInput = z.input<typeof jobsheetUpdateSchema>;
+
+/* ---------- jobsheet workflow (send / start / complete / change machine) ---------- */
+
+const jobsheetIds = z
+  .array(z.number().int().positive(), { required_error: 'Select at least one jobsheet' })
+  .min(1, 'Select at least one jobsheet')
+  .max(500)
+  .transform((ids) => [...new Set(ids)]);
+
+export const jobsheetSendSchema = z.object({ jobsheetIds });
+export type JobsheetSendInput = z.input<typeof jobsheetSendSchema>;
+
+const machineId = z
+  .number({ required_error: 'Select a machine', invalid_type_error: 'Select a machine' })
+  .int()
+  .positive('Select a machine');
+
+const framesDone = z
+  .number({ required_error: 'Enter the frames completed', invalid_type_error: 'Enter the frames completed' })
+  .int('Use a whole number')
+  .min(0, 'Cannot be negative')
+  .max(100_000, 'Must be at most 1,00,000');
+
+export const jobsheetStartSchema = z.object({ machineId });
+export type JobsheetStartInput = z.input<typeof jobsheetStartSchema>;
+
+export const jobsheetCompleteSchema = z.object({ completedFrames: framesDone });
+export type JobsheetCompleteInput = z.input<typeof jobsheetCompleteSchema>;
+
+export const jobsheetChangeMachineSchema = z.object({
+  newMachineId: machineId,
+  completedFrames: framesDone,
+  nextFrames: posInt('the frames to make next', 100_000),
+});
+export type JobsheetChangeMachineInput = z.input<typeof jobsheetChangeMachineSchema>;
+
+export const JOBSHEET_TABS = ['all', 'pending', 'ongoing', 'completed'] as const;
+export type JobsheetTab = (typeof JOBSHEET_TABS)[number];
+
+/** GET /jobsheets — the supervisor's module. */
+export const jobsheetListQuerySchema = z.object({
+  tab: z.enum(JOBSHEET_TABS).default('all'),
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+  search: z
+    .string()
+    .trim()
+    .max(100)
+    .optional()
+    .transform((v) => v || undefined),
+});
+export type JobsheetListQuery = z.infer<typeof jobsheetListQuerySchema>;
