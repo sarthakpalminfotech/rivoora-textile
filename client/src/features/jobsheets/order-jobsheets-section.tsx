@@ -236,7 +236,8 @@ export function OrderJobsheetsSection({ order }: { order: OrderDetail }) {
             aria-label="Send to supervisor"
             disabled={pendingList.length === 0}
             onClick={() => {
-              setSelected(new Set());
+              // Start with every Pending jobsheet selected; the user unticks the ones to keep back.
+              setSelected(new Set(pendingList.map((j) => j.id)));
               setSelecting(true);
             }}
           >
@@ -285,7 +286,7 @@ export function OrderJobsheetsSection({ order }: { order: OrderDetail }) {
         {selecting && (
           <div className="flex items-center gap-2 rounded-xl border border-primary/20 bg-primary-soft px-4 py-2.5 text-sm text-primary" role="status">
             <ArrowUpFromLine className="size-4 shrink-0" aria-hidden />
-            <span className="flex-1">Select the jobsheets to send to the supervisor.</span>
+            <span className="flex-1">All pending jobsheets are selected. Untick the ones you don't want to send to the supervisor.</span>
           </div>
         )}
 

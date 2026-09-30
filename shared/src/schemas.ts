@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { normalizeCode } from './codes';
 import { UNITS } from './units';
+import { MAX_TAKAS_PER_JOBSHEET, MAX_TAKAS_PER_SUBMIT, TAKA_NO_MAX_LENGTH } from './takas';
 
 export const PHONE_REGEX = /^[6-9]\d{9}$/;
 
@@ -221,3 +222,55 @@ export const jobsheetListQuerySchema = z.object({
     .transform((v) => v || undefined),
 });
 export type JobsheetListQuery = z.infer<typeof jobsheetListQuerySchema>;
+
+/* ---------- takas (Taka entry) ---------- */
+
+const takaNo = z
+  .string({ required_error: 'Enter the taka number', invalid_type_error: 'Enter the taka number' })
+  .trim()
+  .min(1, 'Enter the taka number')
+  .regex(/^\d+$/, 'Taka numbers use digits only')
+  .max(TAKA_NO_MAX_LENGTH, `At most ${TAKA_NO_MAX_LENGTH} digits`);
+
+const takaNote = z
+  .string()
+  .trim()
+  .max(2000, 'Must be at most 2000 characters')
+  .nullish()
+  .transform((v) => (v ? v : null));
+
+/** POST /jobsheets/:id/takas — adds new takas only (Taka entry). */
+export const takaEntrySchema = z.object({
+  takas: z
+    .array(z.object({ takaNo, isDamaged: z.boolean().default(false) }), { required_error: 'Enter at least one taka' })
+    .min(1, 'Enter at least one taka')
+    .max(MAX_TAKAS_PER_SUBMIT, `At most ${MAX_TAKAS_PER_SUBMIT} takas at a time`),
+  note: takaNote,
+});
+export type TakaEntryInput = z.input<typeof takaEntrySchema>;
+
+/** PUT /jobsheets/:id/takas — the full set after editing (rows without `id` are new; missing ids are removed). */
+export const takaEditSchema = z.object({
+  takas: z
+    .array(z.object({ id: z.number().int().positive().optional(), takaNo, isDamaged: z.boolean().default(false) }))
+    .max(MAX_TAKAS_PER_JOBSHEET, `At most ${MAX_TAKAS_PER_JOBSHEET} takas per jobsheet`),
+  note: takaNote,
+});
+export type TakaEditInput = z.input<typeof takaEditSchema>;
+
+export const TAKA_TABS = ['pending', 'done'] as const;
+export type TakaTab = (typeof TAKA_TABS)[number];
+
+/** GET /taka/jobsheets — the Taka entry list. */
+export const takaListQuerySchema = z.object({
+  tab: z.enum(TAKA_TABS).default('pending'),
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+  search: z
+    .string()
+    .trim()
+    .max(100)
+    .optional()
+    .transform((v) => v || undefined),
+});
+export type TakaListQuery = z.infer<typeof takaListQuerySchema>;

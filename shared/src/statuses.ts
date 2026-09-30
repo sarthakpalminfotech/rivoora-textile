@@ -56,6 +56,13 @@ export const ORDER_STATUSES = [
     badge: { bg: '#CCFBF1', text: '#115E59', dot: '#14B8A6' },
     visibleTo: FROM_READY,
   },
+  {
+    key: 'taka_entry_done',
+    label: 'Taka entry done',
+    sequence: 60,
+    badge: { bg: '#F3E8FF', text: '#6B21A8', dot: '#A855F7' },
+    visibleTo: FROM_READY,
+  },
 ] as const satisfies readonly StatusConfig[];
 
 export type OrderStatusKey = (typeof ORDER_STATUSES)[number]['key'];
@@ -66,6 +73,7 @@ export const STATUS = {
   JOBSHEET_CREATED: 'jobsheet_created',
   IN_PRODUCTION: 'in_production',
   PRODUCTION_COMPLETED: 'production_completed',
+  TAKA_ENTRY_DONE: 'taka_entry_done',
 } as const satisfies Record<string, OrderStatusKey>;
 
 export const STATUS_KEYS = ORDER_STATUSES.map((s) => s.key) as [OrderStatusKey, ...OrderStatusKey[]];
@@ -121,11 +129,12 @@ export interface JobsheetStatusConfig {
   visibleTo: readonly RoleKey[];
 }
 
-const ALL_ROLES: readonly RoleKey[] = ['jemish', 'gaurang', 'supervisor'];
+const ALL_ROLES: readonly RoleKey[] = ['jemish', 'gaurang', 'supervisor', 'taka_entry'];
 
 /**
- * pending → (send) → sent → (start) → ongoing → (complete / change machine) → completed.
+ * pending → (send) → sent → (start) → ongoing → (complete / change machine / taka entry) → completed.
  * Pull back: sent → pending. Only Pending jobsheets can be edited or deleted.
+ * The Taka entry role sees every status (a jobsheet is completed when its takas are submitted).
  */
 export const JOBSHEET_STATUSES = [
   {
@@ -133,7 +142,7 @@ export const JOBSHEET_STATUSES = [
     label: 'Pending',
     sequence: 10,
     badge: { bg: '#F1F5F9', text: '#334155', dot: '#94A3B8' },
-    visibleTo: FROM_READY,
+    visibleTo: [...FROM_READY, 'taka_entry'],
   },
   {
     key: 'sent',
@@ -189,14 +198,26 @@ export function canRoleSeeJobsheetStatus(role: RoleKey, status: string): boolean
   return (getJobsheetStatus(status).visibleTo as readonly RoleKey[]).includes(role);
 }
 
+/** An active jobsheet as seen by the order-status rule: its status and how many active takas it has. */
+export interface JobsheetStatusInput {
+  status: string;
+  takaCount?: number;
+}
+
 /**
  * The order status that follows from its active jobsheets (for orders that are Jobsheet pending or later):
- * none → Jobsheet pending · all Completed → Production completed · any Ongoing / Completed → In production ·
- * otherwise (all Pending / Sent) → Jobsheet created.
+ * none → Jobsheet pending · all Completed and every one has a taka → Taka entry done · all Completed → Production
+ * completed · any Ongoing / Completed → In production · otherwise (all Pending / Sent) → Jobsheet created.
+ * Plain status strings are accepted too (no takas).
  */
-export function orderStatusForJobsheets(statuses: readonly string[]): OrderStatusKey {
-  if (statuses.length === 0) return STATUS.READY_PRODUCTION;
-  if (statuses.every((s) => s === JOBSHEET_STATUS.COMPLETED)) return STATUS.PRODUCTION_COMPLETED;
-  if (statuses.some((s) => s === JOBSHEET_STATUS.ONGOING || s === JOBSHEET_STATUS.COMPLETED)) return STATUS.IN_PRODUCTION;
+export function orderStatusForJobsheets(jobsheets: readonly (string | JobsheetStatusInput)[]): OrderStatusKey {
+  const list = jobsheets.map((j) => (typeof j === 'string' ? { status: j, takaCount: 0 } : j));
+  if (list.length === 0) return STATUS.READY_PRODUCTION;
+  if (list.every((j) => j.status === JOBSHEET_STATUS.COMPLETED)) {
+    return list.every((j) => (j.takaCount ?? 0) > 0) ? STATUS.TAKA_ENTRY_DONE : STATUS.PRODUCTION_COMPLETED;
+  }
+  if (list.some((j) => j.status === JOBSHEET_STATUS.ONGOING || j.status === JOBSHEET_STATUS.COMPLETED)) {
+    return STATUS.IN_PRODUCTION;
+  }
   return STATUS.JOBSHEET_CREATED;
 }

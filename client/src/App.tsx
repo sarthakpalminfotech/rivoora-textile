@@ -5,7 +5,7 @@ import { Toaster } from 'sonner';
 import { AppLayout } from '@/components/layout/app-layout';
 import { PageSkeleton } from '@/components/layout/page-skeleton';
 import { PageTitleProvider } from '@/components/layout/page-title';
-import { LandingRedirect, RequirePermission } from '@/components/layout/require-permission';
+import { LandingRedirect, NotFoundOrLanding, RequirePermission } from '@/components/layout/require-permission';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import type { RolePermissions } from '@/config/roles';
 import { useRole } from '@/hooks/useRole';
@@ -25,11 +25,28 @@ const JobsheetDetailsPage = lazy(() => import('@/features/jobsheets/jobsheet-det
 const JobsheetPrintPage = lazy(() => import('@/features/jobsheets/print-page'));
 const SupervisorJobsheetsPage = lazy(() => import('@/features/jobsheets/supervisor-jobsheets-page'));
 const MachineViewPage = lazy(() => import('@/features/machine-view/machine-view-page'));
+const ScanPage = lazy(() => import('@/features/takas/scan-page'));
+const JobsheetQrPage = lazy(() => import('@/features/takas/jobsheet-qr-page'));
+const TakaJobsheetsPage = lazy(() => import('@/features/takas/taka-jobsheets-page'));
+const TakaEntryPage = lazy(() => import('@/features/takas/taka-entry-page'));
 const NotFoundPage = lazy(() => import('@/pages/not-found-page'));
 
 const guard = (permission: keyof RolePermissions, element: ReactNode) => (
   <RequirePermission permission={permission}>{element}</RequirePermission>
 );
+
+/** `/jobsheets`: the Taka entry list for the Taka entry role, the supervisor's module otherwise. */
+function JobsheetsRoute() {
+  const { can } = useRole();
+  if (can('canUseTakaModules')) return <TakaJobsheetsPage />;
+  return guard('canViewJobsheetsModule', <SupervisorJobsheetsPage />);
+}
+
+/** `/jobsheets/:id`: the taka entry screen for the Taka entry role, the (role-aware) details page otherwise. */
+function JobsheetRoute() {
+  const { can } = useRole();
+  return can('canEnterTakas') ? <TakaEntryPage /> : <JobsheetDetailsPage />;
+}
 
 const router = createBrowserRouter([
   {
@@ -67,11 +84,14 @@ const router = createBrowserRouter([
           { path: 'designs', element: guard('canViewMasters', <DesignsPage />) },
           { path: 'designs/:id', element: guard('canViewMasters', <DesignDetailPage />) },
           { path: 'machines', element: guard('canViewMasters', <MachinesPage />) },
-          { path: 'jobsheets', element: guard('canViewJobsheetsModule', <SupervisorJobsheetsPage />) },
-          // Role-aware: Jemish / Gaurang get the full view, the supervisor his restricted one.
-          { path: 'jobsheets/:id', element: <JobsheetDetailsPage /> },
+          { path: 'jobsheets', element: <JobsheetsRoute /> },
+          // Role-aware: Jemish / Gaurang get the full view, the supervisor his restricted one, Taka entry his entry screen.
+          { path: 'jobsheets/:id', element: <JobsheetRoute /> },
           { path: 'machine-view', element: guard('canViewMachineView', <MachineViewPage />) },
-          { path: '*', element: <NotFoundPage /> },
+          { path: 'scan', element: guard('canUseTakaModules', <ScanPage />) },
+          // Target of the QR code printed on jobsheets.
+          { path: 'j/:jobsheetNo', element: <JobsheetQrPage /> },
+          { path: '*', element: <NotFoundOrLanding fallback={<NotFoundPage />} /> },
         ],
       },
     ],

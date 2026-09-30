@@ -1,7 +1,8 @@
-import { ArrowLeft, Loader2, Printer } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, Loader2, Printer } from 'lucide-react';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
-import type { JobsheetPrintItem } from '@rivoora/shared';
+import QRCode from 'qrcode';
+import { jobsheetQrUrl, type JobsheetPrintItem } from '@rivoora/shared';
 import { usePageTitle } from '@/components/layout/page-title';
 import { ErrorState } from '@/components/list-parts';
 import { Button } from '@/components/ui/button';
@@ -17,6 +18,10 @@ import { useJobsheetPrint } from './api';
 const PAGE_W_MM = 210;
 const MM_TO_PX = 96 / 25.4;
 
+/** The live website address the QR codes point to (`${url}/j/${jobsheetNo}`). Falls back to this page's origin. */
+const PUBLIC_APP_URL = String(import.meta.env.VITE_PUBLIC_APP_URL ?? '').trim();
+const qrBaseUrl = () => PUBLIC_APP_URL || window.location.origin;
+
 const CSS = `
 @page { size: A4 portrait; margin: 10mm; }
 .jsp { --ink: #000; color: var(--ink); font-family: 'DM Sans', system-ui, sans-serif; }
@@ -25,7 +30,7 @@ const CSS = `
   width: 210mm; height: 297mm; padding: 10mm; background: #fff; overflow: hidden;
   -webkit-print-color-adjust: exact; print-color-adjust: exact;
 }
-.jsp-sheet { display: flex; flex-direction: column; width: 190mm; height: 277mm; }
+.jsp-sheet { position: relative; display: flex; flex-direction: column; width: 190mm; height: 277mm; }
 .jsp-b { border: 1.4px solid var(--ink); }
 .jsp-lbl { font-weight: 700; text-transform: uppercase; font-size: 10.5pt; letter-spacing: 0.02em; white-space: nowrap; }
 .jsp-val { font-weight: 700; font-size: 17pt; line-height: 1.1; }
@@ -34,6 +39,11 @@ const CSS = `
 .jsp-om { text-align: center; font-family: 'Noto Sans Devanagari', sans-serif; font-weight: 600; font-size: 15pt; line-height: 1.2; }
 .jsp-no { margin-top: 2.5mm; width: 105mm; height: 20mm; display: flex; align-items: center; justify-content: center;
   font-size: 34pt; font-weight: 800; letter-spacing: 0.04em; }
+
+/* QR in the empty space right of the number box (top 0 → ~31 mm; the main box starts at ~32 mm). */
+.jsp-qr { position: absolute; top: 0; right: 0; width: 28mm; display: flex; flex-direction: column; align-items: center; }
+.jsp-qr-code, .jsp-qr-code svg { display: block; width: 28mm; height: 28mm; }
+.jsp-qr-cap { margin-top: 0.4mm; font-size: 6.5pt; font-weight: 600; line-height: 1; letter-spacing: 0.02em; white-space: nowrap; }
 
 .jsp-main { margin-top: 3.5mm; flex: 1; display: flex; flex-direction: column; padding: 3mm; gap: 3mm; min-height: 0; }
 .jsp-top { display: grid; grid-template-columns: 1fr 72mm; gap: 4mm; }
@@ -90,11 +100,18 @@ const CSS = `
 
 const FIELD_LABELS = ['Warp:', 'Reed:', 'Total ends:', 'Width:', 'Weft:'];
 
-function FrontPage({ js }: { js: JobsheetPrintItem }) {
+function FrontPage({ js, qrSvg }: { js: JobsheetPrintItem; qrSvg: string | undefined }) {
   return (
     <div className="jsp-sheet">
       <div className="jsp-om">॥ श्री गणेशाय नमः ॥</div>
       <div className="jsp-no jsp-b">{js.jobsheetNo}</div>
+      {qrSvg && (
+        <div className="jsp-qr">
+          {/* SVG generated locally by the qrcode package from our own URL. */}
+          <div className="jsp-qr-code" dangerouslySetInnerHTML={{ __html: qrSvg }} />
+          <div className="jsp-qr-cap">Scan · {js.jobsheetNo}</div>
+        </div>
+      )}
 
       <div className="jsp-main jsp-b">
         <div className="jsp-top">
@@ -241,7 +258,7 @@ function BackPage({ js, onImageDone }: { js: JobsheetPrintItem; onImageDone: () 
   );
 }
 
-/** Loads Noto Sans Devanagari (for ॥ श्री गणेशाय नमः ॥) only while the print route is open. */
+/** Makes sure Noto Sans Devanagari (for ॥ श्री गणेशाय नमः ॥; also loaded globally) is ready before printing. */
 function useDevanagariFont() {
   const [ready, setReady] = useState(false);
   useEffect(() => {
@@ -270,6 +287,30 @@ function useDevanagariFont() {
     };
   }, []);
   return ready;
+}
+
+/** QR codes (SVG markup) per jobsheet number, error correction M with a 2-module quiet zone. */
+function useQrCodes(items: JobsheetPrintItem[] | undefined) {
+  const [codes, setCodes] = useState<Map<number, string> | null>(null);
+  useEffect(() => {
+    if (!items) return;
+    let cancelled = false;
+    const base = qrBaseUrl();
+    Promise.all(
+      items.map(async (js) => {
+        const svg = await QRCode.toString(jobsheetQrUrl(base, js.jobsheetNo), { type: 'svg', errorCorrectionLevel: 'M', margin: 2 });
+        return [js.jobsheetNo, svg] as const;
+      }),
+    ).then(
+      (list) => !cancelled && setCodes(new Map(list)),
+      // Never block printing: pages print without a QR if generation fails.
+      () => !cancelled && setCodes(new Map()),
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [items]);
+  return codes;
 }
 
 /** Scales the 210 mm pages down to fit narrow screens (phones). */
@@ -306,6 +347,7 @@ export default function JobsheetPrintPage() {
   );
   const { data, isPending, isError, error, refetch } = useJobsheetPrint(ids);
   const fontReady = useDevanagariFont();
+  const qrCodes = useQrCodes(data);
   const { ref, scale } = usePageScale();
   const [loadedImages, setLoadedImages] = useState(0);
   const onImageDone = useCallback(() => setLoadedImages((n) => n + 1), []);
@@ -315,7 +357,7 @@ export default function JobsheetPrintPage() {
   );
 
   const imageCount = data?.filter((j) => j.imageUrl).length ?? 0;
-  const ready = !!data && fontReady && loadedImages >= imageCount;
+  const ready = !!data && fontReady && !!qrCodes && loadedImages >= imageCount;
   const pageCount = (data?.length ?? 0) * 2;
 
   const goBack = () => {
@@ -346,6 +388,17 @@ export default function JobsheetPrintPage() {
           </Button>
         </div>
       </header>
+      {!PUBLIC_APP_URL && data && (
+        <div className="jsp-toolbar border-b border-amber-200 bg-amber-50 px-3 py-2.5 text-amber-900 md:px-4" role="status">
+          <p className="mx-auto flex max-w-4xl items-start gap-2 text-sm font-medium">
+            <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-500" aria-hidden />
+            <span>
+              QR codes will point to <strong className="break-all">{window.location.origin}</strong>. Set VITE_PUBLIC_APP_URL to the live
+              website address before printing jobsheets for the floor.
+            </span>
+          </p>
+        </div>
+      )}
 
       <div className="jsp-pad px-3 py-4 md:px-6 md:py-6">
         {ids.length === 0 ? (
@@ -383,7 +436,7 @@ export default function JobsheetPrintPage() {
               <div className="jsp-pages flex flex-col" style={{ gap: gapPx }}>
                 {data.flatMap((js) => [
                   <div key={`${js.id}-f`} className="jsp-page">
-                    <FrontPage js={js} />
+                    <FrontPage js={js} qrSvg={qrCodes?.get(js.jobsheetNo)} />
                   </div>,
                   <div key={`${js.id}-b`} className="jsp-page">
                     <BackPage js={js} onImageDone={onImageDone} />

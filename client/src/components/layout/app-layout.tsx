@@ -3,6 +3,7 @@ import { Suspense, useState } from 'react';
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
 import { Modal } from '@/components/ui/modal';
 import { useRole } from '@/hooks/useRole';
+import { Bi } from '@/lib/bilingual';
 import { cn } from '@/lib/utils';
 import { navItemsFor, type NavItem } from './nav-items';
 import { usePageTitleValue } from './page-title';
@@ -65,21 +66,23 @@ function Sidebar() {
         </div>
       </div>
       <nav className="flex-1 space-y-1 p-3" aria-label="Main">
-        {items.map(({ to, label, icon: Icon }) => (
+        {items.map(({ to, label, hi, icon: Icon }) => (
           <NavLink
             key={to}
             to={to}
-            title={label}
+            title={hi ? `${label} / ${hi}` : label}
             className={({ isActive }) =>
               cn(
-                'flex h-11 items-center gap-3 rounded-[10px] px-3 text-[15px] font-medium text-slate-600 transition-colors hover:bg-muted hover:text-slate-900',
+                'flex min-h-11 items-center gap-3 rounded-[10px] px-3 py-1 text-[15px] font-medium text-slate-600 transition-colors hover:bg-muted hover:text-slate-900',
                 !expanded && 'justify-center px-0 lg:justify-start lg:px-3',
                 isActive && 'bg-primary-soft text-primary hover:bg-primary-soft hover:text-primary',
               )
             }
           >
             <Icon className="size-5 shrink-0" aria-hidden />
-            <span className={cn(!expanded && 'sr-only lg:not-sr-only')}>{label}</span>
+            <span className={cn('min-w-0', !expanded && 'sr-only lg:not-sr-only')}>
+              {hi ? <Bi en={label} hi={hi} hiClassName="text-[13px]" /> : label}
+            </span>
           </NavLink>
         ))}
       </nav>
@@ -175,12 +178,21 @@ function BottomNav() {
       className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-white/95 pb-safe backdrop-blur md:hidden"
     >
       <div className="grid h-16" style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}>
-        {main.map(({ to, label, icon }) => (
-          <NavLink key={to} to={to} className={({ isActive }) => cn(tabClass, isActive && 'text-primary')}>
+        {main.map(({ to, label, hi, icon }) => (
+          <NavLink key={to} to={to} className={({ isActive }) => cn(tabClass, hi && 'gap-0.5', isActive && 'text-primary')}>
             {({ isActive }) => (
               <>
                 <TabIcon icon={icon} active={isActive} />
-                <span className="max-w-full truncate px-1">{label}</span>
+                {hi ? (
+                  <span className="flex max-w-full flex-col items-center px-1 leading-tight">
+                    <span className="max-w-full truncate">{label}</span>
+                    <span lang="hi" className="max-w-full truncate text-[10px] font-medium">
+                      {hi}
+                    </span>
+                  </span>
+                ) : (
+                  <span className="max-w-full truncate px-1">{label}</span>
+                )}
               </>
             )}
           </NavLink>

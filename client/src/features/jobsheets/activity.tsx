@@ -9,6 +9,8 @@ const DOT: Record<JobsheetEventKind, string> = {
   started: '#3B82F6',
   completed: '#22C55E',
   machine_changed: '#8B5CF6',
+  takas_entered: '#14B8A6',
+  takas_edited: '#A855F7',
 };
 
 const fr = (n: number) => `${n} frame${n === 1 ? '' : 's'}`;
@@ -29,6 +31,10 @@ export function eventTitle(e: JobsheetEvent, assignedFrames: number): string {
       return e.frames !== null ? `Completed — ${e.frames} of ${fr(assignedFrames)}` : 'Completed';
     case 'machine_changed':
       return `Moved from ${machine ?? 'the machine'}${e.frames !== null ? ` after ${fr(e.frames)}` : ''}`;
+    case 'takas_entered':
+      return e.note ? `Takas entered — ${e.note}` : 'Takas entered';
+    case 'takas_edited':
+      return 'Takas edited';
     default:
       return e.event;
   }
@@ -48,7 +54,8 @@ export function ActivityTimeline({ events, assignedFrames }: { events: JobsheetE
             aria-hidden
           />
           <p className="text-[15px] font-semibold text-slate-900">{eventTitle(e, assignedFrames)}</p>
-          {e.note && <p className="text-sm text-slate-600">{e.note}</p>}
+          {/* The takas_entered summary is already in the title. */}
+          {e.note && e.event !== 'takas_entered' && <p className="text-sm text-slate-600">{e.note}</p>}
           <p className="text-sm text-slate-500">
             {formatDateTime(e.createdAt)} · by {ROLES[e.role]?.name ?? e.role}
           </p>

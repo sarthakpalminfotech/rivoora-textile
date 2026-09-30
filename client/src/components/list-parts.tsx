@@ -48,10 +48,12 @@ interface LoadMoreProps {
   shown: number;
   total?: number;
   noun?: string;
+  /** English + Hindi button (Taka entry screens). */
+  bilingual?: boolean;
 }
 
 /** Infinite-scroll sentinel with a "Load more" fallback button. */
-export function LoadMore({ hasNextPage, isFetchingNextPage, fetchNextPage, shown, total, noun = 'items' }: LoadMoreProps) {
+export function LoadMore({ hasNextPage, isFetchingNextPage, fetchNextPage, shown, total, noun = 'items', bilingual }: LoadMoreProps) {
   const ref = useInfiniteScroll(() => {
     if (hasNextPage && !isFetchingNextPage) fetchNextPage();
   }, hasNextPage);
@@ -60,7 +62,7 @@ export function LoadMore({ hasNextPage, isFetchingNextPage, fetchNextPage, shown
     <div ref={ref} className="flex flex-col items-center gap-2 py-5">
       {hasNextPage ? (
         <Button variant="secondary" size="sm" onClick={fetchNextPage} loading={isFetchingNextPage}>
-          {isFetchingNextPage ? 'Loading…' : 'Load more'}
+          {isFetchingNextPage ? (bilingual ? 'Loading… / लोड हो रहा है…' : 'Loading…') : bilingual ? 'Load more / और देखें' : 'Load more'}
         </Button>
       ) : null}
       {total !== undefined && total > 0 && (

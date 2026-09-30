@@ -21,6 +21,7 @@ import { printUrl, useDeleteJobsheet, useJobsheet, usePullBackJobsheet } from '.
 import { EditJobsheetDialog } from './edit-jobsheet-form';
 import { FramesValue, machineNumbers, WarningList } from './parts';
 import { JobsheetRunDialogs, type RunAction, type RunJobsheet } from './run-dialogs';
+import { JobsheetTakasCard } from '../takas/takas-card';
 
 function Card({ title, children, action }: { title: string; children: ReactNode; action?: ReactNode }) {
   return (
@@ -266,6 +267,8 @@ export default function JobsheetDetailsPage() {
               </Item>
             </dl>
           </Card>
+
+          {!restricted && <JobsheetTakasCard js={js} />}
         </div>
 
         <div className="min-w-0 space-y-4">

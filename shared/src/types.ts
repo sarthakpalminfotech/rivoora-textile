@@ -2,7 +2,8 @@ import type { RoleKey } from './roles';
 import type { JobsheetStatusKey, OrderStatusKey } from './statuses';
 import type { Unit } from './units';
 import type { Coverage, CoverageWarning } from './jobsheets';
-import type { JobsheetTab } from './schemas';
+import type { JobsheetTab, TakaTab } from './schemas';
+import type { DamageType } from './takas';
 
 export interface ApiErrorBody {
   error: { message: string; field?: string };
@@ -224,7 +225,15 @@ export interface OrderJobsheets {
   warnings: CoverageWarning[];
 }
 
-export type JobsheetEventKind = 'created' | 'sent' | 'pulled_back' | 'started' | 'completed' | 'machine_changed';
+export type JobsheetEventKind =
+  | 'created'
+  | 'sent'
+  | 'pulled_back'
+  | 'started'
+  | 'completed'
+  | 'machine_changed'
+  | 'takas_entered'
+  | 'takas_edited';
 
 export interface JobsheetEvent {
   id: number;
@@ -298,6 +307,10 @@ export interface JobsheetDetail {
   /** Null for the supervisor. */
   coverage: Coverage | null;
   warnings: CoverageWarning[];
+  /** Active takas, sorted by number — null for roles that can't see takas (the supervisor). */
+  takas: Taka[] | null;
+  /** The common taka-entry note (null when none, or for roles that can't see takas). */
+  takaNote: string | null;
 }
 
 export interface JobsheetRef {
@@ -416,4 +429,91 @@ export interface MachineViewData {
   /** Inactive machines (collapsed section on the board). */
   inactive: MachineViewMachine[];
   generatedAt: string;
+}
+
+/* ---------- takas ---------- */
+
+export interface Taka {
+  id: number;
+  /** Digits, kept as text (leading zeros matter). Unique within a jobsheet only. */
+  takaNo: string;
+  isDamaged: boolean;
+  /** `machine` when damaged. */
+  damageType: DamageType | null;
+  enteredBy: RoleKey;
+  createdAt: string;
+}
+
+/** One jobsheet's takas (a group on the order's Takas card, or the block on the jobsheet details). */
+export interface JobsheetTakaGroup {
+  jobsheetId: number;
+  jobsheetNo: number;
+  status: JobsheetStatusKey;
+  frames: number;
+  completedFrames: number | null;
+  /** The machine it ran on, else its assigned machines. */
+  runningMachine: MachineRef | null;
+  machines: JobsheetMachine[];
+  note: string | null;
+  takas: Taka[];
+}
+
+/** GET /orders/:id/takas */
+export interface OrderTakas {
+  orderId: number;
+  orderNo: number;
+  total: number;
+  damaged: number;
+  /** Every active jobsheet of the order, by number (groups without takas included). */
+  groups: JobsheetTakaGroup[];
+}
+
+/** POST /jobsheets/:id/takas */
+export interface TakaEntryResult {
+  jobsheetId: number;
+  jobsheetNo: number;
+  orderId: number;
+  added: Taka[];
+  /** The jobsheet wasn't Completed yet and was completed by this entry. */
+  autoCompleted: boolean;
+}
+
+/** PUT /jobsheets/:id/takas */
+export interface TakaEditResult {
+  jobsheetId: number;
+  orderId: number;
+  added: number;
+  removed: number;
+  changed: number;
+  noteChanged: boolean;
+  takas: Taka[];
+}
+
+/** One card of the Taka entry Jobsheets list. */
+export interface TakaJobsheetItem {
+  id: number;
+  jobsheetNo: number;
+  status: JobsheetStatusKey;
+  frames: number;
+  completedFrames: number | null;
+  orderNo: number;
+  designCode: string | null;
+  thumbUrl: string | null;
+  imageUrl: string | null;
+  machines: JobsheetMachine[];
+  runningMachine: MachineRef | null;
+  completedAt: string | null;
+  takaCount: number;
+  damagedCount: number;
+  lastTakaAt: string | null;
+}
+
+export interface TakaJobsheetPage extends Paginated<TakaJobsheetItem> {
+  counts: Record<TakaTab, number>;
+}
+
+/** GET /jobsheets/by-no/:no */
+export interface JobsheetByNo {
+  id: number;
+  jobsheetNo: number;
 }

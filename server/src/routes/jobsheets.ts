@@ -8,12 +8,14 @@ import {
   completeJobsheet,
   deleteJobsheet,
   getJobsheet,
+  jobsheetByNo,
   listSupervisorJobsheets,
   printJobsheets,
   pullBackJobsheet,
   startJobsheet,
   updateJobsheet,
 } from '../services/jobsheets';
+import { editTakas, enterTakas } from '../services/takas';
 
 export const jobsheetsRouter = Router();
 const manage = requirePermission('canManageJobsheets');
@@ -42,6 +44,14 @@ jobsheetsRouter.get(
   requirePermission('canPrintJobsheets'),
   ah(async (req, res) => {
     res.json(await printJobsheets(req.role, printQuerySchema.parse(req.query).ids));
+  }),
+);
+
+/** Jobsheet number (from a scanned QR) → id. Any role that can open jobsheets; 404 if not visible for the role. */
+jobsheetsRouter.get(
+  '/by-no/:no',
+  ah(async (req, res) => {
+    res.json(await jobsheetByNo(req.role, parseId(req.params.no, 'jobsheet number')));
   }),
 );
 
@@ -98,5 +108,23 @@ jobsheetsRouter.post(
   run,
   ah(async (req, res) => {
     res.status(201).json(await changeMachine(req.role, parseId(req.params.id), req.body));
+  }),
+);
+
+/** Taka entry: add takas (completes the jobsheet if it isn't yet). */
+jobsheetsRouter.post(
+  '/:id/takas',
+  requirePermission('canEnterTakas'),
+  ah(async (req, res) => {
+    res.status(201).json(await enterTakas(req.role, parseId(req.params.id), req.body));
+  }),
+);
+
+/** Jemish / Gaurang: edit the whole taka set of a jobsheet + its note. */
+jobsheetsRouter.put(
+  '/:id/takas',
+  requirePermission('canEditTakas'),
+  ah(async (req, res) => {
+    res.json(await editTakas(req.role, parseId(req.params.id), req.body));
   }),
 );

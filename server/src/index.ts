@@ -13,6 +13,7 @@ import { machineViewRouter } from './routes/machine-view';
 import { machinesRouter } from './routes/machines';
 import { materialsRouter } from './routes/materials';
 import { ordersRouter } from './routes/orders';
+import { takaRouter } from './routes/taka';
 import { uploadsRouter } from './routes/uploads';
 
 const app = express();
@@ -40,6 +41,7 @@ api.use('/designs', designsRouter);
 api.use('/machines', machinesRouter);
 api.use('/jobsheets', jobsheetsRouter);
 api.use('/machine-view', machineViewRouter);
+api.use('/taka', takaRouter);
 api.use('/lookup', lookupRouter);
 api.use('/uploads', uploadsRouter);
 api.use(notFoundHandler);

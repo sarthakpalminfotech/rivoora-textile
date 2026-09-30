@@ -23,6 +23,7 @@ import {
   planJobsheets,
   type Coverage,
   type JobsheetActionResult,
+  type JobsheetByNo,
   type JobsheetChangeMachineResult,
   type JobsheetCreateResult,
   type JobsheetDeleteResult,
@@ -58,21 +59,23 @@ import {
   materials,
   orderStatusHistory,
   orders,
+  takas,
 } from '../db/schema';
 import { badRequest, conflict, notFound } from '../lib/errors';
 import { likePattern } from '../lib/http';
+import { sortTakas, TAKA_EVENTS, takaColumns } from './taka-shared';
 
 const JOBSHEET_COUNTER = 'jobsheet_no';
-const now = () => new Date().toISOString();
+export const now = () => new Date().toISOString();
 
 /** The machine a jobsheet runs on (second join of `machines`). */
-const runningMachine = alias(machines, 'running_machine');
+export const runningMachine = alias(machines, 'running_machine');
 
 /**
  * Roles without order access (the supervisor) get the restricted jobsheet view: no Pending jobsheets,
  * no client / order details — only the order number.
  */
-const isRestricted = (role: RoleKey) => !can(role, 'canViewOrders');
+export const isRestricted = (role: RoleKey) => !can(role, 'canViewOrders');
 
 /* ------------------------------------------------------------------ */
 /* helpers                                                              */
@@ -151,7 +154,7 @@ interface EventInput {
   note?: string | null;
 }
 
-async function writeEvents(tx: Tx, role: RoleKey, events: EventInput[]) {
+export async function writeEvents(tx: Tx, role: RoleKey, events: EventInput[]) {
   if (events.length === 0) return;
   const at = now();
   await tx.insert(jobsheetEvents).values(
@@ -234,6 +237,9 @@ async function writeStatus(tx: Tx, role: RoleKey, orderId: number, from: OrderSt
   return updated.length > 0;
 }
 
+/** Active takas of a jobsheet (outer column written explicitly — see the Drizzle gotcha). */
+export const activeTakaCount = sql<number>`(SELECT COUNT(*) FROM takas t WHERE t.jobsheet_id = "jobsheets"."id" AND t.is_deleted = 0)`;
+
 /**
  * Moves the order to the status that follows from its active jobsheets (see `orderStatusForJobsheets`).
  * Call at the end of EVERY jobsheet write, inside the same transaction. History is only written when the status
@@ -243,10 +249,10 @@ export async function recomputeOrderStatus(orderId: number, role: RoleKey, tx: T
   const [order] = await tx.select({ status: orders.status }).from(orders).where(eq(orders.id, orderId));
   if (!order || !isReadyOrLater(order.status)) return false;
   const rows = await tx
-    .select({ status: jobsheets.status })
+    .select({ status: jobsheets.status, takaCount: activeTakaCount })
     .from(jobsheets)
     .where(and(eq(jobsheets.orderId, orderId), eq(jobsheets.isDeleted, false)));
-  const next = orderStatusForJobsheets(rows.map((r) => r.status));
+  const next = orderStatusForJobsheets(rows);
   if (next === order.status) return false;
   return writeStatus(tx, role, orderId, order.status, next);
 }
@@ -289,18 +295,18 @@ function groupMachines(rows: { jobsheetId: number; machine: JobsheetMachine }[])
   return map;
 }
 
-const machineColumns = {
+export const machineColumns = {
   jobsheetId: jobsheetMachines.jobsheetId,
   machine: { id: machines.id, machineNo: machines.machineNo, name: machines.name, isActive: machines.isActive },
 };
 
-const runningMachineColumns = {
+export const runningMachineColumns = {
   runningMachineId: runningMachine.id,
   runningMachineNo: runningMachine.machineNo,
   runningMachineName: runningMachine.name,
 };
 
-function toMachineRef(r: { runningMachineId: number | null; runningMachineNo: number | null; runningMachineName: string | null }): MachineRef | null {
+export function toMachineRef(r: { runningMachineId: number | null; runningMachineNo: number | null; runningMachineName: string | null }): MachineRef | null {
   return r.runningMachineId !== null && r.runningMachineNo !== null
     ? { id: r.runningMachineId, machineNo: r.runningMachineNo, name: r.runningMachineName }
     : null;
@@ -310,9 +316,9 @@ function toMachineRef(r: { runningMachineId: number | null; runningMachineNo: nu
 const parentJobsheetNo = sql<number | null>`(SELECT p.jobsheet_no FROM jobsheets p WHERE p.id = "jobsheets"."parent_jobsheet_id")`;
 
 /** Machines of a jobsheet as a JSON array (one query for a whole list page). */
-const machinesJson = sql<string | null>`(SELECT json_group_array(json_object('id', m.id, 'machineNo', m.machine_no, 'name', m.name, 'isActive', m.is_active)) FROM jobsheet_machines jm JOIN machines m ON m.id = jm.machine_id WHERE jm.jobsheet_id = "jobsheets"."id")`;
+export const machinesJson = sql<string | null>`(SELECT json_group_array(json_object('id', m.id, 'machineNo', m.machine_no, 'name', m.name, 'isActive', m.is_active)) FROM jobsheet_machines jm JOIN machines m ON m.id = jm.machine_id WHERE jm.jobsheet_id = "jobsheets"."id")`;
 
-function parseMachinesJson(raw: string | null): JobsheetMachine[] {
+export function parseMachinesJson(raw: string | null): JobsheetMachine[] {
   if (!raw) return [];
   const list = JSON.parse(raw) as { id: number; machineNo: number; name: string | null; isActive: number | boolean }[];
   return list
@@ -459,7 +465,7 @@ export async function listOrderJobsheets(role: RoleKey, orderId: number): Promis
 }
 
 export async function getJobsheet(role: RoleKey, id: number): Promise<JobsheetDetail> {
-  const [rows, machineRows, siblings, events, children] = await db.batch([
+  const [rows, machineRows, siblings, events, children, takaRows] = await db.batch([
     db
       .select({
         id: jobsheets.id,
@@ -478,6 +484,7 @@ export async function getJobsheet(role: RoleKey, id: number): Promise<JobsheetDe
         suggestedMachineId: jobsheets.suggestedMachineId,
         parentJobsheetId: jobsheets.parentJobsheetId,
         parentJobsheetNo,
+        takaNote: jobsheets.takaNote,
         ...runningMachineColumns,
         order: orderPlanColumns,
         customer: { id: customers.id, name: customers.name, city: customers.city },
@@ -539,6 +546,10 @@ export async function getJobsheet(role: RoleKey, id: number): Promise<JobsheetDe
       .from(jobsheets)
       .where(and(eq(jobsheets.parentJobsheetId, id), eq(jobsheets.isDeleted, false)))
       .orderBy(asc(jobsheets.jobsheetNo)),
+    db
+      .select(takaColumns)
+      .from(takas)
+      .where(and(eq(takas.jobsheetId, id), eq(takas.isDeleted, false))),
   ]);
 
   const r = rows[0];
@@ -548,6 +559,8 @@ export async function getJobsheet(role: RoleKey, id: number): Promise<JobsheetDe
 
   const code = r.variationCode ?? r.designCode;
   const coverage = restricted ? null : coverageOf(r.order, siblings);
+  // Takas are hidden from roles that can't see them (the supervisor) — including their activity entries.
+  const seesTakas = can(role, 'canViewTakas');
   return {
     id: r.id,
     jobsheetNo: r.jobsheetNo,
@@ -567,7 +580,7 @@ export async function getJobsheet(role: RoleKey, id: number): Promise<JobsheetDe
     parent: r.parentJobsheetId !== null && r.parentJobsheetNo !== null ? { id: r.parentJobsheetId, jobsheetNo: r.parentJobsheetNo } : null,
     // A restricted role can't open a child that is still Pending — none are (children are created as Sent).
     children,
-    events,
+    events: seesTakas ? events : events.filter((e) => !TAKA_EVENTS.has(e.event)),
     orderNo: r.order.orderNo,
     design: code
       ? {
@@ -581,7 +594,30 @@ export async function getJobsheet(role: RoleKey, id: number): Promise<JobsheetDe
     siblings: restricted ? [] : siblings,
     coverage,
     warnings: coverage ? coverageWarnings(coverage) : [],
+    takas: seesTakas ? sortTakas(takaRows) : null,
+    takaNote: seesTakas ? r.takaNote : null,
   };
+}
+
+/**
+ * GET /jobsheets/by-no/:no — resolves a jobsheet number (from a scanned QR) to its id.
+ * 404 when it doesn't exist, is deleted, or isn't visible for the role (the supervisor never sees Pending ones).
+ */
+export async function jobsheetByNo(role: RoleKey, jobsheetNo: number): Promise<JobsheetByNo> {
+  const [r] = await db
+    .select({
+      id: jobsheets.id,
+      jobsheetNo: jobsheets.jobsheetNo,
+      status: jobsheets.status,
+      isDeleted: jobsheets.isDeleted,
+      orderStatus: orders.status,
+    })
+    .from(jobsheets)
+    .innerJoin(orders, eq(orders.id, jobsheets.orderId))
+    .where(eq(jobsheets.jobsheetNo, jobsheetNo));
+  if (!r || r.isDeleted || !canRoleSeeJobsheetStatus(role, r.status)) throw notFound('Jobsheet');
+  if (!isRestricted(role) && !canRoleSeeStatus(role, r.orderStatus)) throw notFound('Jobsheet');
+  return { id: r.id, jobsheetNo: r.jobsheetNo };
 }
 
 /** Everything the print route needs, in the order the ids were given. */
@@ -658,22 +694,28 @@ const supervisorOrder = [
   asc(jobsheets.jobsheetNo),
 ];
 
+/**
+ * Search by jobsheet number (prefix) or design / variation code.
+ * The query must join `designs` and `design_variations` (via the order).
+ */
+export function jobsheetSearch(search: string): SQL | undefined {
+  const term = search.replace(/^(#|jobsheet\s*)/i, '').trim() || search;
+  const codeP = likePattern(normalizeCode(term));
+  const parts: (SQL | undefined)[] = [
+    sql`${designs.code} LIKE ${codeP} ESCAPE '\\'`,
+    sql`${designVariations.code} LIKE ${codeP} ESCAPE '\\'`,
+  ];
+  if (/^\d+$/.test(term)) {
+    parts.push(sql`CAST(${jobsheets.jobsheetNo} AS TEXT) LIKE ${likePattern(term, 'prefix')} ESCAPE '\\'`);
+  }
+  return or(...parts);
+}
+
 export async function listSupervisorJobsheets(role: RoleKey, q: JobsheetListQuery): Promise<SupervisorJobsheetPage> {
   // Never Pending (not yet sent) — the visible set comes from the status config.
   const visible = jobsheetStatusesForRole(role).filter((s) => s !== JOBSHEET_STATUS.PENDING);
   const base: (SQL | undefined)[] = [eq(jobsheets.isDeleted, false), inArray(jobsheets.status, visible)];
-  if (q.search) {
-    const term = q.search.replace(/^(#|jobsheet\s*)/i, '').trim() || q.search;
-    const codeP = likePattern(normalizeCode(term));
-    const parts: (SQL | undefined)[] = [
-      sql`${designs.code} LIKE ${codeP} ESCAPE '\\'`,
-      sql`${designVariations.code} LIKE ${codeP} ESCAPE '\\'`,
-    ];
-    if (/^\d+$/.test(term)) {
-      parts.push(sql`CAST(${jobsheets.jobsheetNo} AS TEXT) LIKE ${likePattern(term, 'prefix')} ESCAPE '\\'`);
-    }
-    base.push(or(...parts));
-  }
+  if (q.search) base.push(jobsheetSearch(q.search));
   const listWhere = and(...base, q.tab === 'all' ? undefined : eq(jobsheets.status, TAB_STATUS[q.tab]));
 
   const [items, [{ total }], countRows] = await db.batch([

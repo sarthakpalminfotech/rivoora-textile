@@ -19,7 +19,7 @@ import type {
   SupervisorJobsheetPage,
 } from '@rivoora/shared';
 import { useInfiniteList } from '@/hooks/useInfiniteList';
-import { api } from '@/lib/api';
+import { api, ApiError } from '@/lib/api';
 import { orderKeys } from '../orders/api';
 
 export const jobsheetKeys = {
@@ -29,6 +29,8 @@ export const jobsheetKeys = {
   print: (ids: number[]) => ['jobsheets', 'print', ids.join(',')] as const,
   /** The supervisor's module list. */
   list: ['jobsheets', 'list'] as const,
+  /** The Taka entry list. */
+  takaList: ['jobsheets', 'taka-list'] as const,
 };
 
 export const machineViewKey = ['machine-view'] as const;
@@ -37,8 +39,9 @@ export const machineViewKey = ['machine-view'] as const;
  * Every jobsheet write can change the jobsheets, the order's status and coverage, the supervisor's list and the
  * machine board — refresh all of them.
  */
-function invalidateAfterWrite(qc: QueryClient, orderId?: number) {
+export function invalidateAfterWrite(qc: QueryClient, orderId?: number) {
   void qc.invalidateQueries({ queryKey: jobsheetKeys.all });
+  void qc.invalidateQueries({ queryKey: ['takas'] });
   if (orderId) void qc.invalidateQueries({ queryKey: orderKeys.detail(orderId) });
   else void qc.invalidateQueries({ queryKey: ['orders', 'detail'] });
   void qc.invalidateQueries({ queryKey: orderKeys.lists });
@@ -143,6 +146,16 @@ export function usePullBackJobsheet(orderId?: number) {
   });
 }
 
+/**
+ * A 409 on a supervisor action means the jobsheet changed elsewhere (e.g. completed at taka entry):
+ * refresh his list and details so the stale buttons disappear.
+ */
+function refreshOnConflict(qc: QueryClient) {
+  return (err: unknown) => {
+    if (err instanceof ApiError && err.status === 409) invalidateAfterWrite(qc);
+  };
+}
+
 export function useStartJobsheet() {
   const qc = useQueryClient();
   return useMutation({
@@ -150,6 +163,7 @@ export function useStartJobsheet() {
     mutationFn: ({ id, machineId }: { id: number; machineId: number }) =>
       api.post<JobsheetActionResult>(`/jobsheets/${id}/start`, { machineId }),
     onSuccess: () => invalidateAfterWrite(qc),
+    onError: refreshOnConflict(qc),
   });
 }
 
@@ -160,6 +174,7 @@ export function useCompleteJobsheet() {
     mutationFn: ({ id, completedFrames }: { id: number; completedFrames: number }) =>
       api.post<JobsheetActionResult>(`/jobsheets/${id}/complete`, { completedFrames }),
     onSuccess: () => invalidateAfterWrite(qc),
+    onError: refreshOnConflict(qc),
   });
 }
 
@@ -170,6 +185,7 @@ export function useChangeMachine() {
     mutationFn: ({ id, ...data }: JobsheetChangeMachineInput & { id: number }) =>
       api.post<JobsheetChangeMachineResult>(`/jobsheets/${id}/change-machine`, data),
     onSuccess: () => invalidateAfterWrite(qc),
+    onError: refreshOnConflict(qc),
   });
 }
 

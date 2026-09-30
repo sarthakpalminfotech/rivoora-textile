@@ -24,6 +24,16 @@ Requires Node 20+.
    PORT=4000
    ```
    `server/.env` is gitignored. The token is only used by the server and never reaches the browser.
+   **Client (optional but needed before printing jobsheets for the floor):** the QR code on every printed jobsheet
+   points to `${VITE_PUBLIC_APP_URL}/j/<jobsheet number>`. Set it to the live HTTPS address the phones open:
+   ```bash
+   cp client/.env.example client/.env
+   ```
+   ```
+   VITE_PUBLIC_APP_URL=https://app.rivoora.in
+   ```
+   It is read at build time (`npm run build`). When empty, the print preview uses the current address and shows a
+   warning. Phone browsers only allow the camera (Scan jobsheet) on HTTPS or localhost.
 3. **Create the tables**
    ```bash
    npm run db:migrate
@@ -43,9 +53,10 @@ Requires Node 20+.
 
 ## Roles
 
-There is no login yet. Use the profile menu (top right) to switch between **Jemish — Owner** (everything) and
-**Gaurang — Partner** (only orders that are Ready for production or later, read-only masters). The server
-enforces what each role can see and do.
+There is no login yet. Use the profile menu (top right) to switch between **Jemish — Owner** (everything),
+**Gaurang — Partner** (orders from Jobsheet pending on, jobsheets, read-only masters), **Supervisor** (Jobsheets
+module + Machine view) and **Taka entry** (Scan jobsheet + a Jobsheets list to enter takas; English + Hindi screens).
+The server enforces what each role can see and do.
 
 ## Scripts
 
@@ -55,6 +66,7 @@ enforces what each role can see and do.
 | `npm run build` | Production build (server → `server/dist`, client → `client/dist`) |
 | `npm start` | Run the built server; it also serves `client/dist` |
 | `npm run typecheck` | TypeScript checks for shared, server and client |
+| `npm test` | Unit tests for the shared logic (jobsheet maths, takas, QR parsing) |
 | `npm run db:generate` | Create a migration after editing `server/src/db/schema.ts` |
 | `npm run db:migrate` | Apply migrations |
 | `npm run db:seed` | Insert demo data |

@@ -36,8 +36,10 @@ lookupRouter.get(
   }),
 );
 
+// Machine pickers: jobsheet forms (office) and Start / Change machine (supervisor). Not the Taka entry role.
 lookupRouter.get(
   '/machines',
+  requirePermission('canViewMasters', 'canRunJobsheets'),
   ah(async (req, res) => {
     res.set('Cache-Control', 'private, max-age=10');
     res.json(await lookupMachines(querySchema.parse(req.query).search));

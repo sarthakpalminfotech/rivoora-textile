@@ -6,3 +6,4 @@ export * from './schemas';
 export * from './types';
 export * from './production';
 export * from './jobsheets';
+export * from './takas';

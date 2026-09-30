@@ -1,0 +1,536 @@
+import { AlertTriangle, ArrowLeft, CheckCircle2, Info, List, Mic, Plus, ScanLine, SearchX } from 'lucide-react';
+import { useMemo, useRef, useState, type ReactNode } from 'react';
+import { Link, useNavigate, useParams } from 'react-router-dom';
+import { toast } from 'sonner';
+import {
+  cleanTakaNo,
+  hasTakaErrors,
+  JOBSHEET_STATUS,
+  TAKA_ERROR_TEXT,
+  validateTakaNumbers,
+  type JobsheetDetail,
+  type Taka,
+} from '@rivoora/shared';
+import { usePageTitle } from '@/components/layout/page-title';
+import { Button } from '@/components/ui/button';
+import { ImageThumb } from '@/components/ui/image-thumb';
+import { Textarea } from '@/components/ui/input';
+import { ResponsiveModal } from '@/components/ui/modal';
+import { Skeleton } from '@/components/ui/skeleton';
+import { StatusBadge } from '@/components/ui/status-badge';
+import { Tooltip } from '@/components/ui/tooltip';
+import { ApiError, errorMessage } from '@/lib/api';
+import { Bi, bi } from '@/lib/bilingual';
+import { formatDateTime, formatOrderNo } from '@/lib/format';
+import { cn } from '@/lib/utils';
+import { useJobsheet } from '../jobsheets/api';
+import { FramesValue, machineNumbers } from '../jobsheets/parts';
+import { useEnterTakas } from './api';
+
+const DEFAULT_ROWS = 6;
+
+interface Row {
+  key: number;
+  value: string;
+  damaged: boolean;
+}
+
+let rowKey = 0;
+const emptyRows = (n: number): Row[] => Array.from({ length: n }, () => ({ key: ++rowKey, value: '', damaged: false }));
+
+function Section({ title, children, className }: { title: ReactNode; children: ReactNode; className?: string }) {
+  return (
+    <section className={cn('rounded-2xl border border-border bg-white p-4 shadow-soft md:p-5', className)}>
+      <h2 className="mb-3 text-[15px] font-bold text-slate-800">{title}</h2>
+      {children}
+    </section>
+  );
+}
+
+/** Read-only chip of a saved taka (damaged ones in red). */
+function TakaChip({ taka }: { taka: Pick<Taka, 'takaNo' | 'isDamaged'> }) {
+  return (
+    <li
+      className={cn(
+        'inline-flex min-h-10 items-center gap-1.5 rounded-full border px-3.5 text-lg font-bold tabular-nums',
+        taka.isDamaged ? 'border-red-200 bg-red-50 text-red-700' : 'border-slate-200 bg-slate-50 text-slate-800',
+      )}
+    >
+      {taka.isDamaged && <AlertTriangle className="size-4 shrink-0" aria-hidden />}
+      {taka.takaNo}
+      {taka.isDamaged && (
+        <span className="text-xs font-semibold">
+          Damage / <span lang="hi">खराबी</span>
+        </span>
+      )}
+    </li>
+  );
+}
+
+/** 6.1 — the jobsheet at a glance, to match with the paper before typing. */
+function IdentityCard({ js }: { js: JobsheetDetail }) {
+  const machine =
+    js.runningMachine && js.status !== JOBSHEET_STATUS.PENDING && js.status !== JOBSHEET_STATUS.SENT
+      ? `Machine ${js.runningMachine.machineNo}`
+      : js.machines.length
+        ? `Machine ${machineNumbers(js.machines)}`
+        : null;
+  return (
+    <section className="rounded-2xl border border-border bg-white p-4 shadow-soft">
+      <div className="flex items-start gap-4">
+        <ImageThumb
+          thumbUrl={js.design?.thumbUrl}
+          fullUrl={js.design?.imageUrl}
+          alt={js.design ? `Design ${js.design.code}` : 'No design'}
+          className="size-24 shrink-0 md:size-28"
+          rounded="rounded-xl"
+        />
+        <div className="min-w-0 flex-1">
+          <p className="text-[13px] font-semibold uppercase tracking-wide text-slate-400">
+            Jobsheet / <span lang="hi">जॉबशीट</span>
+          </p>
+          <h2 className="text-4xl font-extrabold leading-none tracking-tight text-slate-900 md:text-5xl">{js.jobsheetNo}</h2>
+          <p className="mt-2 truncate text-xl font-bold text-primary">{js.design?.code ?? 'No design'}</p>
+        </div>
+      </div>
+      <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 border-t border-border pt-3 text-sm text-slate-600">
+        <StatusBadge kind="jobsheet" status={js.status} />
+        <span className="font-semibold text-slate-800">
+          <FramesValue status={js.status} frames={js.frames} completedFrames={js.completedFrames} withUnit />
+        </span>
+        {machine && <span>{machine}</span>}
+        <span>Order {formatOrderNo(js.orderNo)}</span>
+      </div>
+    </section>
+  );
+}
+
+/** 6.6 — secondary details, below the entry. */
+function DetailsCard({ js }: { js: JobsheetDetail }) {
+  const item = (en: string, hi: string, value: ReactNode) => (
+    <div className="min-w-0">
+      <dt className="text-[13px] text-muted-foreground">
+        {en} / <span lang="hi">{hi}</span>
+      </dt>
+      <dd className="mt-0.5 break-words text-[15px] font-semibold text-slate-900">{value}</dd>
+    </div>
+  );
+  return (
+    <Section title={<Bi en="Jobsheet details" hi="जॉबशीट की जानकारी" layout="inline" />}>
+      <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_220px]">
+        <dl className="grid grid-cols-2 gap-x-4 gap-y-3">
+          {item('Frames', 'फ्रेम', <FramesValue status={js.status} frames={js.frames} completedFrames={js.completedFrames} withUnit />)}
+          {item('Picks', 'पिक', js.picks ?? '—')}
+          {item('Machines', 'मशीन', machineNumbers(js.machines))}
+          {js.runningMachine && item('Made on', 'बनी मशीन', `Machine ${js.runningMachine.machineNo}`)}
+          {js.startedAt && item('Started', 'शुरू', formatDateTime(js.startedAt))}
+          {js.completedAt && item('Completed', 'पूरी', formatDateTime(js.completedAt))}
+          {item('Order', 'ऑर्डर', formatOrderNo(js.orderNo))}
+          {item('Design', 'डिज़ाइन', js.design?.code ?? '—')}
+        </dl>
+        {js.design && (
+          <ImageThumb
+            thumbUrl={js.design.thumbUrl}
+            fullUrl={js.design.imageUrl}
+            alt={`Design ${js.design.code}`}
+            className="aspect-square w-full max-w-[220px]"
+            rounded="rounded-xl"
+          />
+        )}
+      </div>
+    </Section>
+  );
+}
+
+function SuccessView({ js, saved, autoCompleted, onAddMore }: { js: JobsheetDetail; saved: Taka[]; autoCompleted: boolean; onAddMore: () => void }) {
+  return (
+    <div className="page-container max-w-xl py-8 text-center">
+      <div className="mx-auto flex size-24 items-center justify-center rounded-full bg-green-500 text-white shadow-pop animate-in zoom-in-50">
+        <CheckCircle2 className="size-14" strokeWidth={2.5} aria-hidden />
+      </div>
+      <h2 className="mt-5 text-3xl font-extrabold text-green-700">Saved</h2>
+      <p lang="hi" className="text-2xl font-bold text-green-700">
+        सेव हो गया
+      </p>
+      <p className="mt-3 text-lg font-semibold text-slate-700">
+        Jobsheet {js.jobsheetNo} · {saved.length} {saved.length === 1 ? 'taka' : 'takas'} /{' '}
+        <span lang="hi">{saved.length} टाका</span>
+      </p>
+      <ul className="mt-4 flex flex-wrap justify-center gap-2" aria-label={bi('Saved takas', 'सेव हुए टाका')}>
+        {saved.map((t) => (
+          <TakaChip key={t.id} taka={t} />
+        ))}
+      </ul>
+      {autoCompleted && (
+        <p className="mt-4 text-sm font-medium text-slate-500">
+          Jobsheet marked Completed · <span lang="hi">जॉबशीट पूरी हो गई</span>
+        </p>
+      )}
+      <div className="mt-8 space-y-3">
+        <Button asChild size="lg" className="h-16 w-full text-lg">
+          <Link to="/scan">
+            <ScanLine className="!size-6" />
+            <Bi en="Scan next" hi="अगला स्कैन करें" className="items-start" />
+          </Link>
+        </Button>
+        <Button asChild variant="secondary" size="lg" className="h-14 w-full">
+          <Link to="/jobsheets">
+            <List />
+            <Bi en="Back to list" hi="लिस्ट पर वापस" className="items-start" />
+          </Link>
+        </Button>
+        <Button variant="ghost" size="lg" className="h-12 w-full" onClick={onAddMore}>
+          <Plus />
+          <Bi en="Add more to this jobsheet" hi="इसी जॉबशीट में और जोड़ें" layout="inline" />
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/** `/jobsheets/:id` for the Taka entry role: taka entry first, jobsheet details after. */
+export default function TakaEntryPage() {
+  const id = Number(useParams().id);
+  const navigate = useNavigate();
+  const { data: js, isPending, isError, error, refetch } = useJobsheet(id);
+  const enter = useEnterTakas(id);
+  const [rows, setRows] = useState<Row[]>(() => emptyRows(DEFAULT_ROWS));
+  const [note, setNote] = useState('');
+  const [serverError, setServerError] = useState<{ key: number; message: string } | null>(null);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [saved, setSaved] = useState<{ takas: Taka[]; autoCompleted: boolean } | null>(null);
+  const inputs = useRef(new Map<number, HTMLInputElement>());
+  usePageTitle(js ? bi(`Jobsheet ${js.jobsheetNo}`, `जॉबशीट ${js.jobsheetNo}`) : bi('Taka entry', 'टाका एंट्री'));
+
+  const existing = useMemo(() => js?.takas ?? [], [js]);
+  const errors = useMemo(
+    () => validateTakaNumbers(rows.map((r) => r.value), existing.map((t) => t.takaNo), { ignoreEmpty: true }),
+    [rows, existing],
+  );
+  const filled = rows.filter((r) => r.value.trim() !== '');
+  const canSubmit = filled.length > 0 && !hasTakaErrors(errors);
+
+  const back = (
+    <button
+      type="button"
+      onClick={() => navigate('/jobsheets')}
+      className="inline-flex min-h-10 items-center gap-1.5 text-sm font-medium text-slate-500 hover:text-primary"
+    >
+      <ArrowLeft className="size-4" /> Jobsheets / <span lang="hi">जॉबशीट</span>
+    </button>
+  );
+
+  if (isPending) {
+    return (
+      <div className="page-container max-w-2xl space-y-4 py-4">
+        {back}
+        <Skeleton className="h-44 rounded-2xl" />
+        <Skeleton className="h-96 rounded-2xl" />
+      </div>
+    );
+  }
+  if (isError || !js) {
+    const notFound = error instanceof ApiError && error.status === 404;
+    return (
+      <div className="page-container max-w-2xl py-4">
+        {back}
+        <div className="flex flex-col items-center px-6 py-14 text-center">
+          <div className="mb-4 flex size-14 items-center justify-center rounded-2xl bg-destructive-soft text-destructive">
+            {notFound ? <SearchX className="size-7" aria-hidden /> : <AlertTriangle className="size-7" aria-hidden />}
+          </div>
+          <h2 className="text-lg font-semibold text-slate-900">{notFound ? 'Jobsheet not found' : "Couldn't load this jobsheet"}</h2>
+          <p lang="hi" className="font-semibold text-slate-700">
+            {notFound ? 'जॉबशीट नहीं मिली' : 'जॉबशीट लोड नहीं हो पाई'}
+          </p>
+          {!notFound && <p className="mt-1 max-w-sm text-sm text-muted-foreground">{errorMessage(error)}</p>}
+          <div className="mt-5 flex flex-wrap justify-center gap-2">
+            {!notFound && (
+              <Button variant="secondary" size="lg" onClick={() => void refetch()}>
+                <Bi en="Try again" hi="फिर कोशिश करें" layout="inline" />
+              </Button>
+            )}
+            <Button asChild size="lg">
+              <Link to="/scan">
+                <ScanLine />
+                <Bi en="Scan jobsheet" hi="जॉबशीट स्कैन करें" layout="inline" />
+              </Link>
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (saved) {
+    return (
+      <SuccessView
+        js={js}
+        saved={saved.takas}
+        autoCompleted={saved.autoCompleted}
+        onAddMore={() => {
+          setSaved(null);
+          window.scrollTo({ top: 0 });
+        }}
+      />
+    );
+  }
+
+  const isCompleted = js.status === JOBSHEET_STATUS.COMPLETED;
+  const setRow = (key: number, patch: Partial<Row>) => {
+    setRows((prev) => prev.map((r) => (r.key === key ? { ...r, ...patch } : r)));
+    if (serverError?.key === key) setServerError(null);
+  };
+  const addRow = () => {
+    const [row] = emptyRows(1);
+    setRows((prev) => [...prev, row]);
+    // Focus the new field once it has rendered.
+    window.setTimeout(() => inputs.current.get(row.key)?.focus(), 0);
+  };
+  const focusNext = (index: number) => {
+    const next = rows[index + 1];
+    if (next) inputs.current.get(next.key)?.focus();
+    else inputs.current.get(rows[index].key)?.blur();
+  };
+
+  const submit = () => {
+    const toSave = filled.map((r) => ({ takaNo: r.value.trim(), isDamaged: r.damaged }));
+    enter.mutate(
+      { takas: toSave, note: note.trim() || null },
+      {
+        onSuccess: (res) => {
+          setConfirmOpen(false);
+          setSaved({ takas: res.added, autoCompleted: res.autoCompleted });
+          setRows(emptyRows(DEFAULT_ROWS));
+          setNote('');
+          toast.success(bi('Saved', 'सेव हो गया'));
+          window.scrollTo({ top: 0 });
+        },
+        onError: (err) => {
+          setConfirmOpen(false);
+          // `takas.3.takaNo` → the 4th filled row.
+          const m = err instanceof ApiError && err.field ? /^takas\.(\d+)\./.exec(err.field) : null;
+          const row = m ? filled[Number(m[1])] : undefined;
+          if (row) {
+            setServerError({ key: row.key, message: err.message });
+            inputs.current.get(row.key)?.focus();
+          }
+        },
+      },
+    );
+  };
+
+  return (
+    <div className="page-container max-w-2xl space-y-4 pt-3 md:pt-5">
+      {back}
+      <IdentityCard js={js} />
+
+      {!isCompleted && (
+        <p className="flex items-start gap-2.5 rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-[15px] text-sky-900" role="note">
+          <Info className="mt-0.5 size-5 shrink-0 text-sky-500" aria-hidden />
+          <span>
+            This jobsheet will be marked Completed when you submit.
+            <span lang="hi" className="block font-medium">
+              जमा करने पर यह जॉबशीट पूरी मानी जाएगी।
+            </span>
+          </span>
+        </p>
+      )}
+
+      {existing.length > 0 && (
+        <Section
+          title={
+            <span className="flex items-center justify-between gap-2">
+              <Bi en="Already entered" hi="पहले से डाले गए" layout="inline" />
+              <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-sm font-bold text-slate-600">{existing.length}</span>
+            </span>
+          }
+        >
+          <ul className="flex flex-wrap gap-2">
+            {existing.map((t) => (
+              <TakaChip key={t.id} taka={t} />
+            ))}
+          </ul>
+        </Section>
+      )}
+
+      <Section title={<Bi en="New takas" hi="नए टाका" layout="inline" />}>
+        <ol className="space-y-3">
+          {rows.map((r, i) => {
+            const n = existing.length + i + 1;
+            const err = errors[i];
+            const message = serverError?.key === r.key ? serverError.message : null;
+            const invalid = !!err || !!message;
+            const inputId = `taka-${r.key}`;
+            return (
+              <li
+                key={r.key}
+                className={cn(
+                  '-mx-2 rounded-xl px-2 py-1.5 transition-colors',
+                  r.damaged && 'bg-red-50 ring-1 ring-red-200',
+                )}
+              >
+                <label htmlFor={inputId} className="mb-1 block text-sm font-semibold text-slate-600">
+                  Taka {n} / <span lang="hi">टाका {n}</span>
+                </label>
+                <div className="flex items-stretch gap-2">
+                  <input
+                    ref={(el) => {
+                      if (el) inputs.current.set(r.key, el);
+                      else inputs.current.delete(r.key);
+                    }}
+                    id={inputId}
+                    value={r.value}
+                    onChange={(e) => {
+                      const value = cleanTakaNo(e.target.value);
+                      setRow(r.key, value ? { value } : { value, damaged: false });
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        focusNext(i);
+                      }
+                    }}
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    autoComplete="off"
+                    enterKeyHint={i === rows.length - 1 ? 'done' : 'next'}
+                    maxLength={10}
+                    aria-invalid={invalid || undefined}
+                    aria-describedby={invalid ? `${inputId}-err` : undefined}
+                    className={cn(
+                      'h-14 min-w-0 flex-1 rounded-xl border bg-white px-4 text-[24px] font-bold tabular-nums tracking-wide text-slate-900 transition-colors placeholder:text-slate-300 focus:outline-none focus:ring-2',
+                      invalid
+                        ? 'border-destructive focus:ring-destructive/20'
+                        : 'border-input focus:border-primary focus:ring-primary/15',
+                    )}
+                    placeholder="—"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setRow(r.key, { damaged: !r.damaged })}
+                    disabled={!r.value}
+                    aria-pressed={r.damaged}
+                    aria-label={bi(`Damage on taka ${n}`, `टाका ${n} में खराबी`)}
+                    className={cn(
+                      'flex min-h-14 w-[104px] shrink-0 items-center justify-center gap-1.5 rounded-xl border-2 px-2 text-left text-sm font-bold transition-colors disabled:cursor-not-allowed disabled:opacity-40',
+                      r.damaged
+                        ? 'border-red-600 bg-red-600 text-white shadow-sm'
+                        : 'border-slate-200 bg-white text-slate-600 hover:border-red-300 hover:text-red-600',
+                    )}
+                  >
+                    <AlertTriangle className="size-5 shrink-0" aria-hidden />
+                    <span className="flex flex-col leading-tight">
+                      <span>Damage</span>
+                      <span lang="hi" className="text-[13px]">
+                        खराबी
+                      </span>
+                    </span>
+                  </button>
+                </div>
+                {invalid && (
+                  <p id={`${inputId}-err`} role="alert" className="mt-1 text-sm font-semibold text-destructive">
+                    {message ?? `${TAKA_ERROR_TEXT[err!].en} / `}
+                    {!message && <span lang="hi">{TAKA_ERROR_TEXT[err!].hi}</span>}
+                  </p>
+                )}
+              </li>
+            );
+          })}
+        </ol>
+        <Button variant="secondary" size="lg" className="mt-4 h-14 w-full border-dashed text-base" onClick={addRow}>
+          <Plus className="!size-5" />
+          <Bi en="Add more" hi="और जोड़ें" layout="inline" />
+        </Button>
+      </Section>
+
+      <Section title={<Bi en="Note" hi="नोट" layout="inline" />}>
+        {js.takaNote && (
+          <div className="mb-3 rounded-xl bg-slate-50 px-3.5 py-2.5">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+              Saved note / <span lang="hi">सेव नोट</span>
+            </p>
+            <p className="whitespace-pre-line text-[15px] text-slate-700">{js.takaNote}</p>
+          </div>
+        )}
+        <div className="flex items-start gap-2">
+          <Textarea
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            maxLength={2000}
+            placeholder={js.takaNote ? bi('Add to the note…', 'नोट में जोड़ें…') : bi('Note (optional)', 'नोट (ज़रूरी नहीं)')}
+            aria-label={bi('Note', 'नोट')}
+            className="min-h-[88px] flex-1 text-base"
+          />
+          <Tooltip content={bi('Coming soon', 'जल्द आ रहा है')}>
+            <button
+              type="button"
+              aria-disabled="true"
+              aria-label={bi('Voice note (coming soon)', 'आवाज़ नोट (जल्द आ रहा है)')}
+              className="flex size-12 shrink-0 cursor-not-allowed items-center justify-center rounded-xl border border-slate-200 text-slate-300"
+            >
+              <Mic className="size-6" />
+            </button>
+          </Tooltip>
+        </div>
+      </Section>
+
+      {/* Sticky submit: above the phone bottom nav, at the bottom of the window on md+. */}
+      <div className="sticky bottom-[calc(4rem+env(safe-area-inset-bottom))] z-20 -mx-4 border-t border-border bg-white/95 px-4 py-3 backdrop-blur md:bottom-0 md:mx-0 md:rounded-t-2xl md:border-x">
+        <Button size="lg" className="h-14 w-full text-lg" disabled={!canSubmit} onClick={() => setConfirmOpen(true)}>
+          <Bi en={filled.length ? `Submit (${filled.length})` : 'Submit'} hi="जमा करें" className="items-center" />
+        </Button>
+      </div>
+
+      <DetailsCard js={js} />
+
+      <ResponsiveModal
+        open={confirmOpen}
+        onOpenChange={(o) => !enter.isPending && setConfirmOpen(o)}
+        title={bi('Save these takas?', 'ये टाका जमा करें?')}
+        desktopVariant="center"
+        mobileVariant="bottom"
+        size="md"
+        dismissible={!enter.isPending}
+        footer={
+          <div className="grid w-full grid-cols-2 gap-2">
+            <Button variant="secondary" size="lg" className="h-14" onClick={() => setConfirmOpen(false)} disabled={enter.isPending}>
+              <Bi en="Cancel" hi="रद्द करें" className="items-center" />
+            </Button>
+            <Button size="lg" className="h-14" onClick={submit} loading={enter.isPending}>
+              <Bi en="Submit" hi="जमा करें" className="items-center" />
+            </Button>
+          </div>
+        }
+      >
+        <p className="mb-3 text-[15px] font-semibold text-slate-600">
+          Jobsheet {js.jobsheetNo} · {filled.length} {filled.length === 1 ? 'taka' : 'takas'} / <span lang="hi">{filled.length} टाका</span>
+        </p>
+        <ul className="divide-y divide-border rounded-xl border border-border">
+          {filled.map((r) => (
+            <li key={r.key} className="flex items-center justify-between gap-3 px-4 py-2.5">
+              <span className={cn('text-2xl font-bold tabular-nums', r.damaged ? 'text-red-600' : 'text-slate-900')}>{r.value}</span>
+              {r.damaged && (
+                <span className="inline-flex items-center gap-1 text-base font-bold text-red-600">
+                  <AlertTriangle className="size-5" aria-hidden /> Damage / <span lang="hi">खराबी</span>
+                </span>
+              )}
+            </li>
+          ))}
+        </ul>
+        {note.trim() && (
+          <div className="mt-3 rounded-xl bg-slate-50 px-4 py-2.5">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+              Note / <span lang="hi">नोट</span>
+            </p>
+            <p className="whitespace-pre-line text-base text-slate-700">{note.trim()}</p>
+          </div>
+        )}
+        {!isCompleted && (
+          <p className="mt-3 text-sm text-slate-500">
+            The jobsheet will be marked Completed. <span lang="hi">जॉबशीट पूरी मानी जाएगी।</span>
+          </p>
+        )}
+      </ResponsiveModal>
+    </div>
+  );
+}

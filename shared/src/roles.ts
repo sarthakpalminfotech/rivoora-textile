@@ -4,7 +4,7 @@
  * To add a role: add its key to ROLE_KEYS, give it a config below and
  * add it to `visibleTo` of the statuses it may see (see statuses.ts).
  */
-export const ROLE_KEYS = ['jemish', 'gaurang', 'supervisor'] as const;
+export const ROLE_KEYS = ['jemish', 'gaurang', 'supervisor', 'taka_entry'] as const;
 export type RoleKey = (typeof ROLE_KEYS)[number];
 
 export interface RolePermissions {
@@ -30,6 +30,14 @@ export interface RolePermissions {
   canPrintJobsheets: boolean;
   /** The machine floor board (`/machine-view`). */
   canViewMachineView: boolean;
+  /** Taka entry modules: Scan jobsheet (`/scan`) and the Taka jobsheets list (`/jobsheets`). */
+  canUseTakaModules: boolean;
+  /** Add new takas to a jobsheet (completes the jobsheet if it isn't yet). */
+  canEnterTakas: boolean;
+  /** Edit or remove submitted takas and edit the taka note. */
+  canEditTakas: boolean;
+  /** See takas on order and jobsheet details (the Taka entry role: on his own screens only). */
+  canViewTakas: boolean;
 }
 
 export interface RoleConfig {
@@ -39,8 +47,12 @@ export interface RoleConfig {
   initials: string;
   /** Where `/` and a role switch land. */
   landing: string;
+  /** Screens of this role show English + Hindi labels. */
+  bilingual?: boolean;
   permissions: RolePermissions;
 }
+
+const NO_TAKAS = { canUseTakaModules: false, canEnterTakas: false, canEditTakas: false, canViewTakas: false };
 
 export const ROLES: Record<RoleKey, RoleConfig> = {
   jemish: {
@@ -63,6 +75,9 @@ export const ROLES: Record<RoleKey, RoleConfig> = {
       canRunJobsheets: false,
       canPrintJobsheets: true,
       canViewMachineView: true,
+      ...NO_TAKAS,
+      canEditTakas: true,
+      canViewTakas: true,
     },
   },
   gaurang: {
@@ -85,6 +100,9 @@ export const ROLES: Record<RoleKey, RoleConfig> = {
       canRunJobsheets: false,
       canPrintJobsheets: true,
       canViewMachineView: true,
+      ...NO_TAKAS,
+      canEditTakas: true,
+      canViewTakas: true,
     },
   },
   supervisor: {
@@ -107,6 +125,34 @@ export const ROLES: Record<RoleKey, RoleConfig> = {
       canRunJobsheets: true,
       canPrintJobsheets: true,
       canViewMachineView: true,
+      ...NO_TAKAS,
+    },
+  },
+  taka_entry: {
+    key: 'taka_entry',
+    name: 'Taka entry',
+    title: 'टाका एंट्री',
+    initials: 'T',
+    landing: '/scan',
+    bilingual: true,
+    permissions: {
+      canViewOrders: false,
+      canViewMasters: false,
+      canSeeRate: false,
+      canAddOrder: false,
+      canSendToProduction: false,
+      canUndoProduction: false,
+      canManageMasters: false,
+      canManageJobsheets: false,
+      canManageMachines: false,
+      canViewJobsheetsModule: false,
+      canRunJobsheets: false,
+      canPrintJobsheets: false,
+      canViewMachineView: false,
+      canUseTakaModules: true,
+      canEnterTakas: true,
+      canEditTakas: false,
+      canViewTakas: true,
     },
   },
 };

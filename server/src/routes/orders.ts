@@ -11,9 +11,10 @@ import {
   undoSendToProduction,
 } from '../services/orders';
 import { addSingleJobsheet, generateJobsheets, listOrderJobsheets, sendJobsheets } from '../services/jobsheets';
+import { listOrderTakas } from '../services/takas';
 
 export const ordersRouter = Router();
-// The supervisor has no access to orders at all.
+// The supervisor and the Taka entry role have no access to orders at all.
 ordersRouter.use(requirePermission('canViewOrders'));
 
 ordersRouter.get(
@@ -77,6 +78,15 @@ ordersRouter.post(
   requirePermission('canManageJobsheets'),
   ah(async (req, res) => {
     res.status(201).json(await addSingleJobsheet(req.role, parseId(req.params.id), req.body));
+  }),
+);
+
+/** Takas of the order, grouped by jobsheet. */
+ordersRouter.get(
+  '/:id/takas',
+  requirePermission('canViewTakas'),
+  ah(async (req, res) => {
+    res.json(await listOrderTakas(req.role, parseId(req.params.id)));
   }),
 );
 

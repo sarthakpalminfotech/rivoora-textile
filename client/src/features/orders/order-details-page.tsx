@@ -16,6 +16,7 @@ import { useRole } from '@/hooks/useRole';
 import { ApiError } from '@/lib/api';
 import { formatDate, formatDateTime, formatMoney, formatOrderNo, formatQuantity } from '@/lib/format';
 import { OrderJobsheetsSection } from '../jobsheets/order-jobsheets-section';
+import { OrderTakasCard } from '../takas/takas-card';
 import { cn } from '@/lib/utils';
 import { useOrder, useUndoProduction } from './api';
 
@@ -139,7 +140,7 @@ export default function OrderDetailsPage() {
       </div>
 
       {/*
-        Phone / tablet: one column ordered by priority (details → jobsheets → design → notes → dates → history).
+        Phone / tablet: one column ordered by priority (details → jobsheets → takas → design → notes → dates → history).
         Desktop: two independent columns, so a long status history never pushes the jobsheets down.
         The column wrappers are `display: contents` below lg, which lets the `order-*` classes interleave the cards.
       */}
@@ -170,7 +171,7 @@ export default function OrderDetailsPage() {
             </dl>
           </Card>
 
-          <Card title="Notes" className="order-4 lg:order-none">
+          <Card title="Notes" className="order-5 lg:order-none">
             {order.notes ? (
               <p className="whitespace-pre-line text-[15px] leading-relaxed text-slate-700">{order.notes}</p>
             ) : (
@@ -187,7 +188,7 @@ export default function OrderDetailsPage() {
             )}
           </Card>
 
-          <Card title="Dates" className="order-5 lg:order-none">
+          <Card title="Dates" className="order-6 lg:order-none">
             <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <Item label="Created">{formatDateTime(order.createdAt)}</Item>
               <Item label="Sent to production">
@@ -203,10 +204,16 @@ export default function OrderDetailsPage() {
           <div className="order-2 min-w-0 empty:hidden lg:order-none">
             <OrderJobsheetsSection order={order} />
           </div>
+
+          {can('canViewTakas') && order.jobsheetCount > 0 && (
+            <div className="order-3 min-w-0 lg:order-none">
+              <OrderTakasCard order={order} />
+            </div>
+          )}
         </div>
 
         <div className="contents lg:block lg:min-w-0 lg:space-y-4">
-          <Card title="Design" className="order-3 lg:order-none">
+          <Card title="Design" className="order-4 lg:order-none">
             {image && code ? (
               <div className="space-y-3">
                 <ImageThumb thumbUrl={image.thumbUrl} fullUrl={image.imageUrl} alt={`Design ${code}`} className="aspect-square w-full" rounded="rounded-xl" />
@@ -229,7 +236,7 @@ export default function OrderDetailsPage() {
             )}
           </Card>
 
-          <Card title="Status history" className="order-6 lg:order-none" action={<CalendarClock className="size-4 text-slate-400" aria-hidden />}>
+          <Card title="Status history" className="order-7 lg:order-none" action={<CalendarClock className="size-4 text-slate-400" aria-hidden />}>
             <History order={order} />
           </Card>
         </div>

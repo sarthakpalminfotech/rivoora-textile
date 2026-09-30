@@ -1,9 +1,21 @@
-import { ClipboardCheck, ClipboardList, Factory, LayoutGrid, Layers, Palette, Users, type LucideIcon } from 'lucide-react';
+import {
+  ClipboardCheck,
+  ClipboardList,
+  Factory,
+  LayoutGrid,
+  Layers,
+  Palette,
+  ScanLine,
+  Users,
+  type LucideIcon,
+} from 'lucide-react';
 import type { RolePermissions } from '@/config/roles';
 
 export interface NavItem {
   to: string;
   label: string;
+  /** Hindi label, shown under the English one for bilingual roles (Taka entry). */
+  hi?: string;
   icon: LucideIcon;
   /** Shown only to roles with this permission. */
   permission: keyof RolePermissions;
@@ -13,7 +25,10 @@ export interface NavItem {
 
 export const NAV_ITEMS: NavItem[] = [
   { to: '/orders', label: 'Orders', icon: ClipboardList, permission: 'canViewOrders', group: 'main' },
+  { to: '/scan', label: 'Scan jobsheet', hi: 'जॉबशीट स्कैन करें', icon: ScanLine, permission: 'canUseTakaModules', group: 'main' },
+  // Same path, different module: the supervisor's list or the Taka entry list (a role only ever has one).
   { to: '/jobsheets', label: 'Jobsheets', icon: ClipboardCheck, permission: 'canViewJobsheetsModule', group: 'main' },
+  { to: '/jobsheets', label: 'Jobsheets', hi: 'जॉबशीट', icon: ClipboardCheck, permission: 'canUseTakaModules', group: 'main' },
   { to: '/machine-view', label: 'Machine view', icon: LayoutGrid, permission: 'canViewMachineView', group: 'main' },
   { to: '/customers', label: 'Customers', icon: Users, permission: 'canViewMasters', group: 'masters' },
   { to: '/materials', label: 'Materials', icon: Layers, permission: 'canViewMasters', group: 'masters' },
@@ -22,5 +37,10 @@ export const NAV_ITEMS: NavItem[] = [
 ];
 
 export function navItemsFor(can: (p: keyof RolePermissions) => boolean): NavItem[] {
-  return NAV_ITEMS.filter((item) => can(item.permission));
+  const seen = new Set<string>();
+  return NAV_ITEMS.filter((item) => {
+    if (!can(item.permission) || seen.has(item.to)) return false;
+    seen.add(item.to);
+    return true;
+  });
 }

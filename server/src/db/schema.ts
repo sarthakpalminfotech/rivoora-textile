@@ -9,7 +9,7 @@ import {
   uniqueIndex,
   type AnySQLiteColumn,
 } from 'drizzle-orm/sqlite-core';
-import type { JobsheetEventKind, JobsheetStatusKey, OrderStatusKey, RoleKey, Unit } from '@rivoora/shared';
+import type { DamageType, JobsheetEventKind, JobsheetStatusKey, OrderStatusKey, RoleKey, Unit } from '@rivoora/shared';
 
 const nowIso = sql`(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`;
 
@@ -215,6 +215,8 @@ export const jobsheets = sqliteTable(
     parentJobsheetId: integer('parent_jobsheet_id').references((): AnySQLiteColumn => jobsheets.id),
     /** Machine chosen in Change machine — pre-selected at Start. */
     suggestedMachineId: integer('suggested_machine_id').references(() => machines.id),
+    /** Common note of the taka entry (appended on every entry, editable by Jemish / Gaurang). */
+    takaNote: text('taka_note'),
     isDeleted: isDeleted(),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
@@ -257,6 +259,38 @@ export const jobsheetMachines = sqliteTable(
       .references(() => machines.id),
   },
   (t) => [primaryKey({ columns: [t.jobsheetId, t.machineId] }), index('jobsheet_machines_machine_idx').on(t.machineId)],
+);
+
+/**
+ * Takas: numbered cloth pieces of a jobsheet, entered at the Taka entry desk. Numbers repeat across jobsheets
+ * (they restart every year), so they are unique per jobsheet only. Soft-deleted when removed in an edit.
+ */
+export const takas = sqliteTable(
+  'takas',
+  {
+    id: id(),
+    jobsheetId: integer('jobsheet_id')
+      .notNull()
+      .references(() => jobsheets.id),
+    /** Denormalized for order-level queries. */
+    orderId: integer('order_id')
+      .notNull()
+      .references(() => orders.id),
+    takaNo: text('taka_no').notNull(),
+    isDamaged: integer('is_damaged', { mode: 'boolean' }).notNull().default(false),
+    /** `machine` when damaged (more types later). */
+    damageType: text('damage_type').$type<DamageType>(),
+    enteredBy: text('entered_by').$type<RoleKey>().notNull(),
+    isDeleted: isDeleted(),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    index('takas_jobsheet_idx').on(t.jobsheetId),
+    index('takas_order_idx').on(t.orderId),
+    index('takas_taka_no_idx').on(t.takaNo),
+    uniqueIndex('takas_jobsheet_taka_no_active_unique').on(t.jobsheetId, t.takaNo).where(sql`${t.isDeleted} = 0`),
+  ],
 );
 
 /** Named running counters (e.g. `jobsheet_no`). Allocate inside the write transaction. */

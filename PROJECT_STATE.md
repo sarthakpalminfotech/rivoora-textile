@@ -1,16 +1,17 @@
 # Rivoora Textile — Project State
 
-Snapshot of what the code actually does as of **2026-09-30** (branch `main`, last commit `8e3a7bb Jobsheet creation full
-flow` **plus the uncommitted Sprint 3 work** — supervisor role, jobsheet workflow, Machine view, see
-[§10](#10-sprint-3--supervisor-machine-production-flow-machine-view)). Sprint 2 is described in [§9](#9-sprint-2--machines--jobsheets).
+Snapshot of what the code actually does as of **2026-09-30** (branch `main`, last commit `5f259df supervisor full flow`
+**plus the uncommitted Sprint 4 work** — Taka entry role, QR codes, takas, see
+[§11](#11-sprint-4--taka-entry-role-qr-scan-takas-on-orders)). Sprint 3 is in [§10](#10-sprint-3--supervisor-machine-production-flow-machine-view),
+Sprint 2 in [§9](#9-sprint-2--machines--jobsheets).
 Written so a developer can continue the project without reading the code first. The original brief is
 `rivoora-claude-code-prompt.md`; day-to-day conventions are in `CLAUDE.md`.
 
-> Where §1–§9 disagree with §10 (e.g. "Ready for production" label, two roles, 4-tab bottom nav), **§10 is current.**
+> Where §1–§9 disagree with §10 / §11 (e.g. "Ready for production" label, two roles, 4-tab bottom nav), **the later section is current.**
 
-`npm run typecheck` passes for all three packages at the time of writing. `npm test` runs the vitest suite for the shared
-jobsheet calculations (37 tests, all passing). There are no server or UI tests in the repo (the Sprint 3 API flows were
-verified with a throwaway script, see §10).
+`npm run typecheck` and `npm run build` pass for all three packages at the time of writing. `npm test` runs the vitest
+suites for the shared logic (jobsheet maths, takas, QR parsing — 55 tests, all passing). There are no server or UI tests
+in the repo (the Sprint 3 and 4 API flows were verified with throwaway scripts against a local SQLite copy, see §10 / §11).
 
 ---
 
@@ -816,3 +817,79 @@ Spec: `rivoora-sprint3-supervisor-prompt.md`. Built in one go at the user's requ
 - A change-machine child's machine list is **all** active machines at that moment (by spec).
 - Change machine keeps `jobsheet_pieces` / `target_frames` unchanged; any difference only shows as a coverage warning.
 - The machine view shows every active machine in one response (no pagination) — fine for a mill-sized floor.
+
+---
+
+## 11. Sprint 4 — Taka entry role, QR scan, takas on orders
+
+Spec: `rivoora-sprint4-taka-entry-prompt.md`. Built in one go at the user's request (no plan-approval stop).
+
+### Data (migration `0004_takas.sql`, applied to Turso on 2026-09-30)
+- New `takas`: `jobsheet_id` → jobsheets (index), `order_id` → orders (index, denormalized), `taka_no` TEXT (index,
+  **not unique**), `is_damaged` (default 0), `damage_type` (`machine` when damaged), `entered_by` (role),
+  `is_deleted`, timestamps. Partial unique index `(jobsheet_id, taka_no) WHERE is_deleted = 0`.
+- `jobsheets.taka_note` (nullable). Event kinds `takas_entered` / `takas_edited` (`note` = "3 takas (1 damage)" + edit details).
+
+### Config
+- Role `taka_entry` ("Taka entry", title "टाका एंट्री", initial T, landing `/scan`, `bilingual: true`). New permissions:
+  `canUseTakaModules`, `canEnterTakas` (taka_entry only), `canEditTakas` (Jemish, Gaurang), `canViewTakas` (Jemish,
+  Gaurang, taka_entry). Every other permission is false for taka_entry.
+- Jobsheet statuses: taka_entry sees all four (Pending included). Order status `taka_entry_done` (60, purple), Jemish + Gaurang.
+
+### Shared logic (`shared/src/takas.ts`, tests in `takas.test.ts`, 18 new)
+- `validateTakaNumbers(values, existing, { ignoreEmpty })` → per-row `required | digits | too_long | duplicate |
+  already_entered`; `TAKA_ERROR_TEXT` (English + Hindi); `cleanTakaNo`, `takaSummary`, `compareTakaNo`.
+- `jobsheetQrUrl(base, no)`, `parseJobsheetQr(text)` (http/https, any host, path exactly `/j/<digits>`).
+- `orderStatusForJobsheets` now takes `{ status, takaCount }` items (strings still work): all Completed + each ≥1 taka
+  → Taka entry done. Zod: `takaEntrySchema`, `takaEditSchema`, `takaListQuerySchema`.
+
+### Server
+- `recomputeOrderStatus` reads each active jobsheet's active taka count (`activeTakaCount` correlated subquery).
+- `services/takas.ts`: `enterTakas` (validate vs existing, insert, append note, auto-complete if not Completed —
+  completed_frames = frames, conditional update on the current status, `completed` event "completed at taka entry",
+  `takas_entered` event, recompute), `editTakas` (replace-set: update / soft-delete / insert, two-phase renumbering,
+  adding only on Completed jobsheets, `takas_edited` event, recompute), `listOrderTakas`, `listTakaJobsheets`.
+- `GET /jobsheets/:id` adds `takas` + `takaNote` (null for roles without `canViewTakas`; taka events filtered for them).
+- New: `GET /jobsheets/by-no/:no`, `POST|PUT /jobsheets/:id/takas`, `GET /taka/jobsheets`, `GET /orders/:id/takas`.
+  `GET /lookup/machines` now needs `canViewMasters` or `canRunJobsheets` (was open to every role).
+- `jobsheetSearch()` extracted from the supervisor list and reused by the Taka list.
+
+### Client
+- Section 0: the order Jobsheets card's "Send to supervisor" now starts with all Pending jobsheets selected.
+- Bilingual helper `lib/bilingual.tsx` (`bi`, `<Bi>`, `useBilingual`); Noto Sans Devanagari loaded globally; nav items
+  have `hi` labels (sidebar + bottom nav show both lines); `LoadMore` has a `bilingual` prop.
+- `/scan`: qr-scanner (dynamic import; back camera; square guide = default 2/3 scan region; torch toggle when
+  supported; vibrate + green tick on success; red "not a Rivoora jobsheet QR" and keeps scanning), friendly bilingual
+  messages for insecure http / denied / no camera / other errors (+ admin note for http, Try again), manual number entry.
+- `/j/:jobsheetNo`: resolves via `by-no`, redirects to `/jobsheets/:id` (all roles); bilingual not-found for taka_entry,
+  "isn't available" for the supervisor.
+- `/jobsheets` (taka_entry): supervisor-style cards, tabs Taka pending / Done with counts, search, "3 takas · 1 damage",
+  Enter taka / Add more takas buttons.
+- `/jobsheets/:id` (taka_entry): identity card, not-completed info note, Already entered chips, 6 big numeric fields +
+  Damage toggles, Add more, note + disabled mic, sticky Submit, confirm dialog, success screen, secondary details.
+- Order details: Takas card (summary, All / Damaged only, groups per jobsheet, Edit takas). Jobsheet details: Takas
+  block + Edit. Activity shows "Takas entered — 3 takas (1 damage)" / "Takas edited".
+- Print: QR (`qrcode` SVG, level M, 28 mm, "Scan · N") top-right beside the number box; Print waits for the QR codes;
+  amber non-printing warning when `VITE_PUBLIC_APP_URL` isn't set (`client/.env.example`, README).
+- Supervisor run mutations invalidate everything on a 409 (e.g. jobsheet completed at taka entry meanwhile).
+
+### Verified
+- API: a 41-check script against a migrated + seeded local SQLite copy — taka_entry 403 on orders / masters / lookups /
+  machine view / supervisor list / order takas; by-no per role (supervisor 404 on Pending); validation (duplicates in the
+  request, already entered, digits); auto-complete from Pending and Ongoing (supervisor Complete then 409, machine freed on
+  the board); note append; supervisor sees no takas / taka events; order status in_production → taka_entry_done →
+  production_completed (all takas removed) → taka_entry_done → in_production (new jobsheet); edit swap / remove / add;
+  edit 403 for taka_entry + supervisor; list tabs, sorting, counts.
+- UI (Chrome, local dev against the SQLite copy): scan screen, manual entry → `/j/3` → entry screen, duplicate error,
+  damage toggle, confirm, success; list, order Takas card, jobsheet Takas block + Activity, edit form; 360px layouts of
+  the three Taka entry screens; print preview QR placement and decoding the QR back to `/j/3`. No console errors.
+- **Not verified:** a real phone camera scan over HTTPS, and scanning a paper printout (needs an HTTPS deployment or
+  tunnel and a printer). Tablet 768px layouts were not re-checked beyond the shared card grid.
+
+### Known gaps / decisions
+- Taka numbers are compared as exact text (`0047` ≠ `47`).
+- Adding takas through the office edit form is only allowed on Completed jobsheets (entry via the Taka entry role
+  completes the jobsheet itself); removals / renumbering work in any status.
+- An entry on a Pending (never sent) jobsheet completes it too, as the spec says "if not Completed".
+- `completed_at` from taka entry = submit time; `started_at` stays empty for jobsheets that never started.
+- The Taka list shows all jobsheets of every order (no order-status filter), since only ready-or-later orders have jobsheets.
