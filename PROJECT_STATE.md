@@ -1,17 +1,17 @@
 # Rivoora Textile — Project State
 
-Snapshot of what the code actually does as of **2026-09-30** (branch `main`, last commit `5f259df supervisor full flow`
-**plus the uncommitted Sprint 4 work** — Taka entry role, QR codes, takas, see
-[§11](#11-sprint-4--taka-entry-role-qr-scan-takas-on-orders)). Sprint 3 is in [§10](#10-sprint-3--supervisor-machine-production-flow-machine-view),
-Sprint 2 in [§9](#9-sprint-2--machines--jobsheets).
+Snapshot of what the code actually does as of **2026-09-30** (branch `main`, last commit `e626c52 taka entry full flow`
+**plus the uncommitted Sprint 5 work** — order dashboard, see [§12](#12-sprint-5--order-dashboard-order-details-page)).
+Sprint 4 is in [§11](#11-sprint-4--taka-entry-role-qr-scan-takas-on-orders), Sprint 3 in
+[§10](#10-sprint-3--supervisor-machine-production-flow-machine-view), Sprint 2 in [§9](#9-sprint-2--machines--jobsheets).
 Written so a developer can continue the project without reading the code first. The original brief is
 `rivoora-claude-code-prompt.md`; day-to-day conventions are in `CLAUDE.md`.
 
-> Where §1–§9 disagree with §10 / §11 (e.g. "Ready for production" label, two roles, 4-tab bottom nav), **the later section is current.**
+> Where §1–§9 disagree with §10–§12 (e.g. "Ready for production" label, two roles, 4-tab bottom nav, the order details layout), **the later section is current.**
 
 `npm run typecheck` and `npm run build` pass for all three packages at the time of writing. `npm test` runs the vitest
-suites for the shared logic (jobsheet maths, takas, QR parsing — 55 tests, all passing). There are no server or UI tests
-in the repo (the Sprint 3 and 4 API flows were verified with throwaway scripts against a local SQLite copy, see §10 / §11).
+suites for the shared logic (jobsheet maths, takas, QR parsing, order dashboard — 66 tests, all passing). There are no server or UI tests
+in the repo (the Sprint 3–5 API flows were verified with throwaway scripts against a local SQLite copy, see §10–§12).
 
 ---
 
@@ -893,3 +893,68 @@ Spec: `rivoora-sprint4-taka-entry-prompt.md`. Built in one go at the user's requ
 - An entry on a Pending (never sent) jobsheet completes it too, as the spec says "if not Completed".
 - `completed_at` from taka entry = submit time; `started_at` stays empty for jobsheets that never started.
 - The Taka list shows all jobsheets of every order (no order-status filter), since only ready-or-later orders have jobsheets.
+
+---
+
+## 12. Sprint 5 — Order dashboard (order details page)
+
+Spec: `rivoora-sprint5-order-dashboard-prompt.md`. Built in one go at the user's request (no plan-approval stop).
+
+### Data (migration `0005_takas_stage.sql` — **not yet applied to Turso**, run `npm run db:migrate`)
+- `takas.stage` text NOT NULL DEFAULT `entered` + index `takas_stage_idx`; existing rows backfilled to `entered`.
+  Nothing writes it yet — later sprints move takas through `at_butta → butta_qc → butta_done → at_mill → mill_qc → ready`.
+- `Taka` DTO now carries `stage`. `OrderDetail` now carries `jobsheetPieces` (header "Jobsheet quantity").
+
+### Config (`shared/src/pipeline.ts`)
+- `MAIN_STAGES` (production · butta · mill · ready, colour, unit, `connected`), `SUB_STAGES` (key, label, mainStage, unit,
+  colour, `connected`, `takaStages`), `TAKA_STAGES`, `jobsheetSubStage(status, takaCount)` (the Production rules),
+  `DAMAGE_TYPES` / `DAMAGE_TYPE_CONFIG` / `DAMAGE_TYPE_LABEL` (machine · butta · mill — moved here from `takas.ts`),
+  `ALERT_NOT_STARTED_HOURS = 24`, `ALERT_RULES`, `formatHours`.
+- Only Production and Machine damage are `connected: true`. **To connect later** — see CLAUDE.md "Order dashboard".
+
+### Shared logic (`shared/src/orderDashboard.ts`, tests in `orderDashboard.test.ts`, 11 new → 66 total)
+- `buildOrderDashboard({ order, jobsheets, takas }, now)` — pure; takas may be aggregated rows with a `count`.
+  Output: progress (woven frames/pcs vs jobsheet quantity, else order quantity), bar shares in frames per main stage,
+  main-stage counts (Production = jobsheets, others = takas) + damaged, sub-stage counts + facts (frames, machines on
+  loom, oldest sent, jobsheets the takas come from), production totals, damage counts per type, alerts, default stage.
+- Bar shares: a jobsheet with no takas counts fully in Production; otherwise its frames (actual frames once Completed)
+  are spread over its takas' main stages by taka count (`entered` = Production).
+- Alerts: `not_started` (Sent and `sent_at` > 24 h ago, strictly) + the existing coverage warnings (same texts).
+
+### Server (`server/src/services/dashboard.ts`, routes in `routes/orders.ts`)
+- `GET /orders/:id/dashboard` — one `db.batch` (order, jobsheets, takas grouped by jobsheet/stage/damage) → `buildOrderDashboard`.
+- `GET /orders/:id/dashboard/items?sub=` — jobsheet rows (filtered by `jobsheetSubStage`) or takas grouped by jobsheet.
+- `GET /orders/:id/damages?type=` (`canViewTakas`) — damaged takas (+ jobsheet, stage, taka note) and counts per type.
+- All behind `canViewOrders` and the order-status visibility (404), like `GET /orders/:id`.
+
+### Client (`client/src/features/orders/dashboard/*`, page `order-details-page.tsx`)
+- Page = back link → `OrderHeader` (clickable design thumb → Lightbox, `aria-label="View design image"`; placeholder when
+  no image; detail grid 2 cols + "More details" on phones, 4/6 cols on md/xl; Undo send for production) → tabs
+  **Dashboard · Jobsheets (n) · Takas (n) · Damages (n, red) · Order details · History**. Phones: scrollable pill row.
+- URL state (`view-state.ts`, `useOrderView`): `?tab=&stage=&sub=&type=`, history `replace`, so Back from a jobsheet restores the view.
+- Dashboard tab (`dashboard-tab.tsx`): progress card (pcs woven, stage bar + legend, %, "N need attention" → scrolls to
+  `#needs-attention`), 4 main-stage buttons (2×2 on phones, chevrons between on md+), summary line, sub-stage KPI buttons
+  (toggle), detail panel (table on md+, cards on phones; taka groups with chips), damage strip (→ Damages tab filtered),
+  Needs attention card. Special cases: Pending for production → "Not sent for production yet" + Send for production;
+  no jobsheets → "No jobsheets yet" + Create jobsheets (opens the existing dialog); non-pcs → "coming soon" in Production.
+- Damages tab (`damages-tab.tsx`): tiles per type + total, filter pills (URL `type`), damaged taka cards; **Edit takas**
+  opens the existing `EditTakasDialog` for that jobsheet (data from `useOrderTakas`).
+- Jobsheets / Takas tabs render the existing `OrderJobsheetsSection` / `OrderTakasCard` unchanged; Order details tab =
+  Notes, Dates (+ last updated), Design; History tab = the status timeline.
+- Query keys `['order-dashboard', orderId, 'summary' | 'items' | 'damages', …]`; summary refetches every 60 s and on
+  focus; `invalidateAfterWrite` (every jobsheet / taka mutation) and send / undo production invalidate `['order-dashboard']`.
+
+### Verified
+- `npm run typecheck`, `npm test` (66), `npm run build` pass.
+- API against a migrated + seeded local SQLite copy: generate → send → start → taka entry (1 damaged) → dashboard counts,
+  bar, sub-stages; `sent_at` moved back 33 h → `not_started` alert; items for `with_supervisor`, `taka_done`, a
+  not-connected sub (empty, `connected: false`), invalid sub (400); damages all / machine / butta; supervisor 403; Gaurang
+  404 on a Pending-for-production order.
+- **Not verified in a browser** (the user asked not to use Chrome this sprint): the 360 / 768 / 1024 / 1280 layouts,
+  Lightbox on phones, and the moved Jobsheets selection mode should get a manual pass.
+
+### Known gaps / decisions
+- Main-stage "pcs" for later stages = that stage's frame share × `SECTIONS_PER_BEAM` (takas have no piece count).
+- Woven = actual frames of Completed jobsheets only (Ongoing jobsheets have no partial count).
+- The coverage warnings show both in the Needs attention card and (unchanged) in the Jobsheets tab.
+- Damages "Recorded" = the taka's `created_at` (there is no separate damaged-at timestamp).

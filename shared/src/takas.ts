@@ -7,10 +7,10 @@
 export const TAKA_NO_MAX_LENGTH = 10;
 export const TAKA_NO_REGEX = /^\d{1,10}$/;
 
-/** Damage types. Everything found at taka entry is machine damage; more types come in later sprints. */
-export const DAMAGE_TYPES = ['machine'] as const;
-export type DamageType = (typeof DAMAGE_TYPES)[number];
-export const DAMAGE_TYPE_LABEL: Record<DamageType, string> = { machine: 'Machine damage' };
+/*
+ * Damage types live in `pipeline.ts` (DAMAGE_TYPES / DAMAGE_TYPE_LABEL / DAMAGE_TYPE_CONFIG).
+ * Everything found at taka entry is machine damage; butta / mill damage are recorded by later sprints.
+ */
 
 /** Upper limits so a stuck key can't submit thousands of rows. */
 export const MAX_TAKAS_PER_SUBMIT = 200;

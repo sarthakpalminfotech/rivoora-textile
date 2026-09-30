@@ -12,6 +12,7 @@ import {
 } from '../services/orders';
 import { addSingleJobsheet, generateJobsheets, listOrderJobsheets, sendJobsheets } from '../services/jobsheets';
 import { listOrderTakas } from '../services/takas';
+import { getDashboardItems, getOrderDamages, getOrderDashboard } from '../services/dashboard';
 
 export const ordersRouter = Router();
 // The supervisor and the Taka entry role have no access to orders at all.
@@ -96,5 +97,30 @@ ordersRouter.post(
   requirePermission('canManageJobsheets'),
   ah(async (req, res) => {
     res.json(await sendJobsheets(req.role, parseId(req.params.id), req.body));
+  }),
+);
+
+/** Order dashboard: counts only (the pure `buildOrderDashboard` over one batched round trip). */
+ordersRouter.get(
+  '/:id/dashboard',
+  ah(async (req, res) => {
+    res.json(await getOrderDashboard(req.role, parseId(req.params.id)));
+  }),
+);
+
+/** The items of one sub-stage (jobsheet rows, or takas grouped by jobsheet). */
+ordersRouter.get(
+  '/:id/dashboard/items',
+  ah(async (req, res) => {
+    res.json(await getDashboardItems(req.role, parseId(req.params.id), req.query));
+  }),
+);
+
+/** Damaged takas of the order + counts per damage type (Damages tab). */
+ordersRouter.get(
+  '/:id/damages',
+  requirePermission('canViewTakas'),
+  ah(async (req, res) => {
+    res.json(await getOrderDamages(req.role, parseId(req.params.id), req.query));
   }),
 );

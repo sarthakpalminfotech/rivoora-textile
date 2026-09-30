@@ -36,6 +36,13 @@
       "when": 1790762053537,
       "tag": "0004_takas",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1790768612352,
+      "tag": "0005_takas_stage",
+      "breakpoints": true
     }
   ]
 }

@@ -11,8 +11,11 @@ Sprint 3 = Supervisor role (tablet-first Jobsheets module: start / complete / ch
 supervisor, jobsheet statuses, order status driven by the jobsheets (In production → Production completed), Machine view.
 Sprint 4 = Taka entry role (bilingual English + Hindi, phone-first): QR code on printed jobsheets, Scan jobsheet, taka
 entry (auto-completes the jobsheet), Taka jobsheets list, takas on order / jobsheet details with edit, status Taka entry done.
+Sprint 5 = Order dashboard: the order details page becomes header + tabs (Dashboard · Jobsheets · Takas · Damages · Order
+details · History); a config-driven pipeline (Production → Butta cutting → Mill → Ready), `takas.stage`, Damages tab, alerts.
 Specs: `rivoora-claude-code-prompt.md` (sprint 1), `rivoora-sprint2-jobsheets-prompt.md` (sprint 2),
-`rivoora-sprint3-supervisor-prompt.md` (sprint 3), `rivoora-sprint4-taka-entry-prompt.md` (sprint 4).
+`rivoora-sprint3-supervisor-prompt.md` (sprint 3), `rivoora-sprint4-taka-entry-prompt.md` (sprint 4),
+`rivoora-sprint5-order-dashboard-prompt.md` (sprint 5).
 
 ## Monorepo layout (npm workspaces)
 
@@ -25,7 +28,9 @@ shared/   @rivoora/shared — TS source used by BOTH client and server (no build
   src/production.ts SECTIONS_PER_BEAM = 3 (never hardcode 3 anywhere else)
   src/jobsheets.ts  ALL jobsheet maths (pure): planJobsheets, planFramesEdit (auto-adjust), coverage, change-machine helpers
   src/takas.ts      taka validation (digits, duplicates within ONE jobsheet), takaSummary(), QR url build/parse
-  src/*.test.ts     vitest — `npm test` (jobsheets.test.ts, takas.test.ts)
+  src/pipeline.ts   order pipeline config: MAIN_STAGES, SUB_STAGES, TAKA_STAGES, DAMAGE_TYPE_CONFIG, ALERT_RULES (see "Order dashboard")
+  src/orderDashboard.ts  buildOrderDashboard(input, now) — pure; ALL dashboard counts / bar shares / alerts
+  src/*.test.ts     vitest — `npm test` (jobsheets.test.ts, takas.test.ts, orderDashboard.test.ts)
   src/schemas.ts    zod request schemas (server validates with these)
   src/types.ts      API DTO types
 server/   Express + Drizzle + Turso (libSQL)
@@ -34,7 +39,8 @@ server/   Express + Drizzle + Turso (libSQL)
   src/db/schema.ts      Drizzle schema → `npm run db:generate` → server/drizzle/*.sql (committed)
   src/db/migrate.ts     applies migrations      src/db/seed.ts + patterns.ts   demo data + SVG patterns
   src/routes/*          thin Express routers    src/services/*   all SQL / business rules
-                        (services/takas.ts: enter / edit / order takas / Taka list; taka-shared.ts avoids an import cycle)
+                        (services/takas.ts: enter / edit / order takas / Taka list; taka-shared.ts avoids an import cycle;
+                        services/dashboard.ts: order dashboard, sub-stage items, damages)
   src/middleware/role.ts  X-Role header → req.role; requirePermission(...)
   src/middleware/error.ts consistent `{ error: { message, field? } }`
   src/storage/*         image storage driver (local disk now; swap for R2/S3 in storage/index.ts)
@@ -42,7 +48,8 @@ server/   Express + Drizzle + Turso (libSQL)
 client/   Vite + React 18 + TS + Tailwind + Radix (shadcn-style components written in-repo)
   src/components/ui/*      design system (select.tsx = THE standard dropdown, modal.tsx, date-picker, …)
   src/components/layout/*  sidebar / tablet rail / mobile bottom nav, top bar, profile menu (role switch)
-  src/features/orders/*    list + selection mode, filters, add order, saved-designs drawer, details
+  src/features/orders/*    list + selection mode, filters, add order, saved-designs drawer, details page (header + tabs)
+  src/features/orders/dashboard/*  order-header, dashboard-tab, damages-tab, view-state (URL tab/stage/sub/type), api
   src/features/masters/*   customers, materials, designs, machines (+ generic master-list scaffold)
   src/features/jobsheets/* order Jobsheets section (+ send selection), forms, details page, print route,
                            supervisor module (supervisor-jobsheets-page, run-dialogs, activity)
@@ -62,7 +69,7 @@ npm run db:migrate      # apply migrations to Turso
 npm run db:seed         # demo data (idempotent; orders only seeded when the table is empty)
 npm run dev             # server :4000 + client :5180 (Vite proxies /api and /uploads)
 npm run typecheck       # all three packages
-npm test                # shared vitest (jobsheet maths, takas, QR parsing)
+npm test                # shared vitest (jobsheet maths, takas, QR parsing, order dashboard)
 npm run build           # server → server/dist (tsup), client → client/dist
 npm start               # production: server also serves client/dist
 ```
@@ -100,6 +107,8 @@ run migrate + seed against it first). Vite's proxy target can be changed with `A
   only** (partial unique index on `(jobsheet_id, taka_no) WHERE is_deleted = 0`); they repeat across jobsheets / orders.
   `jobsheets.taka_note` = one common note (entry appends a line; edit replaces it). Edits that renumber go through a
   temporary `~id` value so swaps never hit the unique index. Active takas per jobsheet = the `activeTakaCount` SQL.
+- `takas.stage` (migration 0005, NOT NULL default `entered`, indexed): where the taka is — values in `TAKA_STAGES`
+  (`shared/src/pipeline.ts`). Everything is `entered` today; nothing else writes it yet. Carried on the `Taka` DTO.
 - Jobsheet workflow columns (migration 0003): `status` (pending | sent | ongoing | completed, indexed), `sent_at`,
   `started_at`, `completed_at`, `running_machine_id` (indexed), `completed_frames` (actual frames),
   `parent_jobsheet_id` + `suggested_machine_id` (set by Change machine). `jobsheet_events` = Activity timeline
@@ -167,7 +176,11 @@ run migrate + seed against it first). Vite's proxy target can be changed with `A
 
 - `GET /orders?search=&status=a,b&material=1,2&from=&to=&page=&limit=` — lean list (customer + material joined,
   plus `designCode` / `designThumbUrl` = variation, else design; search also matches design/variation codes)
-- `GET /orders/:id` · `POST /orders` · `POST /orders/send-to-production {orderIds}` · `POST /orders/:id/undo-production`
+- `GET /orders/:id` (incl. `jobsheetCount`, `jobsheetPieces`) · `POST /orders` · `POST /orders/send-to-production {orderIds}` · `POST /orders/:id/undo-production`
+- Order dashboard (same visibility as `GET /orders/:id`): `GET /orders/:id/dashboard` (counts only — one batch: order,
+  jobsheets, takas grouped by jobsheet/stage/damage → `buildOrderDashboard`) · `GET /orders/:id/dashboard/items?sub=<SubStageKey>`
+  (`{kind:'jobsheets', jobsheets}` or `{kind:'takas', groups}`) · `GET /orders/:id/damages?type=machine|butta|mill`
+  (`canViewTakas`; damaged takas + counts per type).
 - `GET /orders/:id/jobsheets` (list + coverage + warnings) · `POST /orders/:id/jobsheets/generate` `{pieces, picks?,
   framesPerJobsheet, machineIds}` · `POST /orders/:id/jobsheets` `{frames, pieces, picks?, machineIds}` — pcs orders
   that are Jobsheet pending or later only (409), inactive machines 409.
@@ -239,9 +252,12 @@ run migrate + seed against it first). Vite's proxy target can be changed with `A
   secondary details. Validation always via the shared `validateTakaNumbers`.
 - Print route: CSS is injected with a `<style>` only while mounted (`@page A4, 10mm`), 2 pages per jobsheet (front +
   design back, `break-after: page`), Noto Sans Devanagari loaded only there; Print waits for images + font.
-- Order details layout: desktop = two independent columns (left: details, notes, dates, **Jobsheets**, **Takas**; right:
-  design, status history) so a growing history never pushes the jobsheets down. Phone/tablet = one column ordered by
-  priority (details → jobsheets → takas → design → notes → dates → history) via `display: contents` wrappers + `order-*` classes.
+- Order details page (`/orders/:id`): "← Orders" → `OrderHeader` (design thumb opens the Lightbox, order # + status +
+  Undo send for production, detail grid; phones show 4 fields + "More details") → tabs **Dashboard** (default) ·
+  **Jobsheets** (the unchanged `OrderJobsheetsSection`) · **Takas** (the unchanged `OrderTakasCard`) · **Damages** ·
+  **Order details** (notes, dates, design) · **History**. Tab / stage / sub-stage / damage type live in the URL via
+  `useOrderView()` (`?tab=dashboard&stage=production&sub=on_loom`, `?tab=damages&type=machine`, history `replace`).
+  Phones: tabs are a horizontally scrollable pill row (`scrollbar-none`). Tab counts come from the dashboard query.
 - Order's jobsheet listing = card grid (`auto-fill, minmax(16rem, 1fr)` so it adapts to the column width): number,
   status badge, frames (`FramesValue`: actual/assigned when Completed, amber when short), picks, machines / "Running
   on". The whole card opens `/jobsheets/:id`, where Print / Edit / Delete / Pull back live. The ⬆ icon starts the
@@ -257,7 +273,33 @@ run migrate + seed against it first). Vite's proxy target can be changed with `A
 - Machine view `/machine-view` (`features/machine-view/`): stat pills filter All / Running / Idle, tile grid
   2/3/4/5/6 cols, running tiles green stripe + tint (max 3 rows, then "+N more"), idle "since …", inactive collapsed.
 
+## Order dashboard (Sprint 5) — config-driven, **to connect later**
+
+- Three levels: main stage cards (Production → Butta cutting → Mill → Ready) → sub-stage KPI cards → detail panel
+  (items fetched only when a sub-stage is opened). Counts first; details only when asked for. Jemish / Gaurang only.
+- Everything comes from `shared/src/pipeline.ts`: `MAIN_STAGES`, `SUB_STAGES` (key, label, mainStage, unit
+  `jobsheets | takas`, colour, `connected`, `takaStages`), `TAKA_STAGES`, `DAMAGE_TYPE_CONFIG`, `ALERT_RULES`,
+  `ALERT_NOT_STARTED_HOURS = 24`. Colours on the page come from this config only.
+- Production sub-stages are jobsheets by status (`jobsheetSubStage`: pending → not_sent, sent → with_supervisor, ongoing →
+  on_loom, completed without takas → taka_pending); every later sub-stage counts takas by `takas.stage`.
+- **Not connected yet (`connected: false`)**: main stages `butta`, `mill`, `ready`; sub-stages `at_butta`, `butta_qc`,
+  `butta_done`, `at_mill`, `mill_qc`, `ready`; damage types `butta`, `mill`. They show 0 with a grey "Coming soon" tag
+  and an empty detail ("This stage will be connected when it's built").
+  **When the butta cutting / mill / ready flows are built: move takas to the matching `takas.stage`, record `damage_type`
+  `butta` / `mill` for new QC damage, set `connected: true` in `pipeline.ts` and map the data there. The dashboard page
+  and `buildOrderDashboard` must not need changes.**
+- All numbers come from the pure `buildOrderDashboard` (tests in `orderDashboard.test.ts`). Bar shares are frames: a
+  jobsheet without takas counts fully in Production; otherwise its (actual) frames are spread over its takas' main
+  stages by taka count. Alerts = Sent > 24 h and not started + the existing coverage warnings (same texts); new alert
+  kinds go in `ALERT_RULES` + `buildOrderDashboard`.
+- Client: `features/orders/dashboard/api.ts` — keys `['order-dashboard', orderId, 'summary' | 'items' | 'damages', …]`;
+  summary refetches every 60 s and on focus. `invalidateAfterWrite` and send / undo production invalidate `['order-dashboard']`.
+- Special cases: Pending for production → "Not sent for production yet" + Send for production; no jobsheets → "No
+  jobsheets yet" + Create jobsheets (existing dialog); non-pcs → "Jobsheets for kg / g / meter orders — coming soon".
+- Damages tab: tiles per damage type + total, filter pills (URL `type`), damaged taka cards; editing goes through the
+  existing `EditTakasDialog` (no new edit flow).
+
 ## Not built yet (next sprints)
 
-Login/auth, statuses after Taka entry done (dispatch etc.), more damage types / taka tracking, jobsheets for kg / g / meter orders, further order
+Login/auth, statuses after Taka entry done (dispatch etc.), butta cutting / mill / ready flows (the dashboard stages are wired but `connected: false`), butta / mill damage recording, jobsheets for kg / g / meter orders, further order
 actions, voice notes (the mic icon is a placeholder with a "coming soon" tooltip), and cleanup of orphaned uploaded images.

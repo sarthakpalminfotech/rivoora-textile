@@ -1,24 +1,30 @@
-import { ArrowLeft, CalendarClock, ImageOff, Phone, Undo2 } from 'lucide-react';
+import { ArrowLeft, CalendarClock, ImageOff, PackageCheck, Send } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
-import { STATUS, type OrderDetail } from '@rivoora/shared';
+import { isReadyOrLater, STATUS, type OrderDetail } from '@rivoora/shared';
 import { usePageTitle } from '@/components/layout/page-title';
 import { ErrorState } from '@/components/list-parts';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { EmptyState } from '@/components/ui/empty-state';
 import { ImageThumb } from '@/components/ui/image-thumb';
 import { Skeleton } from '@/components/ui/skeleton';
-import { StatusBadge } from '@/components/ui/status-badge';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ROLES } from '@/config/roles';
 import { getStatus } from '@/config/statuses';
 import { useRole } from '@/hooks/useRole';
 import { ApiError } from '@/lib/api';
-import { formatDate, formatDateTime, formatMoney, formatOrderNo, formatQuantity } from '@/lib/format';
+import { formatDateTime, formatOrderNo } from '@/lib/format';
 import { OrderJobsheetsSection } from '../jobsheets/order-jobsheets-section';
 import { OrderTakasCard } from '../takas/takas-card';
 import { cn } from '@/lib/utils';
 import { useOrder, useUndoProduction } from './api';
+import { useOrderDashboard } from './dashboard/api';
+import { DamagesTab } from './dashboard/damages-tab';
+import { DashboardSkeleton, DashboardTab } from './dashboard/dashboard-tab';
+import { OrderHeader } from './dashboard/order-header';
+import { useOrderView, type OrderTab } from './dashboard/view-state';
 
 function Card({ title, children, action, className }: { title: string; children: ReactNode; action?: ReactNode; className?: string }) {
   return (
@@ -67,12 +73,123 @@ function History({ order }: { order: OrderDetail }) {
   );
 }
 
+/** Order details tab: notes, dates and the design (the header holds the main fields). */
+function DetailsTab({ order }: { order: OrderDetail }) {
+  const image = order.variation ?? order.design;
+  const code = order.variation?.code ?? order.design?.code;
+  return (
+    <div className="flex flex-col gap-4 lg:grid lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start">
+      <div className="min-w-0 space-y-4">
+        <Card title="Notes">
+          {order.notes ? (
+            <p className="whitespace-pre-line text-[15px] leading-relaxed text-slate-700">{order.notes}</p>
+          ) : (
+            <p className="text-sm text-muted-foreground">No notes.</p>
+          )}
+          {order.noteImages.length > 0 && (
+            <ul className="mt-4 flex flex-wrap gap-2">
+              {order.noteImages.map((img, i) => (
+                <li key={img.id}>
+                  <ImageThumb thumbUrl={img.thumbUrl} fullUrl={img.imageUrl} alt={`Note image ${i + 1}`} className="size-20 md:size-24" />
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
+
+        <Card title="Dates">
+          <dl className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+            <Item label="Created">{formatDateTime(order.createdAt)}</Item>
+            <Item label="Sent to production">
+              {order.sentToProductionAt ? formatDateTime(order.sentToProductionAt) : <span className="font-normal text-slate-400">Not yet</span>}
+            </Item>
+            <Item label="Last updated">{formatDateTime(order.updatedAt)}</Item>
+          </dl>
+        </Card>
+      </div>
+
+      <Card title="Design" className="min-w-0">
+        {image && code ? (
+          <div className="space-y-3">
+            <ImageThumb thumbUrl={image.thumbUrl} fullUrl={image.imageUrl} alt={`Design ${code}`} className="aspect-square w-full" rounded="rounded-xl" />
+            <div>
+              <p className="text-xl font-bold text-slate-900">{code}</p>
+              {order.variation && order.design && (
+                <p className="text-sm text-slate-500">
+                  Variation of {order.design.code}
+                  {order.design.name ? ` · ${order.design.name}` : ''}
+                </p>
+              )}
+              {!order.variation && order.design?.name && <p className="text-sm text-slate-500">{order.design.name}</p>}
+            </div>
+          </div>
+        ) : (
+          <div className="flex flex-col items-center gap-2 py-6 text-center text-sm text-muted-foreground">
+            <ImageOff className="size-6 text-slate-300" aria-hidden />
+            No design attached
+          </div>
+        )}
+      </Card>
+    </div>
+  );
+}
+
+function NotSentCard() {
+  return (
+    <div className="rounded-xl border border-border bg-white shadow-soft">
+      <EmptyState icon={Send} title="Not sent for production yet" className="py-10" />
+    </div>
+  );
+}
+
+/** Count bubble in a tab; red for damages when > 0. */
+function TabCount({ n, danger }: { n: number | undefined; danger?: boolean }) {
+  if (n === undefined) return null;
+  return (
+    <span
+      className={cn(
+        'ml-1.5 inline-flex min-w-5 items-center justify-center rounded-full px-1.5 text-[11px] font-bold leading-5',
+        danger && n > 0
+          ? 'bg-red-600 text-white'
+          : 'bg-slate-200/80 text-slate-600 group-data-[state=active]:bg-white/25 group-data-[state=active]:text-current md:group-data-[state=active]:bg-primary-soft',
+      )}
+    >
+      {n}
+    </span>
+  );
+}
+
+function PageSkeleton({ back }: { back: ReactNode }) {
+  return (
+    <div className="page-container space-y-4 py-5">
+      {back}
+      <div className="flex gap-4 rounded-xl border border-border bg-white p-4 shadow-soft md:p-5">
+        <Skeleton className="size-16 shrink-0 rounded-xl md:size-[88px]" />
+        <div className="flex-1 space-y-3">
+          <Skeleton className="h-8 w-48" />
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+            {Array.from({ length: 4 }, (_, i) => (
+              <Skeleton key={i} className="h-10" />
+            ))}
+          </div>
+        </div>
+      </div>
+      <Skeleton className="h-11 rounded-xl" />
+      <DashboardSkeleton />
+    </div>
+  );
+}
+
 export default function OrderDetailsPage() {
   const id = Number(useParams().id);
   const navigate = useNavigate();
   const location = useLocation();
   const { can } = useRole();
+  const view = useOrderView();
   const { data: order, isPending, isError, error, refetch } = useOrder(id);
+  const ready = !!order && isReadyOrLater(order.status);
+  // Same query as the Dashboard tab (shared cache) — feeds the Takas / Damages tab counts.
+  const dashboard = useOrderDashboard(id, ready);
   const undo = useUndoProduction(id);
   const [confirmUndo, setConfirmUndo] = useState(false);
   usePageTitle(order ? `Order ${formatOrderNo(order.orderNo)}` : 'Order details');
@@ -88,18 +205,7 @@ export default function OrderDetailsPage() {
     </button>
   );
 
-  if (isPending) {
-    return (
-      <div className="page-container space-y-4 py-5">
-        {back}
-        <Skeleton className="h-8 w-48" />
-        <div className="grid gap-4 lg:grid-cols-[1fr_360px]">
-          <Skeleton className="h-72 rounded-xl" />
-          <Skeleton className="h-72 rounded-xl" />
-        </div>
-      </div>
-    );
-  }
+  if (isPending) return <PageSkeleton back={back} />;
   if (isError || !order) {
     const notFound = error instanceof ApiError && error.status === 404;
     return (
@@ -122,125 +228,84 @@ export default function OrderDetailsPage() {
 
   // Undo is only possible while no jobsheets exist (the server enforces the same rule).
   const canUndo = can('canUndoProduction') && order.status === STATUS.READY_PRODUCTION && order.jobsheetCount === 0;
-  const image = order.variation ?? order.design;
-  const code = order.variation?.code ?? order.design?.code;
+  const canTakas = can('canViewTakas');
+  const counts = dashboard.data;
+
+  const tabs: { key: OrderTab; label: string; count?: number; danger?: boolean }[] = [
+    { key: 'dashboard', label: 'Dashboard' },
+    { key: 'jobsheets', label: 'Jobsheets', count: ready ? order.jobsheetCount : undefined },
+    ...(canTakas
+      ? [
+          { key: 'takas' as const, label: 'Takas', count: counts?.takaCount },
+          { key: 'damages' as const, label: 'Damages', count: counts?.damageTotal, danger: true },
+        ]
+      : []),
+    { key: 'details', label: 'Order details' },
+    { key: 'history', label: 'History' },
+  ];
+  const tab = tabs.some((t) => t.key === view.tab) ? view.tab : 'dashboard';
 
   return (
     <div className="page-container space-y-4 py-5">
       {back}
 
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-        <h2 className="text-2xl font-bold text-slate-900">Order {formatOrderNo(order.orderNo)}</h2>
-        <StatusBadge status={order.status} />
-        {canUndo && (
-          <Button variant="secondary" size="sm" className="ml-auto" onClick={() => setConfirmUndo(true)}>
-            <Undo2 /> Undo send for production
-          </Button>
-        )}
-      </div>
+      <OrderHeader order={order} onUndo={canUndo ? () => setConfirmUndo(true) : undefined} />
 
-      {/*
-        Phone / tablet: one column ordered by priority (details → jobsheets → takas → design → notes → dates → history).
-        Desktop: two independent columns, so a long status history never pushes the jobsheets down.
-        The column wrappers are `display: contents` below lg, which lets the `order-*` classes interleave the cards.
-      */}
-      <div className="flex flex-col gap-4 lg:grid lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start">
-        <div className="contents lg:block lg:min-w-0 lg:space-y-4">
-          <Card title="Order details" className="order-1 lg:order-none">
-            <dl className="grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-2">
-              <Item label="Client">
-                {order.customer.name}
-                {order.customer.city && <span className="ml-1.5 text-sm font-normal text-slate-500">· {order.customer.city}</span>}
-              </Item>
-              <Item label="Phone">
-                {order.customer.phone ? (
-                  <a href={`tel:${order.customer.phone}`} className="inline-flex items-center gap-1.5 text-primary hover:underline">
-                    <Phone className="size-3.5" /> {order.customer.phone}
-                  </a>
-                ) : (
-                  '—'
-                )}
-              </Item>
-              <Item label="Material / Quality">
-                {order.material.name}
-                {order.material.code && <span className="ml-1.5 text-sm font-normal text-slate-500">{order.material.code}</span>}
-              </Item>
-              <Item label="Quantity">{formatQuantity(order.quantity, order.unit)}</Item>
-              {'rate' in order && <Item label="Rate">{formatMoney(order.rate)}</Item>}
-              <Item label="Order date">{formatDate(order.orderDate)}</Item>
-            </dl>
-          </Card>
+      <Tabs value={tab} onValueChange={(v) => view.setTab(v as OrderTab)}>
+        {/* Phones: a horizontally scrollable pill row (active pill in primary). md+: the segmented tab bar. */}
+        <TabsList
+          aria-label="Order sections"
+          className="-mx-4 flex w-auto justify-start gap-2 overflow-x-auto rounded-none bg-transparent px-4 py-0.5 scrollbar-none md:mx-0 md:inline-flex md:max-w-full md:gap-1 md:rounded-xl md:bg-muted md:p-1"
+        >
+          {tabs.map((t) => (
+            <TabsTrigger
+              key={t.key}
+              value={t.key}
+              className={cn(
+                'group inline-flex shrink-0 items-center overflow-visible rounded-full border border-border bg-white px-3.5 font-semibold text-slate-600',
+                'data-[state=active]:border-primary data-[state=active]:bg-primary data-[state=active]:text-primary-foreground',
+                'md:rounded-lg md:border-transparent md:bg-transparent md:data-[state=active]:border-transparent md:data-[state=active]:bg-white md:data-[state=active]:text-primary',
+              )}
+            >
+              {t.label}
+              <TabCount n={t.count} danger={t.danger} />
+            </TabsTrigger>
+          ))}
+        </TabsList>
 
-          <Card title="Notes" className="order-5 lg:order-none">
-            {order.notes ? (
-              <p className="whitespace-pre-line text-[15px] leading-relaxed text-slate-700">{order.notes}</p>
-            ) : (
-              <p className="text-sm text-muted-foreground">No notes.</p>
-            )}
-            {order.noteImages.length > 0 && (
-              <ul className="mt-4 flex flex-wrap gap-2">
-                {order.noteImages.map((img, i) => (
-                  <li key={img.id}>
-                    <ImageThumb thumbUrl={img.thumbUrl} fullUrl={img.imageUrl} alt={`Note image ${i + 1}`} className="size-20 md:size-24" />
-                  </li>
-                ))}
-              </ul>
-            )}
-          </Card>
-
-          <Card title="Dates" className="order-6 lg:order-none">
-            <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <Item label="Created">{formatDateTime(order.createdAt)}</Item>
-              <Item label="Sent to production">
-                {order.sentToProductionAt ? (
-                  formatDateTime(order.sentToProductionAt)
-                ) : (
-                  <span className="font-normal text-slate-400">Not yet</span>
-                )}
-              </Item>
-            </dl>
-          </Card>
-
-          <div className="order-2 min-w-0 empty:hidden lg:order-none">
-            <OrderJobsheetsSection order={order} />
-          </div>
-
-          {can('canViewTakas') && order.jobsheetCount > 0 && (
-            <div className="order-3 min-w-0 lg:order-none">
+        <TabsContent value="dashboard" className="mt-4">
+          <DashboardTab order={order} view={view} />
+        </TabsContent>
+        <TabsContent value="jobsheets" className="mt-4">
+          {ready ? <OrderJobsheetsSection order={order} /> : <NotSentCard />}
+        </TabsContent>
+        {canTakas && (
+          <TabsContent value="takas" className="mt-4">
+            {order.jobsheetCount > 0 ? (
               <OrderTakasCard order={order} />
-            </div>
-          )}
-        </div>
-
-        <div className="contents lg:block lg:min-w-0 lg:space-y-4">
-          <Card title="Design" className="order-4 lg:order-none">
-            {image && code ? (
-              <div className="space-y-3">
-                <ImageThumb thumbUrl={image.thumbUrl} fullUrl={image.imageUrl} alt={`Design ${code}`} className="aspect-square w-full" rounded="rounded-xl" />
-                <div>
-                  <p className="text-xl font-bold text-slate-900">{code}</p>
-                  {order.variation && order.design && (
-                    <p className="text-sm text-slate-500">
-                      Variation of {order.design.code}
-                      {order.design.name ? ` · ${order.design.name}` : ''}
-                    </p>
-                  )}
-                  {!order.variation && order.design?.name && <p className="text-sm text-slate-500">{order.design.name}</p>}
-                </div>
-              </div>
+            ) : !ready ? (
+              <NotSentCard />
             ) : (
-              <div className="flex flex-col items-center gap-2 py-6 text-center text-sm text-muted-foreground">
-                <ImageOff className="size-6 text-slate-300" aria-hidden />
-                No design attached
+              <div className="rounded-xl border border-border bg-white shadow-soft">
+                <EmptyState icon={PackageCheck} title="No takas yet" description="Takas appear here once jobsheets are woven and entered." className="py-10" />
               </div>
             )}
-          </Card>
-
-          <Card title="Status history" className="order-7 lg:order-none" action={<CalendarClock className="size-4 text-slate-400" aria-hidden />}>
+          </TabsContent>
+        )}
+        {canTakas && (
+          <TabsContent value="damages" className="mt-4">
+            {ready ? <DamagesTab order={order} view={view} /> : <NotSentCard />}
+          </TabsContent>
+        )}
+        <TabsContent value="details" className="mt-4">
+          <DetailsTab order={order} />
+        </TabsContent>
+        <TabsContent value="history" className="mt-4">
+          <Card title="Status history" className="lg:max-w-2xl" action={<CalendarClock className="size-4 text-slate-400" aria-hidden />}>
             <History order={order} />
           </Card>
-        </div>
-      </div>
+        </TabsContent>
+      </Tabs>
 
       <ConfirmDialog
         open={confirmUndo}

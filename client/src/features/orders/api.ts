@@ -83,6 +83,7 @@ export function useSendToProduction() {
           : data,
       );
       res.orderIds.forEach((id) => void qc.invalidateQueries({ queryKey: orderKeys.detail(id) }));
+      void qc.invalidateQueries({ queryKey: ['order-dashboard'] });
       void qc.invalidateQueries({ queryKey: orderKeys.lists });
     },
   });
@@ -94,6 +95,7 @@ export function useUndoProduction(id: number) {
     mutationFn: () => api.post<OrderDetail>(`/orders/${id}/undo-production`),
     onSuccess: (order) => {
       qc.setQueryData(orderKeys.detail(id), order);
+      void qc.invalidateQueries({ queryKey: ['order-dashboard'] });
       void qc.invalidateQueries({ queryKey: orderKeys.lists });
     },
   });

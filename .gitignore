@@ -7,3 +7,5 @@ dist/
 server/uploads/*
 !server/uploads/demo/
 !server/uploads/.gitkeep
+
+.vercel

@@ -156,7 +156,7 @@ function Summary({ total, damaged }: { total: number; damaged: number }) {
   );
 }
 
-const toTarget = (g: JobsheetTakaGroup): EditTakasTarget => ({
+export const toTarget = (g: JobsheetTakaGroup): EditTakasTarget => ({
   jobsheetId: g.jobsheetId,
   jobsheetNo: g.jobsheetNo,
   status: g.status,

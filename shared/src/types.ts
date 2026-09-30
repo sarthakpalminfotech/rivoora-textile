@@ -3,7 +3,7 @@ import type { JobsheetStatusKey, OrderStatusKey } from './statuses';
 import type { Unit } from './units';
 import type { Coverage, CoverageWarning } from './jobsheets';
 import type { JobsheetTab, TakaTab } from './schemas';
-import type { DamageType } from './takas';
+import type { DamageType, SubStageKey, TakaStage } from './pipeline';
 
 export interface ApiErrorBody {
   error: { message: string; field?: string };
@@ -123,6 +123,8 @@ export interface OrderDetail {
   sentToProductionAt: string | null;
   /** Active jobsheets of this order (undo send-for-production is only allowed at 0). */
   jobsheetCount: number;
+  /** Pieces planned in the jobsheets (`orders.jobsheet_pieces`; 0 while there are none). */
+  jobsheetPieces: number;
   createdAt: string;
   updatedAt: string;
   customer: { id: number; name: string; phone: string | null; city: string | null };
@@ -440,6 +442,8 @@ export interface Taka {
   isDamaged: boolean;
   /** `machine` when damaged. */
   damageType: DamageType | null;
+  /** Where the taka is (`entered` = Taka entry done · waiting for butta cutting). See `TAKA_STAGES`. */
+  stage: TakaStage;
   enteredBy: RoleKey;
   createdAt: string;
 }
@@ -517,3 +521,61 @@ export interface JobsheetByNo {
   id: number;
   jobsheetNo: number;
 }
+
+/* ---------- order dashboard ---------- */
+
+/** One jobsheet row of a jobsheet sub-stage (GET /orders/:id/dashboard/items). */
+export interface DashboardJobsheetItem {
+  id: number;
+  jobsheetNo: number;
+  status: JobsheetStatusKey;
+  frames: number;
+  completedFrames: number | null;
+  picks: string | null;
+  machines: JobsheetMachine[];
+  runningMachine: MachineRef | null;
+  parentJobsheetNo: number | null;
+  createdAt: string;
+  sentAt: string | null;
+  startedAt: string | null;
+  completedAt: string | null;
+}
+
+/** One jobsheet's takas in a taka sub-stage. */
+export interface DashboardTakaGroup {
+  jobsheetId: number;
+  jobsheetNo: number;
+  status: JobsheetStatusKey;
+  frames: number;
+  completedFrames: number | null;
+  takas: Taka[];
+}
+
+/** GET /orders/:id/dashboard/items?sub= */
+export type DashboardItems =
+  | { sub: SubStageKey; kind: 'jobsheets'; connected: boolean; jobsheets: DashboardJobsheetItem[] }
+  | { sub: SubStageKey; kind: 'takas'; connected: boolean; groups: DashboardTakaGroup[] };
+
+/** One damaged taka on the Damages tab. */
+export interface DamagedTaka {
+  id: number;
+  takaNo: string;
+  damageType: DamageType;
+  stage: TakaStage;
+  jobsheetId: number;
+  jobsheetNo: number;
+  jobsheetStatus: JobsheetStatusKey;
+  /** The jobsheet's common taka note. */
+  note: string | null;
+  createdAt: string;
+}
+
+/** GET /orders/:id/damages?type= */
+export interface OrderDamages {
+  orderId: number;
+  counts: { type: DamageType; count: number }[];
+  total: number;
+  /** Filtered by `type` when given. */
+  items: DamagedTaka[];
+}
+

@@ -7,6 +7,7 @@ export const takaColumns = {
   takaNo: takas.takaNo,
   isDamaged: takas.isDamaged,
   damageType: takas.damageType,
+  stage: takas.stage,
   enteredBy: takas.enteredBy,
   createdAt: takas.createdAt,
 };

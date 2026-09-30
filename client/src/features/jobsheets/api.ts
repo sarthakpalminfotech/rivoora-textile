@@ -37,11 +37,13 @@ export const machineViewKey = ['machine-view'] as const;
 
 /**
  * Every jobsheet write can change the jobsheets, the order's status and coverage, the supervisor's list and the
- * machine board — refresh all of them.
+ * machine board, the order dashboard — refresh all of them.
  */
 export function invalidateAfterWrite(qc: QueryClient, orderId?: number) {
   void qc.invalidateQueries({ queryKey: jobsheetKeys.all });
   void qc.invalidateQueries({ queryKey: ['takas'] });
+  // Order dashboard: counts, sub-stage items and damages.
+  void qc.invalidateQueries({ queryKey: ['order-dashboard'] });
   if (orderId) void qc.invalidateQueries({ queryKey: orderKeys.detail(orderId) });
   else void qc.invalidateQueries({ queryKey: ['orders', 'detail'] });
   void qc.invalidateQueries({ queryKey: orderKeys.lists });

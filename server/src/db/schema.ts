@@ -9,7 +9,7 @@ import {
   uniqueIndex,
   type AnySQLiteColumn,
 } from 'drizzle-orm/sqlite-core';
-import type { DamageType, JobsheetEventKind, JobsheetStatusKey, OrderStatusKey, RoleKey, Unit } from '@rivoora/shared';
+import type { DamageType, JobsheetEventKind, JobsheetStatusKey, OrderStatusKey, RoleKey, TakaStage, Unit } from '@rivoora/shared';
 
 const nowIso = sql`(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`;
 
@@ -280,6 +280,8 @@ export const takas = sqliteTable(
     isDamaged: integer('is_damaged', { mode: 'boolean' }).notNull().default(false),
     /** `machine` when damaged (more types later). */
     damageType: text('damage_type').$type<DamageType>(),
+    /** Where the taka is: `entered` today; later sprints move it on (TAKA_STAGES in shared/pipeline.ts). */
+    stage: text('stage').$type<TakaStage>().notNull().default('entered'),
     enteredBy: text('entered_by').$type<RoleKey>().notNull(),
     isDeleted: isDeleted(),
     createdAt: createdAt(),
@@ -289,6 +291,7 @@ export const takas = sqliteTable(
     index('takas_jobsheet_idx').on(t.jobsheetId),
     index('takas_order_idx').on(t.orderId),
     index('takas_taka_no_idx').on(t.takaNo),
+    index('takas_stage_idx').on(t.stage),
     uniqueIndex('takas_jobsheet_taka_no_active_unique').on(t.jobsheetId, t.takaNo).where(sql`${t.isDeleted} = 0`),
   ],
 );
