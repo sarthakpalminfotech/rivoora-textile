@@ -64,12 +64,37 @@ export const api = {
   post: <T>(path: string, body?: unknown) => request<T>('POST', path, { body }),
   put: <T>(path: string, body?: unknown) => request<T>('PUT', path, { body }),
   delete: <T = void>(path: string) => request<T>('DELETE', path),
-  upload(file: File, folder: 'designs' | 'notes'): Promise<UploadResult> {
+  async upload(file: File, folder: 'designs' | 'notes'): Promise<UploadResult> {
     const form = new FormData();
-    form.append('file', file);
+    form.append('file', await shrinkImage(file));
     return request<UploadResult>('POST', `/uploads${buildQuery({ folder })}`, { body: form });
   },
 };
+
+const SHRINK_ABOVE_BYTES = 3 * 1024 * 1024;
+const SHRINK_MAX_SIDE = 2560;
+
+/**
+ * Large photos are scaled down in the browser before upload (the hosted API accepts ≤ 4.5 MB per request;
+ * the server stores ≤ 1600px anyway). Formats the browser can't decode (e.g. HEIC) are sent as they are.
+ */
+async function shrinkImage(file: File): Promise<File> {
+  if (file.size <= SHRINK_ABOVE_BYTES || typeof createImageBitmap !== 'function') return file;
+  try {
+    const bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' });
+    const scale = Math.min(1, SHRINK_MAX_SIDE / Math.max(bitmap.width, bitmap.height));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(bitmap.width * scale);
+    canvas.height = Math.round(bitmap.height * scale);
+    canvas.getContext('2d')!.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    bitmap.close();
+    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.9));
+    if (!blob || blob.size >= file.size) return file;
+    return new File([blob], file.name.replace(/\.\w+$/, '') + '.jpg', { type: 'image/jpeg' });
+  } catch {
+    return file;
+  }
+}
 
 export function errorMessage(err: unknown): string {
   if (err instanceof Error) return err.message;
