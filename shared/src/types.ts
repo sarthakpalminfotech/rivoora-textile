@@ -145,6 +145,8 @@ export interface PreviousDesign {
   orderId: number;
   orderNo: number;
   orderDate: string;
+  /** Notes of that (latest) order, if any. */
+  notes: string | null;
   timesUsed: number;
   /** The design's fixed material, if any. */
   material: { id: number; name: string } | null;
@@ -439,6 +441,8 @@ export interface Taka {
   id: number;
   /** Digits, kept as text (leading zeros matter). Unique within a jobsheet only. */
   takaNo: string;
+  /** Length in meters, when entered. */
+  meters: number | null;
   isDamaged: boolean;
   /** `machine` when damaged. */
   damageType: DamageType | null;
@@ -468,6 +472,8 @@ export interface OrderTakas {
   orderNo: number;
   total: number;
   damaged: number;
+  /** Sum of the meters entered on the order's takas (null when none has meters). */
+  totalMeters: number | null;
   /** Every active jobsheet of the order, by number (groups without takas included). */
   groups: JobsheetTakaGroup[];
 }
@@ -560,6 +566,7 @@ export type DashboardItems =
 export interface DamagedTaka {
   id: number;
   takaNo: string;
+  meters: number | null;
   damageType: DamageType;
   stage: TakaStage;
   jobsheetId: number;

@@ -51,6 +51,8 @@ export function useOrderView() {
 
   return {
     tab,
+    /** False when the URL has no (valid) tab — the page then picks its default. */
+    tabInUrl: isTab(rawTab),
     stage,
     /** Only a sub-stage of the selected main stage counts. */
     sub: sub && (!stage || getSubStage(sub).mainStage === stage) ? sub : null,

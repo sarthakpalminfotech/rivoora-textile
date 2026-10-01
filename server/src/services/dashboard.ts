@@ -193,6 +193,7 @@ export async function getOrderDamages(role: RoleKey, orderId: number, query: unk
       .select({
         id: takas.id,
         takaNo: takas.takaNo,
+        meters: takas.meters,
         damageType: takas.damageType,
         stage: takas.stage,
         createdAt: takas.createdAt,

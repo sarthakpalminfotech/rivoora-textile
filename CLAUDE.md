@@ -107,6 +107,10 @@ run migrate + seed against it first). Vite's proxy target can be changed with `A
   only** (partial unique index on `(jobsheet_id, taka_no) WHERE is_deleted = 0`); they repeat across jobsheets / orders.
   `jobsheets.taka_note` = one common note (entry appends a line; edit replaces it). Edits that renumber go through a
   temporary `~id` value so swaps never hit the unique index. Active takas per jobsheet = the `activeTakaCount` SQL.
+- `takas.meters` (migration 0006, REAL, nullable): optional length per taka (> 0, ≤ 9999.99, 2 decimals). Entered on the
+  Taka entry screen (number → meters → Damage per row) and in Edit takas; helpers `cleanMeters` / `parseMeters` /
+  `formatMeters` / `totalMeters` in `shared/src/takas.ts`. Shown on every taka chip ("12 · 105.5 m") and as totals
+  (`OrderTakas.totalMeters`, Takas card "Total meters" tile, taka event summaries "3 takas (1 damage) · 203.75 m").
 - `takas.stage` (migration 0005, NOT NULL default `entered`, indexed): where the taka is — values in `TAKA_STAGES`
   (`shared/src/pipeline.ts`). Everything is `entered` today; nothing else writes it yet. Carried on the `Taka` DTO.
 - Jobsheet workflow columns (migration 0003): `status` (pending | sent | ongoing | completed, indexed), `sent_at`,
@@ -128,7 +132,9 @@ run migrate + seed against it first). Vite's proxy target can be changed with `A
   it to `visibleTo` of the order / jobsheet statuses it may see.
 - Rate: returned by `GET /api/orders/:id` only when `canSeeRate`; the list endpoint never returns rate.
 - Gaurang: orders from Jobsheet pending onwards, no add/send/undo, masters read-only — but full
-  `canManageJobsheets` and `canManageMachines` (as Jemish).
+  `canManageJobsheets` and `canManageMachines` (as Jemish), and `canEditOrder` (edit icon on the order header →
+  `/orders/:id/edit`, the add-order form in edit mode incl. design selection). Role option `jobsheetsTabWhenPending`
+  (Gaurang): order details open on the Jobsheets tab while the order is Jobsheet pending (an explicit `?tab=` wins).
 - Supervisor (`landing: /jobsheets`): only `canViewJobsheetsModule`, `canRunJobsheets`, `canPrintJobsheets`,
   `canViewMachineView`. `canViewOrders` / `canViewMasters` are false → the orders, customers, materials, designs and
   machines routers (and the customer/material lookups) return 403 via `router.use(requirePermission(…))`; only
@@ -176,7 +182,8 @@ run migrate + seed against it first). Vite's proxy target can be changed with `A
 
 - `GET /orders?search=&status=a,b&material=1,2&from=&to=&page=&limit=` — lean list (customer + material joined,
   plus `designCode` / `designThumbUrl` = variation, else design; search also matches design/variation codes)
-- `GET /orders/:id` (incl. `jobsheetCount`, `jobsheetPieces`) · `POST /orders` · `POST /orders/send-to-production {orderIds}` · `POST /orders/:id/undo-production`
+- `GET /orders/:id` (incl. `jobsheetCount`, `jobsheetPieces`) · `POST /orders` · `PUT /orders/:id` (`canEditOrder`, same body as
+  create, any status the role can see, status unchanged; unit locked once jobsheets exist → 400 `unit`; note images = full new set) · `POST /orders/send-to-production {orderIds}` · `POST /orders/:id/undo-production`
 - Order dashboard (same visibility as `GET /orders/:id`): `GET /orders/:id/dashboard` (counts only — one batch: order,
   jobsheets, takas grouped by jobsheet/stage/damage → `buildOrderDashboard`) · `GET /orders/:id/dashboard/items?sub=<SubStageKey>`
   (`{kind:'jobsheets', jobsheets}` or `{kind:'takas', groups}`) · `GET /orders/:id/damages?type=machine|butta|mill`
@@ -206,7 +213,8 @@ run migrate + seed against it first). Vite's proxy target can be changed with `A
 - `GET /machine-view` (`canViewMachineView`) — machines (active + inactive) with their ongoing jobsheets and
   `lastCompletedAt`, two queries in one batch.
 - CRUD `/machines` (writes need `canManageMachines`), `GET /lookup/machines` (active only, by number).
-- `GET /customers/:id/previous-designs` — latest order per design/variation for that client
+- `GET /customers/:id/previous-designs` — latest order per design/variation for that client (incl. that order's `notes`,
+  shown on the tiles of the Saved designs drawer)
 - CRUD `/customers`, `/materials`, `/designs`, `/designs/:id/variations[/:variationId]`, `GET /designs/check-code?code=`
 - `GET /lookup/customers?search=`, `GET /lookup/materials?search=` — id + name for dropdowns
 - `POST /uploads?folder=designs|notes` (multipart `file`) → `{ url, thumbUrl }` (WebP ≤1600px + 320px thumb)
@@ -275,8 +283,9 @@ run migrate + seed against it first). Vite's proxy target can be changed with `A
 
 ## Order dashboard (Sprint 5) — config-driven, **to connect later**
 
-- Three levels: main stage cards (Production → Butta cutting → Mill → Ready) → sub-stage KPI cards → detail panel
-  (items fetched only when a sub-stage is opened). Counts first; details only when asked for. Jemish / Gaurang only.
+- Three levels: main stage cards (Production → Butta cutting → Mill → Ready) → sub-stage KPI cards → detail drawer
+  (`DetailDrawer`: right-side `Modal`, full screen on phones; items fetched only when a sub-stage is opened; closing it
+  clears `sub` from the URL). Counts first; details only when asked for. Jemish / Gaurang only.
 - Everything comes from `shared/src/pipeline.ts`: `MAIN_STAGES`, `SUB_STAGES` (key, label, mainStage, unit
   `jobsheets | takas`, colour, `connected`, `takaStages`), `TAKA_STAGES`, `DAMAGE_TYPE_CONFIG`, `ALERT_RULES`,
   `ALERT_NOT_STARTED_HOURS = 24`. Colours on the page come from this config only.
@@ -298,6 +307,19 @@ run migrate + seed against it first). Vite's proxy target can be changed with `A
   jobsheets yet" + Create jobsheets (existing dialog); non-pcs → "Jobsheets for kg / g / meter orders — coming soon".
 - Damages tab: tiles per damage type + total, filter pills (URL `type`), damaged taka cards; editing goes through the
   existing `EditTakasDialog` (no new edit flow).
+
+## Hosting (Vercel + Cloudinary) and the installable app
+
+- Live: Vercel project `rivoora-textiles` (region bom1, next to Turso ap-south-1), deployed only from the CLI:
+  `npx vercel deploy --prod` (no git integration; `vercel.json` `git.deploymentEnabled: false`). The build runs on Vercel:
+  `scripts/vercel-build.mjs` writes `.vercel/output` (client/dist as static + `server/src/index.ts` bundled as one CJS
+  function, `@libsql/client` aliased to `/web`). Env on Vercel: `TURSO_*`, `CLOUDINARY_*`, `VITE_PUBLIC_APP_URL`.
+- `server/src/index.ts` skips `listen` and the local `/uploads` static when `VERCEL` is set and default-exports the app.
+- Images: `storage/cloudinary.ts` is used when `CLOUDINARY_*` env vars are set (Vercel); otherwise local disk (`npm run dev`).
+  Local disk is lazy-imported so `sharp` never loads in the function. The client shrinks photos > 3 MB before upload
+  (Vercel request limit 4.5 MB).
+- PWA: `client/public/manifest.webmanifest`, `icons/`, `sw.js` (no caching — offline message for navigations only);
+  registered in `main.tsx` in production builds only.
 
 ## Not built yet (next sprints)
 

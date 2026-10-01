@@ -43,6 +43,13 @@
       "when": 1790768612352,
       "tag": "0005_takas_stage",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1790834481132,
+      "tag": "0006_takas_meters",
+      "breakpoints": true
     }
   ]
 }

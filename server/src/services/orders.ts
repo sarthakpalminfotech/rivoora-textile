@@ -6,6 +6,7 @@ import {
   isStatusKey,
   normalizeCode,
   orderCreateSchema,
+  orderUpdateSchema,
   STATUS,
   visibleStatusKeys,
   type OrderDetail,
@@ -16,7 +17,7 @@ import {
   type RoleKey,
   type SendToProductionResult,
 } from '@rivoora/shared';
-import { db } from '../db/client';
+import { db, type Tx } from '../db/client';
 import {
   customers,
   designVariations,
@@ -203,46 +204,57 @@ export async function getOrder(role: RoleKey, id: number): Promise<OrderDetail> 
   return detail;
 }
 
+type OrderData = z.infer<typeof orderCreateSchema>;
+
+/**
+ * Checks the client / material / design references of an order form and returns the design + variation ids
+ * (a design uploaded from the form is saved into the Design Master here). Shared by create and update.
+ */
+async function resolveOrderRefs(tx: Tx, data: OrderData): Promise<{ designId: number | null; variationId: number | null }> {
+  const [customer] = await tx
+    .select({ id: customers.id })
+    .from(customers)
+    .where(and(eq(customers.id, data.customerId), eq(customers.isDeleted, false)));
+  const [material] = await tx
+    .select({ id: materials.id })
+    .from(materials)
+    .where(and(eq(materials.id, data.materialId), eq(materials.isDeleted, false)));
+  if (!customer) throw badRequest('Selected client no longer exists', 'customerId');
+  if (!material) throw badRequest('Selected material no longer exists', 'materialId');
+
+  let designId = data.designId;
+  let variationId = data.variationId;
+  if (designId) {
+    const [design] = await tx
+      .select({ id: designs.id })
+      .from(designs)
+      .where(and(eq(designs.id, designId), eq(designs.isDeleted, false)));
+    if (!design) throw badRequest('Selected design no longer exists', 'designId');
+    if (variationId) {
+      const [variation] = await tx
+        .select({ id: designVariations.id })
+        .from(designVariations)
+        .where(and(eq(designVariations.id, variationId), eq(designVariations.designId, designId)));
+      if (!variation) throw badRequest('Selected variation no longer exists', 'variationId');
+    }
+  } else if (data.newDesign) {
+    // A design uploaded from the order form is saved into the Design Master.
+    const created = await insertDesign(
+      tx,
+      { code: data.newDesign.code, imageUrl: data.newDesign.imageUrl, thumbUrl: data.newDesign.thumbUrl },
+      'designCode',
+    );
+    designId = created.id;
+    variationId = null;
+  }
+  return { designId, variationId };
+}
+
 export async function createOrder(role: RoleKey, input: unknown): Promise<{ id: number; orderNo: number }> {
   const data = orderCreateSchema.parse(input);
 
   return db.transaction(async (tx) => {
-    const [customer] = await tx
-      .select({ id: customers.id })
-      .from(customers)
-      .where(and(eq(customers.id, data.customerId), eq(customers.isDeleted, false)));
-    const [material] = await tx
-      .select({ id: materials.id })
-      .from(materials)
-      .where(and(eq(materials.id, data.materialId), eq(materials.isDeleted, false)));
-    if (!customer) throw badRequest('Selected client no longer exists', 'customerId');
-    if (!material) throw badRequest('Selected material no longer exists', 'materialId');
-
-    let designId = data.designId;
-    let variationId = data.variationId;
-    if (designId) {
-      const [design] = await tx
-        .select({ id: designs.id })
-        .from(designs)
-        .where(and(eq(designs.id, designId), eq(designs.isDeleted, false)));
-      if (!design) throw badRequest('Selected design no longer exists', 'designId');
-      if (variationId) {
-        const [variation] = await tx
-          .select({ id: designVariations.id })
-          .from(designVariations)
-          .where(and(eq(designVariations.id, variationId), eq(designVariations.designId, designId)));
-        if (!variation) throw badRequest('Selected variation no longer exists', 'variationId');
-      }
-    } else if (data.newDesign) {
-      // A design uploaded from the order form is saved into the Design Master.
-      const created = await insertDesign(
-        tx,
-        { code: data.newDesign.code, imageUrl: data.newDesign.imageUrl, thumbUrl: data.newDesign.thumbUrl },
-        'designCode',
-      );
-      designId = created.id;
-      variationId = null;
-    }
+    const { designId, variationId } = await resolveOrderRefs(tx, data);
 
     // Order number is assigned inside the write transaction, never by the client.
     const [order] = await tx
@@ -272,6 +284,49 @@ export async function createOrder(role: RoleKey, input: unknown): Promise<{ id: 
       .values({ orderId: order.id, fromStatus: null, toStatus: STATUS.PENDING_PRODUCTION, role });
     return order;
   });
+}
+
+/**
+ * Edits an order the role can see (status unchanged). The unit is locked once the order has jobsheets;
+ * note images are replaced by the submitted set; a role without `canSeeRate` keeps the stored rate.
+ */
+export async function updateOrder(role: RoleKey, id: number, input: unknown): Promise<OrderDetail> {
+  const data = orderUpdateSchema.parse(input);
+
+  await db.transaction(async (tx) => {
+    const [current] = await tx
+      .select({ status: orders.status, unit: orders.unit, rate: orders.rate })
+      .from(orders)
+      .where(eq(orders.id, id));
+    if (!current || !canRoleSeeStatus(role, current.status)) throw notFound('Order');
+    if (data.unit !== current.unit && (await countActiveJobsheets(tx, id)) > 0) {
+      throw badRequest('The unit cannot change once the order has jobsheets', 'unit');
+    }
+
+    const { designId, variationId } = await resolveOrderRefs(tx, data);
+    await tx
+      .update(orders)
+      .set({
+        customerId: data.customerId,
+        materialId: data.materialId,
+        designId,
+        variationId,
+        quantity: data.quantity,
+        unit: data.unit,
+        rate: can(role, 'canSeeRate') ? data.rate : current.rate,
+        orderDate: data.orderDate,
+        notes: data.notes,
+      })
+      .where(eq(orders.id, id));
+
+    await tx.delete(orderNoteImages).where(eq(orderNoteImages.orderId, id));
+    if (data.noteImages.length) {
+      await tx
+        .insert(orderNoteImages)
+        .values(data.noteImages.map((img) => ({ orderId: id, imageUrl: img.url, thumbUrl: img.thumbUrl })));
+    }
+  });
+  return getOrder(role, id);
 }
 
 async function changeStatus(
@@ -341,6 +396,7 @@ export async function previousDesigns(customerId: number): Promise<PreviousDesig
       orderId: orders.id,
       orderNo: orders.orderNo,
       orderDate: orders.orderDate,
+      notes: orders.notes,
       materialId: materials.id,
       materialName: materials.name,
       timesUsed: sql<number>`(SELECT COUNT(*) FROM ${orders} o3 WHERE o3.customer_id = ${orders.customerId} AND o3.design_id = ${orders.designId} AND o3.variation_id IS ${orders.variationId})`,
@@ -369,6 +425,7 @@ export async function previousDesigns(customerId: number): Promise<PreviousDesig
     orderId: r.orderId,
     orderNo: r.orderNo,
     orderDate: r.orderDate,
+    notes: r.notes,
     timesUsed: Number(r.timesUsed),
     material: r.materialId !== null && r.materialName !== null ? { id: r.materialId, name: r.materialName } : null,
   }));

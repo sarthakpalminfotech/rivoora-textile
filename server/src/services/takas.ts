@@ -8,6 +8,7 @@ import {
   takaEditSchema,
   takaEntrySchema,
   takaSummary,
+  totalMeters,
   validateTakaNumbers,
   type JobsheetTakaGroup,
   type OrderTakas,
@@ -109,6 +110,7 @@ export async function enterTakas(role: RoleKey, id: number, input: unknown): Pro
           jobsheetId: id,
           orderId: js.orderId,
           takaNo: t.takaNo,
+          meters: t.meters,
           isDamaged: t.isDamaged,
           damageType: t.isDamaged ? ('machine' as const) : null,
           enteredBy: role,
@@ -184,7 +186,7 @@ export async function editTakas(role: RoleKey, id: number, input: unknown): Prom
     const changed = data.takas.filter((t) => {
       if (t.id === undefined) return false;
       const old = byId.get(t.id)!;
-      return old.takaNo !== t.takaNo || old.isDamaged !== t.isDamaged;
+      return old.takaNo !== t.takaNo || old.meters !== t.meters || old.isDamaged !== t.isDamaged;
     });
     const note = data.note;
     const noteChanged = (js.takaNote ?? null) !== note;
@@ -208,7 +210,7 @@ export async function editTakas(role: RoleKey, id: number, input: unknown): Prom
     for (const t of changed) {
       await tx
         .update(takas)
-        .set({ takaNo: t.takaNo, isDamaged: t.isDamaged, damageType: t.isDamaged ? 'machine' : null })
+        .set({ takaNo: t.takaNo, meters: t.meters, isDamaged: t.isDamaged, damageType: t.isDamaged ? 'machine' : null })
         .where(eq(takas.id, t.id!));
     }
     if (addedRows.length) {
@@ -217,6 +219,7 @@ export async function editTakas(role: RoleKey, id: number, input: unknown): Prom
           jobsheetId: id,
           orderId: js.orderId,
           takaNo: t.takaNo,
+          meters: t.meters,
           isDamaged: t.isDamaged,
           damageType: t.isDamaged ? ('machine' as const) : null,
           enteredBy: role,
@@ -302,6 +305,7 @@ export async function listOrderTakas(role: RoleKey, orderId: number): Promise<Or
     orderNo: order.orderNo,
     total: all.length,
     damaged: all.filter((t) => t.isDamaged).length,
+    totalMeters: totalMeters(all),
     groups,
   };
 }

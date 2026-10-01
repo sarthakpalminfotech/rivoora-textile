@@ -5,6 +5,7 @@ import { takas } from '../db/schema';
 export const takaColumns = {
   id: takas.id,
   takaNo: takas.takaNo,
+  meters: takas.meters,
   isDamaged: takas.isDamaged,
   damageType: takas.damageType,
   stage: takas.stage,

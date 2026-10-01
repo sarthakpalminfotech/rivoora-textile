@@ -184,7 +184,7 @@ export default function OrderDetailsPage() {
   const id = Number(useParams().id);
   const navigate = useNavigate();
   const location = useLocation();
-  const { can } = useRole();
+  const { can, config } = useRole();
   const view = useOrderView();
   const { data: order, isPending, isError, error, refetch } = useOrder(id);
   const ready = !!order && isReadyOrLater(order.status);
@@ -243,13 +243,20 @@ export default function OrderDetailsPage() {
     { key: 'details', label: 'Order details' },
     { key: 'history', label: 'History' },
   ];
-  const tab = tabs.some((t) => t.key === view.tab) ? view.tab : 'dashboard';
+  // Roles with `jobsheetsTabWhenPending` (Gaurang) land on Jobsheets while the order is Jobsheet pending.
+  const defaultTab: OrderTab = config.jobsheetsTabWhenPending && order.status === STATUS.READY_PRODUCTION ? 'jobsheets' : 'dashboard';
+  const wanted = view.tabInUrl ? view.tab : defaultTab;
+  const tab = tabs.some((t) => t.key === wanted) ? wanted : 'dashboard';
 
   return (
     <div className="page-container space-y-4 py-5">
       {back}
 
-      <OrderHeader order={order} onUndo={canUndo ? () => setConfirmUndo(true) : undefined} />
+      <OrderHeader
+        order={order}
+        onUndo={canUndo ? () => setConfirmUndo(true) : undefined}
+        onEdit={can('canEditOrder') ? () => navigate(`/orders/${order.id}/edit`) : undefined}
+      />
 
       <Tabs value={tab} onValueChange={(v) => view.setTab(v as OrderTab)}>
         {/* Phones: a horizontally scrollable pill row (active pill in primary). md+: the segmented tab bar. */}

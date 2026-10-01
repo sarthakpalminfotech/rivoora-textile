@@ -3,10 +3,15 @@ import { useMemo, useRef, useState, type ReactNode } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import {
+  cleanMeters,
   cleanTakaNo,
+  formatMeters,
   hasTakaErrors,
   JOBSHEET_STATUS,
+  METERS_ERROR_TEXT,
+  parseMeters,
   TAKA_ERROR_TEXT,
+  totalMeters,
   validateTakaNumbers,
   type JobsheetDetail,
   type Taka,
@@ -32,11 +37,13 @@ const DEFAULT_ROWS = 6;
 interface Row {
   key: number;
   value: string;
+  /** Meters as typed (optional). */
+  meters: string;
   damaged: boolean;
 }
 
 let rowKey = 0;
-const emptyRows = (n: number): Row[] => Array.from({ length: n }, () => ({ key: ++rowKey, value: '', damaged: false }));
+const emptyRows = (n: number): Row[] => Array.from({ length: n }, () => ({ key: ++rowKey, value: '', meters: '', damaged: false }));
 
 function Section({ title, children, className }: { title: ReactNode; children: ReactNode; className?: string }) {
   return (
@@ -48,7 +55,7 @@ function Section({ title, children, className }: { title: ReactNode; children: R
 }
 
 /** Read-only chip of a saved taka (damaged ones in red). */
-function TakaChip({ taka }: { taka: Pick<Taka, 'takaNo' | 'isDamaged'> }) {
+function TakaChip({ taka }: { taka: Pick<Taka, 'takaNo' | 'isDamaged' | 'meters'> }) {
   return (
     <li
       className={cn(
@@ -58,6 +65,11 @@ function TakaChip({ taka }: { taka: Pick<Taka, 'takaNo' | 'isDamaged'> }) {
     >
       {taka.isDamaged && <AlertTriangle className="size-4 shrink-0" aria-hidden />}
       {taka.takaNo}
+      {taka.meters != null && (
+        <span className={cn('text-[15px] font-semibold', taka.isDamaged ? 'text-red-600' : 'text-slate-500')}>
+          · {formatMeters(taka.meters)}
+        </span>
+      )}
       {taka.isDamaged && (
         <span className="text-xs font-semibold">
           Damage / <span lang="hi">खराबी</span>
@@ -156,6 +168,11 @@ function SuccessView({ js, saved, autoCompleted, onAddMore }: { js: JobsheetDeta
         Jobsheet {js.jobsheetNo} · {saved.length} {saved.length === 1 ? 'taka' : 'takas'} /{' '}
         <span lang="hi">{saved.length} टाका</span>
       </p>
+      {totalMeters(saved) !== null && (
+        <p className="text-base font-semibold text-slate-600">
+          Total / <span lang="hi">कुल</span>: {formatMeters(totalMeters(saved)!)}
+        </p>
+      )}
       <ul className="mt-4 flex flex-wrap justify-center gap-2" aria-label={bi('Saved takas', 'सेव हुए टाका')}>
         {saved.map((t) => (
           <TakaChip key={t.id} taka={t} />
@@ -200,6 +217,7 @@ export default function TakaEntryPage() {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [saved, setSaved] = useState<{ takas: Taka[]; autoCompleted: boolean } | null>(null);
   const inputs = useRef(new Map<number, HTMLInputElement>());
+  const meterInputs = useRef(new Map<number, HTMLInputElement>());
   usePageTitle(js ? bi(`Jobsheet ${js.jobsheetNo}`, `जॉबशीट ${js.jobsheetNo}`) : bi('Taka entry', 'टाका एंट्री'));
 
   const existing = useMemo(() => js?.takas ?? [], [js]);
@@ -207,8 +225,9 @@ export default function TakaEntryPage() {
     () => validateTakaNumbers(rows.map((r) => r.value), existing.map((t) => t.takaNo), { ignoreEmpty: true }),
     [rows, existing],
   );
+  const meterErrors = useMemo(() => rows.map((r) => parseMeters(r.meters).error), [rows]);
   const filled = rows.filter((r) => r.value.trim() !== '');
-  const canSubmit = filled.length > 0 && !hasTakaErrors(errors);
+  const canSubmit = filled.length > 0 && !hasTakaErrors(errors) && meterErrors.every((e) => e === null);
 
   const back = (
     <button
@@ -289,11 +308,14 @@ export default function TakaEntryPage() {
   const focusNext = (index: number) => {
     const next = rows[index + 1];
     if (next) inputs.current.get(next.key)?.focus();
-    else inputs.current.get(rows[index].key)?.blur();
+    else {
+      inputs.current.get(rows[index].key)?.blur();
+      meterInputs.current.get(rows[index].key)?.blur();
+    }
   };
 
   const submit = () => {
-    const toSave = filled.map((r) => ({ takaNo: r.value.trim(), isDamaged: r.damaged }));
+    const toSave = filled.map((r) => ({ takaNo: r.value.trim(), meters: parseMeters(r.meters).meters, isDamaged: r.damaged }));
     enter.mutate(
       { takas: toSave, note: note.trim() || null },
       {
@@ -341,7 +363,10 @@ export default function TakaEntryPage() {
           title={
             <span className="flex items-center justify-between gap-2">
               <Bi en="Already entered" hi="पहले से डाले गए" layout="inline" />
-              <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-sm font-bold text-slate-600">{existing.length}</span>
+              <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-sm font-bold text-slate-600">
+                {existing.length}
+                {totalMeters(existing) !== null && ` · ${formatMeters(totalMeters(existing)!)}`}
+              </span>
             </span>
           }
         >
@@ -358,9 +383,11 @@ export default function TakaEntryPage() {
           {rows.map((r, i) => {
             const n = existing.length + i + 1;
             const err = errors[i];
+            const meterErr = meterErrors[i];
             const message = serverError?.key === r.key ? serverError.message : null;
             const invalid = !!err || !!message;
             const inputId = `taka-${r.key}`;
+            const metersId = `taka-${r.key}-m`;
             return (
               <li
                 key={r.key}
@@ -369,9 +396,15 @@ export default function TakaEntryPage() {
                   r.damaged && 'bg-red-50 ring-1 ring-red-200',
                 )}
               >
-                <label htmlFor={inputId} className="mb-1 block text-sm font-semibold text-slate-600">
-                  Taka {n} / <span lang="hi">टाका {n}</span>
-                </label>
+                <div className="mb-1 flex items-end gap-2 text-sm font-semibold text-slate-600">
+                  <label htmlFor={inputId} className="min-w-0 flex-1">
+                    Taka {n} / <span lang="hi">टाका {n}</span>
+                  </label>
+                  <label htmlFor={metersId} className="w-[104px] shrink-0 sm:w-[120px]">
+                    Meters / <span lang="hi">मीटर</span>
+                  </label>
+                  <span className="w-[88px] shrink-0 sm:w-[104px]" aria-hidden />
+                </div>
                 <div className="flex items-stretch gap-2">
                   <input
                     ref={(el) => {
@@ -382,18 +415,20 @@ export default function TakaEntryPage() {
                     value={r.value}
                     onChange={(e) => {
                       const value = cleanTakaNo(e.target.value);
-                      setRow(r.key, value ? { value } : { value, damaged: false });
+                      setRow(r.key, value ? { value } : { value, meters: '', damaged: false });
                     }}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter') {
                         e.preventDefault();
-                        focusNext(i);
+                        // Number → its meters → the next taka.
+                        if (r.value) meterInputs.current.get(r.key)?.focus();
+                        else focusNext(i);
                       }
                     }}
                     inputMode="numeric"
                     pattern="[0-9]*"
                     autoComplete="off"
-                    enterKeyHint={i === rows.length - 1 ? 'done' : 'next'}
+                    enterKeyHint="next"
                     maxLength={10}
                     aria-invalid={invalid || undefined}
                     aria-describedby={invalid ? `${inputId}-err` : undefined}
@@ -405,6 +440,37 @@ export default function TakaEntryPage() {
                     )}
                     placeholder="—"
                   />
+                  <div className="relative w-[104px] shrink-0 sm:w-[120px]">
+                    <input
+                      ref={(el) => {
+                        if (el) meterInputs.current.set(r.key, el);
+                        else meterInputs.current.delete(r.key);
+                      }}
+                      id={metersId}
+                      value={r.meters}
+                      onChange={(e) => setRow(r.key, { meters: cleanMeters(e.target.value) })}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          focusNext(i);
+                        }
+                      }}
+                      disabled={!r.value}
+                      inputMode="decimal"
+                      autoComplete="off"
+                      enterKeyHint={i === rows.length - 1 ? 'done' : 'next'}
+                      aria-invalid={!!meterErr || undefined}
+                      aria-describedby={meterErr ? `${metersId}-err` : undefined}
+                      className={cn(
+                        'h-14 w-full rounded-xl border bg-white pl-3 pr-7 text-[20px] font-bold tabular-nums text-slate-900 transition-colors placeholder:text-slate-300 focus:outline-none focus:ring-2 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:opacity-60',
+                        meterErr ? 'border-destructive focus:ring-destructive/20' : 'border-input focus:border-primary focus:ring-primary/15',
+                      )}
+                      placeholder="0.0"
+                    />
+                    <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-base font-semibold text-slate-400" aria-hidden>
+                      m
+                    </span>
+                  </div>
                   <button
                     type="button"
                     onClick={() => setRow(r.key, { damaged: !r.damaged })}
@@ -412,13 +478,13 @@ export default function TakaEntryPage() {
                     aria-pressed={r.damaged}
                     aria-label={bi(`Damage on taka ${n}`, `टाका ${n} में खराबी`)}
                     className={cn(
-                      'flex min-h-14 w-[104px] shrink-0 items-center justify-center gap-1.5 rounded-xl border-2 px-2 text-left text-sm font-bold transition-colors disabled:cursor-not-allowed disabled:opacity-40',
+                      'flex min-h-14 w-[88px] shrink-0 items-center justify-center gap-1 rounded-xl border-2 px-1.5 text-left text-sm font-bold transition-colors disabled:cursor-not-allowed disabled:opacity-40 sm:w-[104px] sm:gap-1.5 sm:px-2',
                       r.damaged
                         ? 'border-red-600 bg-red-600 text-white shadow-sm'
                         : 'border-slate-200 bg-white text-slate-600 hover:border-red-300 hover:text-red-600',
                     )}
                   >
-                    <AlertTriangle className="size-5 shrink-0" aria-hidden />
+                    <AlertTriangle className="hidden size-5 shrink-0 sm:block" aria-hidden />
                     <span className="flex flex-col leading-tight">
                       <span>Damage</span>
                       <span lang="hi" className="text-[13px]">
@@ -431,6 +497,11 @@ export default function TakaEntryPage() {
                   <p id={`${inputId}-err`} role="alert" className="mt-1 text-sm font-semibold text-destructive">
                     {message ?? `${TAKA_ERROR_TEXT[err!].en} / `}
                     {!message && <span lang="hi">{TAKA_ERROR_TEXT[err!].hi}</span>}
+                  </p>
+                )}
+                {meterErr && (
+                  <p id={`${metersId}-err`} role="alert" className="mt-1 text-sm font-semibold text-destructive">
+                    {METERS_ERROR_TEXT[meterErr].en} / <span lang="hi">{METERS_ERROR_TEXT[meterErr].hi}</span>
                   </p>
                 )}
               </li>
@@ -504,11 +575,20 @@ export default function TakaEntryPage() {
       >
         <p className="mb-3 text-[15px] font-semibold text-slate-600">
           Jobsheet {js.jobsheetNo} · {filled.length} {filled.length === 1 ? 'taka' : 'takas'} / <span lang="hi">{filled.length} टाका</span>
+          {(() => {
+            const total = totalMeters(filled.map((r) => ({ meters: parseMeters(r.meters).meters })));
+            return total !== null ? ` · ${formatMeters(total)}` : null;
+          })()}
         </p>
         <ul className="divide-y divide-border rounded-xl border border-border">
           {filled.map((r) => (
             <li key={r.key} className="flex items-center justify-between gap-3 px-4 py-2.5">
-              <span className={cn('text-2xl font-bold tabular-nums', r.damaged ? 'text-red-600' : 'text-slate-900')}>{r.value}</span>
+              <span className={cn('text-2xl font-bold tabular-nums', r.damaged ? 'text-red-600' : 'text-slate-900')}>
+                {r.value}
+                {parseMeters(r.meters).meters !== null && (
+                  <span className="ml-2 text-lg font-semibold text-slate-500">{formatMeters(parseMeters(r.meters).meters!)}</span>
+                )}
+              </span>
               {r.damaged && (
                 <span className="inline-flex items-center gap-1 text-base font-bold text-red-600">
                   <AlertTriangle className="size-5" aria-hidden /> Damage / <span lang="hi">खराबी</span>

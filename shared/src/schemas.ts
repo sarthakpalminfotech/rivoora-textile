@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { normalizeCode } from './codes';
 import { UNITS } from './units';
-import { MAX_TAKAS_PER_JOBSHEET, MAX_TAKAS_PER_SUBMIT, TAKA_NO_MAX_LENGTH } from './takas';
+import { MAX_TAKAS_PER_JOBSHEET, MAX_TAKAS_PER_SUBMIT, TAKA_METERS_MAX, TAKA_NO_MAX_LENGTH } from './takas';
 
 export const PHONE_REGEX = /^[6-9]\d{9}$/;
 
@@ -115,6 +115,10 @@ export const orderCreateSchema = z
     path: ['variationId'],
   });
 export type OrderCreateInput = z.input<typeof orderCreateSchema>;
+
+/** Editing an order sends the same fields as creating one (note images = the full new set). */
+export const orderUpdateSchema = orderCreateSchema;
+export type OrderUpdateInput = z.input<typeof orderUpdateSchema>;
 
 export const sendToProductionSchema = z.object({
   orderIds: z.array(z.number().int().positive()).min(1, 'Select at least one order').max(500),
@@ -232,6 +236,14 @@ const takaNo = z
   .regex(/^\d+$/, 'Taka numbers use digits only')
   .max(TAKA_NO_MAX_LENGTH, `At most ${TAKA_NO_MAX_LENGTH} digits`);
 
+/** Optional length of a taka in meters (> 0, ≤ 9999.99, rounded to 2 decimals). */
+const takaMeters = z
+  .number({ invalid_type_error: 'Enter the meters as a number' })
+  .positive('Meters must be more than 0')
+  .max(TAKA_METERS_MAX, `At most ${TAKA_METERS_MAX} m`)
+  .nullish()
+  .transform((v) => (v == null ? null : Math.round(v * 100) / 100));
+
 const takaNote = z
   .string()
   .trim()
@@ -242,7 +254,7 @@ const takaNote = z
 /** POST /jobsheets/:id/takas — adds new takas only (Taka entry). */
 export const takaEntrySchema = z.object({
   takas: z
-    .array(z.object({ takaNo, isDamaged: z.boolean().default(false) }), { required_error: 'Enter at least one taka' })
+    .array(z.object({ takaNo, meters: takaMeters, isDamaged: z.boolean().default(false) }), { required_error: 'Enter at least one taka' })
     .min(1, 'Enter at least one taka')
     .max(MAX_TAKAS_PER_SUBMIT, `At most ${MAX_TAKAS_PER_SUBMIT} takas at a time`),
   note: takaNote,
@@ -252,7 +264,7 @@ export type TakaEntryInput = z.input<typeof takaEntrySchema>;
 /** PUT /jobsheets/:id/takas — the full set after editing (rows without `id` are new; missing ids are removed). */
 export const takaEditSchema = z.object({
   takas: z
-    .array(z.object({ id: z.number().int().positive().optional(), takaNo, isDamaged: z.boolean().default(false) }))
+    .array(z.object({ id: z.number().int().positive().optional(), takaNo, meters: takaMeters, isDamaged: z.boolean().default(false) }))
     .max(MAX_TAKAS_PER_JOBSHEET, `At most ${MAX_TAKAS_PER_JOBSHEET} takas per jobsheet`),
   note: takaNote,
 });

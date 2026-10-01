@@ -4,6 +4,7 @@ import {
   type OrderCreateInput,
   type OrderDetail,
   type OrderListItem,
+  type OrderUpdateInput,
   type Paginated,
   type PreviousDesign,
   type SendToProductionResult,
@@ -56,6 +57,23 @@ export function useCreateOrder() {
     onSuccess: (_res, vars) => {
       void qc.invalidateQueries({ queryKey: orderKeys.lists });
       void qc.invalidateQueries({ queryKey: orderKeys.previousDesigns(vars.customerId) });
+      if (vars.newDesign) void qc.invalidateQueries({ queryKey: masterKeys.designs });
+    },
+  });
+}
+
+export function useUpdateOrder(id: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    meta: { silentFieldErrors: true },
+    mutationFn: (data: OrderUpdateInput) => api.put<OrderDetail>(`/orders/${id}`, data),
+    onSuccess: (order, vars) => {
+      qc.setQueryData(orderKeys.detail(id), order);
+      void qc.invalidateQueries({ queryKey: orderKeys.lists });
+      void qc.invalidateQueries({ queryKey: ['orders', 'previous-designs'] });
+      // Jobsheet details / print and the dashboard show the order's design, quantity and client.
+      void qc.invalidateQueries({ queryKey: ['jobsheets'] });
+      void qc.invalidateQueries({ queryKey: ['order-dashboard'] });
       if (vars.newDesign) void qc.invalidateQueries({ queryKey: masterKeys.designs });
     },
   });

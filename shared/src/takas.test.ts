@@ -2,12 +2,16 @@ import { describe, expect, it } from 'vitest';
 import { canRoleSeeJobsheetStatus, canRoleSeeStatus, orderStatusForJobsheets } from './statuses';
 import { can } from './roles';
 import {
+  cleanMeters,
   cleanTakaNo,
   compareTakaNo,
   hasTakaErrors,
   jobsheetQrUrl,
   parseJobsheetQr,
+  formatMeters,
+  parseMeters,
   takaSummary,
+  totalMeters,
   validateTakaNumbers,
 } from './takas';
 import { takaEditSchema, takaEntrySchema } from './schemas';
@@ -51,7 +55,7 @@ describe('taka number validation (one jobsheet)', () => {
     expect(takaEntrySchema.safeParse({ takas: [] }).success).toBe(false);
     expect(takaEditSchema.safeParse({ takas: [], note: '' }).success).toBe(true);
     const parsed = takaEntrySchema.parse({ takas: [{ takaNo: ' 7 ' }], note: '  ' });
-    expect(parsed.takas[0]).toEqual({ takaNo: '7', isDamaged: false });
+    expect(parsed.takas[0]).toEqual({ takaNo: '7', meters: null, isDamaged: false });
     expect(parsed.note).toBeNull();
   });
 
@@ -135,5 +139,44 @@ describe('jobsheet QR codes', () => {
     ]) {
       expect(parseJobsheetQr(text), text).toBeNull();
     }
+  });
+});
+
+describe('meters per taka', () => {
+  it('cleans typed meters: digits, one dot, 4 + 2 digits', () => {
+    expect(cleanMeters('105.5')).toBe('105.5');
+    expect(cleanMeters('105,75')).toBe('105.75');
+    expect(cleanMeters('1a0b5')).toBe('105');
+    expect(cleanMeters('12345.678')).toBe('1234.67');
+    expect(cleanMeters('1.2.3')).toBe('1.23');
+  });
+
+  it('parses meters: empty is null, otherwise > 0 and <= 9999.99', () => {
+    expect(parseMeters('')).toEqual({ meters: null, error: null });
+    expect(parseMeters(' 105.5 ')).toEqual({ meters: 105.5, error: null });
+    expect(parseMeters('.5')).toEqual({ meters: 0.5, error: null });
+    expect(parseMeters('0').error).toBe('zero');
+    expect(parseMeters('.').error).toBe('invalid');
+    expect(parseMeters('12345').error).toBe('invalid');
+  });
+
+  it('formats and totals meters; takas without meters are skipped', () => {
+    expect(formatMeters(105.5)).toBe('105.5 m');
+    expect(formatMeters(1250)).toBe('1,250 m');
+    expect(totalMeters([{ meters: 100.25 }, { meters: null }, { meters: 50.5 }])).toBe(150.75);
+    expect(totalMeters([{ meters: null }, {}])).toBeNull();
+  });
+
+  it('adds the meters total to the summary only when meters were entered', () => {
+    expect(takaSummary([{ isDamaged: false }, { isDamaged: true }])).toBe('2 takas (1 damage)');
+    expect(takaSummary([{ isDamaged: false, meters: 100 }, { isDamaged: true, meters: 5.5 }])).toBe('2 takas (1 damage) · 105.5 m');
+  });
+
+  it('server schemas accept optional meters and reject bad values', () => {
+    const ok = takaEntrySchema.parse({ takas: [{ takaNo: '1', meters: 105.555 }, { takaNo: '2' }] });
+    expect(ok.takas.map((t) => t.meters)).toEqual([105.56, null]);
+    expect(takaEntrySchema.safeParse({ takas: [{ takaNo: '1', meters: 0 }] }).success).toBe(false);
+    expect(takaEntrySchema.safeParse({ takas: [{ takaNo: '1', meters: 10000 }] }).success).toBe(false);
+    expect(takaEditSchema.parse({ takas: [{ id: 3, takaNo: '1', meters: 98 }], note: '' }).takas[0].meters).toBe(98);
   });
 });

@@ -1,7 +1,19 @@
 import { AlertTriangle, Plus, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
-import { cleanTakaNo, JOBSHEET_STATUS, TAKA_ERROR_TEXT, validateTakaNumbers, type JobsheetStatusKey, type Taka } from '@rivoora/shared';
+import {
+  cleanMeters,
+  cleanTakaNo,
+  formatMeters,
+  JOBSHEET_STATUS,
+  METERS_ERROR_TEXT,
+  parseMeters,
+  TAKA_ERROR_TEXT,
+  totalMeters,
+  validateTakaNumbers,
+  type JobsheetStatusKey,
+  type Taka,
+} from '@rivoora/shared';
 import { Button } from '@/components/ui/button';
 import { Field } from '@/components/ui/field';
 import { Textarea } from '@/components/ui/input';
@@ -22,13 +34,16 @@ interface Row {
   key: number;
   id?: number;
   value: string;
+  /** Meters as typed (optional). */
+  meters: string;
   damaged: boolean;
 }
 
 let rowKey = 0;
-const toRows = (takas: Taka[]): Row[] => takas.map((t) => ({ key: ++rowKey, id: t.id, value: t.takaNo, damaged: t.isDamaged }));
+const toRows = (takas: Taka[]): Row[] =>
+  takas.map((t) => ({ key: ++rowKey, id: t.id, value: t.takaNo, meters: t.meters != null ? String(t.meters) : '', damaged: t.isDamaged }));
 
-/** Full-screen form: edit every taka of one jobsheet (number, damage, remove), add rows, edit the note. */
+/** Full-screen form: edit every taka of one jobsheet (number, meters, damage, remove), add rows, edit the note. */
 export function EditTakasDialog({ target, onClose }: { target: EditTakasTarget | null; onClose: () => void }) {
   const open = target !== null;
   const edit = useEditTakas(target?.jobsheetId ?? 0);
@@ -53,7 +68,9 @@ export function EditTakasDialog({ target, onClose }: { target: EditTakasTarget |
   const kept = rows.filter((r) => r.id !== undefined || r.value.trim() !== '');
   const errorList = validateTakaNumbers(kept.map((r) => r.value));
   const errors = new Map(kept.map((r, i) => [r.key, errorList[i]]));
-  const hasErrors = [...errors.values()].some(Boolean);
+  const meterErrors = new Map(kept.map((r) => [r.key, parseMeters(r.meters).error]));
+  const hasErrors = [...errors.values()].some(Boolean) || [...meterErrors.values()].some(Boolean);
+  const total = totalMeters(kept.map((r) => ({ meters: parseMeters(r.meters).meters })));
 
   const setRow = (key: number, patch: Partial<Row>) => {
     setRows((prev) => prev.map((r) => (r.key === key ? { ...r, ...patch } : r)));
@@ -66,7 +83,7 @@ export function EditTakasDialog({ target, onClose }: { target: EditTakasTarget |
     if (hasErrors) return;
     edit.mutate(
       {
-        takas: kept.map((r) => ({ ...(r.id !== undefined ? { id: r.id } : {}), takaNo: r.value.trim(), isDamaged: r.damaged })),
+        takas: kept.map((r) => ({ ...(r.id !== undefined ? { id: r.id } : {}), takaNo: r.value.trim(), meters: parseMeters(r.meters).meters, isDamaged: r.damaged })),
         note: note.trim() || null,
       },
       {
@@ -113,6 +130,7 @@ export function EditTakasDialog({ target, onClose }: { target: EditTakasTarget |
             <div className="mb-2 flex items-center justify-between gap-2">
               <h3 className="text-sm font-semibold text-slate-700">
                 Takas <span className="font-normal text-slate-500">({kept.length})</span>
+                {total !== null && <span className="ml-1.5 font-normal text-slate-500">· {formatMeters(total)}</span>}
               </h3>
             </div>
             {rows.length === 0 ? (
@@ -123,7 +141,15 @@ export function EditTakasDialog({ target, onClose }: { target: EditTakasTarget |
               <ol className="space-y-2">
                 {rows.map((r, i) => {
                   const err = errors.get(r.key) ?? null;
-                  const message = serverError?.key === r.key ? serverError.message : showErrors && err ? TAKA_ERROR_TEXT[err].en : null;
+                  const meterErr = meterErrors.get(r.key) ?? null;
+                  const message =
+                    serverError?.key === r.key
+                      ? serverError.message
+                      : showErrors && err
+                        ? TAKA_ERROR_TEXT[err].en
+                        : meterErr
+                          ? METERS_ERROR_TEXT[meterErr].en
+                          : null;
                   const id = `edit-taka-${r.key}`;
                   return (
                     <li key={r.key} className={cn('rounded-xl p-1.5', r.damaged && 'bg-red-50 ring-1 ring-red-200')}>
@@ -134,7 +160,7 @@ export function EditTakasDialog({ target, onClose }: { target: EditTakasTarget |
                           value={r.value}
                           onChange={(e) => {
                             const value = cleanTakaNo(e.target.value);
-                            setRow(r.key, value ? { value } : { value, damaged: false });
+                            setRow(r.key, value ? { value } : { value, meters: '', damaged: false });
                           }}
                           inputMode="numeric"
                           pattern="[0-9]*"
@@ -145,14 +171,34 @@ export function EditTakasDialog({ target, onClose }: { target: EditTakasTarget |
                           placeholder="Taka no."
                           className={cn(
                             'h-11 min-w-0 flex-1 rounded-[10px] border bg-white px-3 text-lg font-bold tabular-nums focus:outline-none focus:ring-2',
-                            message ? 'border-destructive focus:ring-destructive/15' : 'border-input focus:border-primary focus:ring-primary/15',
+                            message && !meterErr ? 'border-destructive focus:ring-destructive/15' : 'border-input focus:border-primary focus:ring-primary/15',
                           )}
                         />
+                        <div className="relative w-[5.5rem] shrink-0 sm:w-24">
+                          <input
+                            value={r.meters}
+                            onChange={(e) => setRow(r.key, { meters: cleanMeters(e.target.value) })}
+                            disabled={!r.value}
+                            inputMode="decimal"
+                            autoComplete="off"
+                            aria-label={`Taka ${i + 1} meters`}
+                            aria-invalid={!!meterErr || undefined}
+                            placeholder="Meters"
+                            className={cn(
+                              'h-11 w-full rounded-[10px] border bg-white pl-2.5 pr-6 text-base font-bold tabular-nums placeholder:text-sm placeholder:font-normal focus:outline-none focus:ring-2 disabled:bg-slate-50 disabled:opacity-60',
+                              meterErr ? 'border-destructive focus:ring-destructive/15' : 'border-input focus:border-primary focus:ring-primary/15',
+                            )}
+                          />
+                          <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-sm font-semibold text-slate-400" aria-hidden>
+                            m
+                          </span>
+                        </div>
                         <button
                           type="button"
                           onClick={() => setRow(r.key, { damaged: !r.damaged })}
                           disabled={!r.value}
                           aria-pressed={r.damaged}
+                          aria-label={`Machine damage on taka ${r.value || i + 1}`}
                           className={cn(
                             'inline-flex h-11 shrink-0 items-center gap-1.5 rounded-[10px] border px-2.5 text-[13px] font-semibold transition-colors disabled:opacity-40',
                             r.damaged ? 'border-red-600 bg-red-600 text-white' : 'border-input bg-white text-slate-600 hover:text-red-600',
@@ -160,7 +206,6 @@ export function EditTakasDialog({ target, onClose }: { target: EditTakasTarget |
                         >
                           <AlertTriangle className="size-4" aria-hidden />
                           <span className="hidden sm:inline">Machine damage</span>
-                          <span className="sm:hidden">Damage</span>
                         </button>
                         <button
                           type="button"
@@ -185,7 +230,7 @@ export function EditTakasDialog({ target, onClose }: { target: EditTakasTarget |
               variant="secondary"
               className="mt-3 w-full border-dashed"
               disabled={!canAdd}
-              onClick={() => setRows((prev) => [...prev, { key: ++rowKey, value: '', damaged: false }])}
+              onClick={() => setRows((prev) => [...prev, { key: ++rowKey, value: '', meters: '', damaged: false }])}
             >
               <Plus /> Add row
             </Button>

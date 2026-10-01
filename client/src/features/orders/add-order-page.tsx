@@ -2,10 +2,10 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { CheckCircle2, FolderOpen, ImagePlus, Mic, Plus, RefreshCw, Trash2, X, XCircle } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Controller, useForm, useWatch } from 'react-hook-form';
-import { Navigate, useBlocker, useNavigate } from 'react-router-dom';
+import { Navigate, useBlocker, useLocation, useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { z } from 'zod';
-import { DEFAULT_UNIT, UNITS, normalizeCode, type Unit, type UploadResult } from '@rivoora/shared';
+import { DEFAULT_UNIT, UNITS, normalizeCode, type OrderDetail, type Unit, type UploadResult } from '@rivoora/shared';
 import { usePageTitle } from '@/components/layout/page-title';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
@@ -19,13 +19,13 @@ import { Tooltip } from '@/components/ui/tooltip';
 import { useDebounce } from '@/hooks/useDebounce';
 import { useRole } from '@/hooks/useRole';
 import { errorMessage } from '@/lib/api';
-import { toApiDate } from '@/lib/format';
+import { formatOrderNo, toApiDate } from '@/lib/format';
 import { applyServerFieldError } from '@/lib/form';
 import { cn, toNumber } from '@/lib/utils';
 import { useCustomerLookup, useMaterialLookup } from '../masters/api';
 import { CustomerFormDialog } from '../masters/customers/customer-form';
 import { designCodeField, useCodeAvailability } from '../masters/designs/design-form';
-import { useCreateOrder } from './api';
+import { useCreateOrder, useUpdateOrder } from './api';
 import { SavedDesignsDrawer, type SavedDesignPick } from './saved-designs-drawer';
 
 type DesignAttachment =
@@ -75,6 +75,33 @@ const defaults = (): FormValues => ({
   noteImages: [],
 });
 
+/** Form values of an existing order (edit mode). */
+const fromOrder = (o: OrderDetail): FormValues => {
+  const image = o.variation ?? o.design;
+  return {
+    customerId: o.customer.id,
+    materialId: o.material.id,
+    design: o.design
+      ? {
+          kind: 'saved',
+          designId: o.design.id,
+          variationId: o.variation?.id ?? null,
+          code: o.variation?.code ?? o.design.code,
+          imageUrl: image?.imageUrl ?? null,
+          thumbUrl: image?.thumbUrl ?? null,
+          material: null,
+        }
+      : null,
+    newDesignCode: '',
+    quantity: String(o.quantity),
+    unit: o.unit,
+    rate: o.rate != null ? String(o.rate) : '',
+    orderDate: o.orderDate,
+    notes: o.notes ?? '',
+    noteImages: o.noteImages.map((img) => ({ url: img.imageUrl, thumbUrl: img.thumbUrl })),
+  };
+};
+
 const unitOptions = UNITS.map((u) => ({ value: u, label: u }));
 
 function SectionCard({ title, children, className }: { title: string; children: React.ReactNode; className?: string }) {
@@ -87,10 +114,22 @@ function SectionCard({ title, children, className }: { title: string; children: 
 }
 
 export default function AddOrderPage() {
-  usePageTitle('New order');
+  return <OrderForm />;
+}
+
+/** The order form: a new order, or (with `order`) editing an existing one from its details screen. */
+export function OrderForm({ order }: { order?: OrderDetail }) {
+  const isEdit = !!order;
+  const title = order ? `Edit order ${formatOrderNo(order.orderNo)}` : 'New order';
+  usePageTitle(title);
   const navigate = useNavigate();
+  const location = useLocation();
   const { can } = useRole();
   const create = useCreateOrder();
+  const update = useUpdateOrder(order?.id ?? 0);
+  const saving = create.isPending || update.isPending;
+  /** The unit can't change once the order has jobsheets (the server enforces the same rule). */
+  const unitLocked = !!order && order.jobsheetCount > 0;
   const savedRef = useRef(false);
 
   const {
@@ -102,7 +141,7 @@ export default function AddOrderPage() {
     setError,
     clearErrors,
     formState: { errors, isDirty },
-  } = useForm<FormValues>({ resolver: zodResolver(schema), defaultValues: defaults() });
+  } = useForm<FormValues>({ resolver: zodResolver(schema), defaultValues: order ? fromOrder(order) : defaults() });
 
   const [customerId, design, noteImages, newDesignCode] = useWatch({
     control,
@@ -114,7 +153,9 @@ export default function AddOrderPage() {
   const [materialSearch, setMaterialSearch] = useState('');
   const customers = useCustomerLookup(useDebounce(customerSearch.trim(), 300));
   const materials = useMaterialLookup(useDebounce(materialSearch.trim(), 300));
-  const [labels, setLabels] = useState<{ customer?: string; material?: string }>({});
+  const [labels, setLabels] = useState<{ customer?: string; material?: string }>(
+    order ? { customer: order.customer.name, material: order.material.name } : {},
+  );
   /** Design code whose fixed material was pre-selected (cleared when the user changes the material). */
   const [materialFromDesign, setMaterialFromDesign] = useState<string | null>(null);
 
@@ -144,7 +185,7 @@ export default function AddOrderPage() {
     return () => window.removeEventListener('beforeunload', onBeforeUnload);
   }, [isDirty]);
 
-  if (!can('canAddOrder')) return <Navigate to="/orders" replace />;
+  if (!can(isEdit ? 'canEditOrder' : 'canAddOrder')) return <Navigate to={order ? `/orders/${order.id}` : '/orders'} replace />;
 
   const setDesign = (d: DesignAttachment | null) => {
     setValue('design', d, { shouldDirty: true });
@@ -156,41 +197,56 @@ export default function AddOrderPage() {
       setError('newDesignCode', { message: 'This design code is already used' }, { shouldFocus: true });
       return;
     }
-    create.mutate(
-      {
-        customerId: v.customerId!,
-        materialId: v.materialId!,
-        designId: v.design?.kind === 'saved' ? v.design.designId : null,
-        variationId: v.design?.kind === 'saved' ? v.design.variationId : null,
-        newDesign:
-          v.design?.kind === 'upload'
-            ? { code: v.newDesignCode, imageUrl: v.design.imageUrl, thumbUrl: v.design.thumbUrl }
-            : null,
-        quantity: toNumber(v.quantity)!,
-        unit: v.unit,
-        rate: can('canSeeRate') ? (toNumber(v.rate) ?? null) : null,
-        orderDate: v.orderDate,
-        notes: v.notes,
-        noteImages: v.noteImages,
-      },
-      {
+    const payload = {
+      customerId: v.customerId!,
+      materialId: v.materialId!,
+      designId: v.design?.kind === 'saved' ? v.design.designId : null,
+      variationId: v.design?.kind === 'saved' ? v.design.variationId : null,
+      newDesign:
+        v.design?.kind === 'upload'
+          ? { code: v.newDesignCode, imageUrl: v.design.imageUrl, thumbUrl: v.design.thumbUrl }
+          : null,
+      quantity: toNumber(v.quantity)!,
+      unit: v.unit,
+      rate: can('canSeeRate') ? (toNumber(v.rate) ?? null) : null,
+      orderDate: v.orderDate,
+      notes: v.notes,
+      noteImages: v.noteImages,
+    };
+    const onError = (err: unknown) => {
+      const handled = applyServerFieldError(err, setError, ['customerId', 'materialId', 'quantity', 'unit', 'rate', 'orderDate', 'newDesignCode', 'notes'], {
+        designCode: 'newDesignCode',
+        'newDesign.code': 'newDesignCode',
+      });
+      if (!handled) toast.error(errorMessage(err));
+    };
+    if (order) {
+      update.mutate(payload, {
+        onSuccess: () => {
+          savedRef.current = true;
+          toast.success(`Order ${formatOrderNo(order.orderNo)} updated`);
+          close();
+        },
+        onError,
+      });
+    } else {
+      create.mutate(payload, {
         onSuccess: (res) => {
           savedRef.current = true;
           toast.success(`Order #${res.orderNo} created`);
           navigate('/orders');
         },
-        onError: (err) => {
-          const handled = applyServerFieldError(err, setError, ['customerId', 'materialId', 'quantity', 'rate', 'orderDate', 'newDesignCode', 'notes'], {
-            designCode: 'newDesignCode',
-            'newDesign.code': 'newDesignCode',
-          });
-          if (!handled) toast.error(errorMessage(err));
-        },
-      },
-    );
+        onError,
+      });
+    }
   });
 
-  const close = () => navigate('/orders');
+  function close() {
+    if (!order) navigate('/orders');
+    // Back to the details screen (keeps its tab); when the edit URL was opened directly, go to the details URL.
+    else if (location.key !== 'default') navigate(-1);
+    else navigate(`/orders/${order.id}`, { replace: true });
+  }
 
   return (
     <div className="flex min-h-[100dvh] flex-col bg-background">
@@ -200,9 +256,9 @@ export default function AddOrderPage() {
           <Button variant="ghost" size="icon" onClick={close} aria-label="Close">
             <X className="!size-5" />
           </Button>
-          <h1 className="flex-1 truncate text-lg font-semibold text-slate-900">New order</h1>
-          <Button className="hidden md:inline-flex" onClick={onSubmit} loading={create.isPending}>
-            Save order
+          <h1 className="flex-1 truncate text-lg font-semibold text-slate-900">{title}</h1>
+          <Button className="hidden md:inline-flex" onClick={onSubmit} loading={saving}>
+            {isEdit ? 'Save changes' : 'Save order'}
           </Button>
         </div>
       </header>
@@ -232,16 +288,19 @@ export default function AddOrderPage() {
                     emptyText="No clients found"
                     invalid={!!errors.customerId}
                     action={
-                      <Button
-                        variant="secondary"
-                        size="icon"
-                        className="shrink-0"
-                        onClick={() => setCustomerFormOpen(true)}
-                        aria-label="Add new customer"
-                        title="Add new customer"
-                      >
-                        <Plus className="!size-5" />
-                      </Button>
+                      // Adding a client needs master rights or order creation (Gaurang edits without it).
+                      (can('canManageMasters') || can('canAddOrder')) && (
+                        <Button
+                          variant="secondary"
+                          size="icon"
+                          className="shrink-0"
+                          onClick={() => setCustomerFormOpen(true)}
+                          aria-label="Add new customer"
+                          title="Add new customer"
+                        >
+                          <Plus className="!size-5" />
+                        </Button>
+                      )
                     }
                   />
                 )}
@@ -382,14 +441,21 @@ export default function AddOrderPage() {
 
         <SectionCard title="Quantity & pricing">
           <div className="grid gap-4 md:grid-cols-2">
-            <Field label="Quantity" htmlFor="order-qty" required error={errors.quantity?.message} className="md:col-span-2">
+            <Field
+              label="Quantity"
+              htmlFor="order-qty"
+              required
+              error={errors.quantity?.message ?? errors.unit?.message}
+              hint={unitLocked ? 'The unit is fixed once jobsheets exist' : undefined}
+              className="md:col-span-2"
+            >
               <div className="grid grid-cols-[minmax(0,1fr)_120px] gap-2 sm:grid-cols-[minmax(0,1fr)_150px]">
                 <NumberInput id="order-qty" placeholder="0" invalid={!!errors.quantity} {...register('quantity')} />
                 <Controller
                   control={control}
                   name="unit"
                   render={({ field }) => (
-                    <Select<Unit> value={field.value} onChange={field.onChange} options={unitOptions} aria-label="Unit" />
+                    <Select<Unit> value={field.value} onChange={field.onChange} options={unitOptions} aria-label="Unit" disabled={unitLocked} />
                   )}
                 />
               </div>
@@ -486,10 +552,10 @@ export default function AddOrderPage() {
       {/* Sticky bottom bar */}
       <div className="sticky bottom-0 z-30 border-t border-border bg-white/95 backdrop-blur">
         <div className="mx-auto grid max-w-3xl grid-cols-2 gap-2 px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] sm:flex sm:justify-end">
-          <Button variant="secondary" onClick={close} disabled={create.isPending}>
+          <Button variant="secondary" onClick={close} disabled={saving}>
             Cancel
           </Button>
-          <Button type="submit" form="order-form" loading={create.isPending} className="sm:min-w-36">
+          <Button type="submit" form="order-form" loading={saving} className="sm:min-w-36">
             Save
           </Button>
         </div>
@@ -524,7 +590,7 @@ export default function AddOrderPage() {
       <ConfirmDialog
         open={blocker.state === 'blocked'}
         onOpenChange={(o) => !o && blocker.state === 'blocked' && blocker.reset()}
-        title="Discard this order?"
+        title={isEdit ? 'Discard your changes?' : 'Discard this order?'}
         description="You have unsaved changes. If you leave now they will be lost."
         confirmLabel="Discard"
         cancelLabel="Keep editing"

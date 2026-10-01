@@ -15,6 +15,8 @@ export interface RolePermissions {
   /** Can see the rate of an order (details screen / add form only, never the list). */
   canSeeRate: boolean;
   canAddOrder: boolean;
+  /** Edit an existing order (client, material, design, quantity, rate, date, notes) from its details screen. */
+  canEditOrder: boolean;
   canSendToProduction: boolean;
   canUndoProduction: boolean;
   /** Add / edit / delete customers, materials and designs. */
@@ -49,6 +51,8 @@ export interface RoleConfig {
   landing: string;
   /** Screens of this role show English + Hindi labels. */
   bilingual?: boolean;
+  /** Order details open on the Jobsheets tab (instead of Dashboard) while the order is Jobsheet pending. */
+  jobsheetsTabWhenPending?: boolean;
   permissions: RolePermissions;
 }
 
@@ -66,6 +70,7 @@ export const ROLES: Record<RoleKey, RoleConfig> = {
       canViewMasters: true,
       canSeeRate: true,
       canAddOrder: true,
+      canEditOrder: true,
       canSendToProduction: true,
       canUndoProduction: true,
       canManageMasters: true,
@@ -86,11 +91,13 @@ export const ROLES: Record<RoleKey, RoleConfig> = {
     title: 'Partner',
     initials: 'G',
     landing: '/orders',
+    jobsheetsTabWhenPending: true,
     permissions: {
       canViewOrders: true,
       canViewMasters: true,
       canSeeRate: true,
       canAddOrder: false,
+      canEditOrder: true,
       canSendToProduction: false,
       canUndoProduction: false,
       canManageMasters: false,
@@ -116,6 +123,7 @@ export const ROLES: Record<RoleKey, RoleConfig> = {
       canViewMasters: false,
       canSeeRate: false,
       canAddOrder: false,
+      canEditOrder: false,
       canSendToProduction: false,
       canUndoProduction: false,
       canManageMasters: false,
@@ -140,6 +148,7 @@ export const ROLES: Record<RoleKey, RoleConfig> = {
       canViewMasters: false,
       canSeeRate: false,
       canAddOrder: false,
+      canEditOrder: false,
       canSendToProduction: false,
       canUndoProduction: false,
       canManageMasters: false,

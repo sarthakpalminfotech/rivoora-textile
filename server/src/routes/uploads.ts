@@ -26,7 +26,7 @@ export const uploadsRouter = Router();
 
 uploadsRouter.post(
   '/',
-  requirePermission('canManageMasters', 'canAddOrder'),
+  requirePermission('canManageMasters', 'canAddOrder', 'canEditOrder'),
   upload.single('file'),
   ah(async (req, res) => {
     const { folder } = z.object({ folder: z.enum(['designs', 'notes']).default('designs') }).parse(req.query);

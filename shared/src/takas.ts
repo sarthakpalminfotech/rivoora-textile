@@ -67,12 +67,61 @@ export const TAKA_ERROR_TEXT: Record<TakaNoError, { en: string; hi: string }> = 
   already_entered: { en: 'Already entered for this jobsheet', hi: 'इस जॉबशीट में पहले से है' },
 };
 
-/** "3 takas (1 damage)" — also stored as the note of takas_entered / takas_edited events. */
-export function takaSummary(takas: readonly { isDamaged: boolean }[]): string {
+/* ------------------------------------------------------------------ */
+/* Meters per taka (optional)                                           */
+/* ------------------------------------------------------------------ */
+
+/** Meters are optional, > 0, at most 9999.99 (two decimals). */
+export const TAKA_METERS_MAX = 9999.99;
+
+/** Keeps what can form a meters value while typing: digits, one dot, at most 4 + 2 digits. */
+export function cleanMeters(value: string): string {
+  const v = value.replace(',', '.').replace(/[^\d.]/g, '');
+  const [int = '', ...rest] = v.split('.');
+  const dec = rest.join('');
+  return v.includes('.') ? `${int.slice(0, 4)}.${dec.slice(0, 2)}` : int.slice(0, 4);
+}
+
+export type MetersError = 'invalid' | 'zero' | 'too_big';
+
+/** The meters typed in a field: `null` when empty, a number, or an error. */
+export function parseMeters(value: string): { meters: number | null; error: MetersError | null } {
+  const v = value.trim();
+  if (!v || v === '.') return { meters: null, error: v === '.' ? 'invalid' : null };
+  if (!/^\d{0,4}(\.\d{0,2})?$/.test(v)) return { meters: null, error: 'invalid' };
+  const n = Number(v);
+  if (!Number.isFinite(n)) return { meters: null, error: 'invalid' };
+  if (n <= 0) return { meters: null, error: 'zero' };
+  if (n > TAKA_METERS_MAX) return { meters: null, error: 'too_big' };
+  return { meters: Math.round(n * 100) / 100, error: null };
+}
+
+export const METERS_ERROR_TEXT: Record<MetersError, { en: string; hi: string }> = {
+  invalid: { en: 'Enter meters like 105 or 105.5', hi: 'मीटर ऐसे लिखें: 105 या 105.5' },
+  zero: { en: 'Meters must be more than 0', hi: 'मीटर 0 से ज़्यादा हों' },
+  too_big: { en: `At most ${TAKA_METERS_MAX} m`, hi: `ज़्यादा से ज़्यादा ${TAKA_METERS_MAX} मीटर` },
+};
+
+/** "105.5 m" (up to two decimals, no trailing zeros). */
+export function formatMeters(meters: number): string {
+  return `${meters.toLocaleString('en-IN', { maximumFractionDigits: 2 })} m`;
+}
+
+/** Sum of the meters entered (takas without meters are skipped); `null` when none has meters. */
+export function totalMeters(takas: readonly { meters?: number | null }[]): number | null {
+  const withMeters = takas.filter((t) => t.meters != null);
+  if (!withMeters.length) return null;
+  return Math.round(withMeters.reduce((sum, t) => sum + t.meters!, 0) * 100) / 100;
+}
+
+/** "3 takas (1 damage) · 315.5 m" — also stored as the note of takas_entered / takas_edited events. */
+export function takaSummary(takas: readonly { isDamaged: boolean; meters?: number | null }[]): string {
   const n = takas.length;
   const damaged = takas.filter((t) => t.isDamaged).length;
   const base = `${n} taka${n === 1 ? '' : 's'}`;
-  return damaged ? `${base} (${damaged} damage)` : base;
+  const withDamage = damaged ? `${base} (${damaged} damage)` : base;
+  const meters = totalMeters(takas);
+  return meters === null ? withDamage : `${withDamage} · ${formatMeters(meters)}`;
 }
 
 /** Sorts taka numbers numerically (then as text, so "007" and "7" keep a stable order). */

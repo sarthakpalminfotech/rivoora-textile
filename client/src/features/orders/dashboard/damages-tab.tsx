@@ -1,7 +1,7 @@
 import { AlertTriangle, Pencil, ShieldCheck } from 'lucide-react';
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { DAMAGE_TYPE_CONFIG, DAMAGE_TYPE_LABEL, takaStageLabel, type DamageType, type OrderDetail } from '@rivoora/shared';
+import { DAMAGE_TYPE_CONFIG, DAMAGE_TYPE_LABEL, formatMeters, takaStageLabel, type DamageType, type OrderDetail } from '@rivoora/shared';
 import { ErrorState } from '@/components/list-parts';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
@@ -108,6 +108,7 @@ export function DamagesTab({ order, view }: { order: OrderDetail; view: OrderVie
                   <p className="text-2xl font-bold leading-tight tabular-nums text-slate-900">
                     <span className="sr-only">Taka </span>
                     {t.takaNo}
+                    {t.meters != null && <span className="ml-2 text-base font-semibold text-slate-500">{formatMeters(t.meters)}</span>}
                   </p>
                   <span className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2.5 py-1 text-xs font-semibold text-red-700">
                     <AlertTriangle className="size-3.5" aria-hidden />

@@ -29,7 +29,8 @@ const EMPTY: Record<JobsheetTab, { title: string; description: string; icon: typ
   completed: { title: 'No completed jobsheets yet', description: 'Completed jobsheets appear here, newest first.', icon: CheckCircle2 },
 };
 
-const GRID = 'grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4';
+// Two cards side by side from 480px, so portrait tablets (often 600–760px wide) don't show one huge card per row.
+const GRID = 'grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-3 xl:grid-cols-4';
 
 const isTab = (v: string | null): v is JobsheetTab => !!v && (JOBSHEET_TABS as readonly string[]).includes(v);
 

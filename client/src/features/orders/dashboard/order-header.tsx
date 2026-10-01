@@ -1,4 +1,4 @@
-import { ChevronDown, ImageOff, Phone, Undo2 } from 'lucide-react';
+import { ChevronDown, ImageOff, Pencil, Phone, Undo2 } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import type { OrderDetail } from '@rivoora/shared';
 import { Button } from '@/components/ui/button';
@@ -54,9 +54,9 @@ function DesignThumb({ order }: { order: OrderDetail }) {
 
 /**
  * Order header card (always visible): design thumbnail, order number + status, Undo send for production, and a
- * compact detail grid. Phones show the first four details with a "More details" toggle.
+ * compact detail grid. Phones show the first four details with a "More details" toggle. `onEdit` adds the edit (pencil) button.
  */
-export function OrderHeader({ order, onUndo }: { order: OrderDetail; onUndo?: () => void }) {
+export function OrderHeader({ order, onUndo, onEdit }: { order: OrderDetail; onUndo?: () => void; onEdit?: () => void }) {
   const [more, setMore] = useState(false);
   const code = order.variation?.code ?? order.design?.code;
 
@@ -124,10 +124,19 @@ export function OrderHeader({ order, onUndo }: { order: OrderDetail; onUndo?: ()
         <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2 self-center md:self-start">
           <h2 className="text-2xl font-bold leading-tight text-slate-900 md:text-[28px]">Order {formatOrderNo(order.orderNo)}</h2>
           <StatusBadge status={order.status} />
-          {onUndo && (
-            <Button variant="secondary" size="sm" className="md:ml-auto" onClick={onUndo}>
-              <Undo2 /> Undo send for production
-            </Button>
+          {(onUndo || onEdit) && (
+            <div className="flex items-center gap-2 md:ml-auto">
+              {onUndo && (
+                <Button variant="secondary" size="sm" onClick={onUndo}>
+                  <Undo2 /> Undo send for production
+                </Button>
+              )}
+              {onEdit && (
+                <Button variant="secondary" size="icon-sm" onClick={onEdit} aria-label="Edit order" title="Edit order">
+                  <Pencil />
+                </Button>
+              )}
+            </div>
           )}
         </div>
         <div className="col-span-2 min-w-0 md:col-span-1 md:col-start-2">

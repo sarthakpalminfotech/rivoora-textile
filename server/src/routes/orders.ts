@@ -9,6 +9,7 @@ import {
   orderListQuerySchema,
   sendToProduction,
   undoSendToProduction,
+  updateOrder,
 } from '../services/orders';
 import { addSingleJobsheet, generateJobsheets, listOrderJobsheets, sendJobsheets } from '../services/jobsheets';
 import { listOrderTakas } from '../services/takas';
@@ -46,6 +47,15 @@ ordersRouter.post(
   requirePermission('canAddOrder'),
   ah(async (req, res) => {
     res.status(201).json(await createOrder(req.role, req.body));
+  }),
+);
+
+/** Edit an order (Jemish / Gaurang) — returns the updated order detail. */
+ordersRouter.put(
+  '/:id',
+  requirePermission('canEditOrder'),
+  ah(async (req, res) => {
+    res.json(await updateOrder(req.role, parseId(req.params.id), req.body));
   }),
 );
 

@@ -1,0 +1,1 @@
+ALTER TABLE `takas` ADD `meters` real;

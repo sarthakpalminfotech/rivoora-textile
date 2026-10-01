@@ -16,6 +16,7 @@ import RouteError from '@/pages/route-error';
 const OrdersPage = lazy(() => import('@/features/orders/orders-page'));
 const OrderDetailsPage = lazy(() => import('@/features/orders/order-details-page'));
 const AddOrderPage = lazy(() => import('@/features/orders/add-order-page'));
+const EditOrderPage = lazy(() => import('@/features/orders/edit-order-page'));
 const CustomersPage = lazy(() => import('@/features/masters/customers/customers-page'));
 const MaterialsPage = lazy(() => import('@/features/masters/materials/materials-page'));
 const DesignsPage = lazy(() => import('@/features/masters/designs/designs-page'));
@@ -59,6 +60,16 @@ const router = createBrowserRouter([
           <Suspense fallback={<PageSkeleton />}>
             <RequirePermission permission="canViewOrders">
               <AddOrderPage />
+            </RequirePermission>
+          </Suspense>
+        ),
+      },
+      {
+        path: '/orders/:id/edit',
+        element: (
+          <Suspense fallback={<PageSkeleton />}>
+            <RequirePermission permission="canEditOrder">
+              <EditOrderPage />
             </RequirePermission>
           </Suspense>
         ),

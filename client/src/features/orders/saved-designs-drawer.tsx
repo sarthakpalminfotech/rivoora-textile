@@ -38,12 +38,15 @@ function PickTile({
   thumbUrl,
   code,
   sub,
+  note,
   selected,
   onClick,
 }: {
   thumbUrl: string | null;
   code: string;
   sub?: React.ReactNode;
+  /** Shown below `sub` (e.g. the previous order's notes), up to 3 lines. */
+  note?: string | null;
   selected?: boolean;
   onClick: () => void;
 }) {
@@ -61,6 +64,11 @@ function PickTile({
       <div className="min-w-0 px-3 py-2">
         <p className="truncate text-sm font-bold text-slate-900">{code}</p>
         {sub && <div className="truncate text-xs text-slate-500">{sub}</div>}
+        {note && (
+          <p className="mt-1.5 line-clamp-3 whitespace-pre-line rounded-md bg-amber-50 px-2 py-1 text-xs leading-snug text-amber-900" title={note}>
+            {note}
+          </p>
+        )}
       </div>
       {selected && (
         <span className="absolute right-2 top-2 flex size-6 items-center justify-center rounded-full bg-primary text-white shadow">
@@ -122,6 +130,7 @@ function PreviousOrdersTab({
               {d.timesUsed > 1 && <span className="ml-1 font-semibold text-accent-foreground">· {d.timesUsed}×</span>}
             </>
           }
+          note={d.notes}
           onClick={() =>
             onPick({
               designId: d.designId,

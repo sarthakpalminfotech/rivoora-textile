@@ -1,5 +1,5 @@
 import { AlertTriangle, ArrowRight, ChevronRight, ClipboardList, CornerDownRight, Hourglass, Inbox, Plus, Send } from 'lucide-react';
-import { useState, type ReactNode } from 'react';
+import { useRef, useState, type ReactNode } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import {
@@ -22,6 +22,7 @@ import { ErrorState } from '@/components/list-parts';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { EmptyState } from '@/components/ui/empty-state';
+import { Modal } from '@/components/ui/modal';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useNow } from '@/hooks/useNow';
 import { useRole } from '@/hooks/useRole';
@@ -267,7 +268,7 @@ function SubStageCards({ subs, selected, onToggle }: { subs: SubStageCount[]; se
               type="button"
               onClick={() => onToggle(s.key)}
               aria-pressed={isSel}
-              aria-controls="sub-stage-details"
+              aria-haspopup="dialog"
               className={cn(selectable(isSel), 'flex h-full w-full flex-col gap-1 p-3', !s.connected && !isSel && 'bg-slate-50/70')}
             >
               <span className="flex items-start gap-1.5 text-[13px] font-medium leading-snug text-slate-600">
@@ -402,7 +403,34 @@ function JobsheetRows({ items }: { items: DashboardJobsheetItem[] }) {
   );
 }
 
-function DetailPanel({ orderId, sub, count }: { orderId: number; sub: SubStageKey; count: number }) {
+/** The items of the opened sub-stage, in a drawer that slides in from the right (full screen on phones). */
+function DetailDrawer({ orderId, open, onClose }: { orderId: number; open: SubStageCount | undefined; onClose: () => void }) {
+  // Keep the last sub-stage while the drawer slides out, so its content doesn't vanish mid-animation.
+  const lastRef = useRef(open);
+  if (open) lastRef.current = open;
+  const shown = open ?? lastRef.current;
+  return (
+    <Modal
+      open={!!open}
+      onOpenChange={(o) => !o && onClose()}
+      variant="right"
+      title={
+        shown ? (
+          <span className="flex items-center gap-2">
+            {getSubStage(shown.key).label}
+            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-bold text-slate-600">{shown.count}</span>
+          </span>
+        ) : (
+          ''
+        )
+      }
+    >
+      {shown && <DetailBody orderId={orderId} sub={shown.key} />}
+    </Modal>
+  );
+}
+
+function DetailBody({ orderId, sub }: { orderId: number; sub: SubStageKey }) {
   const config = getSubStage(sub);
   const query = useDashboardItems(orderId, sub, config.connected);
   let body: ReactNode;
@@ -444,19 +472,7 @@ function DetailPanel({ orderId, sub, count }: { orderId: number; sub: SubStageKe
         </div>
       );
   }
-  return (
-    <Panel
-      id="sub-stage-details"
-      title={
-        <span className="normal-case tracking-normal">
-          <span className="text-[15px] font-semibold text-slate-900">{config.label}</span>
-          <span className="ml-2 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-bold text-slate-600">{count}</span>
-        </span>
-      }
-    >
-      {body}
-    </Panel>
-  );
+  return <>{body}</>;
 }
 
 /* ------------------------------------------------------------------ */
@@ -619,7 +635,11 @@ export function DashboardTab({ order, view }: { order: OrderDetail; view: OrderV
         </div>
       )}
 
-      {openSub && !productionOff && <DetailPanel orderId={order.id} sub={openSub.key} count={openSub.count} />}
+      <DetailDrawer
+        orderId={order.id}
+        open={productionOff ? undefined : openSub}
+        onClose={() => openSub && view.toggleSub(openSub.key)}
+      />
 
       <AlertsCard alerts={data.alerts} view={view} />
     </div>

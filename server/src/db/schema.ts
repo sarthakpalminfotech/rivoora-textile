@@ -277,6 +277,8 @@ export const takas = sqliteTable(
       .notNull()
       .references(() => orders.id),
     takaNo: text('taka_no').notNull(),
+    /** Length of the taka in meters (optional, up to 2 decimals). */
+    meters: real('meters'),
     isDamaged: integer('is_damaged', { mode: 'boolean' }).notNull().default(false),
     /** `machine` when damaged (more types later). */
     damageType: text('damage_type').$type<DamageType>(),
