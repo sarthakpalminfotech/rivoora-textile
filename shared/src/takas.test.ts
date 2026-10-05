@@ -1,28 +1,50 @@
 import { describe, expect, it } from 'vitest';
-import { canRoleSeeJobsheetStatus, canRoleSeeStatus, orderStatusForJobsheets } from './statuses';
+import { canRoleSeeJobsheetStatus, canRoleSeeStatus, jobsheetStatusLabel, orderStatusForJobsheets } from './statuses';
 import { can } from './roles';
 import {
   cleanMeters,
+  cleanPcs,
   cleanTakaNo,
   compareTakaNo,
+  damageLabel,
+  formatPcs,
   hasTakaErrors,
   jobsheetQrUrl,
   parseJobsheetQr,
   formatMeters,
   parseMeters,
+  parsePcs,
+  TAKA_NO_REGEX,
   takaSummary,
   totalMeters,
+  totalPcs,
   validateTakaNumbers,
 } from './takas';
-import { takaEditSchema, takaEntrySchema } from './schemas';
+import { customerInputSchema, orderCreateSchema, takaDamageSchema, takaEditSchema, takaEntrySchema } from './schemas';
 
 describe('taka number validation (one jobsheet)', () => {
   it('accepts digits, keeps leading zeros as distinct text', () => {
     expect(validateTakaNumbers(['6245', '0123', '123'])).toEqual([null, null, null]);
   });
 
-  it('rejects non-digits and more than 10 digits', () => {
-    expect(validateTakaNumbers(['12a', '12 3', '-5', '12345678901'])).toEqual(['digits', 'digits', 'digits', 'too_long']);
+  it('accepts single - or / separators between digits', () => {
+    expect(validateTakaNumbers(['6245', '6245-1', '62/45', '1-2/3'])).toEqual([null, null, null, null]);
+    for (const v of ['6245', '6245-1', '62/45']) expect(TAKA_NO_REGEX.test(v), v).toBe(true);
+  });
+
+  it('rejects letters, leading / trailing / double separators and more than 15 characters', () => {
+    for (const v of ['-6245', '6245-', '62--45', '62/-45', 'A12', '12a', '12 3']) expect(TAKA_NO_REGEX.test(v), v).toBe(false);
+    expect(validateTakaNumbers(['-6245', '6245-', '62--45', 'A12', '1234567890123456'])).toEqual([
+      'format',
+      'format',
+      'format',
+      'format',
+      'too_long',
+    ]);
+  });
+
+  it('a dash or slash makes a different number (exact match for duplicates)', () => {
+    expect(validateTakaNumbers(['6245', '6245-1', '6245/1', '6245-1'])).toEqual([null, null, null, 'duplicate']);
   });
 
   it('flags duplicates within the list (the first one stays valid)', () => {
@@ -44,18 +66,26 @@ describe('taka number validation (one jobsheet)', () => {
     expect(validateTakaNumbers([' 7', '7 '])).toEqual([null, 'duplicate']);
   });
 
-  it('cleans typed / pasted input to digits (max 10)', () => {
-    expect(cleanTakaNo('62-45 a')).toBe('6245');
-    expect(cleanTakaNo('123456789012')).toBe('1234567890');
+  it('cleans typed / pasted input: digits, - and / (max 15), no leading or double separators', () => {
+    expect(cleanTakaNo('62-45 a')).toBe('62-45');
+    expect(cleanTakaNo('62//45')).toBe('62/45');
+    expect(cleanTakaNo('62-/45')).toBe('62-45');
+    expect(cleanTakaNo('-6245')).toBe('6245');
+    expect(cleanTakaNo('6245-')).toBe('6245-');
+    expect(cleanTakaNo('A12')).toBe('12');
+    expect(cleanTakaNo('12345678901234567')).toBe('123456789012345');
   });
 
-  it('server schemas: digits only, at least one taka on entry, empty set allowed on edit', () => {
-    expect(takaEntrySchema.safeParse({ takas: [{ takaNo: '0045', isDamaged: true }] }).success).toBe(true);
-    expect(takaEntrySchema.safeParse({ takas: [{ takaNo: '45a' }] }).success).toBe(false);
+  it('server schemas: number format, pcs required, at least one taka on entry, empty set allowed on edit', () => {
+    expect(takaEntrySchema.safeParse({ takas: [{ takaNo: '0045', pcs: 12, damage: { damageId: 3 } }] }).success).toBe(true);
+    expect(takaEntrySchema.safeParse({ takas: [{ takaNo: '62/45-1', pcs: 1 }] }).success).toBe(true);
+    expect(takaEntrySchema.safeParse({ takas: [{ takaNo: '45a', pcs: 1 }] }).success).toBe(false);
+    expect(takaEntrySchema.safeParse({ takas: [{ takaNo: '45-', pcs: 1 }] }).success).toBe(false);
+    expect(takaEntrySchema.safeParse({ takas: [{ takaNo: '45' }] }).success).toBe(false);
     expect(takaEntrySchema.safeParse({ takas: [] }).success).toBe(false);
     expect(takaEditSchema.safeParse({ takas: [], note: '' }).success).toBe(true);
-    const parsed = takaEntrySchema.parse({ takas: [{ takaNo: ' 7 ' }], note: '  ' });
-    expect(parsed.takas[0]).toEqual({ takaNo: '7', meters: null, isDamaged: false });
+    const parsed = takaEntrySchema.parse({ takas: [{ takaNo: ' 7 ', pcs: 10 }], note: '  ' });
+    expect(parsed.takas[0]).toEqual({ takaNo: '7', meters: null, pcs: 10, damage: null });
     expect(parsed.note).toBeNull();
   });
 
@@ -63,6 +93,7 @@ describe('taka number validation (one jobsheet)', () => {
     expect(takaSummary([{ isDamaged: false }, { isDamaged: true }, { isDamaged: false }])).toBe('3 takas (1 damage)');
     expect(takaSummary([{ isDamaged: false }])).toBe('1 taka');
     expect(['10', '9', '0009', '100'].sort(compareTakaNo)).toEqual(['0009', '9', '10', '100']);
+    expect(['63', '62/10', '62', '62/9', '62-1'].sort(compareTakaNo)).toEqual(['62', '62-1', '62/9', '62/10', '63']);
   });
 });
 
@@ -173,10 +204,113 @@ describe('meters per taka', () => {
   });
 
   it('server schemas accept optional meters and reject bad values', () => {
-    const ok = takaEntrySchema.parse({ takas: [{ takaNo: '1', meters: 105.555 }, { takaNo: '2' }] });
+    const ok = takaEntrySchema.parse({ takas: [{ takaNo: '1', meters: 105.555, pcs: 1 }, { takaNo: '2', pcs: 1 }] });
     expect(ok.takas.map((t) => t.meters)).toEqual([105.56, null]);
-    expect(takaEntrySchema.safeParse({ takas: [{ takaNo: '1', meters: 0 }] }).success).toBe(false);
-    expect(takaEntrySchema.safeParse({ takas: [{ takaNo: '1', meters: 10000 }] }).success).toBe(false);
+    expect(takaEntrySchema.safeParse({ takas: [{ takaNo: '1', meters: 0, pcs: 1 }] }).success).toBe(false);
+    expect(takaEntrySchema.safeParse({ takas: [{ takaNo: '1', meters: 10000, pcs: 1 }] }).success).toBe(false);
     expect(takaEditSchema.parse({ takas: [{ id: 3, takaNo: '1', meters: 98 }], note: '' }).takas[0].meters).toBe(98);
+  });
+});
+
+describe('pcs per taka', () => {
+  it('cleans typed pcs to at most 4 digits', () => {
+    expect(cleanPcs('12a3')).toBe('123');
+    expect(cleanPcs('123456')).toBe('1234');
+    expect(cleanPcs('1.5')).toBe('15');
+  });
+
+  it('parses pcs: required, whole number 1–9999', () => {
+    expect(parsePcs('')).toEqual({ pcs: null, error: 'required' });
+    expect(parsePcs(' 12 ')).toEqual({ pcs: 12, error: null });
+    expect(parsePcs('9999')).toEqual({ pcs: 9999, error: null });
+    expect(parsePcs('0').error).toBe('zero');
+    expect(parsePcs('10000').error).toBe('too_big');
+    expect(parsePcs('1.5').error).toBe('invalid');
+  });
+
+  it('formats and totals pcs; older takas without pcs are skipped', () => {
+    expect(formatPcs(12)).toBe('12 pcs');
+    expect(formatPcs(1250)).toBe('1,250 pcs');
+    expect(totalPcs([{ pcs: 12 }, { pcs: null }, { pcs: 10 }])).toBe(22);
+    expect(totalPcs([{ pcs: null }, {}])).toBeNull();
+  });
+
+  it('adds the pcs total to the summary', () => {
+    expect(takaSummary([{ isDamaged: false, meters: 100, pcs: 12 }, { isDamaged: true, meters: 5.5, pcs: 1 }])).toBe(
+      '2 takas (1 damage) · 105.5 m · 13 pcs',
+    );
+    expect(takaSummary([{ isDamaged: false, pcs: 6 }])).toBe('1 taka · 6 pcs');
+  });
+
+  it('server schemas: pcs is required on entry (1–9999), may stay null on edit', () => {
+    expect(takaEntrySchema.safeParse({ takas: [{ takaNo: '1', pcs: 0 }] }).success).toBe(false);
+    expect(takaEntrySchema.safeParse({ takas: [{ takaNo: '1', pcs: 10000 }] }).success).toBe(false);
+    expect(takaEntrySchema.safeParse({ takas: [{ takaNo: '1', pcs: 1.5 }] }).success).toBe(false);
+    expect(takaEditSchema.parse({ takas: [{ id: 3, takaNo: '1' }], note: '' }).takas[0].pcs).toBeNull();
+  });
+});
+
+describe('damage payload', () => {
+  it('accepts a master damage, an "Other" name or null', () => {
+    expect(takaDamageSchema.parse({ damageId: 4 })).toEqual({ damageId: 4 });
+    expect(takaDamageSchema.parse({ otherName: '  Oil stain ' })).toEqual({ otherName: 'Oil stain' });
+    expect(takaDamageSchema.parse(null)).toBeNull();
+    expect(takaDamageSchema.parse(undefined)).toBeNull();
+  });
+
+  it('a damage needs a name: empty Other, both keys or a missing id are rejected', () => {
+    expect(takaDamageSchema.safeParse({ otherName: '   ' }).success).toBe(false);
+    expect(takaDamageSchema.safeParse({ damageId: 1, otherName: 'Hole' }).success).toBe(false);
+    expect(takaDamageSchema.safeParse({ damageId: null }).success).toBe(false);
+    expect(takaDamageSchema.safeParse({}).success).toBe(false);
+    expect(takaDamageSchema.safeParse({ otherName: 'x'.repeat(81) }).success).toBe(false);
+  });
+
+  it('edit keeps an older nameless damage only as { damageId: null }', () => {
+    const parsed = takaEditSchema.parse({ takas: [{ id: 1, takaNo: '5', pcs: 2, damage: { damageId: null } }], note: null });
+    expect(parsed.takas[0].damage).toEqual({ damageId: null });
+  });
+
+  it('labels where + what', () => {
+    expect(damageLabel('machine', 'Hole')).toBe('Machine damage · Hole');
+    expect(damageLabel('machine', null)).toBe('Machine damage');
+    expect(damageLabel(null)).toBe('Machine damage');
+  });
+});
+
+describe('customer brokers + order type schemas', () => {
+  const customer = { name: 'Shree Fabrics' };
+
+  it('drops empty broker rows and blocks duplicates within the customer', () => {
+    expect(customerInputSchema.parse({ ...customer, brokers: [{ name: ' Ramesh ' }, { name: '' }] }).brokers).toEqual([{ name: 'Ramesh' }]);
+    expect(customerInputSchema.parse(customer).brokers).toEqual([]);
+    const dup = customerInputSchema.safeParse({ ...customer, brokers: [{ name: 'Ramesh' }, { name: 'ramesh ' }] });
+    expect(dup.success).toBe(false);
+    if (!dup.success) expect(dup.error.issues[0].path).toEqual(['brokers', 1, 'name']);
+  });
+
+  it('order type is required, broker optional', () => {
+    const base = { customerId: 1, materialId: 1, quantity: 10, unit: 'pcs', orderDate: '2026-10-01' };
+    expect(orderCreateSchema.safeParse(base).success).toBe(false);
+    const ok = orderCreateSchema.parse({ ...base, orderType: 'lump' });
+    expect(ok.orderType).toBe('lump');
+    expect(ok.brokerId).toBeNull();
+    expect(orderCreateSchema.parse({ ...base, orderType: 'pcs_to_pcs', brokerId: 5 }).brokerId).toBe(5);
+    expect(orderCreateSchema.safeParse({ ...base, orderType: 'meters' }).success).toBe(false);
+  });
+});
+
+describe('sprint 6 role + status labels', () => {
+  it('Damage master rights: Jemish and Gaurang only', () => {
+    expect(can('jemish', 'canManageDamages')).toBe(true);
+    expect(can('gaurang', 'canManageDamages')).toBe(true);
+    expect(can('supervisor', 'canManageDamages')).toBe(false);
+    expect(can('taka_entry', 'canManageDamages')).toBe(false);
+  });
+
+  it('the supervisor sees Ongoing as On-loom; other roles keep Ongoing', () => {
+    expect(jobsheetStatusLabel('ongoing', 'supervisor')).toBe('On-loom');
+    expect(jobsheetStatusLabel('ongoing', 'jemish')).toBe('Ongoing');
+    expect(jobsheetStatusLabel('sent', 'supervisor')).toBe('Pending');
   });
 });

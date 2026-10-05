@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { buildOrderDashboard, type DashboardJobsheetInput, type DashboardTakaInput } from './orderDashboard';
-import { ALERT_NOT_STARTED_HOURS, jobsheetSubStage, takaStageMain, TAKA_STAGES } from './pipeline';
+import { ALERT_NOT_STARTED_HOURS, getSubStage, jobsheetSubStage, takaStageMain, TAKA_STAGES } from './pipeline';
 
 const NOW = new Date('2026-09-30T12:00:00.000Z');
 const hoursAgo = (h: number) => new Date(NOW.getTime() - h * 3_600_000).toISOString();
 
-const order = { unit: 'pcs', quantity: 90, jobsheetPieces: 90, targetFrames: 30 };
+const order = { orderNo: 26, unit: 'pcs', quantity: 90, jobsheetPieces: 90, targetFrames: 30 };
 
 let nextId = 1;
 function js(p: Partial<DashboardJobsheetInput> & Pick<DashboardJobsheetInput, 'status'>): DashboardJobsheetInput {
@@ -73,7 +73,7 @@ describe('buildOrderDashboard — sub-stages', () => {
     expect(sub(d0, 'taka_done')).toMatchObject({ count: 3, jobsheetCount: 1, damaged: 1 });
 
     expect(main(d0, 'production')).toMatchObject({ count: 8, takas: 3, damaged: 1, hasWork: true });
-    expect(d0.production).toEqual({ jobsheets: 8, frames: 80, wovenFrames: 18, wovenPcs: 54, onLoomFrames: 30, takas: 3 });
+    expect(d0.production).toEqual({ jobsheets: 8, frames: 80, wovenFrames: 18, wovenPcs: 54, onLoomFrames: 30, takas: 3, takaPcs: null });
     expect(d0.progress).toMatchObject({ wovenFrames: 18, wovenPcs: 54, targetPcs: 90, percent: 60 });
     expect(d0.defaultStage).toBe('production');
   });
@@ -143,7 +143,7 @@ describe('buildOrderDashboard — alerts', () => {
       {
         rule: 'not_started',
         kind: 'not_started',
-        message: 'Jobsheet 328 sent to supervisor 25h ago, not started yet',
+        message: 'Order #26 (328) sent to supervisor 25h ago, not started yet',
         jobsheetId: late.id,
         jobsheetNo: 328,
       },
@@ -152,7 +152,7 @@ describe('buildOrderDashboard — alerts', () => {
 
   it('includes the coverage warnings with their existing texts', () => {
     const a = js({ status: 'pending', frames: 10 });
-    const d = buildOrderDashboard({ order: { unit: 'pcs', quantity: 90, jobsheetPieces: 30, targetFrames: 10 }, jobsheets: [a], takas: [] }, NOW);
+    const d = buildOrderDashboard({ order: { orderNo: 26, unit: 'pcs', quantity: 90, jobsheetPieces: 30, targetFrames: 10 }, jobsheets: [a], takas: [] }, NOW);
     expect(d.alerts.map((a) => a.kind)).toEqual(['pieces_less']);
     expect(d.alerts[0]!.message).toBe('Jobsheet quantity (30 pcs) is less than the order (90 pcs).');
   });
@@ -188,7 +188,7 @@ describe('buildOrderDashboard — damages', () => {
 
 describe('buildOrderDashboard — no jobsheets', () => {
   it('returns zeros and falls back to the order quantity', () => {
-    const d = buildOrderDashboard({ order: { unit: 'pcs', quantity: 304, jobsheetPieces: 0, targetFrames: 0 }, jobsheets: [], takas: [] }, NOW);
+    const d = buildOrderDashboard({ order: { orderNo: 26, unit: 'pcs', quantity: 304, jobsheetPieces: 0, targetFrames: 0 }, jobsheets: [], takas: [] }, NOW);
     expect(d.hasJobsheets).toBe(false);
     expect(d.progress).toEqual({ wovenFrames: 0, wovenPcs: 0, targetPcs: 304, percent: 0 });
     expect(d.mainStages.every((m) => m.count === 0 && !m.hasWork)).toBe(true);
@@ -199,8 +199,28 @@ describe('buildOrderDashboard — no jobsheets', () => {
   });
 
   it('non-pcs orders are flagged', () => {
-    const d = buildOrderDashboard({ order: { unit: 'kg', quantity: 50, jobsheetPieces: 0, targetFrames: 0 }, jobsheets: [], takas: [] }, NOW);
+    const d = buildOrderDashboard({ order: { orderNo: 26, unit: 'kg', quantity: 50, jobsheetPieces: 0, targetFrames: 0 }, jobsheets: [], takas: [] }, NOW);
     expect(d.isPcs).toBe(false);
     expect(d.progress.targetPcs).toBe(50);
+  });
+});
+
+describe('buildOrderDashboard — taka pcs', () => {
+  it('totals the pcs of the takas (aggregated rows carry sums); null while no taka has pcs', () => {
+    const a = js({ status: 'completed' });
+    const withPcs = buildOrderDashboard(
+      { order, jobsheets: [a], takas: [taka(a.id, { count: 2, pcs: 24 }), taka(a.id, { pcs: null }), taka(a.id, { isDamaged: true, damageType: 'machine', pcs: 5 })] },
+      NOW,
+    );
+    expect(withPcs.production.takaPcs).toBe(29);
+    expect(sub(withPcs, 'taka_done').takaPcs).toBe(29);
+    expect(withPcs.production.takas).toBe(4);
+    const none = buildOrderDashboard({ order, jobsheets: [a], takas: [taka(a.id)] }, NOW);
+    expect(none.production.takaPcs).toBeNull();
+  });
+
+  it('uses the new production sub-stage labels', () => {
+    expect(getSubStage('not_sent').label).toBe('Not assigned to supervisor');
+    expect(getSubStage('with_supervisor').label).toBe('Waiting to start on loom');
   });
 });

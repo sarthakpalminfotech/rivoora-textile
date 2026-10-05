@@ -155,6 +155,7 @@ export const JOBSHEET_STATUSES = [
   {
     key: 'ongoing',
     label: 'Ongoing',
+    roleLabels: { supervisor: 'On-loom' },
     sequence: 30,
     badge: { bg: '#DBEAFE', text: '#1E40AF', dot: '#3B82F6' },
     visibleTo: ALL_ROLES,

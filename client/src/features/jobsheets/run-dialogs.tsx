@@ -5,6 +5,8 @@ import { toast } from 'sonner';
 import {
   changeMachineSummary,
   completedFramesNote,
+  jobsheetRef,
+  jobsheetRefShort,
   nextFramesAfterCompletedChange,
   nextFramesMax,
   remainingFrames,
@@ -15,6 +17,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Field } from '@/components/ui/field';
 import { ImageThumb } from '@/components/ui/image-thumb';
+import { JobsheetRef } from '@/components/ui/jobsheet-ref';
 import { ResponsiveModal } from '@/components/ui/modal';
 import { Select, type SelectOption } from '@/components/ui/select';
 import { ApiError } from '@/lib/api';
@@ -26,6 +29,7 @@ import { machineLabel } from './parts';
 export interface RunJobsheet {
   id: number;
   jobsheetNo: number;
+  orderNo: number;
   status: JobsheetStatusKey;
   frames: number;
   machines: JobsheetMachine[];
@@ -39,13 +43,13 @@ export type RunAction = { kind: 'start' | 'complete' | 'change'; js: RunJobsheet
 
 const fr = (n: number) => `${n} frame${n === 1 ? '' : 's'}`;
 
-/** Ongoing jobsheet numbers per machine id (from the machine board), for the "busy" hints. */
+/** Ongoing jobsheets per machine id (from the machine board), for the "busy" hints. */
 function useBusyMachines() {
   const view = useMachineView();
   return useMemo(() => {
-    const map = new Map<number, number[]>();
+    const map = new Map<number, { jobsheetNo: number; orderNo: number }[]>();
     for (const m of [...(view.data?.machines ?? []), ...(view.data?.inactive ?? [])]) {
-      if (m.ongoing.length) map.set(m.id, m.ongoing.map((j) => j.jobsheetNo));
+      if (m.ongoing.length) map.set(m.id, m.ongoing.map((j) => ({ jobsheetNo: j.jobsheetNo, orderNo: j.orderNo })));
     }
     return { busy: map, active: view.data?.machines ?? [], isPending: view.isPending, isError: view.isError };
   }, [view.data, view.isPending, view.isError]);
@@ -90,7 +94,9 @@ function JobsheetHeader({ js }: { js: RunJobsheet }) {
     <div className="flex items-center gap-3 rounded-xl border border-border bg-slate-50/70 p-3">
       <ImageThumb thumbUrl={js.thumbUrl} alt={js.designCode ? `Design ${js.designCode}` : 'No design'} preview={false} className="size-14 shrink-0 ring-1 ring-inset ring-black/5" />
       <div className="min-w-0">
-        <p className="text-lg font-bold leading-tight text-slate-900">Jobsheet {js.jobsheetNo}</p>
+        <p className="text-lg font-bold leading-tight text-slate-900">
+          <JobsheetRef orderNo={js.orderNo} jobsheetNo={js.jobsheetNo} />
+        </p>
         <p className="truncate text-sm text-slate-500">
           {js.designCode ? `Design ${js.designCode}` : 'No design'} · {fr(js.frames)}
         </p>
@@ -120,7 +126,7 @@ function StartDialog({ js, open, onOpenChange }: { js: RunJobsheet; open: boolea
       { id: js.id, machineId },
       {
         onSuccess: (res) => {
-          toast.success(`Jobsheet ${res.jobsheetNo} started on Machine ${res.machineNo}`);
+          toast.success(`${jobsheetRefShort(res.orderNo, res.jobsheetNo)} started on Machine ${res.machineNo}`);
           onOpenChange(false);
         },
         onError: (err) => {
@@ -134,7 +140,7 @@ function StartDialog({ js, open, onOpenChange }: { js: RunJobsheet; open: boolea
     <DialogShell
       open={open}
       onOpenChange={onOpenChange}
-      title={`Start jobsheet ${js.jobsheetNo}`}
+      title={`Start · ${jobsheetRef(js.orderNo, js.jobsheetNo)}`}
       busy={start.isPending}
       footer={
         <>
@@ -161,7 +167,7 @@ function StartDialog({ js, open, onOpenChange }: { js: RunJobsheet; open: boolea
             <div className="grid grid-cols-3 gap-3 sm:grid-cols-4" role="radiogroup" aria-label="Machine">
               {chips.map((m) => {
                 const selected = machineId === m.id;
-                const running = (busy.get(m.id) ?? []).filter((n) => n !== js.jobsheetNo);
+                const running = (busy.get(m.id) ?? []).filter((r) => r.jobsheetNo !== js.jobsheetNo);
                 return (
                   <button
                     key={m.id}
@@ -181,7 +187,7 @@ function StartDialog({ js, open, onOpenChange }: { js: RunJobsheet; open: boolea
                     <span className="text-3xl font-bold leading-none tabular-nums">{m.machineNo}</span>
                     {running.length > 0 && (
                       <span className="mt-1.5 max-w-full truncate rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800">
-                        busy · {running.join(', ')}
+                        busy · {running.map((r) => jobsheetRefShort(r.orderNo, r.jobsheetNo)).join(', ')}
                       </span>
                     )}
                     {js.suggestedMachineId === m.id && !running.length && (
@@ -221,7 +227,7 @@ function CompleteDialog({ js, open, onOpenChange }: { js: RunJobsheet; open: boo
       { id: js.id, completedFrames: value },
       {
         onSuccess: (res) => {
-          toast.success(`Jobsheet ${res.jobsheetNo} completed (${fr(value)})`);
+          toast.success(`${jobsheetRefShort(res.orderNo, res.jobsheetNo)} completed (${fr(value)})`);
           onOpenChange(false);
         },
         onError: (err) => {
@@ -235,7 +241,7 @@ function CompleteDialog({ js, open, onOpenChange }: { js: RunJobsheet; open: boo
     <DialogShell
       open={open}
       onOpenChange={onOpenChange}
-      title={`Complete jobsheet ${js.jobsheetNo}`}
+      title={`Complete · ${jobsheetRef(js.orderNo, js.jobsheetNo)}`}
       description={`${js.runningMachine ? `Machine ${js.runningMachine.machineNo} · ` : ''}${fr(js.frames)} assigned`}
       busy={complete.isPending}
       footer={
@@ -320,7 +326,11 @@ function ChangeMachineDialog({ js, open, onOpenChange }: { js: RunJobsheet; open
         .filter((m) => m.id !== current?.id)
         .map((m) => {
           const running = busy.get(m.id);
-          return { value: m.id, label: machineLabel(m), description: running ? `Busy · jobsheet ${running.join(', ')}` : null };
+          return {
+            value: m.id,
+            label: machineLabel(m),
+            description: running ? `Busy · ${running.map((r) => jobsheetRefShort(r.orderNo, r.jobsheetNo)).join(', ')}` : null,
+          };
         }),
     [active, busy, current?.id],
   );
@@ -343,7 +353,7 @@ function ChangeMachineDialog({ js, open, onOpenChange }: { js: RunJobsheet; open
       {
         onSuccess: (res) => {
           toast.success(
-            `Jobsheet ${res.completed.jobsheetNo} completed (${fr(res.completed.frames)}). New jobsheet ${res.created.jobsheetNo} (${fr(res.created.frames)}) is waiting to start.`,
+            `${jobsheetRefShort(res.orderNo, res.completed.jobsheetNo)} completed (${fr(res.completed.frames)}). New jobsheet ${jobsheetRefShort(res.orderNo, res.created.jobsheetNo)} (${fr(res.created.frames)}) is waiting to start.`,
             { duration: 10_000, action: { label: 'Print', onClick: () => navigate(printUrl([res.created.id])) } },
           );
           onOpenChange(false);
@@ -359,7 +369,7 @@ function ChangeMachineDialog({ js, open, onOpenChange }: { js: RunJobsheet; open
     <DialogShell
       open={open}
       onOpenChange={onOpenChange}
-      title={`Change machine — Jobsheet ${js.jobsheetNo}`}
+      title={`Change machine · ${jobsheetRef(js.orderNo, js.jobsheetNo)}`}
       description={`Currently on ${current ? `Machine ${current.machineNo}` : 'no machine'} · ${fr(js.frames)} assigned`}
       busy={change.isPending}
       footer={
@@ -422,7 +432,7 @@ function ChangeMachineDialog({ js, open, onOpenChange }: { js: RunJobsheet; open
         </div>
         {completed !== null && (
           <p className="rounded-xl border border-primary/15 bg-primary-soft/70 px-4 py-3 text-[15px] font-medium leading-relaxed text-slate-800" aria-live="polite">
-            {changeMachineSummary({ jobsheetNo: js.jobsheetNo, completed, next, newMachineNo: newMachine?.machineNo ?? null })}
+            {changeMachineSummary({ orderNo: js.orderNo, jobsheetNo: js.jobsheetNo, completed, next, newMachineNo: newMachine?.machineNo ?? null })}
           </p>
         )}
       </div>

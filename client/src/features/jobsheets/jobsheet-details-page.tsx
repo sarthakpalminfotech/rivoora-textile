@@ -2,12 +2,13 @@ import { ArrowLeft, ArrowLeftRight, CheckCircle2, History, ImageOff, Pencil, Pla
 import { useState, type ReactNode } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
-import { JOBSHEET_STATUS, type JobsheetDetail } from '@rivoora/shared';
+import { JOBSHEET_STATUS, jobsheetRef, jobsheetRefShort, type JobsheetDetail } from '@rivoora/shared';
 import { usePageTitle } from '@/components/layout/page-title';
 import { ErrorState } from '@/components/list-parts';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { ImageThumb } from '@/components/ui/image-thumb';
+import { JobsheetRef } from '@/components/ui/jobsheet-ref';
 import { Skeleton } from '@/components/ui/skeleton';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { Tooltip } from '@/components/ui/tooltip';
@@ -50,6 +51,7 @@ function toRunJobsheet(js: JobsheetDetail): RunJobsheet {
   return {
     id: js.id,
     jobsheetNo: js.jobsheetNo,
+    orderNo: js.orderNo,
     status: js.status,
     frames: js.frames,
     machines: js.machines,
@@ -72,7 +74,7 @@ export default function JobsheetDetailsPage() {
   const [editing, setEditing] = useState(false);
   const [confirm, setConfirm] = useState<'delete' | 'pull-back' | null>(null);
   const [run, setRun] = useState<RunAction | null>(null);
-  usePageTitle(js ? `Jobsheet ${js.jobsheetNo}` : 'Jobsheet');
+  usePageTitle(js ? jobsheetRef(js.orderNo, js.jobsheetNo) : 'Jobsheet');
 
   // The supervisor has no order access: his jobsheets live in the Jobsheets module.
   const restricted = !can('canViewOrders');
@@ -127,9 +129,10 @@ export default function JobsheetDetailsPage() {
   const isOngoing = js.status === JOBSHEET_STATUS.ONGOING;
   const isCompleted = js.status === JOBSHEET_STATUS.COMPLETED;
   const runJs = toRunJobsheet(js);
+  // Parent / children belong to the same order.
   const jsLink = (j: { id: number; jobsheetNo: number }) => (
     <Link key={j.id} to={`/jobsheets/${j.id}`} className="text-primary hover:underline">
-      {j.jobsheetNo}
+      <JobsheetRef orderNo={js.orderNo} jobsheetNo={j.jobsheetNo} variant="short" bracketClassName="text-primary/60" />
     </Link>
   );
 
@@ -138,7 +141,9 @@ export default function JobsheetDetailsPage() {
       {back}
 
       <div className="flex flex-wrap items-center gap-x-3 gap-y-3">
-        <h2 className="text-2xl font-bold text-slate-900">Jobsheet {js.jobsheetNo}</h2>
+        <h2 className="text-2xl font-bold text-slate-900">
+          <JobsheetRef orderNo={js.orderNo} jobsheetNo={js.jobsheetNo} />
+        </h2>
         <StatusBadge kind="jobsheet" status={js.status} />
         <div className="flex w-full flex-wrap items-center gap-2 sm:ml-auto sm:w-auto">
           {can('canPrintJobsheets') && (
@@ -248,10 +253,10 @@ export default function JobsheetDetailsPage() {
               )}
               {js.completedAt && <Item label="Completed">{formatDateTime(js.completedAt)}</Item>}
               {!restricted && js.sentAt && <Item label="Sent to supervisor">{formatDateTime(js.sentAt)}</Item>}
-              {js.parent && <Item label="Continued from">Jobsheet {jsLink(js.parent)}</Item>}
+              <Item label="Jobsheet no.">{js.jobsheetNo}</Item>
+              {js.parent && <Item label="Continued from">{jsLink(js.parent)}</Item>}
               {js.children.length > 0 && (
                 <Item label="Continued as">
-                  Jobsheet{' '}
                   {js.children.map((c, i) => (
                     <span key={c.id}>
                       {i > 0 && ', '}
@@ -290,7 +295,7 @@ export default function JobsheetDetailsPage() {
           </Card>
 
           <Card title="Activity" action={<History className="size-4 text-slate-400" aria-hidden />}>
-            <ActivityTimeline events={js.events} assignedFrames={js.frames} />
+            <ActivityTimeline events={js.events} assignedFrames={js.frames} orderNo={js.orderNo} />
           </Card>
         </div>
       </div>
@@ -300,7 +305,7 @@ export default function JobsheetDetailsPage() {
       <ConfirmDialog
         open={confirm === 'delete'}
         onOpenChange={(o) => !o && setConfirm(null)}
-        title={`Delete jobsheet ${js.jobsheetNo}?`}
+        title={`Delete jobsheet ${jobsheetRefShort(js.orderNo, js.jobsheetNo)}?`}
         description="The other jobsheets are not adjusted, and this number is never used again. Any shortfall will show as a warning on the order."
         confirmLabel="Delete"
         destructive
@@ -308,7 +313,7 @@ export default function JobsheetDetailsPage() {
         onConfirm={() =>
           del.mutate(js.id, {
             onSuccess: (res) => {
-              toast.success(`Jobsheet #${js.jobsheetNo} deleted`);
+              toast.success(`Jobsheet ${jobsheetRefShort(js.orderNo, js.jobsheetNo)} deleted`);
               if (res.orderReset && order) toast.info(`Order ${formatOrderNo(order.orderNo)} moved back to Jobsheet pending`);
               navigate(order ? `/orders/${order.id}` : '/orders', { replace: true });
             },
@@ -319,13 +324,13 @@ export default function JobsheetDetailsPage() {
       <ConfirmDialog
         open={confirm === 'pull-back'}
         onOpenChange={(o) => !o && setConfirm(null)}
-        title={`Pull back jobsheet ${js.jobsheetNo} from the supervisor?`}
+        title={`Pull back ${jobsheetRefShort(js.orderNo, js.jobsheetNo)} from the supervisor?`}
         description="It moves back to Pending, so you can edit or delete it. The supervisor will no longer see it."
         confirmLabel="Pull back"
         loading={pullBack.isPending}
         onConfirm={() =>
           pullBack.mutate(js.id, {
-            onSuccess: () => toast.success(`Jobsheet ${js.jobsheetNo} pulled back from the supervisor`),
+            onSuccess: () => toast.success(`${jobsheetRefShort(js.orderNo, js.jobsheetNo)} pulled back from the supervisor`),
             onSettled: () => setConfirm(null),
           })
         }

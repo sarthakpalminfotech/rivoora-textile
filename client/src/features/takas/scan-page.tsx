@@ -252,9 +252,17 @@ function ManualEntry({ onOpen }: { onOpen: (jobsheetNo: number) => void }) {
           <Bi en="Open" hi="खोलें" className="items-center" />
         </Button>
       </div>
-      {error && (
+      {error ? (
         <p role="alert" className="mt-2 text-sm font-medium text-destructive">
           {error}
+        </p>
+      ) : (
+        // The paper shows "26 (319)": order number first, the jobsheet number in brackets.
+        <p className="mt-2 text-sm text-slate-500">
+          <Bi
+            en="The number in brackets on the paper, e.g. 26 (319) → 319"
+            hi="कागज़ पर ब्रैकेट वाला नंबर, जैसे 26 (319) → 319"
+          />
         </p>
       )}
     </form>

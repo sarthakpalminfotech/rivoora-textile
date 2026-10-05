@@ -1,7 +1,10 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type {
+  Broker,
   Customer,
   CustomerInput,
+  Damage,
+  DamageInput,
   Design,
   DesignInput,
   DesignListItem,
@@ -26,6 +29,10 @@ export const masterKeys = {
   lookupMaterials: ['lookup', 'materials'] as const,
   machines: ['machines'] as const,
   lookupMachines: ['lookup', 'machines'] as const,
+  /** The brokers of one customer (order form). Under `lookupCustomers`, so customer saves refresh it. */
+  lookupBrokers: (customerId: number) => ['lookup', 'customers', 'brokers', customerId] as const,
+  damages: ['damages'] as const,
+  lookupDamages: ['lookup', 'damages'] as const,
 };
 
 /* ---------- lookups (dropdowns) ---------- */
@@ -36,6 +43,27 @@ export function useCustomerLookup(search: string) {
     queryFn: ({ signal }) => api.get<LookupItem[]>('/lookup/customers', { search }, signal),
     placeholderData: keepPreviousData,
     staleTime: 60_000,
+  });
+}
+
+/** A customer's brokers (disabled until a client is picked). */
+export function useBrokerLookup(customerId: number | null) {
+  return useQuery({
+    queryKey: masterKeys.lookupBrokers(customerId ?? 0),
+    queryFn: ({ signal }) => api.get<Broker[]>(`/lookup/customers/${customerId}/brokers`, undefined, signal),
+    enabled: !!customerId,
+    staleTime: 30_000,
+  });
+}
+
+/** Damage master names for the damage popup (Jemish, Gaurang, Taka entry). */
+export function useDamageLookup(search = '', enabled = true) {
+  return useQuery({
+    queryKey: [...masterKeys.lookupDamages, search],
+    queryFn: ({ signal }) => api.get<LookupItem[]>('/lookup/damages', { search }, signal),
+    placeholderData: keepPreviousData,
+    staleTime: 60_000,
+    enabled,
   });
 }
 
@@ -105,6 +133,38 @@ export function useDeleteMaterial() {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: masterKeys.materials });
       void qc.invalidateQueries({ queryKey: masterKeys.lookupMaterials });
+    },
+  });
+}
+
+/* ---------- damage master ---------- */
+
+export const useDamages = (search: string) => useInfiniteList<Damage>([...masterKeys.damages, 'list'], '/damages', { search });
+
+export function useSaveDamage() {
+  const qc = useQueryClient();
+  return useMutation({
+    meta: { silentFieldErrors: true },
+    mutationFn: ({ id, data }: { id?: number; data: DamageInput }) =>
+      id ? api.put<Damage>(`/damages/${id}`, data) : api.post<Damage>('/damages', data),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: masterKeys.damages });
+      void qc.invalidateQueries({ queryKey: masterKeys.lookupDamages });
+      // Damage names appear on takas.
+      void qc.invalidateQueries({ queryKey: ['takas'] });
+      void qc.invalidateQueries({ queryKey: ['jobsheets'] });
+      void qc.invalidateQueries({ queryKey: ['order-dashboard'] });
+    },
+  });
+}
+
+export function useDeleteDamage() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => api.delete(`/damages/${id}`),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: masterKeys.damages });
+      void qc.invalidateQueries({ queryKey: masterKeys.lookupDamages });
     },
   });
 }

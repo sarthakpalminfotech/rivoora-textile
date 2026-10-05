@@ -24,7 +24,7 @@ import { db } from '../db/client';
 import { jobsheets, orders, takas } from '../db/schema';
 import { notFound } from '../lib/errors';
 import { activeTakaCount, machinesJson, parseMachinesJson, runningMachine, runningMachineColumns, toMachineRef } from './jobsheets';
-import { sortTakas, takaColumns } from './taka-shared';
+import { sortTakas, takaColumns, takaDamageName } from './taka-shared';
 
 /**
  * Order dashboard (Jemish / Gaurang): counts, the items of one sub-stage, and the damaged takas.
@@ -75,6 +75,7 @@ export async function getOrderDashboard(role: RoleKey, orderId: number): Promise
         isDamaged: takas.isDamaged,
         damageType: takas.damageType,
         count: sql<number>`COUNT(*)`,
+        pcs: sql<number | null>`SUM(${takas.pcs})`,
       })
       .from(takas)
       .innerJoin(jobsheets, eq(jobsheets.id, takas.jobsheetId))
@@ -83,7 +84,11 @@ export async function getOrderDashboard(role: RoleKey, orderId: number): Promise
   ]);
   const order = assertVisible(role, orderRows[0]);
   const data = buildOrderDashboard(
-    { order, jobsheets: sheetRows, takas: takaRows.map((t) => ({ ...t, count: Number(t.count) })) },
+    {
+      order,
+      jobsheets: sheetRows,
+      takas: takaRows.map((t) => ({ ...t, count: Number(t.count), pcs: t.pcs === null ? null : Number(t.pcs) })),
+    },
     new Date(),
   );
   return { ...data, orderId: order.id, orderNo: order.orderNo, status: order.status, generatedAt: new Date().toISOString() };
@@ -124,12 +129,13 @@ export async function getDashboardItems(role: RoleKey, orderId: number, query: u
         .where(activeJobsheetOf(orderId))
         .orderBy(asc(jobsheets.jobsheetNo)),
     ]);
-    assertVisible(role, orderRows[0]);
+    const order = assertVisible(role, orderRows[0]);
     const items: DashboardJobsheetItem[] = rows
       .filter((r) => jobsheetSubStage(r.status, Number(r.takaCount)) === sub)
       .map((r) => ({
         id: r.id,
         jobsheetNo: r.jobsheetNo,
+        orderNo: order.orderNo,
         status: r.status,
         frames: r.frames,
         completedFrames: r.completedFrames,
@@ -162,12 +168,12 @@ export async function getDashboardItems(role: RoleKey, orderId: number, query: u
       .where(and(activeTakasOf(orderId), inArray(takas.stage, [...stages])))
       .orderBy(asc(jobsheets.jobsheetNo)),
   ]);
-  assertVisible(role, orderRows[0]);
+  const order = assertVisible(role, orderRows[0]);
   const groups: DashboardTakaGroup[] = [];
   for (const { jobsheetId, jobsheetNo, jobsheetStatus, frames, completedFrames, ...t } of rows) {
     let g = groups[groups.length - 1];
     if (!g || g.jobsheetId !== jobsheetId) {
-      g = { jobsheetId, jobsheetNo, status: jobsheetStatus, frames, completedFrames, takas: [] };
+      g = { jobsheetId, jobsheetNo, orderNo: order.orderNo, status: jobsheetStatus, frames, completedFrames, takas: [] };
       groups.push(g);
     }
     g.takas.push(t as Taka);
@@ -194,7 +200,10 @@ export async function getOrderDamages(role: RoleKey, orderId: number, query: unk
         id: takas.id,
         takaNo: takas.takaNo,
         meters: takas.meters,
+        pcs: takas.pcs,
         damageType: takas.damageType,
+        damageId: takas.damageId,
+        damageName: takaDamageName,
         stage: takas.stage,
         createdAt: takas.createdAt,
         jobsheetId: jobsheets.id,
@@ -210,6 +219,7 @@ export async function getOrderDamages(role: RoleKey, orderId: number, query: unk
   const order = assertVisible(role, orderRows[0]);
   const all: DamagedTaka[] = rows.map((r) => ({
     ...r,
+    orderNo: order.orderNo,
     // Damage recorded before types existed counts as machine damage.
     damageType: isDamageType(r.damageType) ? r.damageType : 'machine',
   }));

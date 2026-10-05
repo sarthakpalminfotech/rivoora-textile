@@ -1,4 +1,5 @@
 import {
+  Bandage,
   ClipboardCheck,
   ClipboardList,
   Factory,
@@ -34,6 +35,7 @@ export const NAV_ITEMS: NavItem[] = [
   { to: '/materials', label: 'Materials', icon: Layers, permission: 'canViewMasters', group: 'masters' },
   { to: '/designs', label: 'Designs', icon: Palette, permission: 'canViewMasters', group: 'masters' },
   { to: '/machines', label: 'Machines', icon: Factory, permission: 'canViewMasters', group: 'masters' },
+  { to: '/damages', label: 'Damage master', icon: Bandage, permission: 'canViewMasters', group: 'masters' },
 ];
 
 export function navItemsFor(can: (p: keyof RolePermissions) => boolean): NavItem[] {

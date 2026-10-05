@@ -50,6 +50,13 @@
       "when": 1790834481132,
       "tag": "0006_takas_meters",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1791142176060,
+      "tag": "0007_sprint6_brokers_order_type_damages",
+      "breakpoints": true
     }
   ]
 }

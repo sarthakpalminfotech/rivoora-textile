@@ -1,6 +1,6 @@
 import { X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { LookupItem, OrderStatusKey } from '@rivoora/shared';
+import { ORDER_TYPE_LABEL, ORDER_TYPES, type LookupItem, type OrderStatusKey } from '@rivoora/shared';
 import { Button } from '@/components/ui/button';
 import { DateRangePicker } from '@/components/ui/date-picker';
 import { Field } from '@/components/ui/field';
@@ -39,7 +39,7 @@ export function OrderFiltersDialog({ open, onOpenChange, value, onApply }: Order
   const names = useMaterialNames(materials.data);
 
   useEffect(() => {
-    if (open) setDraft({ statuses: value.statuses, materials: value.materials, from: value.from, to: value.to });
+    if (open) setDraft({ statuses: value.statuses, materials: value.materials, types: value.types, from: value.from, to: value.to });
   }, [open, value]);
 
   const statusOptions = useMemo(() => statusesForRole(role).map((s) => ({ value: s.key as OrderStatusKey, label: s.label })), [role]);
@@ -64,7 +64,7 @@ export function OrderFiltersDialog({ open, onOpenChange, value, onApply }: Order
       title="Filter orders"
       footer={
         <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto">
-          <Button variant="secondary" onClick={() => setDraft({ statuses: [], materials: [], from: undefined, to: undefined })}>
+          <Button variant="secondary" onClick={() => setDraft({ statuses: [], materials: [], types: [], from: undefined, to: undefined })}>
             Clear all
           </Button>
           <Button
@@ -90,6 +90,27 @@ export function OrderFiltersDialog({ open, onOpenChange, value, onApply }: Order
             />
           </Field>
         )}
+        <Field label="Order type">
+          <div className="flex flex-wrap gap-2" role="group" aria-label="Order type">
+            {ORDER_TYPES.map((t) => {
+              const on = draft.types.includes(t);
+              return (
+                <button
+                  key={t}
+                  type="button"
+                  aria-pressed={on}
+                  onClick={() => setDraft((d) => ({ ...d, types: on ? d.types.filter((x) => x !== t) : [...d.types, t] }))}
+                  className={cn(
+                    'min-h-9 rounded-full border px-3.5 text-sm font-medium transition-colors',
+                    on ? 'border-primary bg-primary-soft text-primary' : 'border-input bg-white text-slate-700 hover:bg-muted',
+                  )}
+                >
+                  {ORDER_TYPE_LABEL[t]}
+                </button>
+              );
+            })}
+          </div>
+        </Field>
         <Field label="Order date">
           <div className="space-y-2.5">
             <div className="flex flex-wrap gap-2">
@@ -149,6 +170,11 @@ export function FilterChips({ filters, onChange }: FilterChipsProps) {
       label: names.get(id) ?? `Material #${id}`,
       remove: () => onChange({ materials: filters.materials.filter((x) => x !== id) }),
     })),
+    ...filters.types.map((t) => ({
+      key: `t-${t}`,
+      label: ORDER_TYPE_LABEL[t],
+      remove: () => onChange({ types: filters.types.filter((x) => x !== t) }),
+    })),
   ];
   if (filters.from || filters.to) {
     chips.push({
@@ -182,7 +208,7 @@ export function FilterChips({ filters, onChange }: FilterChipsProps) {
       ))}
       <button
         type="button"
-        onClick={() => onChange({ statuses: [], materials: [], from: undefined, to: undefined })}
+        onClick={() => onChange({ statuses: [], materials: [], types: [], from: undefined, to: undefined })}
         className="px-2 py-1 text-sm font-semibold text-slate-500 hover:text-primary"
       >
         Clear all

@@ -8,6 +8,7 @@ import {
   describeFrameGroups,
   formatExactFrames,
   jobsheetQuantityWarning,
+  jobsheetRefShort,
   MAX_JOBSHEETS_PER_RUN,
   piecesForFrames,
   planJobsheets,
@@ -105,13 +106,13 @@ export function CreateJobsheetsDialog({ open, onOpenChange, data }: FormDialogPr
     generate.mutate(
       { pieces: Number(v.pieces), picks: v.picks, framesPerJobsheet: Number(v.framesPerJobsheet), machineIds: v.machineIds },
       {
-        onSuccess: ({ created }) => {
+        onSuccess: ({ created, orderNo }) => {
           const first = created[0]?.jobsheetNo;
           const last = created[created.length - 1]?.jobsheetNo;
           toast.success(
             created.length === 1
-              ? `1 jobsheet created (#${first})`
-              : `${created.length} jobsheets created (#${first}–#${last})`,
+              ? `1 jobsheet created (${jobsheetRefShort(orderNo, first)})`
+              : `${created.length} jobsheets created (#${orderNo}: ${first}–${last})`,
           );
           onOpenChange(false);
         },
@@ -270,8 +271,8 @@ export function AddJobsheetDialog({ open, onOpenChange, data }: FormDialogProps)
     add.mutate(
       { frames: Number(v.frames), pieces: Number(v.pieces), picks: v.picks, machineIds: v.machineIds },
       {
-        onSuccess: ({ created }) => {
-          toast.success(`Jobsheet #${created[0]?.jobsheetNo} created`);
+        onSuccess: ({ created, orderNo }) => {
+          toast.success(`Jobsheet ${jobsheetRefShort(orderNo, created[0]?.jobsheetNo)} created`);
           onOpenChange(false);
         },
         onError: (err) => {

@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { STATUS, type OrderListItem } from '@rivoora/shared';
+import { OrderTypeTag } from './order-type-tag';
 import { usePageTitle } from '@/components/layout/page-title';
 import { ErrorState, Fab, FetchingIndicator, LoadMore, SearchBar } from '@/components/list-parts';
 import { Button } from '@/components/ui/button';
@@ -160,7 +161,7 @@ export default function OrdersPage() {
   const hasFilters = activeCount > 0 || !!filters.search;
   const clearAll = () => {
     setSearchText('');
-    setFilters({ search: '', statuses: [], materials: [], from: undefined, to: undefined });
+    setFilters({ search: '', statuses: [], materials: [], types: [], from: undefined, to: undefined });
   };
   const count = selected.size;
 
@@ -171,7 +172,7 @@ export default function OrdersPage() {
         <SearchBar
           value={searchText}
           onChange={setSearchText}
-          placeholder="Search by client, order no, design, quantity, material…"
+          placeholder="Search by client, broker, order no, design, quantity, material…"
         />
         <FetchingIndicator show={query.isFetching && !loading && !query.isFetchingNextPage} />
         <Button
@@ -301,6 +302,10 @@ export default function OrdersPage() {
                         <Field label="Quality" value={o.materialName} />
                         <Field label="Quantity" value={formatQuantity(o.quantity, o.unit)} />
                         <Field label="Date" value={formatDate(o.orderDate)} />
+                        <div className="flex items-end pb-0.5">
+                          <OrderTypeTag type={o.orderType} />
+                        </div>
+                        {o.brokerName && <Field label="Broker" value={o.brokerName} />}
                       </dl>
                       {!selecting && canSend && pending && (
                         <div className="mt-auto pt-3">

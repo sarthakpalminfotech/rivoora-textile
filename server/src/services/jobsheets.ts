@@ -11,6 +11,8 @@ import {
   jobsheetChangeMachineSchema,
   jobsheetCompleteSchema,
   jobsheetGenerateSchema,
+  jobsheetRef,
+  jobsheetRefShort,
   jobsheetSendSchema,
   jobsheetSingleSchema,
   jobsheetStartSchema,
@@ -44,6 +46,9 @@ import {
   type RoleKey,
   type SupervisorJobsheetItem,
   type SupervisorJobsheetPage,
+  type SupervisorOrderHeader,
+  type SupervisorOrderListQuery,
+  type SupervisorOrderPage,
   type Unit,
 } from '@rivoora/shared';
 import { db, type DbOrTx, type Tx } from '../db/client';
@@ -365,7 +370,7 @@ export async function generateJobsheets(role: RoleKey, orderId: number, input: u
       })
       .where(eq(orders.id, orderId));
     const statusChanged = await recomputeOrderStatus(orderId, role, tx);
-    return { created, statusChanged };
+    return { orderNo: order.orderNo, created, statusChanged };
   });
 }
 
@@ -385,7 +390,7 @@ export async function addSingleJobsheet(role: RoleKey, orderId: number, input: u
       })
       .where(eq(orders.id, orderId));
     const statusChanged = await recomputeOrderStatus(orderId, role, tx);
-    return { created, statusChanged };
+    return { orderNo: order.orderNo, created, statusChanged };
   });
 }
 
@@ -432,6 +437,7 @@ export async function listOrderJobsheets(role: RoleKey, orderId: number): Promis
       item = {
         id: r.id,
         jobsheetNo: r.jobsheetNo,
+        orderNo: order.orderNo,
         status: r.status,
         frames: r.frames,
         completedFrames: r.completedFrames,
@@ -610,6 +616,7 @@ export async function jobsheetByNo(role: RoleKey, jobsheetNo: number): Promise<J
       jobsheetNo: jobsheets.jobsheetNo,
       status: jobsheets.status,
       isDeleted: jobsheets.isDeleted,
+      orderNo: orders.orderNo,
       orderStatus: orders.status,
     })
     .from(jobsheets)
@@ -617,7 +624,7 @@ export async function jobsheetByNo(role: RoleKey, jobsheetNo: number): Promise<J
     .where(eq(jobsheets.jobsheetNo, jobsheetNo));
   if (!r || r.isDeleted || !canRoleSeeJobsheetStatus(role, r.status)) throw notFound('Jobsheet');
   if (!isRestricted(role) && !canRoleSeeStatus(role, r.orderStatus)) throw notFound('Jobsheet');
-  return { id: r.id, jobsheetNo: r.jobsheetNo };
+  return { id: r.id, jobsheetNo: r.jobsheetNo, orderNo: r.orderNo };
 }
 
 /** Everything the print route needs, in the order the ids were given. */
@@ -634,7 +641,6 @@ export async function printJobsheets(role: RoleKey, ids: number[]): Promise<Jobs
         orderStatus: orders.status,
         jobsheetPieces: orders.jobsheetPieces,
         designCode: sql<string | null>`COALESCE(${designVariations.code}, ${designs.code})`,
-        imageUrl: sql<string | null>`CASE WHEN ${designVariations.id} IS NOT NULL THEN ${designVariations.imageUrl} ELSE ${designs.imageUrl} END`,
       })
       .from(jobsheets)
       .innerJoin(orders, eq(orders.id, jobsheets.orderId))
@@ -667,7 +673,6 @@ export async function printJobsheets(role: RoleKey, ids: number[]): Promise<Jobs
       machineNos: (machinesById.get(r.id) ?? []).map((m) => m.machineNo),
       jobsheetPieces: r.jobsheetPieces,
       designCode: r.designCode,
-      imageUrl: r.imageUrl,
     });
   }
   if (items.length === 0) throw notFound('Jobsheets');
@@ -694,29 +699,64 @@ const supervisorOrder = [
   asc(jobsheets.jobsheetNo),
 ];
 
+/** The search term without a leading `#` / "order" / "jobsheet". */
+const searchTerm = (search: string) => search.replace(/^(#|order\s*#?|jobsheet\s*#?)/i, '').trim() || search;
+
 /**
- * Search by jobsheet number (prefix) or design / variation code.
- * The query must join `designs` and `design_variations` (via the order).
+ * Search by order number or jobsheet number (prefix) or design / variation code. A leading `#` is ignored.
+ * The query must join `orders`, `designs` and `design_variations`.
  */
 export function jobsheetSearch(search: string): SQL | undefined {
-  const term = search.replace(/^(#|jobsheet\s*)/i, '').trim() || search;
+  const term = searchTerm(search);
   const codeP = likePattern(normalizeCode(term));
   const parts: (SQL | undefined)[] = [
     sql`${designs.code} LIKE ${codeP} ESCAPE '\\'`,
     sql`${designVariations.code} LIKE ${codeP} ESCAPE '\\'`,
   ];
   if (/^\d+$/.test(term)) {
-    parts.push(sql`CAST(${jobsheets.jobsheetNo} AS TEXT) LIKE ${likePattern(term, 'prefix')} ESCAPE '\\'`);
+    const numP = likePattern(term, 'prefix');
+    parts.push(sql`CAST(${orders.orderNo} AS TEXT) LIKE ${numP} ESCAPE '\\'`);
+    parts.push(sql`CAST(${jobsheets.jobsheetNo} AS TEXT) LIKE ${numP} ESCAPE '\\'`);
   }
   return or(...parts);
 }
 
+const designCodeCol = sql<string | null>`COALESCE(${designVariations.code}, ${designs.code})`;
+const designThumbCol = sql<string | null>`CASE WHEN ${designVariations.id} IS NOT NULL THEN ${designVariations.thumbUrl} ELSE ${designs.thumbUrl} END`;
+const designImageCol = sql<string | null>`CASE WHEN ${designVariations.id} IS NOT NULL THEN ${designVariations.imageUrl} ELSE ${designs.imageUrl} END`;
+
+/** The jobsheet statuses the supervisor's module shows (never Pending = not yet sent). */
+const supervisorStatuses = (role: RoleKey) => jobsheetStatusesForRole(role).filter((s) => s !== JOBSHEET_STATUS.PENDING);
+
 export async function listSupervisorJobsheets(role: RoleKey, q: JobsheetListQuery): Promise<SupervisorJobsheetPage> {
   // Never Pending (not yet sent) — the visible set comes from the status config.
-  const visible = jobsheetStatusesForRole(role).filter((s) => s !== JOBSHEET_STATUS.PENDING);
-  const base: (SQL | undefined)[] = [eq(jobsheets.isDeleted, false), inArray(jobsheets.status, visible)];
+  const visible = supervisorStatuses(role);
+  const scope: (SQL | undefined)[] = [eq(jobsheets.isDeleted, false), inArray(jobsheets.status, visible)];
+  if (q.orderId) scope.push(eq(jobsheets.orderId, q.orderId));
+  const base = [...scope];
   if (q.search) base.push(jobsheetSearch(q.search));
   const listWhere = and(...base, q.tab === 'all' ? undefined : eq(jobsheets.status, TAB_STATUS[q.tab]));
+
+  // The Order view: the order's header (number + design only). 404 when it has no jobsheets he can see.
+  let order: SupervisorOrderHeader | null = null;
+  if (q.orderId) {
+    const [header] = await db
+      .select({
+        orderId: orders.id,
+        orderNo: orders.orderNo,
+        designCode: designCodeCol,
+        designThumbUrl: designThumbCol,
+        designImageUrl: designImageCol,
+      })
+      .from(jobsheets)
+      .innerJoin(orders, eq(orders.id, jobsheets.orderId))
+      .leftJoin(designs, eq(designs.id, orders.designId))
+      .leftJoin(designVariations, eq(designVariations.id, orders.variationId))
+      .where(and(...scope))
+      .limit(1);
+    if (!header) throw notFound('Order');
+    order = header;
+  }
 
   const [items, [{ total }], countRows] = await db.batch([
     db
@@ -728,9 +768,9 @@ export async function listSupervisorJobsheets(role: RoleKey, q: JobsheetListQuer
         completedFrames: jobsheets.completedFrames,
         picks: jobsheets.picks,
         orderNo: orders.orderNo,
-        designCode: sql<string | null>`COALESCE(${designVariations.code}, ${designs.code})`,
-        thumbUrl: sql<string | null>`CASE WHEN ${designVariations.id} IS NOT NULL THEN ${designVariations.thumbUrl} ELSE ${designs.thumbUrl} END`,
-        imageUrl: sql<string | null>`CASE WHEN ${designVariations.id} IS NOT NULL THEN ${designVariations.imageUrl} ELSE ${designs.imageUrl} END`,
+        designCode: designCodeCol,
+        thumbUrl: designThumbCol,
+        imageUrl: designImageCol,
         machinesJson,
         ...runningMachineColumns,
         suggestedMachineId: jobsheets.suggestedMachineId,
@@ -797,6 +837,92 @@ export async function listSupervisorJobsheets(role: RoleKey, q: JobsheetListQuer
     total,
     hasMore: q.page * q.limit < total,
     counts,
+    order,
+  };
+}
+
+/**
+ * GET /jobsheets/orders — the supervisor's Order view: one row per order that has jobsheets he can see (Sent /
+ * Ongoing / Completed), with the counts per status. One aggregate query (GROUP BY order) + its count.
+ * Orders with Pending or On-loom work first (by order number), fully completed ones last (most recently completed
+ * first). Never returns the client or other order details.
+ */
+export async function listSupervisorOrders(role: RoleKey, q: SupervisorOrderListQuery): Promise<SupervisorOrderPage> {
+  const where: (SQL | undefined)[] = [eq(jobsheets.isDeleted, false), inArray(jobsheets.status, supervisorStatuses(role))];
+  if (q.search) {
+    const term = searchTerm(q.search);
+    const codeP = likePattern(normalizeCode(term));
+    const parts: (SQL | undefined)[] = [
+      sql`${designs.code} LIKE ${codeP} ESCAPE '\\'`,
+      sql`${designVariations.code} LIKE ${codeP} ESCAPE '\\'`,
+    ];
+    if (/^\d+$/.test(term)) parts.push(sql`CAST(${orders.orderNo} AS TEXT) LIKE ${likePattern(term, 'prefix')} ESCAPE '\\'`);
+    where.push(or(...parts));
+  }
+
+  const pending = sql<number>`SUM(CASE WHEN ${jobsheets.status} = 'sent' THEN 1 ELSE 0 END)`;
+  const ongoing = sql<number>`SUM(CASE WHEN ${jobsheets.status} = 'ongoing' THEN 1 ELSE 0 END)`;
+  const completed = sql<number>`SUM(CASE WHEN ${jobsheets.status} = 'completed' THEN 1 ELSE 0 END)`;
+  const lastCompletedAt = sql<string | null>`MAX(${jobsheets.completedAt})`;
+  const from = () =>
+    db
+      .select({
+        orderId: orders.id,
+        orderNo: orders.orderNo,
+        designCode: designCodeCol,
+        designThumbUrl: designThumbCol,
+        designImageUrl: designImageCol,
+        pending,
+        ongoing,
+        completed,
+        total: sql<number>`COUNT(*)`,
+        lastCompletedAt,
+      })
+      .from(jobsheets)
+      .innerJoin(orders, eq(orders.id, jobsheets.orderId))
+      .leftJoin(designs, eq(designs.id, orders.designId))
+      .leftJoin(designVariations, eq(designVariations.id, orders.variationId))
+      .where(and(...where))
+      .groupBy(orders.id);
+
+  const [rows, [{ total }]] = await db.batch([
+    from()
+      .orderBy(
+        sql`CASE WHEN ${pending} + ${ongoing} > 0 THEN 0 ELSE 1 END`,
+        sql`CASE WHEN ${pending} + ${ongoing} > 0 THEN ${orders.orderNo} END`,
+        sql`${lastCompletedAt} DESC`,
+        orders.orderNo,
+      )
+      .limit(q.limit)
+      .offset((q.page - 1) * q.limit),
+    db
+      .select({ total: sql<number>`COUNT(DISTINCT ${jobsheets.orderId})` })
+      .from(jobsheets)
+      .innerJoin(orders, eq(orders.id, jobsheets.orderId))
+      .leftJoin(designs, eq(designs.id, orders.designId))
+      .leftJoin(designVariations, eq(designVariations.id, orders.variationId))
+      .where(and(...where)),
+  ]);
+  const n = Number(total);
+  return {
+    items: rows.map((r) => ({
+      orderId: r.orderId,
+      orderNo: r.orderNo,
+      designCode: r.designCode,
+      designThumbUrl: r.designThumbUrl,
+      designImageUrl: r.designImageUrl,
+      counts: {
+        pending: Number(r.pending),
+        ongoing: Number(r.ongoing),
+        completed: Number(r.completed),
+        total: Number(r.total),
+      },
+      lastCompletedAt: r.lastCompletedAt,
+    })),
+    page: q.page,
+    limit: q.limit,
+    total: n,
+    hasMore: q.page * q.limit < n,
   };
 }
 
@@ -904,6 +1030,7 @@ export async function updateJobsheet(role: RoleKey, id: number, input: unknown):
     const after = await activeJobsheets(tx, orderId);
     const coverage = coverageOf(order, after);
     return {
+      orderNo: order.orderNo,
       updated: plan.updated,
       created,
       removed: plan.removed.map((r) => ({ id: r.id, jobsheetNo: r.jobsheetNo, frames: r.frames })),
@@ -983,7 +1110,7 @@ export async function sendJobsheets(role: RoleKey, orderId: number, input: unkno
 /** Sent → Pending (only while the supervisor hasn't started it). */
 export async function pullBackJobsheet(role: RoleKey, id: number): Promise<JobsheetActionResult> {
   return db.transaction(async (tx) => {
-    const { js, orderId } = await loadJobsheetForWrite(tx, role, id);
+    const { js, orderId, order } = await loadJobsheetForWrite(tx, role, id);
     const updated = await tx
       .update(jobsheets)
       .set({ status: JOBSHEET_STATUS.PENDING, sentAt: null })
@@ -998,7 +1125,7 @@ export async function pullBackJobsheet(role: RoleKey, id: number): Promise<Jobsh
     }
     await writeEvents(tx, role, [{ jobsheetId: id, event: 'pulled_back' }]);
     await recomputeOrderStatus(orderId, role, tx);
-    return { id, jobsheetNo: js.jobsheetNo, status: JOBSHEET_STATUS.PENDING, machineNo: null };
+    return { id, jobsheetNo: js.jobsheetNo, orderNo: order.orderNo, status: JOBSHEET_STATUS.PENDING, machineNo: null };
   });
 }
 
@@ -1018,12 +1145,14 @@ async function loadJobsheetForRun(tx: Tx, role: RoleKey, id: number) {
       picks: jobsheets.picks,
       runningMachineId: jobsheets.runningMachineId,
       isDeleted: jobsheets.isDeleted,
+      orderNo: orders.orderNo,
     })
     .from(jobsheets)
+    .innerJoin(orders, eq(orders.id, jobsheets.orderId))
     .where(eq(jobsheets.id, id));
   if (!js || js.isDeleted || !canRoleSeeJobsheetStatus(role, js.status)) throw notFound('Jobsheet');
   if (js.status === JOBSHEET_STATUS.PENDING) throw notFound('Jobsheet');
-  return js;
+  return { ...js, ref: jobsheetRef(js.orderNo, js.jobsheetNo) };
 }
 
 async function activeMachine(tx: Tx, machineId: number, field: string) {
@@ -1041,7 +1170,7 @@ export async function startJobsheet(role: RoleKey, id: number, input: unknown): 
   const { machineId } = jobsheetStartSchema.parse(input);
   return db.transaction(async (tx) => {
     const js = await loadJobsheetForRun(tx, role, id);
-    if (js.status !== JOBSHEET_STATUS.SENT) throw conflict(`Jobsheet ${js.jobsheetNo} has already been started.`);
+    if (js.status !== JOBSHEET_STATUS.SENT) throw conflict(`${js.ref} has already been started.`);
     const [assigned] = await tx
       .select({ machineId: jobsheetMachines.machineId })
       .from(jobsheetMachines)
@@ -1054,10 +1183,10 @@ export async function startJobsheet(role: RoleKey, id: number, input: unknown): 
       .set({ status: JOBSHEET_STATUS.ONGOING, runningMachineId: machineId, startedAt: now() })
       .where(and(eq(jobsheets.id, id), eq(jobsheets.status, JOBSHEET_STATUS.SENT)))
       .returning({ id: jobsheets.id });
-    if (!updated.length) throw conflict(`Jobsheet ${js.jobsheetNo} has already been started.`);
+    if (!updated.length) throw conflict(`${js.ref} has already been started.`);
     await writeEvents(tx, role, [{ jobsheetId: id, event: 'started', machineId }]);
     await recomputeOrderStatus(js.orderId, role, tx);
-    return { id, jobsheetNo: js.jobsheetNo, status: JOBSHEET_STATUS.ONGOING, machineNo: machine.machineNo };
+    return { id, jobsheetNo: js.jobsheetNo, orderNo: js.orderNo, status: JOBSHEET_STATUS.ONGOING, machineNo: machine.machineNo };
   });
 }
 
@@ -1068,9 +1197,7 @@ export async function completeJobsheet(role: RoleKey, id: number, input: unknown
     const js = await loadJobsheetForRun(tx, role, id);
     if (js.status !== JOBSHEET_STATUS.ONGOING) {
       throw conflict(
-        js.status === JOBSHEET_STATUS.COMPLETED
-          ? `Jobsheet ${js.jobsheetNo} is already completed.`
-          : `Jobsheet ${js.jobsheetNo} hasn't been started yet.`,
+        js.status === JOBSHEET_STATUS.COMPLETED ? `${js.ref} is already completed.` : `${js.ref} hasn't been started yet.`,
       );
     }
     const updated = await tx
@@ -1078,13 +1205,13 @@ export async function completeJobsheet(role: RoleKey, id: number, input: unknown
       .set({ status: JOBSHEET_STATUS.COMPLETED, completedFrames, completedAt: now() })
       .where(and(eq(jobsheets.id, id), eq(jobsheets.status, JOBSHEET_STATUS.ONGOING)))
       .returning({ id: jobsheets.id });
-    if (!updated.length) throw conflict(`Jobsheet ${js.jobsheetNo} is already completed.`);
+    if (!updated.length) throw conflict(`${js.ref} is already completed.`);
     await writeEvents(tx, role, [{ jobsheetId: id, event: 'completed', machineId: js.runningMachineId, frames: completedFrames }]);
     await recomputeOrderStatus(js.orderId, role, tx);
     const [m] = js.runningMachineId
       ? await tx.select({ machineNo: machines.machineNo }).from(machines).where(eq(machines.id, js.runningMachineId))
       : [];
-    return { id, jobsheetNo: js.jobsheetNo, status: JOBSHEET_STATUS.COMPLETED, machineNo: m?.machineNo ?? null };
+    return { id, jobsheetNo: js.jobsheetNo, orderNo: js.orderNo, status: JOBSHEET_STATUS.COMPLETED, machineNo: m?.machineNo ?? null };
   });
 }
 
@@ -1097,7 +1224,7 @@ export async function changeMachine(role: RoleKey, id: number, input: unknown): 
   return db.transaction(async (tx) => {
     const js = await loadJobsheetForRun(tx, role, id);
     if (js.status !== JOBSHEET_STATUS.ONGOING) {
-      throw conflict(`Jobsheet ${js.jobsheetNo} isn't running, so its machine can't be changed.`);
+      throw conflict(`${js.ref} isn't running, so its machine can't be changed.`);
     }
     if (data.completedFrames > js.frames) {
       throw badRequest(`Can't be more than the ${js.frames} frames assigned.`, 'completedFrames');
@@ -1110,7 +1237,7 @@ export async function changeMachine(role: RoleKey, id: number, input: unknown): 
       .set({ status: JOBSHEET_STATUS.COMPLETED, completedFrames: data.completedFrames, completedAt: now() })
       .where(and(eq(jobsheets.id, id), eq(jobsheets.status, JOBSHEET_STATUS.ONGOING)))
       .returning({ id: jobsheets.id });
-    if (!updated.length) throw conflict(`Jobsheet ${js.jobsheetNo} was just completed. Refresh and try again.`);
+    if (!updated.length) throw conflict(`${js.ref} was just completed. Refresh and try again.`);
 
     // The new jobsheet may run on any active machine; the chosen one is pre-selected at Start.
     const allActive = await tx
@@ -1128,7 +1255,7 @@ export async function changeMachine(role: RoleKey, id: number, input: unknown): 
         status: JOBSHEET_STATUS.SENT,
         parentJobsheetId: id,
         suggestedMachineId: data.newMachineId,
-        note: `Continued from jobsheet ${js.jobsheetNo}`,
+        note: `Continued from ${jobsheetRefShort(js.orderNo, js.jobsheetNo)}`,
       },
     );
     await writeEvents(tx, role, [
@@ -1137,11 +1264,12 @@ export async function changeMachine(role: RoleKey, id: number, input: unknown): 
         event: 'machine_changed',
         machineId: js.runningMachineId,
         frames: data.completedFrames,
-        note: `Continued as jobsheet ${created.jobsheetNo} on Machine ${newMachine.machineNo}`,
+        note: `Continued as ${jobsheetRefShort(js.orderNo, created.jobsheetNo)} on Machine ${newMachine.machineNo}`,
       },
     ]);
     await recomputeOrderStatus(js.orderId, role, tx);
     return {
+      orderNo: js.orderNo,
       completed: { id, jobsheetNo: js.jobsheetNo, frames: data.completedFrames },
       created,
       newMachineNo: newMachine.machineNo,

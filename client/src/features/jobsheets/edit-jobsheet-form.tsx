@@ -4,7 +4,7 @@ import { useMemo } from 'react';
 import { Controller, useForm, useWatch } from 'react-hook-form';
 import { toast } from 'sonner';
 import { z } from 'zod';
-import { coverageWarnings, planFramesEdit, type JobsheetDetail, type JobsheetUpdateResult } from '@rivoora/shared';
+import { coverageWarnings, jobsheetRefShort, planFramesEdit, type JobsheetDetail, type JobsheetUpdateResult } from '@rivoora/shared';
 import { ErrorState } from '@/components/list-parts';
 import { Button } from '@/components/ui/button';
 import { Field } from '@/components/ui/field';
@@ -35,9 +35,11 @@ export function describeFramesEdit(js: JobsheetDetail, newFrames: number | null)
   });
   const lastId = plan.last.id;
   const lines = [
-    ...plan.updated.map((u) => `Jobsheet ${u.jobsheetNo}${u.id === lastId && !u.edited ? ' (last pending)' : ''}: ${u.from} → ${u.to} frames`),
+    ...plan.updated.map(
+      (u) => `${jobsheetRefShort(js.orderNo, u.jobsheetNo)}${u.id === lastId && !u.edited ? ' (last pending)' : ''}: ${u.from} → ${u.to} frames`,
+    ),
     ...plan.created.map((c) => `New jobsheet will be created with ${c.frames} frame${c.frames === 1 ? '' : 's'}`),
-    ...plan.removed.map((r) => `Jobsheet ${r.jobsheetNo} will be removed`),
+    ...plan.removed.map((r) => `${jobsheetRefShort(js.orderNo, r.jobsheetNo)} will be removed`),
   ];
   const warnings = coverageWarnings({
     ...js.coverage,
@@ -53,11 +55,11 @@ export function describeFramesEdit(js: JobsheetDetail, newFrames: number | null)
 /** Toasts summarising what the server changed. */
 export function toastUpdateResult(res: JobsheetUpdateResult, jobsheetNo: number) {
   const messages = [
-    ...res.updated.map((u) => `Jobsheet #${u.jobsheetNo} changed to ${u.to} frame${u.to === 1 ? '' : 's'}`),
-    ...res.created.map((c) => `New jobsheet #${c.jobsheetNo} created (${c.frames} frame${c.frames === 1 ? '' : 's'})`),
-    ...res.removed.map((r) => `Jobsheet #${r.jobsheetNo} removed`),
+    ...res.updated.map((u) => `${jobsheetRefShort(res.orderNo, u.jobsheetNo)} changed to ${u.to} frame${u.to === 1 ? '' : 's'}`),
+    ...res.created.map((c) => `New jobsheet ${jobsheetRefShort(res.orderNo, c.jobsheetNo)} created (${c.frames} frame${c.frames === 1 ? '' : 's'})`),
+    ...res.removed.map((r) => `${jobsheetRefShort(res.orderNo, r.jobsheetNo)} removed`),
   ];
-  if (messages.length === 0) messages.push(res.detailsChanged ? `Jobsheet #${jobsheetNo} updated` : 'No changes');
+  if (messages.length === 0) messages.push(res.detailsChanged ? `${jobsheetRefShort(res.orderNo, jobsheetNo)} updated` : 'No changes');
   messages.forEach((m) => toast.success(m));
 }
 
@@ -159,7 +161,7 @@ export function EditJobsheetDialog({ jobsheetId, onOpenChange }: { jobsheetId: n
     <ResponsiveModal
       open={open}
       onOpenChange={(o) => !update.isPending && onOpenChange(o)}
-      title={js ? `Edit jobsheet ${js.jobsheetNo}` : 'Edit jobsheet'}
+      title={js ? `Edit jobsheet ${jobsheetRefShort(js.orderNo, js.jobsheetNo)}` : 'Edit jobsheet'}
       dismissible={false}
       footer={
         <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto">

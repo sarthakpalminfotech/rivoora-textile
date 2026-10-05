@@ -21,6 +21,8 @@ export interface RolePermissions {
   canUndoProduction: boolean;
   /** Add / edit / delete customers, materials and designs. */
   canManageMasters: boolean;
+  /** Add / edit / delete names in the Damage master. */
+  canManageDamages: boolean;
   /** Create, edit, delete, send to the supervisor and pull back jobsheets. */
   canManageJobsheets: boolean;
   /** Add / edit / delete machines (looms). */
@@ -74,6 +76,7 @@ export const ROLES: Record<RoleKey, RoleConfig> = {
       canSendToProduction: true,
       canUndoProduction: true,
       canManageMasters: true,
+      canManageDamages: true,
       canManageJobsheets: true,
       canManageMachines: true,
       canViewJobsheetsModule: false,
@@ -101,6 +104,7 @@ export const ROLES: Record<RoleKey, RoleConfig> = {
       canSendToProduction: false,
       canUndoProduction: false,
       canManageMasters: false,
+      canManageDamages: true,
       canManageJobsheets: true,
       canManageMachines: true,
       canViewJobsheetsModule: false,
@@ -127,6 +131,7 @@ export const ROLES: Record<RoleKey, RoleConfig> = {
       canSendToProduction: false,
       canUndoProduction: false,
       canManageMasters: false,
+      canManageDamages: false,
       canManageJobsheets: false,
       canManageMachines: false,
       canViewJobsheetsModule: true,
@@ -152,6 +157,7 @@ export const ROLES: Record<RoleKey, RoleConfig> = {
       canSendToProduction: false,
       canUndoProduction: false,
       canManageMasters: false,
+      canManageDamages: false,
       canManageJobsheets: false,
       canManageMachines: false,
       canViewJobsheetsModule: false,

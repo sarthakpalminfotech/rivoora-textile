@@ -1,13 +1,13 @@
 # Rivoora Textile — Project State
 
-Snapshot of what the code actually does as of **2026-09-30** (branch `main`, last commit `e626c52 taka entry full flow`
-**plus the uncommitted Sprint 5 work** — order dashboard, see [§12](#12-sprint-5--order-dashboard-order-details-page)).
+Snapshot of what the code actually does as of **2026-10-05** — **Sprint 6 (client demo feedback)** is in
+[§13](#13-sprint-6--client-demo-feedback); Sprint 5 (order dashboard) in [§12](#12-sprint-5--order-dashboard-order-details-page).
 Sprint 4 is in [§11](#11-sprint-4--taka-entry-role-qr-scan-takas-on-orders), Sprint 3 in
 [§10](#10-sprint-3--supervisor-machine-production-flow-machine-view), Sprint 2 in [§9](#9-sprint-2--machines--jobsheets).
 Written so a developer can continue the project without reading the code first. The original brief is
 `rivoora-claude-code-prompt.md`; day-to-day conventions are in `CLAUDE.md`.
 
-> Where §1–§9 disagree with §10–§12 (e.g. "Ready for production" label, two roles, 4-tab bottom nav, the order details layout), **the later section is current.**
+> Where §1–§9 disagree with §10–§13 (e.g. "Ready for production" label, two roles, 4-tab bottom nav, the order details layout, the 2-page print, digits-only taka numbers, DEFAULT_UNIT meters), **the later section is current.**
 
 `npm run typecheck` and `npm run build` pass for all three packages at the time of writing. `npm test` runs the vitest
 suites for the shared logic (jobsheet maths, takas, QR parsing, order dashboard — 66 tests, all passing). There are no server or UI tests
@@ -958,3 +958,54 @@ Spec: `rivoora-sprint5-order-dashboard-prompt.md`. Built in one go at the user's
 - Woven = actual frames of Completed jobsheets only (Ongoing jobsheets have no partial count).
 - The coverage warnings show both in the Needs attention card and (unchanged) in the Jobsheets tab.
 - Damages "Recorded" = the taka's `created_at` (there is no separate damaged-at timestamp).
+
+---
+
+## 13. Sprint 6 — Client demo feedback
+
+Spec: `rivoora-sprint6-demo-feedback-prompt.md`. The look and patterns were kept; only the requested changes were made.
+`npm run typecheck`, `npm test` (89 shared tests) and `npm run build` pass. The API flows (brokers, order type, damages,
+taka pcs / number format / damage names, supervisor Order view, role restrictions — supervisor and Taka entry never get
+the client name) were verified with a throwaway script against a local libSQL file DB, and the main screens in Chrome.
+**Not yet done:** a real-phone check (Android + iPhone) of the taka keypad and the – / keys, and a physical printout.
+
+### Migration 0007 (`0007_sprint6_brokers_order_type_damages.sql`) — run `npm run db:migrate` on Turso
+| Table / column | Notes |
+|---|---|
+| `customer_brokers` | id, customer_id (FK, indexed), name (≤ 80), is_deleted, timestamps; UNIQUE `(customer_id, lower(name)) WHERE is_deleted = 0` |
+| `orders.broker_id` | FK → customer_brokers, nullable, indexed |
+| `orders.order_type` | `lump` \| `pcs_to_pcs`, NOT NULL DEFAULT `pcs_to_pcs` (existing orders backfilled) |
+| `takas.pcs` | INTEGER, nullable (older takas); the API requires 1–9999 on new / changed takas |
+| `damages` | Damage master: id, name (≤ 80), notes, is_deleted, timestamps; UNIQUE `lower(name) WHERE is_deleted = 0` |
+| `takas.damage_id` | FK → damages, nullable, indexed (older damage has none → shown as "Machine damage") |
+
+The seed adds demo brokers to three customers (only when they have none). No damage seed data.
+
+### What changed
+1. **Order number first.** `jobsheetRef()` "Order #26 (319)" / `jobsheetRefShort()` "#26 (319)" in shared; `<JobsheetRef>`
+   on the client (order number bold, bracket small + muted). Used on the order Jobsheets cards, jobsheet details (title,
+   parent/children, toasts), supervisor cards / dialogs / toasts / busy hints, Activity ("continued as #26 (331)" — older
+   notes are reworded at display time), Taka list, Taka entry identity card / confirm / success, Takas card + Edit
+   takas, dashboard drawer + alerts, Damages tab, Machine view, print. Every jobsheet response carries `orderNo`.
+   Jobsheet searches (supervisor, Taka list) match order no or jobsheet no (prefix) or design; leading `#` ignored.
+   `jobsheet_no`, the QR (`/j/<jobsheetNo>`), `by-no` and the Scan screen's typed number are unchanged (the Scan screen
+   now hints "the number in brackets").
+2. **Brokers.** Customer form: Brokers section (rows = editable names with remove, input + Add broker; duplicates blocked
+   inline and by the server as `brokers.<i>.name`). Customer list: Brokers column + phone card line; search matches brokers.
+   Order form: Broker select after Client name (disabled until a client is picked, "No brokers for this client",
+   cleared when the client changes). Header + Order details tab + order cards show it; order search matches it.
+3. **Order type** (required, not linked to the unit): segmented Lump / Pcs to pcs on the order form (nothing
+   pre-selected), tag on order cards + header, Order details tab, filter `type=` with chips. `DEFAULT_UNIT = pcs`.
+4. **Taka pcs + number format.** Rows: number → meters → pcs → Damage (phones: number, then meters + pcs, then Damage).
+   Numbers `^\d+([-/]\d+)*$` ≤ 15; the – / helper keys appear under the focused number field only (`inputMode="numeric"`).
+   Chips "6245 · 105.5 m · 12 pcs" ("— pcs" for older takas), Total pcs tile, event summaries and dashboard facts with pcs.
+5. **Damage master** (`/damages`, nav "Damage master" in the masters group; `canManageDamages` for Jemish + Gaurang) and the
+   **damage popup** (`DamageDialog`, Taka entry + Edit takas; master name or "Other / अन्य" + typed name; damaged rows offer
+   Change / Remove). "Machine damage · Hole" everywhere a damaged taka shows; the Damages tab cards show the name large.
+6. **Print**: one page per jobsheet, number box "ORDER 26 (319)", QR caption `Scan · 26 (319)`, "Assigned: 7, 9" above an
+   empty LOOM NO box; back page, its CSS and the image wait removed.
+7. **Supervisor**: `ongoing` = "On-loom" for him only (tab + empty state "Nothing on-loom right now"). `/jobsheets` has an
+   `Order | All` toggle (`?view=all`, default Order): order cards (design, Order #N, design code, Pending / On-loom /
+   Completed pills, progress bar, View jobsheets (N)) → `/jobsheets/order/:orderId` (header + the same list component
+   filtered by `orderId`). API `GET /jobsheets/orders` (one GROUP BY query) and `GET /jobsheets?orderId=`.
+8. **Dashboard labels**: `not_sent` "Not assigned to supervisor", `with_supervisor` "Waiting to start on loom".

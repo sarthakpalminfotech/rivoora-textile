@@ -91,8 +91,8 @@ export interface SubStageConfig {
 
 export const SUB_STAGES: readonly SubStageConfig[] = [
   // Production — rules by jobsheet status (see `jobsheetSubStage`), then the takas waiting for butta cutting.
-  { key: 'not_sent', label: 'Jobsheet pending (not sent)', shortLabel: 'Not sent', mainStage: 'production', unit: 'jobsheets', colour: '#94A3B8', connected: true },
-  { key: 'with_supervisor', label: 'Waiting to start', shortLabel: 'Waiting to start', mainStage: 'production', unit: 'jobsheets', colour: '#F59E0B', connected: true },
+  { key: 'not_sent', label: 'Not assigned to supervisor', shortLabel: 'Not assigned', mainStage: 'production', unit: 'jobsheets', colour: '#94A3B8', connected: true },
+  { key: 'with_supervisor', label: 'Waiting to start on loom', shortLabel: 'Waiting to start', mainStage: 'production', unit: 'jobsheets', colour: '#F59E0B', connected: true },
   { key: 'on_loom', label: 'On loom', shortLabel: 'On loom', mainStage: 'production', unit: 'jobsheets', colour: '#3B82F6', connected: true },
   { key: 'taka_pending', label: 'Taka entry pending', shortLabel: 'Taka entry pending', mainStage: 'production', unit: 'jobsheets', colour: '#14B8A6', connected: true },
   { key: 'taka_done', label: 'Taka entry done · waiting for butta cutting', shortLabel: 'Taka entry done', mainStage: 'production', unit: 'takas', colour: '#A855F7', connected: true, takaStages: ['entered'] },
@@ -146,7 +146,8 @@ export function takaStageLabel(stage: string): string {
 }
 
 /**
- * The jobsheet sub-stage of an active jobsheet: pending → Not sent · sent → Waiting to start · ongoing → On loom ·
+ * The jobsheet sub-stage of an active jobsheet: pending → Not assigned to supervisor · sent → Waiting to start on
+ * loom · ongoing → On loom ·
  * completed without takas → Taka entry pending. A completed jobsheet WITH takas is in none (its takas are counted).
  */
 export function jobsheetSubStage(status: string, takaCount: number): JobsheetSubStageKey | null {

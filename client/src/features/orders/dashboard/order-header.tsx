@@ -6,6 +6,7 @@ import { ImageThumb, Lightbox } from '@/components/ui/image-thumb';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { formatDate, formatMoney, formatOrderNo, formatQuantity } from '@/lib/format';
 import { cn } from '@/lib/utils';
+import { OrderTypeTag } from '../order-type-tag';
 
 function HeaderItem({ label, children, className }: { label: string; children: ReactNode; className?: string }) {
   return (
@@ -70,6 +71,7 @@ export function OrderHeader({ order, onUndo, onEdit }: { order: OrderDetail; onU
         </>
       ),
     },
+    { label: 'Broker', value: order.broker ? order.broker.name : <span className="font-normal text-slate-400">—</span> },
     {
       label: 'Design',
       value: code ? (
@@ -123,6 +125,7 @@ export function OrderHeader({ order, onUndo, onEdit }: { order: OrderDetail; onU
         </div>
         <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2 self-center md:self-start">
           <h2 className="text-2xl font-bold leading-tight text-slate-900 md:text-[28px]">Order {formatOrderNo(order.orderNo)}</h2>
+          <OrderTypeTag type={order.orderType} className="text-xs" />
           <StatusBadge status={order.status} />
           {(onUndo || onEdit) && (
             <div className="flex items-center gap-2 md:ml-auto">

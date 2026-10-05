@@ -22,6 +22,7 @@ export async function getMachineView(): Promise<MachineViewData> {
       .select({
         id: jobsheets.id,
         jobsheetNo: jobsheets.jobsheetNo,
+        orderNo: orders.orderNo,
         frames: jobsheets.frames,
         machineId: jobsheets.runningMachineId,
         startedAt: jobsheets.startedAt,

@@ -1,8 +1,9 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { ah } from '../lib/http';
+import { ah, parseId } from '../lib/http';
 import { requirePermission } from '../middleware/role';
-import { lookupCustomers } from '../services/customers';
+import { lookupBrokers, lookupCustomers } from '../services/customers';
+import { lookupDamages } from '../services/damages';
 import { lookupMachines } from '../services/machines';
 import { lookupMaterials } from '../services/materials';
 
@@ -24,6 +25,26 @@ lookupRouter.get(
   ah(async (req, res) => {
     res.set('Cache-Control', 'private, max-age=10');
     res.json(await lookupCustomers(querySchema.parse(req.query).search));
+  }),
+);
+
+/** The brokers of one customer (Broker field of the order form). */
+lookupRouter.get(
+  '/customers/:id/brokers',
+  requirePermission('canViewMasters'),
+  ah(async (req, res) => {
+    res.set('Cache-Control', 'private, max-age=10');
+    res.json(await lookupBrokers(parseId(req.params.id)));
+  }),
+);
+
+/** Damage names for the damage popup: Jemish, Gaurang (edit takas) and the Taka entry role. */
+lookupRouter.get(
+  '/damages',
+  requirePermission('canViewMasters', 'canEnterTakas', 'canEditTakas'),
+  ah(async (req, res) => {
+    res.set('Cache-Control', 'private, max-age=10');
+    res.json(await lookupDamages(querySchema.parse(req.query).search));
   }),
 );
 

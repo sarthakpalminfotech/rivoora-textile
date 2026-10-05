@@ -14,7 +14,14 @@ import { env } from '../env';
 import { storage } from '../storage';
 import { db, libsql } from './client';
 import { PATTERNS, type Palette, type PatternName } from './patterns';
-import { customers, designVariations, designs, machines, materials, orderStatusHistory, orders } from './schema';
+import { customerBrokers, customers, designVariations, designs, machines, materials, orderStatusHistory, orders } from './schema';
+
+/** Demo brokers per customer name (added only when the customer has none). */
+const BROKERS: Record<string, string[]> = {
+  'Ramesh Patel': ['Kishor Bhai', 'Jayesh Broker'],
+  'Suresh Mehta': ['Manoj Shah'],
+  'Mahesh Jain': ['Vinod Kothari', 'Pankaj Textiles'],
+};
 
 const CUSTOMERS = [
   { name: 'Ramesh Patel', phone: '9824012345', city: 'Surat', gstNumber: '24ABCPP1234F1Z5', address: 'Ring Road, Surat' },
@@ -73,8 +80,14 @@ async function seedCustomers() {
       .select({ id: customers.id })
       .from(customers)
       .where(and(eq(customers.name, c.name), eq(customers.isDeleted, false)));
-    if (existing) ids.push(existing.id);
-    else ids.push((await db.insert(customers).values(c).returning({ id: customers.id }))[0].id);
+    const id = existing ? existing.id : (await db.insert(customers).values(c).returning({ id: customers.id }))[0].id;
+    ids.push(id);
+    const brokers = BROKERS[c.name] ?? [];
+    const [{ n }] = await db
+      .select({ n: count() })
+      .from(customerBrokers)
+      .where(and(eq(customerBrokers.customerId, id), eq(customerBrokers.isDeleted, false)));
+    if (brokers.length && n === 0) await db.insert(customerBrokers).values(brokers.map((name) => ({ customerId: id, name })));
   }
   return ids;
 }

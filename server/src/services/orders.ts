@@ -3,6 +3,7 @@ import { z } from 'zod';
 import {
   can,
   canRoleSeeStatus,
+  isOrderType,
   isStatusKey,
   normalizeCode,
   orderCreateSchema,
@@ -19,6 +20,7 @@ import {
 } from '@rivoora/shared';
 import { db, type Tx } from '../db/client';
 import {
+  customerBrokers,
   customers,
   designVariations,
   designs,
@@ -44,6 +46,8 @@ export const orderListQuerySchema = paginationSchema.extend({
     .string()
     .optional()
     .transform((v) => csv(v).map(Number).filter((n) => Number.isInteger(n) && n > 0)),
+  /** Order type filter: `type=lump,pcs_to_pcs`. */
+  type: z.string().optional().transform((v) => csv(v).filter(isOrderType)),
   from: dateString,
   to: dateString,
 });
@@ -64,12 +68,14 @@ export async function listOrders(role: RoleKey, q: OrderListQuery): Promise<Pagi
   if (q.from) conditions.push(gte(orders.orderDate, q.from));
   if (q.to) conditions.push(lte(orders.orderDate, q.to));
   if (q.material.length) conditions.push(inArray(orders.materialId, q.material));
+  if (q.type.length) conditions.push(inArray(orders.orderType, q.type));
   if (q.search) {
     const term = q.search.replace(/^#/, '').trim();
     const p = likePattern(term);
     const codeP = likePattern(normalizeCode(term));
     const parts: (SQL | undefined)[] = [
       sql`${customers.name} LIKE ${p} ESCAPE '\\'`,
+      sql`${customerBrokers.name} LIKE ${p} ESCAPE '\\'`,
       sql`${materials.name} LIKE ${p} ESCAPE '\\'`,
       sql`${designs.code} LIKE ${codeP} ESCAPE '\\'`,
       sql`${designVariations.code} LIKE ${codeP} ESCAPE '\\'`,
@@ -91,6 +97,8 @@ export async function listOrders(role: RoleKey, q: OrderListQuery): Promise<Pagi
         materialName: materials.name,
         quantity: orders.quantity,
         unit: orders.unit,
+        orderType: orders.orderType,
+        brokerName: customerBrokers.name,
         status: orders.status,
         orderDate: orders.orderDate,
         designCode: sql<string | null>`COALESCE(${designVariations.code}, ${designs.code})`,
@@ -98,6 +106,7 @@ export async function listOrders(role: RoleKey, q: OrderListQuery): Promise<Pagi
       })
       .from(orders)
       .innerJoin(customers, eq(customers.id, orders.customerId))
+      .leftJoin(customerBrokers, eq(customerBrokers.id, orders.brokerId))
       .innerJoin(materials, eq(materials.id, orders.materialId))
       .leftJoin(designs, eq(designs.id, orders.designId))
       .leftJoin(designVariations, eq(designVariations.id, orders.variationId))
@@ -109,6 +118,7 @@ export async function listOrders(role: RoleKey, q: OrderListQuery): Promise<Pagi
       .select({ total: count() })
       .from(orders)
       .innerJoin(customers, eq(customers.id, orders.customerId))
+      .leftJoin(customerBrokers, eq(customerBrokers.id, orders.brokerId))
       .innerJoin(materials, eq(materials.id, orders.materialId))
       .leftJoin(designs, eq(designs.id, orders.designId))
       .leftJoin(designVariations, eq(designVariations.id, orders.variationId))
@@ -124,6 +134,7 @@ export async function getOrder(role: RoleKey, id: number): Promise<OrderDetail> 
         id: orders.id,
         orderNo: orders.orderNo,
         status: orders.status,
+        orderType: orders.orderType,
         quantity: orders.quantity,
         unit: orders.unit,
         rate: orders.rate,
@@ -135,6 +146,8 @@ export async function getOrder(role: RoleKey, id: number): Promise<OrderDetail> 
         createdAt: orders.createdAt,
         updatedAt: orders.updatedAt,
         customer: { id: customers.id, name: customers.name, phone: customers.phone, city: customers.city },
+        brokerId: customerBrokers.id,
+        brokerName: customerBrokers.name,
         material: { id: materials.id, name: materials.name, code: materials.code },
         designId: designs.id,
         designCode: designs.code,
@@ -148,6 +161,8 @@ export async function getOrder(role: RoleKey, id: number): Promise<OrderDetail> 
       })
       .from(orders)
       .innerJoin(customers, eq(customers.id, orders.customerId))
+      // The broker stays on the order even after it was removed from the customer.
+      .leftJoin(customerBrokers, eq(customerBrokers.id, orders.brokerId))
       .innerJoin(materials, eq(materials.id, orders.materialId))
       .leftJoin(designs, eq(designs.id, orders.designId))
       .leftJoin(designVariations, eq(designVariations.id, orders.variationId))
@@ -178,6 +193,7 @@ export async function getOrder(role: RoleKey, id: number): Promise<OrderDetail> 
     id: r.id,
     orderNo: r.orderNo,
     status: r.status,
+    orderType: r.orderType,
     quantity: r.quantity,
     unit: r.unit,
     orderDate: r.orderDate,
@@ -188,6 +204,7 @@ export async function getOrder(role: RoleKey, id: number): Promise<OrderDetail> 
     createdAt: r.createdAt,
     updatedAt: r.updatedAt,
     customer: r.customer,
+    broker: r.brokerId !== null && r.brokerName !== null ? { id: r.brokerId, name: r.brokerName } : null,
     material: r.material,
     design:
       r.designId !== null && r.designCode !== null
@@ -207,10 +224,15 @@ export async function getOrder(role: RoleKey, id: number): Promise<OrderDetail> 
 type OrderData = z.infer<typeof orderCreateSchema>;
 
 /**
- * Checks the client / material / design references of an order form and returns the design + variation ids
- * (a design uploaded from the form is saved into the Design Master here). Shared by create and update.
+ * Checks the client / broker / material / design references of an order form and returns the design + variation
+ * ids (a design uploaded from the form is saved into the Design Master here). Shared by create and update.
+ * `keepBrokerId` = the order's current broker, which may stay even if it was removed from the customer since.
  */
-async function resolveOrderRefs(tx: Tx, data: OrderData): Promise<{ designId: number | null; variationId: number | null }> {
+async function resolveOrderRefs(
+  tx: Tx,
+  data: OrderData,
+  keepBrokerId: number | null = null,
+): Promise<{ designId: number | null; variationId: number | null }> {
   const [customer] = await tx
     .select({ id: customers.id })
     .from(customers)
@@ -221,6 +243,16 @@ async function resolveOrderRefs(tx: Tx, data: OrderData): Promise<{ designId: nu
     .where(and(eq(materials.id, data.materialId), eq(materials.isDeleted, false)));
   if (!customer) throw badRequest('Selected client no longer exists', 'customerId');
   if (!material) throw badRequest('Selected material no longer exists', 'materialId');
+  if (data.brokerId) {
+    // The broker must be one of this client's brokers (an already-saved, since removed broker may stay).
+    const [broker] = await tx
+      .select({ id: customerBrokers.id, isDeleted: customerBrokers.isDeleted })
+      .from(customerBrokers)
+      .where(and(eq(customerBrokers.id, data.brokerId), eq(customerBrokers.customerId, data.customerId)));
+    if (!broker || (broker.isDeleted && broker.id !== keepBrokerId)) {
+      throw badRequest('Pick one of this client’s brokers', 'brokerId');
+    }
+  }
 
   let designId = data.designId;
   let variationId = data.variationId;
@@ -262,6 +294,8 @@ export async function createOrder(role: RoleKey, input: unknown): Promise<{ id: 
       .values({
         orderNo: sql`(SELECT COALESCE(MAX(${orders.orderNo}), 0) + 1 FROM ${orders})`,
         customerId: data.customerId,
+        brokerId: data.brokerId,
+        orderType: data.orderType,
         materialId: data.materialId,
         designId,
         variationId,
@@ -295,7 +329,7 @@ export async function updateOrder(role: RoleKey, id: number, input: unknown): Pr
 
   await db.transaction(async (tx) => {
     const [current] = await tx
-      .select({ status: orders.status, unit: orders.unit, rate: orders.rate })
+      .select({ status: orders.status, unit: orders.unit, rate: orders.rate, brokerId: orders.brokerId })
       .from(orders)
       .where(eq(orders.id, id));
     if (!current || !canRoleSeeStatus(role, current.status)) throw notFound('Order');
@@ -303,11 +337,13 @@ export async function updateOrder(role: RoleKey, id: number, input: unknown): Pr
       throw badRequest('The unit cannot change once the order has jobsheets', 'unit');
     }
 
-    const { designId, variationId } = await resolveOrderRefs(tx, data);
+    const { designId, variationId } = await resolveOrderRefs(tx, data, current.brokerId);
     await tx
       .update(orders)
       .set({
         customerId: data.customerId,
+        brokerId: data.brokerId,
+        orderType: data.orderType,
         materialId: data.materialId,
         designId,
         variationId,

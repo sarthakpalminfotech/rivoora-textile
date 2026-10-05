@@ -5,7 +5,17 @@ import { Controller, useForm, useWatch } from 'react-hook-form';
 import { Navigate, useBlocker, useLocation, useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { z } from 'zod';
-import { DEFAULT_UNIT, UNITS, normalizeCode, type OrderDetail, type Unit, type UploadResult } from '@rivoora/shared';
+import {
+  DEFAULT_UNIT,
+  ORDER_TYPE_LABEL,
+  ORDER_TYPES,
+  UNITS,
+  normalizeCode,
+  type OrderDetail,
+  type OrderType,
+  type Unit,
+  type UploadResult,
+} from '@rivoora/shared';
 import { usePageTitle } from '@/components/layout/page-title';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
@@ -14,6 +24,7 @@ import { Field } from '@/components/ui/field';
 import { ImageThumb } from '@/components/ui/image-thumb';
 import { ImageDropzone, ImagePickButton } from '@/components/ui/image-upload';
 import { Input, NumberInput, Textarea } from '@/components/ui/input';
+import { Segmented } from '@/components/ui/segmented';
 import { Select } from '@/components/ui/select';
 import { Tooltip } from '@/components/ui/tooltip';
 import { useDebounce } from '@/hooks/useDebounce';
@@ -22,7 +33,7 @@ import { errorMessage } from '@/lib/api';
 import { formatOrderNo, toApiDate } from '@/lib/format';
 import { applyServerFieldError } from '@/lib/form';
 import { cn, toNumber } from '@/lib/utils';
-import { useCustomerLookup, useMaterialLookup } from '../masters/api';
+import { useBrokerLookup, useCustomerLookup, useMaterialLookup } from '../masters/api';
 import { CustomerFormDialog } from '../masters/customers/customer-form';
 import { designCodeField, useCodeAvailability } from '../masters/designs/design-form';
 import { useCreateOrder, useUpdateOrder } from './api';
@@ -35,6 +46,8 @@ type DesignAttachment =
 const schema = z
   .object({
     customerId: z.number().nullable(),
+    brokerId: z.number().nullable(),
+    orderType: z.enum(ORDER_TYPES).nullable(),
     materialId: z.number().nullable(),
     design: z.custom<DesignAttachment | null>(),
     newDesignCode: z.string(),
@@ -47,6 +60,7 @@ const schema = z
   })
   .superRefine((v, ctx) => {
     if (!v.customerId) ctx.addIssue({ code: 'custom', path: ['customerId'], message: 'Select a client' });
+    if (!v.orderType) ctx.addIssue({ code: 'custom', path: ['orderType'], message: 'Pick the order type' });
     if (!v.materialId) ctx.addIssue({ code: 'custom', path: ['materialId'], message: 'Select a material' });
     const q = toNumber(v.quantity);
     if (!v.quantity) ctx.addIssue({ code: 'custom', path: ['quantity'], message: 'Enter the quantity' });
@@ -64,6 +78,9 @@ type FormValues = z.infer<typeof schema>;
 
 const defaults = (): FormValues => ({
   customerId: null,
+  brokerId: null,
+  // Nothing pre-selected on a new order: the type is a required choice.
+  orderType: null,
   materialId: null,
   design: null,
   newDesignCode: '',
@@ -80,6 +97,8 @@ const fromOrder = (o: OrderDetail): FormValues => {
   const image = o.variation ?? o.design;
   return {
     customerId: o.customer.id,
+    brokerId: o.broker?.id ?? null,
+    orderType: o.orderType,
     materialId: o.material.id,
     design: o.design
       ? {
@@ -103,6 +122,7 @@ const fromOrder = (o: OrderDetail): FormValues => {
 };
 
 const unitOptions = UNITS.map((u) => ({ value: u, label: u }));
+const orderTypeOptions = ORDER_TYPES.map((t) => ({ value: t, label: ORDER_TYPE_LABEL[t] }));
 
 function SectionCard({ title, children, className }: { title: string; children: React.ReactNode; className?: string }) {
   return (
@@ -163,6 +183,16 @@ export function OrderForm({ order }: { order?: OrderDetail }) {
     () => (customers.data ?? []).map((c) => ({ value: c.id, label: c.name, description: c.city })),
     [customers.data],
   );
+  // Broker: only the selected client's brokers (the order's own broker stays listed even if it was removed since).
+  const brokers = useBrokerLookup(customerId);
+  const brokerOptions = useMemo(() => {
+    const opts = (brokers.data ?? []).map((b) => ({ value: b.id, label: b.name }));
+    if (order?.broker && order.customer.id === customerId && !opts.some((o) => o.value === order.broker!.id)) {
+      opts.unshift({ value: order.broker.id, label: order.broker.name });
+    }
+    return opts;
+  }, [brokers.data, order, customerId]);
+  const noBrokers = !!customerId && brokers.isSuccess && brokerOptions.length === 0;
   const materialOptions = useMemo(
     () => (materials.data ?? []).map((m) => ({ value: m.id, label: m.name, description: m.code })),
     [materials.data],
@@ -199,6 +229,8 @@ export function OrderForm({ order }: { order?: OrderDetail }) {
     }
     const payload = {
       customerId: v.customerId!,
+      brokerId: v.brokerId,
+      orderType: v.orderType!,
       materialId: v.materialId!,
       designId: v.design?.kind === 'saved' ? v.design.designId : null,
       variationId: v.design?.kind === 'saved' ? v.design.variationId : null,
@@ -214,7 +246,7 @@ export function OrderForm({ order }: { order?: OrderDetail }) {
       noteImages: v.noteImages,
     };
     const onError = (err: unknown) => {
-      const handled = applyServerFieldError(err, setError, ['customerId', 'materialId', 'quantity', 'unit', 'rate', 'orderDate', 'newDesignCode', 'notes'], {
+      const handled = applyServerFieldError(err, setError, ['customerId', 'brokerId', 'orderType', 'materialId', 'quantity', 'unit', 'rate', 'orderDate', 'newDesignCode', 'notes'], {
         designCode: 'newDesignCode',
         'newDesign.code': 'newDesignCode',
       });
@@ -275,6 +307,8 @@ export function OrderForm({ order }: { order?: OrderDetail }) {
                     id="order-customer"
                     value={field.value}
                     onChange={(id, opt) => {
+                      // Brokers belong to a client: a new client clears the broker.
+                      if (id !== field.value) setValue('brokerId', null, { shouldDirty: true });
                       field.onChange(id);
                       setLabels((l) => ({ ...l, customer: opt.label }));
                     }}
@@ -307,6 +341,38 @@ export function OrderForm({ order }: { order?: OrderDetail }) {
               />
             </Field>
             <Field
+              label="Broker"
+              htmlFor="order-broker"
+              error={errors.brokerId?.message}
+              hint={
+                !customerId
+                  ? 'Select a client first'
+                  : noBrokers
+                    ? 'Add brokers in the customer (Customers → edit the client)'
+                    : 'Optional'
+              }
+            >
+              <Controller
+                control={control}
+                name="brokerId"
+                render={({ field }) => (
+                  <Select
+                    id="order-broker"
+                    value={field.value}
+                    // 0 = "No broker" (clears the field).
+                    onChange={(id) => field.onChange(id || null)}
+                    options={field.value ? [{ value: 0, label: 'No broker' }, ...brokerOptions] : brokerOptions}
+                    placeholder={!customerId ? 'Select a client first' : noBrokers ? 'No brokers for this client' : 'Select broker'}
+                    selectedLabel={field.value ? brokerOptions.find((o) => o.value === field.value)?.label : undefined}
+                    loading={brokers.isFetching}
+                    disabled={!customerId || noBrokers}
+                    emptyText="No brokers for this client"
+                    invalid={!!errors.brokerId}
+                  />
+                )}
+              />
+            </Field>
+            <Field
               label="Material / Quality"
               htmlFor="order-material"
               required
@@ -334,6 +400,25 @@ export function OrderForm({ order }: { order?: OrderDetail }) {
                     loading={materials.isFetching}
                     emptyText="No materials found"
                     invalid={!!errors.materialId}
+                  />
+                )}
+              />
+            </Field>
+            <Field label="Order type" htmlFor="order-type" required error={errors.orderType?.message}>
+              <Controller
+                control={control}
+                name="orderType"
+                render={({ field }) => (
+                  <Segmented<OrderType>
+                    id="order-type"
+                    aria-label="Order type"
+                    options={orderTypeOptions}
+                    value={field.value}
+                    onChange={(t) => {
+                      field.onChange(t);
+                      clearErrors('orderType');
+                    }}
+                    invalid={!!errors.orderType}
                   />
                 )}
               />
@@ -566,6 +651,7 @@ export function OrderForm({ order }: { order?: OrderDetail }) {
         onOpenChange={setCustomerFormOpen}
         onSaved={(c) => {
           setLabels((l) => ({ ...l, customer: c.name }));
+          setValue('brokerId', null, { shouldDirty: true });
           setValue('customerId', c.id, { shouldDirty: true, shouldValidate: true });
         }}
       />

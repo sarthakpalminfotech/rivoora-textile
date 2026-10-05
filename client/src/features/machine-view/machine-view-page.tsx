@@ -1,12 +1,13 @@
 import { ChevronDown, Factory, MoonStar, RefreshCw } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import type { MachineViewJobsheet, MachineViewMachine } from '@rivoora/shared';
+import { jobsheetRef, type MachineViewJobsheet, type MachineViewMachine } from '@rivoora/shared';
 import { usePageTitle } from '@/components/layout/page-title';
 import { ErrorState } from '@/components/list-parts';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
 import { ImageThumb } from '@/components/ui/image-thumb';
+import { JobsheetRef } from '@/components/ui/jobsheet-ref';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tooltip } from '@/components/ui/tooltip';
 import { useNow } from '@/hooks/useNow';
@@ -83,7 +84,7 @@ function JobsheetRow({ js, now, onOpen }: { js: MachineViewJobsheet; now: number
       type="button"
       onClick={onOpen}
       className="flex w-full min-w-0 items-center gap-2.5 rounded-[10px] border border-emerald-200/70 bg-white px-2 py-2 text-left shadow-sm transition hover:border-emerald-400 active:bg-emerald-50 sm:px-2.5"
-      aria-label={`Open jobsheet ${js.jobsheetNo}`}
+      aria-label={`Open ${jobsheetRef(js.orderNo, js.jobsheetNo)}`}
     >
       <ImageThumb
         thumbUrl={js.thumbUrl}
@@ -93,7 +94,9 @@ function JobsheetRow({ js, now, onOpen }: { js: MachineViewJobsheet; now: number
         rounded="rounded-md"
       />
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-[15px] font-bold leading-tight text-slate-900">Jobsheet {js.jobsheetNo}</span>
+        <span className="flex min-w-0 text-[15px] font-bold leading-tight text-slate-900">
+          <JobsheetRef orderNo={js.orderNo} jobsheetNo={js.jobsheetNo} />
+        </span>
         <span className="block truncate text-xs text-slate-500">
           {js.designCode ?? 'No design'} · {js.frames} fr{elapsed ? <span className="sm:hidden"> · {elapsed}</span> : null}
         </span>

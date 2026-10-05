@@ -1,10 +1,19 @@
 import { AlertTriangle, Pencil, ShieldCheck } from 'lucide-react';
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { DAMAGE_TYPE_CONFIG, DAMAGE_TYPE_LABEL, formatMeters, takaStageLabel, type DamageType, type OrderDetail } from '@rivoora/shared';
+import {
+  DAMAGE_TYPE_CONFIG,
+  DAMAGE_TYPE_LABEL,
+  formatMeters,
+  formatPcs,
+  takaStageLabel,
+  type DamageType,
+  type OrderDetail,
+} from '@rivoora/shared';
 import { ErrorState } from '@/components/list-parts';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
+import { JobsheetRef } from '@/components/ui/jobsheet-ref';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useRole } from '@/hooks/useRole';
 import { formatDateTime } from '@/lib/format';
@@ -105,22 +114,28 @@ export function DamagesTab({ order, view }: { order: OrderDetail; view: OrderVie
             {data.items.map((t) => (
               <li key={t.id} className="flex min-w-0 flex-col gap-2 rounded-xl border border-red-200 bg-red-50/40 p-3.5">
                 <div className="flex items-start justify-between gap-2">
-                  <p className="text-2xl font-bold leading-tight tabular-nums text-slate-900">
+                  <p className="min-w-0 text-2xl font-bold leading-tight tabular-nums text-slate-900">
                     <span className="sr-only">Taka </span>
                     {t.takaNo}
-                    {t.meters != null && <span className="ml-2 text-base font-semibold text-slate-500">{formatMeters(t.meters)}</span>}
+                    <span className="ml-2 text-base font-semibold text-slate-500">
+                      {[t.meters != null && formatMeters(t.meters), t.pcs != null ? formatPcs(t.pcs) : '— pcs'].filter(Boolean).join(' · ')}
+                    </span>
                   </p>
-                  <span className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2.5 py-1 text-xs font-semibold text-red-700">
+                  <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-red-100 px-2.5 py-1 text-xs font-semibold text-red-700">
                     <AlertTriangle className="size-3.5" aria-hidden />
                     {DAMAGE_TYPE_LABEL[t.damageType]}
                   </span>
                 </div>
+                {/* WHAT the damage is — the main fact of the card (older damage has no name). */}
+                <p className={cn('truncate text-lg font-bold', t.damageName ? 'text-red-700' : 'text-slate-400')} title={t.damageName ?? undefined}>
+                  {t.damageName ?? 'No damage name'}
+                </p>
                 <dl className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-sm">
                   <div className="min-w-0">
-                    <dt className="text-[12px] text-muted-foreground">Jobsheet</dt>
+                    <dt className="text-[12px] text-muted-foreground">Order (jobsheet)</dt>
                     <dd>
                       <Link to={`/jobsheets/${t.jobsheetId}`} className="rounded font-semibold text-primary hover:underline">
-                        {t.jobsheetNo}
+                        <JobsheetRef orderNo={t.orderNo} jobsheetNo={t.jobsheetNo} variant="short" bracketClassName="text-primary/60" />
                       </Link>
                     </dd>
                   </div>

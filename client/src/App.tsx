@@ -22,9 +22,11 @@ const MaterialsPage = lazy(() => import('@/features/masters/materials/materials-
 const DesignsPage = lazy(() => import('@/features/masters/designs/designs-page'));
 const DesignDetailPage = lazy(() => import('@/features/masters/designs/design-detail-page'));
 const MachinesPage = lazy(() => import('@/features/masters/machines/machines-page'));
+const DamagesPage = lazy(() => import('@/features/masters/damages/damages-page'));
 const JobsheetDetailsPage = lazy(() => import('@/features/jobsheets/jobsheet-details-page'));
 const JobsheetPrintPage = lazy(() => import('@/features/jobsheets/print-page'));
 const SupervisorJobsheetsPage = lazy(() => import('@/features/jobsheets/supervisor-jobsheets-page'));
+const SupervisorOrderJobsheetsPage = lazy(() => import('@/features/jobsheets/supervisor-order-jobsheets-page'));
 const MachineViewPage = lazy(() => import('@/features/machine-view/machine-view-page'));
 const ScanPage = lazy(() => import('@/features/takas/scan-page'));
 const JobsheetQrPage = lazy(() => import('@/features/takas/jobsheet-qr-page'));
@@ -95,7 +97,10 @@ const router = createBrowserRouter([
           { path: 'designs', element: guard('canViewMasters', <DesignsPage />) },
           { path: 'designs/:id', element: guard('canViewMasters', <DesignDetailPage />) },
           { path: 'machines', element: guard('canViewMasters', <MachinesPage />) },
+          { path: 'damages', element: guard('canViewMasters', <DamagesPage />) },
           { path: 'jobsheets', element: <JobsheetsRoute /> },
+          // The supervisor's Order view: one order's jobsheets.
+          { path: 'jobsheets/order/:orderId', element: guard('canViewJobsheetsModule', <SupervisorOrderJobsheetsPage />) },
           // Role-aware: Jemish / Gaurang get the full view, the supervisor his restricted one, Taka entry his entry screen.
           { path: 'jobsheets/:id', element: <JobsheetRoute /> },
           { path: 'machine-view', element: guard('canViewMachineView', <MachineViewPage />) },

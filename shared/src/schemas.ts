@@ -1,7 +1,16 @@
 import { z } from 'zod';
 import { normalizeCode } from './codes';
+import { ORDER_TYPES } from './orderTypes';
 import { UNITS } from './units';
-import { MAX_TAKAS_PER_JOBSHEET, MAX_TAKAS_PER_SUBMIT, TAKA_METERS_MAX, TAKA_NO_MAX_LENGTH } from './takas';
+import {
+  DAMAGE_NAME_MAX_LENGTH,
+  MAX_TAKAS_PER_JOBSHEET,
+  MAX_TAKAS_PER_SUBMIT,
+  TAKA_METERS_MAX,
+  TAKA_NO_MAX_LENGTH,
+  TAKA_NO_REGEX,
+  TAKA_PCS_MAX,
+} from './takas';
 
 export const PHONE_REGEX = /^[6-9]\d{9}$/;
 
@@ -44,6 +53,34 @@ export const codeSchema = z
 
 const imageUrl = z.string().trim().min(1).max(500);
 
+export const BROKER_NAME_MAX_LENGTH = 80;
+export const MAX_BROKERS_PER_CUSTOMER = 50;
+
+/**
+ * A customer's brokers (just names). Rows with an `id` are existing brokers (renamed if the name changed), rows
+ * without one are new, missing ids are soft-deleted. Empty names are dropped; duplicates (case-insensitive) are an
+ * error on the later row (`brokers.<i>.name`).
+ */
+const brokers = z
+  .array(
+    z.object({
+      id: z.number().int().positive().optional(),
+      name: z.string().trim().max(BROKER_NAME_MAX_LENGTH, `Broker name must be at most ${BROKER_NAME_MAX_LENGTH} characters`),
+    }),
+  )
+  .max(MAX_BROKERS_PER_CUSTOMER, `At most ${MAX_BROKERS_PER_CUSTOMER} brokers`)
+  .default([])
+  .superRefine((list, ctx) => {
+    const seen = new Set<string>();
+    list.forEach((b, i) => {
+      const key = b.name.toLowerCase();
+      if (!key) return;
+      if (seen.has(key)) ctx.addIssue({ code: 'custom', path: [i, 'name'], message: 'This broker is already added' });
+      seen.add(key);
+    });
+  })
+  .transform((list) => list.filter((b) => b.name));
+
 export const customerInputSchema = z.object({
   name: z.string().trim().min(1, 'Name is required').max(120, 'Name is too long'),
   phone,
@@ -53,8 +90,20 @@ export const customerInputSchema = z.object({
   city: optText(80),
   gstNumber: optText(20).transform((v) => (v ? v.toUpperCase() : null)),
   notes: optText(1000),
+  brokers,
 });
 export type CustomerInput = z.input<typeof customerInputSchema>;
+
+/** Damage master: what the damage is (Hole, Oil stain…). */
+export const damageInputSchema = z.object({
+  name: z
+    .string()
+    .trim()
+    .min(1, 'Name is required')
+    .max(DAMAGE_NAME_MAX_LENGTH, `Name must be at most ${DAMAGE_NAME_MAX_LENGTH} characters`),
+  notes: optText(1000),
+});
+export type DamageInput = z.input<typeof damageInputSchema>;
 
 export const materialInputSchema = z.object({
   name: z.string().trim().min(1, 'Name is required').max(80, 'Name is too long'),
@@ -84,6 +133,12 @@ export type VariationInput = z.input<typeof variationInputSchema>;
 export const orderCreateSchema = z
   .object({
     customerId: z.number().int().positive('Select a client'),
+    /** Optional broker — must be one of the customer's brokers (checked by the server). */
+    brokerId: z.number().int().positive().nullish().transform((v) => v ?? null),
+    orderType: z.enum(ORDER_TYPES, {
+      required_error: 'Pick the order type',
+      invalid_type_error: 'Pick the order type',
+    }),
     materialId: z.number().int().positive('Select a material'),
     designId: z.number().int().positive().nullish().transform((v) => v ?? null),
     variationId: z.number().int().positive().nullish().transform((v) => v ?? null),
@@ -213,19 +268,30 @@ export type JobsheetChangeMachineInput = z.input<typeof jobsheetChangeMachineSch
 export const JOBSHEET_TABS = ['all', 'pending', 'ongoing', 'completed'] as const;
 export type JobsheetTab = (typeof JOBSHEET_TABS)[number];
 
-/** GET /jobsheets — the supervisor's module. */
+const listSearch = z
+  .string()
+  .trim()
+  .max(100)
+  .optional()
+  .transform((v) => v || undefined);
+
+/** GET /jobsheets — the supervisor's module (`orderId` = one order's jobsheets, from the Order view). */
 export const jobsheetListQuerySchema = z.object({
   tab: z.enum(JOBSHEET_TABS).default('all'),
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(100).default(20),
-  search: z
-    .string()
-    .trim()
-    .max(100)
-    .optional()
-    .transform((v) => v || undefined),
+  search: listSearch,
+  orderId: z.coerce.number().int().positive().optional(),
 });
 export type JobsheetListQuery = z.infer<typeof jobsheetListQuerySchema>;
+
+/** GET /jobsheets/orders — the supervisor's Order view (jobsheets grouped by order). */
+export const supervisorOrderListQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+  search: listSearch,
+});
+export type SupervisorOrderListQuery = z.infer<typeof supervisorOrderListQuerySchema>;
 
 /* ---------- takas (Taka entry) ---------- */
 
@@ -233,8 +299,46 @@ const takaNo = z
   .string({ required_error: 'Enter the taka number', invalid_type_error: 'Enter the taka number' })
   .trim()
   .min(1, 'Enter the taka number')
-  .regex(/^\d+$/, 'Taka numbers use digits only')
-  .max(TAKA_NO_MAX_LENGTH, `At most ${TAKA_NO_MAX_LENGTH} digits`);
+  .max(TAKA_NO_MAX_LENGTH, `At most ${TAKA_NO_MAX_LENGTH} characters`)
+  .regex(TAKA_NO_REGEX, 'Use digits, - or / only');
+
+/** Pcs of a taka: a whole number 1–9999 (required on new takas). */
+const takaPcs = z
+  .number({ required_error: 'Enter the pcs', invalid_type_error: 'Enter the pcs' })
+  .int('Use a whole number')
+  .min(1, 'Pcs must be at least 1')
+  .max(TAKA_PCS_MAX, `At most ${TAKA_PCS_MAX} pcs`);
+
+const otherDamageName = z
+  .string({ required_error: 'Write the damage name', invalid_type_error: 'Write the damage name' })
+  .trim()
+  .min(1, 'Write the damage name')
+  .max(DAMAGE_NAME_MAX_LENGTH, `At most ${DAMAGE_NAME_MAX_LENGTH} characters`);
+
+/**
+ * The damage of a taka: a Damage master entry, or a typed "Other" name (the server finds it case-insensitively or
+ * adds it to the master in the same transaction), or `null` = not damaged.
+ */
+export const takaDamageSchema = z
+  .union([
+    z.object({ damageId: z.number().int().positive() }).strict(),
+    z.object({ otherName: otherDamageName }).strict(),
+  ])
+  .nullable()
+  .default(null);
+export type TakaDamageInput = z.input<typeof takaDamageSchema>;
+
+/**
+ * Edit takas also accepts `{ damageId: null }`: an older damaged taka that has no damage name yet and keeps it
+ * that way (allowed only when that taka is already damaged without a name — the server checks).
+ */
+const takaEditDamageSchema = z
+  .union([
+    z.object({ damageId: z.number().int().positive().nullable() }).strict(),
+    z.object({ otherName: otherDamageName }).strict(),
+  ])
+  .nullable()
+  .default(null);
 
 /** Optional length of a taka in meters (> 0, ≤ 9999.99, rounded to 2 decimals). */
 const takaMeters = z
@@ -254,17 +358,29 @@ const takaNote = z
 /** POST /jobsheets/:id/takas — adds new takas only (Taka entry). */
 export const takaEntrySchema = z.object({
   takas: z
-    .array(z.object({ takaNo, meters: takaMeters, isDamaged: z.boolean().default(false) }), { required_error: 'Enter at least one taka' })
+    .array(z.object({ takaNo, meters: takaMeters, pcs: takaPcs, damage: takaDamageSchema }), { required_error: 'Enter at least one taka' })
     .min(1, 'Enter at least one taka')
     .max(MAX_TAKAS_PER_SUBMIT, `At most ${MAX_TAKAS_PER_SUBMIT} takas at a time`),
   note: takaNote,
 });
 export type TakaEntryInput = z.input<typeof takaEntrySchema>;
 
-/** PUT /jobsheets/:id/takas — the full set after editing (rows without `id` are new; missing ids are removed). */
+/**
+ * PUT /jobsheets/:id/takas — the full set after editing (rows without `id` are new; missing ids are removed).
+ * `pcs` may stay null only on an unchanged older taka that never had pcs (the server checks); new and changed
+ * takas need it.
+ */
 export const takaEditSchema = z.object({
   takas: z
-    .array(z.object({ id: z.number().int().positive().optional(), takaNo, meters: takaMeters, isDamaged: z.boolean().default(false) }))
+    .array(
+      z.object({
+        id: z.number().int().positive().optional(),
+        takaNo,
+        meters: takaMeters,
+        pcs: takaPcs.nullish().transform((v) => v ?? null),
+        damage: takaEditDamageSchema,
+      }),
+    )
     .max(MAX_TAKAS_PER_JOBSHEET, `At most ${MAX_TAKAS_PER_JOBSHEET} takas per jobsheet`),
   note: takaNote,
 });
@@ -278,11 +394,6 @@ export const takaListQuerySchema = z.object({
   tab: z.enum(TAKA_TABS).default('pending'),
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(100).default(20),
-  search: z
-    .string()
-    .trim()
-    .max(100)
-    .optional()
-    .transform((v) => v || undefined),
+  search: listSearch,
 });
 export type TakaListQuery = z.infer<typeof takaListQuerySchema>;

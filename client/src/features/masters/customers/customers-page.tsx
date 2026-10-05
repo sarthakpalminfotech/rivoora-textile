@@ -1,4 +1,4 @@
-import { MapPin, Phone, Plus, Users } from 'lucide-react';
+import { MapPin, Phone, Plus, UserRound, Users } from 'lucide-react';
 import { useState } from 'react';
 import type { Customer } from '@rivoora/shared';
 import { usePageTitle } from '@/components/layout/page-title';
@@ -10,10 +10,22 @@ import { MasterList, MasterToolbar, type Column } from '../master-list';
 import { useDeleteFlow } from '../use-delete-flow';
 import { CustomerFormDialog } from './customer-form';
 
+const brokerNames = (c: Customer) => c.brokers.map((b) => b.name).join(', ');
+
 const columns: Column<Customer>[] = [
-  { header: 'Name', cell: (c) => <span className="font-semibold text-slate-900">{c.name}</span>, className: 'w-[28%]' },
+  { header: 'Name', cell: (c) => <span className="font-semibold text-slate-900">{c.name}</span>, className: 'w-[24%]' },
   { header: 'Phone', cell: (c) => c.phone ?? '—' },
   { header: 'City', cell: (c) => c.city ?? '—' },
+  {
+    header: 'Brokers',
+    cell: (c) =>
+      c.brokers.length ? (
+        <span title={brokerNames(c)}>{brokerNames(c)}</span>
+      ) : (
+        <span className="text-slate-400">—</span>
+      ),
+    className: 'w-[22%]',
+  },
   { header: 'GST number', cell: (c) => c.gstNumber ?? '—', className: 'hidden lg:table-cell' },
   { header: 'Email', cell: (c) => c.email ?? '—', className: 'hidden xl:table-cell' },
 ];
@@ -36,7 +48,7 @@ export default function CustomersPage() {
       <MasterToolbar
         search={search}
         onSearch={setSearch}
-        placeholder="Search by name, phone or city…"
+        placeholder="Search by name, phone, city or broker…"
         addLabel="Add Customer"
         onAdd={canManage ? () => openForm(null) : undefined}
         fetching={query.isFetching && !query.isPending && !query.isFetchingNextPage}
@@ -75,6 +87,12 @@ export default function CustomersPage() {
                 </span>
               )}
             </div>
+            {c.brokers.length > 0 && (
+              <p className="mt-1 flex min-w-0 items-center gap-1.5 text-sm text-slate-500">
+                <UserRound className="size-3.5 shrink-0" aria-hidden />
+                <span className="truncate">Brokers: {brokerNames(c)}</span>
+              </p>
+            )}
           </>
         )}
       />

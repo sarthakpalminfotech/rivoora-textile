@@ -28,6 +28,7 @@ export function useOrders(filters: OrderFilters) {
     search: filters.search,
     status: filters.statuses,
     material: filters.materials,
+    type: filters.types,
     from: filters.from,
     to: filters.to,
   });

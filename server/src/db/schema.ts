@@ -9,7 +9,7 @@ import {
   uniqueIndex,
   type AnySQLiteColumn,
 } from 'drizzle-orm/sqlite-core';
-import type { DamageType, JobsheetEventKind, JobsheetStatusKey, OrderStatusKey, RoleKey, TakaStage, Unit } from '@rivoora/shared';
+import type { DamageType, JobsheetEventKind, JobsheetStatusKey, OrderStatusKey, OrderType, RoleKey, TakaStage, Unit } from '@rivoora/shared';
 
 const nowIso = sql`(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`;
 
@@ -39,6 +39,27 @@ export const customers = sqliteTable(
     updatedAt: updatedAt(),
   },
   (t) => [index('customers_name_idx').on(t.name)],
+);
+
+/** Brokers of a customer — just names. Soft-deleted when removed (they stay on old orders). */
+export const customerBrokers = sqliteTable(
+  'customer_brokers',
+  {
+    id: id(),
+    customerId: integer('customer_id')
+      .notNull()
+      .references(() => customers.id),
+    name: text('name').notNull(),
+    isDeleted: isDeleted(),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    index('customer_brokers_customer_idx').on(t.customerId),
+    uniqueIndex('customer_brokers_name_active_unique')
+      .on(t.customerId, sql`lower(${t.name})`)
+      .where(sql`${t.isDeleted} = 0`),
+  ],
 );
 
 export const materials = sqliteTable(
@@ -111,6 +132,10 @@ export const orders = sqliteTable(
     customerId: integer('customer_id')
       .notNull()
       .references(() => customers.id),
+    /** Optional broker — one of the customer's brokers. */
+    brokerId: integer('broker_id').references(() => customerBrokers.id),
+    /** `lump` | `pcs_to_pcs` — required on new orders; existing orders were backfilled as `pcs_to_pcs`. */
+    orderType: text('order_type').$type<OrderType>().notNull().default('pcs_to_pcs'),
     materialId: integer('material_id')
       .notNull()
       .references(() => materials.id),
@@ -139,6 +164,7 @@ export const orders = sqliteTable(
     index('orders_customer_idx').on(t.customerId),
     index('orders_material_idx').on(t.materialId),
     index('orders_design_idx').on(t.designId),
+    index('orders_broker_idx').on(t.brokerId),
   ],
 );
 
@@ -261,6 +287,20 @@ export const jobsheetMachines = sqliteTable(
   (t) => [primaryKey({ columns: [t.jobsheetId, t.machineId] }), index('jobsheet_machines_machine_idx').on(t.machineId)],
 );
 
+/** Damage master: WHAT a damage is (Hole, Oil stain…). Names are unique (case-insensitive) among active rows. */
+export const damages = sqliteTable(
+  'damages',
+  {
+    id: id(),
+    name: text('name').notNull(),
+    notes: text('notes'),
+    isDeleted: isDeleted(),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [uniqueIndex('damages_name_active_unique').on(sql`lower(${t.name})`).where(sql`${t.isDeleted} = 0`)],
+);
+
 /**
  * Takas: numbered cloth pieces of a jobsheet, entered at the Taka entry desk. Numbers repeat across jobsheets
  * (they restart every year), so they are unique per jobsheet only. Soft-deleted when removed in an edit.
@@ -279,9 +319,13 @@ export const takas = sqliteTable(
     takaNo: text('taka_no').notNull(),
     /** Length of the taka in meters (optional, up to 2 decimals). */
     meters: real('meters'),
+    /** Pieces in the taka (1–9999). Required by the API on new / edited takas; null on older takas. */
+    pcs: integer('pcs'),
     isDamaged: integer('is_damaged', { mode: 'boolean' }).notNull().default(false),
-    /** `machine` when damaged (more types later). */
+    /** WHERE the damage was found: `machine` when damaged at taka entry (more types later). */
     damageType: text('damage_type').$type<DamageType>(),
+    /** WHAT the damage is (Damage master). Null on older damage recorded without a name. */
+    damageId: integer('damage_id').references(() => damages.id),
     /** Where the taka is: `entered` today; later sprints move it on (TAKA_STAGES in shared/pipeline.ts). */
     stage: text('stage').$type<TakaStage>().notNull().default('entered'),
     enteredBy: text('entered_by').$type<RoleKey>().notNull(),
@@ -294,6 +338,7 @@ export const takas = sqliteTable(
     index('takas_order_idx').on(t.orderId),
     index('takas_taka_no_idx').on(t.takaNo),
     index('takas_stage_idx').on(t.stage),
+    index('takas_damage_idx').on(t.damageId),
     uniqueIndex('takas_jobsheet_taka_no_active_unique').on(t.jobsheetId, t.takaNo).where(sql`${t.isDeleted} = 0`),
   ],
 );

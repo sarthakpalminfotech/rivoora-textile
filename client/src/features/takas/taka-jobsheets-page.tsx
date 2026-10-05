@@ -1,18 +1,18 @@
 import { CheckCircle2, ClipboardCheck, PackageCheck, PenLine, Plus, SearchX } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { JOBSHEET_STATUS, TAKA_TABS, type TakaJobsheetItem, type TakaTab } from '@rivoora/shared';
+import { JOBSHEET_STATUS, jobsheetRef, TAKA_TABS, type TakaJobsheetItem, type TakaTab } from '@rivoora/shared';
 import { usePageTitle } from '@/components/layout/page-title';
 import { FetchingIndicator, LoadMore, SearchBar } from '@/components/list-parts';
 import { Button } from '@/components/ui/button';
 import { ImageThumb } from '@/components/ui/image-thumb';
+import { JobsheetRef } from '@/components/ui/jobsheet-ref';
 import { Skeleton } from '@/components/ui/skeleton';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useDebounce } from '@/hooks/useDebounce';
 import { errorMessage } from '@/lib/api';
 import { Bi, bi } from '@/lib/bilingual';
-import { formatOrderNo } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { FramesValue, machineNumbers } from '../jobsheets/parts';
 import { useTakaJobsheets } from './api';
@@ -66,7 +66,7 @@ function JobsheetTile({ js, tab, onOpen }: { js: TakaJobsheetItem; tab: TakaTab;
           onOpen();
         }
       }}
-      aria-label={bi(`Open jobsheet ${js.jobsheetNo}`, `जॉबशीट ${js.jobsheetNo} खोलें`)}
+      aria-label={bi(`Open ${jobsheetRef(js.orderNo, js.jobsheetNo)}`, `ऑर्डर #${js.orderNo} (${js.jobsheetNo}) खोलें`)}
       className="flex h-full cursor-pointer flex-col overflow-hidden rounded-xl border border-border bg-white shadow-soft outline-none transition hover:border-primary/30 hover:shadow-pop focus-visible:ring-2 focus-visible:ring-primary/40"
     >
       {/* Clicks inside the lightbox bubble through the React portal — keep them from opening the card. */}
@@ -81,16 +81,12 @@ function JobsheetTile({ js, tab, onOpen }: { js: TakaJobsheetItem; tab: TakaTab;
       </div>
       <div className="flex flex-1 flex-col gap-3 p-4">
         <div className="flex items-start justify-between gap-2">
-          <p className="text-2xl font-bold leading-tight text-slate-900">
-            <span className="sr-only">Jobsheet </span>
-            <span aria-hidden className="mr-1.5 text-base font-semibold text-slate-400">Jobsheet</span>
-            {js.jobsheetNo}
+          <p className="min-w-0 text-2xl font-bold leading-tight text-slate-900">
+            <JobsheetRef orderNo={js.orderNo} jobsheetNo={js.jobsheetNo} />
           </p>
           <StatusBadge kind="jobsheet" status={js.status} className="mt-1 shrink-0 text-[13px]" />
         </div>
-        <p className="-mt-1.5 truncate text-sm text-slate-500">
-          {js.designCode ? `Design ${js.designCode}` : 'No design'} · Order {formatOrderNo(js.orderNo)}
-        </p>
+        <p className="-mt-1.5 truncate text-sm text-slate-500">{js.designCode ? `Design ${js.designCode}` : 'No design'}</p>
 
         <dl className="grid grid-cols-2 gap-2 border-t border-border pt-3">
           <Fact en="Frames" hi="फ्रेम">
@@ -223,7 +219,7 @@ export default function TakaJobsheetsPage() {
         <SearchBar
           value={searchText}
           onChange={setSearchText}
-          placeholder={bi('Jobsheet number or design', 'जॉबशीट नंबर या डिज़ाइन')}
+          placeholder={bi('Search order no, jobsheet no or design…', 'ऑर्डर, जॉबशीट नंबर या डिज़ाइन')}
           className="md:max-w-md"
         />
         <FetchingIndicator show={query.isFetching && !isPending && !query.isFetchingNextPage} />
@@ -265,8 +261,8 @@ export default function TakaJobsheetsPage() {
           {search ? (
             <Message
               icon={SearchX}
-              en={['No jobsheets match your search', 'Try a jobsheet number or a design code.']}
-              hi={['कोई जॉबशीट नहीं मिली', 'जॉबशीट नंबर या डिज़ाइन कोड लिखें।']}
+              en={['No jobsheets match your search', 'Try an order number, a jobsheet number or a design code.']}
+              hi={['कोई जॉबशीट नहीं मिली', 'ऑर्डर नंबर, जॉबशीट नंबर या डिज़ाइन कोड लिखें।']}
               action={
                 <Button variant="secondary" size="lg" onClick={() => setSearchText('')}>
                   <Bi en="Clear search" hi="खोज हटाएं" layout="inline" />

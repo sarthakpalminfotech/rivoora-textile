@@ -17,6 +17,7 @@ import type {
   OrderJobsheets,
   SupervisorJobsheetItem,
   SupervisorJobsheetPage,
+  SupervisorOrderItem,
 } from '@rivoora/shared';
 import { useInfiniteList } from '@/hooks/useInfiniteList';
 import { api, ApiError } from '@/lib/api';
@@ -29,6 +30,8 @@ export const jobsheetKeys = {
   print: (ids: number[]) => ['jobsheets', 'print', ids.join(',')] as const,
   /** The supervisor's module list. */
   list: ['jobsheets', 'list'] as const,
+  /** The supervisor's Order view (jobsheets grouped by order). */
+  supervisorOrders: ['jobsheets', 'orders'] as const,
   /** The Taka entry list. */
   takaList: ['jobsheets', 'taka-list'] as const,
 };
@@ -75,12 +78,19 @@ export function useJobsheetPrint(ids: number[]) {
   });
 }
 
-/** The supervisor's Jobsheets module: one tab + search, paginated, with tab counts on every page. */
-export function useSupervisorJobsheets(tab: JobsheetTab, search: string) {
-  const q = useInfiniteList<SupervisorJobsheetItem>(jobsheetKeys.list, '/jobsheets', { tab, search });
-  const counts = (q.data?.pages[0] as SupervisorJobsheetPage | undefined)?.counts;
-  return { ...q, counts };
+/**
+ * The supervisor's Jobsheets module: one tab + search, paginated, with tab counts on every page. With `orderId`:
+ * one order's jobsheets (Order view), plus the order's header (number + design).
+ */
+export function useSupervisorJobsheets(tab: JobsheetTab, search: string, orderId?: number) {
+  const q = useInfiniteList<SupervisorJobsheetItem>(jobsheetKeys.list, '/jobsheets', { tab, search, orderId });
+  const first = q.data?.pages[0] as SupervisorJobsheetPage | undefined;
+  return { ...q, counts: first?.counts, order: first?.order ?? null };
 }
+
+/** The supervisor's Order view: orders with their jobsheet counts (Pending / On-loom first). */
+export const useSupervisorOrders = (search: string) =>
+  useInfiniteList<SupervisorOrderItem>(jobsheetKeys.supervisorOrders, '/jobsheets/orders', { search });
 
 export function useMachineView() {
   return useQuery({

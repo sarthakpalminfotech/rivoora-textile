@@ -1,4 +1,4 @@
-import type { JobsheetEvent, JobsheetEventKind } from '@rivoora/shared';
+import { jobsheetRefShort, type JobsheetEvent, type JobsheetEventKind } from '@rivoora/shared';
 import { ROLES } from '@/config/roles';
 import { formatDateTime } from '@/lib/format';
 
@@ -40,8 +40,16 @@ export function eventTitle(e: JobsheetEvent, assignedFrames: number): string {
   }
 }
 
+/**
+ * Event notes written before Sprint 6 say "Continued as jobsheet 331 …" — show them order-first like the new ones
+ * ("Continued as #26 (331) …"). Change machine always stays within the same order.
+ */
+function eventNote(note: string, orderNo: number): string {
+  return note.replace(/\b(Continued (?:as|from)) jobsheet (\d+)/i, (_m, lead: string, no: string) => `${lead} ${jobsheetRefShort(orderNo, Number(no))}`);
+}
+
 /** Activity timeline, newest first (same look as the order status history). */
-export function ActivityTimeline({ events, assignedFrames }: { events: JobsheetEvent[]; assignedFrames: number }) {
+export function ActivityTimeline({ events, assignedFrames, orderNo }: { events: JobsheetEvent[]; assignedFrames: number; orderNo: number }) {
   if (events.length === 0) return <p className="text-sm text-muted-foreground">No activity yet.</p>;
   const entries = [...events].reverse();
   return (
@@ -55,7 +63,7 @@ export function ActivityTimeline({ events, assignedFrames }: { events: JobsheetE
           />
           <p className="text-[15px] font-semibold text-slate-900">{eventTitle(e, assignedFrames)}</p>
           {/* The takas_entered summary is already in the title. */}
-          {e.note && e.event !== 'takas_entered' && <p className="text-sm text-slate-600">{e.note}</p>}
+          {e.note && e.event !== 'takas_entered' && <p className="text-sm text-slate-600">{eventNote(e.note, orderNo)}</p>}
           <p className="text-sm text-slate-500">
             {formatDateTime(e.createdAt)} · by {ROLES[e.role]?.name ?? e.role}
           </p>

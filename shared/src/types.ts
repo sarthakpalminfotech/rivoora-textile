@@ -1,6 +1,7 @@
 import type { RoleKey } from './roles';
 import type { JobsheetStatusKey, OrderStatusKey } from './statuses';
 import type { Unit } from './units';
+import type { OrderType } from './orderTypes';
 import type { Coverage, CoverageWarning } from './jobsheets';
 import type { JobsheetTab, TakaTab } from './schemas';
 import type { DamageType, SubStageKey, TakaStage } from './pipeline';
@@ -24,9 +25,17 @@ export interface LookupItem {
   city?: string | null;
 }
 
+/** A broker of a customer (just a name). */
+export interface Broker {
+  id: number;
+  name: string;
+}
+
 export interface Customer {
   id: number;
   name: string;
+  /** Active brokers, by name. */
+  brokers: Broker[];
   phone: string | null;
   alternatePhone: string | null;
   email: string | null;
@@ -42,6 +51,15 @@ export interface Material {
   id: number;
   name: string;
   code: string | null;
+  notes: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Damage master entry: what the damage is (Hole, Oil stain…). */
+export interface Damage {
+  id: number;
+  name: string;
   notes: string | null;
   createdAt: string;
   updatedAt: string;
@@ -88,6 +106,8 @@ export interface OrderListItem {
   materialName: string;
   quantity: number;
   unit: Unit;
+  orderType: OrderType;
+  brokerName: string | null;
   status: OrderStatusKey;
   orderDate: string;
   /** Variation code if the order uses one, otherwise the design code. */
@@ -114,6 +134,7 @@ export interface OrderDetail {
   id: number;
   orderNo: number;
   status: OrderStatusKey;
+  orderType: OrderType;
   quantity: number;
   unit: Unit;
   /** Omitted entirely for roles that may not see rate. */
@@ -128,6 +149,8 @@ export interface OrderDetail {
   createdAt: string;
   updatedAt: string;
   customer: { id: number; name: string; phone: string | null; city: string | null };
+  /** The order's broker (one of the customer's brokers), if any — also when that broker was removed later. */
+  broker: Broker | null;
   material: { id: number; name: string; code: string | null };
   design: { id: number; code: string; name: string | null; imageUrl: string | null; thumbUrl: string | null } | null;
   variation: { id: number; code: string; imageUrl: string | null; thumbUrl: string | null } | null;
@@ -198,6 +221,7 @@ export interface MachineRef {
 export interface JobsheetListItem {
   id: number;
   jobsheetNo: number;
+  orderNo: number;
   status: JobsheetStatusKey;
   /** Assigned frames. */
   frames: number;
@@ -324,12 +348,14 @@ export interface JobsheetRef {
 }
 
 export interface JobsheetCreateResult {
+  orderNo: number;
   created: JobsheetRef[];
   /** The order status changed. */
   statusChanged: boolean;
 }
 
 export interface JobsheetUpdateResult {
+  orderNo: number;
   updated: { id: number; jobsheetNo: number; from: number; to: number; edited: boolean }[];
   created: JobsheetRef[];
   removed: JobsheetRef[];
@@ -354,11 +380,13 @@ export interface JobsheetSendResult {
 export interface JobsheetActionResult {
   id: number;
   jobsheetNo: number;
+  orderNo: number;
   status: JobsheetStatusKey;
   machineNo: number | null;
 }
 
 export interface JobsheetChangeMachineResult {
+  orderNo: number;
   completed: JobsheetRef;
   created: JobsheetRef;
   newMachineNo: number;
@@ -388,7 +416,26 @@ export type JobsheetTabCounts = Record<JobsheetTab, number>;
 
 export interface SupervisorJobsheetPage extends Paginated<SupervisorJobsheetItem> {
   counts: JobsheetTabCounts;
+  /** With `?orderId=`: the order's header (number + design only — never the client). */
+  order: SupervisorOrderHeader | null;
 }
+
+/** What the supervisor sees of an order: its number and design, nothing else. */
+export interface SupervisorOrderHeader {
+  orderId: number;
+  orderNo: number;
+  designCode: string | null;
+  designThumbUrl: string | null;
+  designImageUrl: string | null;
+}
+
+/** One card of the supervisor's Order view (only Sent / Ongoing / Completed jobsheets count). */
+export interface SupervisorOrderItem extends SupervisorOrderHeader {
+  counts: { pending: number; ongoing: number; completed: number; total: number };
+  lastCompletedAt: string | null;
+}
+
+export type SupervisorOrderPage = Paginated<SupervisorOrderItem>;
 
 export interface JobsheetPrintItem {
   id: number;
@@ -401,8 +448,6 @@ export interface JobsheetPrintItem {
   jobsheetPieces: number;
   /** Variation code if the order has one, otherwise the design code. */
   designCode: string | null;
-  /** Full image of the variation (or design). */
-  imageUrl: string | null;
 }
 
 /* ---------- machine view ---------- */
@@ -410,6 +455,7 @@ export interface JobsheetPrintItem {
 export interface MachineViewJobsheet {
   id: number;
   jobsheetNo: number;
+  orderNo: number;
   frames: number;
   designCode: string | null;
   thumbUrl: string | null;
@@ -443,9 +489,14 @@ export interface Taka {
   takaNo: string;
   /** Length in meters, when entered. */
   meters: number | null;
+  /** Pieces in the taka (required since Sprint 6; older takas have none). */
+  pcs: number | null;
   isDamaged: boolean;
-  /** `machine` when damaged. */
+  /** WHERE the damage was found: `machine` when damaged at taka entry. */
   damageType: DamageType | null;
+  /** WHAT the damage is (Damage master); null for older damage recorded without a name. */
+  damageId: number | null;
+  damageName: string | null;
   /** Where the taka is (`entered` = Taka entry done · waiting for butta cutting). See `TAKA_STAGES`. */
   stage: TakaStage;
   enteredBy: RoleKey;
@@ -456,6 +507,7 @@ export interface Taka {
 export interface JobsheetTakaGroup {
   jobsheetId: number;
   jobsheetNo: number;
+  orderNo: number;
   status: JobsheetStatusKey;
   frames: number;
   completedFrames: number | null;
@@ -474,6 +526,8 @@ export interface OrderTakas {
   damaged: number;
   /** Sum of the meters entered on the order's takas (null when none has meters). */
   totalMeters: number | null;
+  /** Sum of the pcs entered on the order's takas (null when none has pcs). */
+  totalPcs: number | null;
   /** Every active jobsheet of the order, by number (groups without takas included). */
   groups: JobsheetTakaGroup[];
 }
@@ -482,6 +536,7 @@ export interface OrderTakas {
 export interface TakaEntryResult {
   jobsheetId: number;
   jobsheetNo: number;
+  orderNo: number;
   orderId: number;
   added: Taka[];
   /** The jobsheet wasn't Completed yet and was completed by this entry. */
@@ -526,6 +581,7 @@ export interface TakaJobsheetPage extends Paginated<TakaJobsheetItem> {
 export interface JobsheetByNo {
   id: number;
   jobsheetNo: number;
+  orderNo: number;
 }
 
 /* ---------- order dashboard ---------- */
@@ -534,6 +590,7 @@ export interface JobsheetByNo {
 export interface DashboardJobsheetItem {
   id: number;
   jobsheetNo: number;
+  orderNo: number;
   status: JobsheetStatusKey;
   frames: number;
   completedFrames: number | null;
@@ -551,6 +608,7 @@ export interface DashboardJobsheetItem {
 export interface DashboardTakaGroup {
   jobsheetId: number;
   jobsheetNo: number;
+  orderNo: number;
   status: JobsheetStatusKey;
   frames: number;
   completedFrames: number | null;
@@ -567,10 +625,14 @@ export interface DamagedTaka {
   id: number;
   takaNo: string;
   meters: number | null;
+  pcs: number | null;
   damageType: DamageType;
+  damageId: number | null;
+  damageName: string | null;
   stage: TakaStage;
   jobsheetId: number;
   jobsheetNo: number;
+  orderNo: number;
   jobsheetStatus: JobsheetStatusKey;
   /** The jobsheet's common taka note. */
   note: string | null;

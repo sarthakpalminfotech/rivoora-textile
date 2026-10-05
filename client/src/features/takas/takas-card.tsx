@@ -2,10 +2,12 @@ import { AlertTriangle, PackageCheck, Pencil } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import {
-  DAMAGE_TYPE_LABEL,
+  damageLabel,
   formatMeters,
+  formatPcs,
   JOBSHEET_STATUS,
   totalMeters,
+  totalPcs,
   type JobsheetDetail,
   type JobsheetTakaGroup,
   type OrderDetail,
@@ -13,6 +15,7 @@ import {
 } from '@rivoora/shared';
 import { ErrorState } from '@/components/list-parts';
 import { Button } from '@/components/ui/button';
+import { JobsheetRef } from '@/components/ui/jobsheet-ref';
 import { Skeleton } from '@/components/ui/skeleton';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { useRole } from '@/hooks/useRole';
@@ -38,31 +41,32 @@ function Shell({ title = 'Takas', action, children }: { title?: string; action?:
   );
 }
 
-/** Taka numbers (+ meters when entered) as chips; damaged ones in red with their damage type. */
+/**
+ * Taka chips: "6245 · 105.5 m · 12 pcs" (older takas without pcs show "—"); damaged ones in red with
+ * "Machine damage · Hole" (where + what).
+ */
 export function TakaChips({ takas }: { takas: Taka[] }) {
   return (
     <ul className="flex flex-wrap gap-1.5">
-      {takas.map((t) => (
-        <li
-          key={t.id}
-          className={cn(
-            'inline-flex min-h-8 items-center gap-1.5 rounded-full border px-3 text-[15px] font-bold tabular-nums',
-            t.isDamaged ? 'border-red-200 bg-red-50 text-red-700' : 'border-slate-200 bg-slate-50 text-slate-800',
-          )}
-          title={t.isDamaged && t.damageType ? DAMAGE_TYPE_LABEL[t.damageType] : undefined}
-        >
-          {t.isDamaged && <AlertTriangle className="size-3.5 shrink-0" aria-hidden />}
-          {t.takaNo}
-          {t.meters != null && (
-            <span className={cn('text-[13px] font-semibold', t.isDamaged ? 'text-red-600' : 'text-slate-500')}>· {formatMeters(t.meters)}</span>
-          )}
-          {t.isDamaged && (
-            <span className="text-[11px] font-semibold uppercase tracking-wide">
-              {t.damageType ? DAMAGE_TYPE_LABEL[t.damageType] : 'Damage'}
-            </span>
-          )}
-        </li>
-      ))}
+      {takas.map((t) => {
+        const sub = cn('text-[13px] font-semibold', t.isDamaged ? 'text-red-600' : 'text-slate-500');
+        return (
+          <li
+            key={t.id}
+            className={cn(
+              'inline-flex min-h-8 max-w-full flex-wrap items-center gap-x-1.5 rounded-full border px-3 py-0.5 text-[15px] font-bold tabular-nums',
+              t.isDamaged ? 'border-red-200 bg-red-50 text-red-700' : 'border-slate-200 bg-slate-50 text-slate-800',
+            )}
+            title={t.isDamaged ? damageLabel(t.damageType, t.damageName) : undefined}
+          >
+            {t.isDamaged && <AlertTriangle className="size-3.5 shrink-0" aria-hidden />}
+            {t.takaNo}
+            {t.meters != null && <span className={sub}>· {formatMeters(t.meters)}</span>}
+            <span className={sub}>· {t.pcs != null ? formatPcs(t.pcs) : '— pcs'}</span>
+            {t.isDamaged && <span className="text-[12px] font-semibold">{damageLabel(t.damageType, t.damageName)}</span>}
+          </li>
+        );
+      })}
     </ul>
   );
 }
@@ -96,7 +100,7 @@ function machineText(g: Pick<JobsheetTakaGroup, 'status' | 'runningMachine' | 'm
   return g.machines.length ? `Machine ${machineNumbers(g.machines)}` : null;
 }
 
-/** One jobsheet's takas. `header` shows "Jobsheet 319 · 10 frames · Machine 7" (the order card). */
+/** One jobsheet's takas. `header` shows "Order #26 (319) · 10 frames · Machine 7" (the order card). */
 function TakaGroup({
   group,
   filter,
@@ -118,7 +122,7 @@ function TakaGroup({
             <div className="min-w-0">
               <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[15px] font-semibold text-slate-900">
                 <Link to={`/jobsheets/${group.jobsheetId}`} className="text-primary hover:underline">
-                  Jobsheet {group.jobsheetNo}
+                  <JobsheetRef orderNo={group.orderNo} jobsheetNo={group.jobsheetNo} bracketClassName="text-primary/60" />
                 </Link>
                 <StatusBadge kind="jobsheet" status={group.status} className="py-0.5" />
               </p>
@@ -127,6 +131,7 @@ function TakaGroup({
                 {machine && ` · ${machine}`}
                 {group.takas.length > 0 && ` · ${group.takas.length} taka${group.takas.length === 1 ? '' : 's'}`}
                 {totalMeters(group.takas) !== null && ` · ${formatMeters(totalMeters(group.takas)!)}`}
+                {totalPcs(group.takas) !== null && ` · ${formatPcs(totalPcs(group.takas)!)}`}
               </p>
             </div>
           ) : (
@@ -156,15 +161,16 @@ function TakaGroup({
   );
 }
 
-function Summary({ total, damaged, meters }: { total: number; damaged: number; meters: number | null }) {
+function Summary({ total, damaged, meters, pcs }: { total: number; damaged: number; meters: number | null; pcs: number | null }) {
   return (
-    <div className={cn('grid gap-2.5', meters !== null ? 'grid-cols-2 sm:max-w-xl sm:grid-cols-3' : 'grid-cols-2 sm:max-w-sm')}>
+    <div className="grid grid-cols-2 gap-2.5 sm:max-w-3xl sm:grid-cols-4">
       <StatTile label="Total takas" value={total} />
       <StatTile
         label="Damaged · Machine damage"
         value={<span className={cn(damaged > 0 && 'text-red-600')}>{damaged}</span>}
         className={cn(damaged > 0 && 'border-red-200 bg-red-50/60')}
       />
+      <StatTile label="Total pcs" value={pcs !== null ? formatPcs(pcs) : '—'} />
       {meters !== null && <StatTile label="Total meters" value={formatMeters(meters)} />}
     </div>
   );
@@ -173,6 +179,7 @@ function Summary({ total, damaged, meters }: { total: number; damaged: number; m
 export const toTarget = (g: JobsheetTakaGroup): EditTakasTarget => ({
   jobsheetId: g.jobsheetId,
   jobsheetNo: g.jobsheetNo,
+  orderNo: g.orderNo,
   status: g.status,
   takas: g.takas,
   note: g.note,
@@ -204,7 +211,7 @@ export function OrderTakasCard({ order }: { order: OrderDetail }) {
     const groups = filter === 'damaged' ? data.groups.filter((g) => g.takas.some((t) => t.isDamaged)) : data.groups;
     body = (
       <div className="space-y-4">
-        <Summary total={data.total} damaged={data.damaged} meters={data.totalMeters} />
+        <Summary total={data.total} damaged={data.damaged} meters={data.totalMeters} pcs={data.totalPcs} />
         <div className="space-y-3">
           {groups.map((g) => (
             <TakaGroup
@@ -237,6 +244,7 @@ export function JobsheetTakasCard({ js }: { js: JobsheetDetail }) {
   const group: JobsheetTakaGroup = {
     jobsheetId: js.id,
     jobsheetNo: js.jobsheetNo,
+    orderNo: js.orderNo,
     status: js.status,
     frames: js.frames,
     completedFrames: js.completedFrames,
@@ -258,7 +266,9 @@ export function JobsheetTakasCard({ js }: { js: JobsheetDetail }) {
       }
     >
       <div className="space-y-4">
-        {js.takas.length > 0 && <Summary total={js.takas.length} damaged={damaged} meters={totalMeters(js.takas)} />}
+        {js.takas.length > 0 && (
+          <Summary total={js.takas.length} damaged={damaged} meters={totalMeters(js.takas)} pcs={totalPcs(js.takas)} />
+        )}
         <TakaGroup group={group} filter="all" header={false} />
       </div>
       {can('canEditTakas') && <EditTakasDialog target={editing} onClose={() => setEditing(null)} />}

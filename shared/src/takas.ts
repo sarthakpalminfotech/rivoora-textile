@@ -3,31 +3,44 @@
  * Pure helpers shared by the server (validation) and the client (inline errors, summaries, QR scanning).
  */
 
-/** Taka numbers are digits only, stored as text so leading zeros are kept. */
-export const TAKA_NO_MAX_LENGTH = 10;
-export const TAKA_NO_REGEX = /^\d{1,10}$/;
+import { DAMAGE_TYPE_LABEL, isDamageType } from './pipeline';
+
+/**
+ * Taka numbers: digits with single `-` or `/` separators between them (`6245`, `6245-1`, `62/45`), no letters.
+ * Stored as text so leading zeros are kept.
+ */
+export const TAKA_NO_MAX_LENGTH = 15;
+export const TAKA_NO_REGEX = /^\d+([-/]\d+)*$/;
 
 /*
- * Damage types live in `pipeline.ts` (DAMAGE_TYPES / DAMAGE_TYPE_LABEL / DAMAGE_TYPE_CONFIG).
- * Everything found at taka entry is machine damage; butta / mill damage are recorded by later sprints.
+ * Damage types live in `pipeline.ts` (DAMAGE_TYPES / DAMAGE_TYPE_LABEL / DAMAGE_TYPE_CONFIG) = WHERE the damage was
+ * found. Everything found at taka entry is machine damage; butta / mill damage are recorded by later sprints.
+ * WHAT the damage is = a damage name from the Damage master (`takas.damage_id`).
  */
 
 /** Upper limits so a stuck key can't submit thousands of rows. */
 export const MAX_TAKAS_PER_SUBMIT = 200;
 export const MAX_TAKAS_PER_JOBSHEET = 500;
 
-export type TakaNoError = 'required' | 'digits' | 'too_long' | 'duplicate' | 'already_entered';
+export type TakaNoError = 'required' | 'format' | 'too_long' | 'duplicate' | 'already_entered';
 
-/** Keeps digits only (for typing / pasting into the number keypad fields). */
+/**
+ * While typing / pasting: keeps digits, `-` and `/` only, drops a leading separator, collapses repeated
+ * separators (the first one typed wins) and caps the length. A trailing separator stays (the next digit follows).
+ */
 export function cleanTakaNo(value: string): string {
-  return value.replace(/\D/g, '').slice(0, TAKA_NO_MAX_LENGTH);
+  return value
+    .replace(/[^\d/-]/g, '')
+    .replace(/^[-/]+/, '')
+    .replace(/([-/])[-/]+/g, '$1')
+    .slice(0, TAKA_NO_MAX_LENGTH);
 }
 
 export function takaNoError(value: string): Exclude<TakaNoError, 'duplicate' | 'already_entered'> | null {
   const v = value.trim();
   if (!v) return 'required';
-  if (!/^\d+$/.test(v)) return 'digits';
   if (v.length > TAKA_NO_MAX_LENGTH) return 'too_long';
+  if (!TAKA_NO_REGEX.test(v)) return 'format';
   return null;
 }
 
@@ -61,8 +74,8 @@ export const hasTakaErrors = (errors: readonly (TakaNoError | null)[]) => errors
 /** English + Hindi messages for the inline field errors. */
 export const TAKA_ERROR_TEXT: Record<TakaNoError, { en: string; hi: string }> = {
   required: { en: 'Enter the taka number', hi: 'टाका नंबर लिखें' },
-  digits: { en: 'Use digits only', hi: 'सिर्फ अंक लिखें' },
-  too_long: { en: `At most ${TAKA_NO_MAX_LENGTH} digits`, hi: `ज़्यादा से ज़्यादा ${TAKA_NO_MAX_LENGTH} अंक` },
+  format: { en: 'Use digits, - or / only', hi: 'सिर्फ अंक, - या / लिखें' },
+  too_long: { en: `At most ${TAKA_NO_MAX_LENGTH} characters`, hi: `ज़्यादा से ज़्यादा ${TAKA_NO_MAX_LENGTH} अक्षर` },
   duplicate: { en: 'Typed twice', hi: 'दो बार लिखा है' },
   already_entered: { en: 'Already entered for this jobsheet', hi: 'इस जॉबशीट में पहले से है' },
 };
@@ -114,19 +127,93 @@ export function totalMeters(takas: readonly { meters?: number | null }[]): numbe
   return Math.round(withMeters.reduce((sum, t) => sum + t.meters!, 0) * 100) / 100;
 }
 
-/** "3 takas (1 damage) · 315.5 m" — also stored as the note of takas_entered / takas_edited events. */
-export function takaSummary(takas: readonly { isDamaged: boolean; meters?: number | null }[]): string {
+/* ------------------------------------------------------------------ */
+/* Pcs per taka (required on every new or edited taka)                  */
+/* ------------------------------------------------------------------ */
+
+export const TAKA_PCS_MAX = 9999;
+
+/** Keeps digits only, at most 4 (the number keypad field). */
+export function cleanPcs(value: string): string {
+  return value.replace(/\D/g, '').slice(0, String(TAKA_PCS_MAX).length);
+}
+
+export type PcsError = 'required' | 'invalid' | 'zero' | 'too_big';
+
+/** The pcs typed in a field: a whole number 1–9999, or an error (empty = `required`). */
+export function parsePcs(value: string): { pcs: number | null; error: PcsError | null } {
+  const v = value.trim();
+  if (!v) return { pcs: null, error: 'required' };
+  if (!/^\d+$/.test(v)) return { pcs: null, error: 'invalid' };
+  const n = Number(v);
+  if (n < 1) return { pcs: null, error: 'zero' };
+  if (n > TAKA_PCS_MAX) return { pcs: null, error: 'too_big' };
+  return { pcs: n, error: null };
+}
+
+export const PCS_ERROR_TEXT: Record<PcsError, { en: string; hi: string }> = {
+  required: { en: 'Enter the pcs', hi: 'पीस लिखें' },
+  invalid: { en: 'Use a whole number', hi: 'पूरा अंक लिखें' },
+  zero: { en: 'Pcs must be at least 1', hi: 'कम से कम 1 पीस' },
+  too_big: { en: `At most ${TAKA_PCS_MAX} pcs`, hi: `ज़्यादा से ज़्यादा ${TAKA_PCS_MAX} पीस` },
+};
+
+/** "12 pcs" */
+export function formatPcs(pcs: number): string {
+  return `${pcs.toLocaleString('en-IN')} pcs`;
+}
+
+/** Sum of the pcs entered (older takas without pcs are skipped); `null` when none has pcs. */
+export function totalPcs(takas: readonly { pcs?: number | null }[]): number | null {
+  const withPcs = takas.filter((t) => t.pcs != null);
+  if (!withPcs.length) return null;
+  return withPcs.reduce((sum, t) => sum + t.pcs!, 0);
+}
+
+/* ------------------------------------------------------------------ */
+/* Damage name                                                          */
+/* ------------------------------------------------------------------ */
+
+export const DAMAGE_NAME_MAX_LENGTH = 80;
+
+/**
+ * "Machine damage · Hole" — where the damage was found (`damage_type`) + what it is (the Damage master name).
+ * Older damage without a name shows just "Machine damage".
+ */
+export function damageLabel(damageType: string | null | undefined, damageName?: string | null): string {
+  const where = DAMAGE_TYPE_LABEL[isDamageType(damageType) ? damageType : 'machine'];
+  return damageName ? `${where} · ${damageName}` : where;
+}
+
+/* ------------------------------------------------------------------ */
+/* Summaries + sorting                                                  */
+/* ------------------------------------------------------------------ */
+
+/** "3 takas (1 damage) · 315.5 m · 36 pcs" — also stored as the note of takas_entered / takas_edited events. */
+export function takaSummary(takas: readonly { isDamaged: boolean; meters?: number | null; pcs?: number | null }[]): string {
   const n = takas.length;
   const damaged = takas.filter((t) => t.isDamaged).length;
   const base = `${n} taka${n === 1 ? '' : 's'}`;
-  const withDamage = damaged ? `${base} (${damaged} damage)` : base;
+  const parts = [damaged ? `${base} (${damaged} damage)` : base];
   const meters = totalMeters(takas);
-  return meters === null ? withDamage : `${withDamage} · ${formatMeters(meters)}`;
+  if (meters !== null) parts.push(formatMeters(meters));
+  const pcs = totalPcs(takas);
+  if (pcs !== null) parts.push(formatPcs(pcs));
+  return parts.join(' · ');
 }
 
-/** Sorts taka numbers numerically (then as text, so "007" and "7" keep a stable order). */
+/**
+ * Sorts taka numbers part by part numerically ("62/9" < "62/10" < "63"), then as text so "007" and "7" keep a
+ * stable order.
+ */
 export function compareTakaNo(a: string, b: string): number {
-  return Number(a) - Number(b) || a.localeCompare(b);
+  const pa = a.split(/[-/]/).map(Number);
+  const pb = b.split(/[-/]/).map(Number);
+  for (let i = 0; i < Math.min(pa.length, pb.length); i++) {
+    const d = (pa[i] || 0) - (pb[i] || 0);
+    if (d) return d;
+  }
+  return pa.length - pb.length || a.localeCompare(b);
 }
 
 /* ------------------------------------------------------------------ */

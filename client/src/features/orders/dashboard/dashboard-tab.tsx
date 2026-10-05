@@ -5,6 +5,8 @@ import { toast } from 'sonner';
 import {
   ALERT_NOT_STARTED_HOURS,
   formatHours,
+  formatPcs,
+  jobsheetRef,
   getMainStage,
   getSubStage,
   JOBSHEET_STATUS,
@@ -22,6 +24,7 @@ import { ErrorState } from '@/components/list-parts';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { EmptyState } from '@/components/ui/empty-state';
+import { JobsheetRef } from '@/components/ui/jobsheet-ref';
 import { Modal } from '@/components/ui/modal';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useNow } from '@/hooks/useNow';
@@ -147,7 +150,9 @@ function MainStageCard({ stage, data, selected, onSelect }: { stage: MainStageCo
   let secondary: ReactNode;
   if (stage.key === 'production') {
     secondary = data.isPcs ? (
-      `${plural(data.production.frames, 'frame')} · ${plural(data.production.takas, 'taka')} made`
+      `${plural(data.production.frames, 'frame')} · ${plural(data.production.takas, 'taka')} made${
+        data.production.takaPcs !== null ? ` · ${formatPcs(data.production.takaPcs)}` : ''
+      }`
     ) : (
       <span className="text-slate-500">Jobsheets for kg / g / meter orders — coming soon</span>
     );
@@ -208,6 +213,7 @@ function SummaryLine({ data, stage }: { data: OrderDashboard; stage: MainStageKe
       <>Woven <b>{fmt(p.wovenFrames)}</b> frames ({p.wovenPcs.toLocaleString('en-IN')} pcs)</>,
       <>On loom <b>{fmt(p.onLoomFrames)}</b> frames</>,
       <>Takas <b>{p.takas}</b></>,
+      <>Taka pcs <b>{p.takaPcs !== null ? p.takaPcs.toLocaleString('en-IN') : '—'}</b></>,
     ];
   } else {
     const m = data.mainStages.find((s) => s.key === stage)!;
@@ -249,6 +255,7 @@ function subFact(s: SubStageCount, now: number): ReactNode {
       return (
         <>
           from {plural(s.jobsheetCount, 'jobsheet')}
+          {s.takaPcs !== null && ` · ${formatPcs(s.takaPcs)}`}
           {s.damaged > 0 && <span className="font-semibold text-red-600"> · {s.damaged} damaged</span>}
         </>
       );
@@ -330,7 +337,7 @@ function JobsheetRows({ items }: { items: DashboardJobsheetItem[] }) {
   const continued = (j: DashboardJobsheetItem) =>
     j.parentJobsheetNo !== null && (
       <span className="flex items-center gap-1 text-xs font-medium text-slate-500">
-        <CornerDownRight className="size-3.5 shrink-0" aria-hidden /> continued from {j.parentJobsheetNo}
+        <CornerDownRight className="size-3.5 shrink-0" aria-hidden /> continued from #{j.orderNo} ({j.parentJobsheetNo})
       </span>
     );
   return (
@@ -344,7 +351,9 @@ function JobsheetRows({ items }: { items: DashboardJobsheetItem[] }) {
               className="block rounded-xl border border-border p-3.5 outline-none transition hover:border-primary/30 focus-visible:ring-2 focus-visible:ring-primary/40 active:bg-slate-50"
             >
               <span className="flex items-center justify-between gap-2">
-                <span className="text-lg font-bold text-slate-900">Jobsheet {j.jobsheetNo}</span>
+                <span className="text-lg font-bold text-slate-900">
+                  <JobsheetRef orderNo={j.orderNo} jobsheetNo={j.jobsheetNo} />
+                </span>
                 <span className="text-[13px] text-slate-500">{time(j)}</span>
               </span>
               {continued(j)}
@@ -364,7 +373,7 @@ function JobsheetRows({ items }: { items: DashboardJobsheetItem[] }) {
         <table className="w-full text-left text-sm">
           <thead className="border-b border-border text-[12px] uppercase tracking-wide text-slate-500">
             <tr>
-              <th className="py-2 pr-4 font-semibold">Jobsheet</th>
+              <th className="py-2 pr-4 font-semibold">Order (jobsheet)</th>
               <th className="py-2 pr-4 font-semibold">Frames</th>
               <th className="py-2 pr-4 font-semibold">Picks</th>
               <th className="py-2 pr-4 font-semibold">Machine(s)</th>
@@ -377,7 +386,7 @@ function JobsheetRows({ items }: { items: DashboardJobsheetItem[] }) {
                 key={j.id}
                 tabIndex={0}
                 role="link"
-                aria-label={`Open jobsheet ${j.jobsheetNo}`}
+                aria-label={`Open ${jobsheetRef(j.orderNo, j.jobsheetNo)}`}
                 onClick={() => navigate(`/jobsheets/${j.id}`)}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') navigate(`/jobsheets/${j.id}`);
@@ -385,7 +394,9 @@ function JobsheetRows({ items }: { items: DashboardJobsheetItem[] }) {
                 className="cursor-pointer outline-none hover:bg-slate-50 focus-visible:bg-primary-soft/40 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/40"
               >
                 <td className="py-2.5 pr-4">
-                  <span className="text-[15px] font-bold text-primary">{j.jobsheetNo}</span>
+                  <span className="text-[15px] font-bold text-primary">
+                    <JobsheetRef orderNo={j.orderNo} jobsheetNo={j.jobsheetNo} bracketClassName="text-primary/60" />
+                  </span>
                   {continued(j)}
                 </td>
                 <td className="py-2.5 pr-4 font-semibold text-slate-800">
@@ -460,7 +471,7 @@ function DetailBody({ orderId, sub }: { orderId: number; sub: SubStageKey }) {
                 to={`/jobsheets/${g.jobsheetId}`}
                 className="mb-2.5 inline-flex items-center gap-1 rounded text-[15px] font-semibold text-primary outline-none hover:underline focus-visible:ring-2 focus-visible:ring-primary/40"
               >
-                Jobsheet {g.jobsheetNo}
+                <JobsheetRef orderNo={g.orderNo} jobsheetNo={g.jobsheetNo} bracketClassName="text-primary/60" />
                 <span className="font-normal text-slate-500">
                   {' · '}
                   <FramesValue status={g.status} frames={g.frames} completedFrames={g.completedFrames} withUnit />

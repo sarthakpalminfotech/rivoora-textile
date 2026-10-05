@@ -13,9 +13,12 @@ Sprint 4 = Taka entry role (bilingual English + Hindi, phone-first): QR code on 
 entry (auto-completes the jobsheet), Taka jobsheets list, takas on order / jobsheet details with edit, status Taka entry done.
 Sprint 5 = Order dashboard: the order details page becomes header + tabs (Dashboard · Jobsheets · Takas · Damages · Order
 details · History); a config-driven pipeline (Production → Butta cutting → Mill → Ready), `takas.stage`, Damages tab, alerts.
+Sprint 6 = client demo feedback: order number first wherever a jobsheet shows ("Order #26 (319)"), customer brokers +
+order broker, order type (Lump / Pcs to pcs, required), default unit pcs, pcs per taka (required) + taka numbers with
+`-` `/`, Damage master + damage name on takas, one-page print, supervisor "On-loom" label + Order view.
 Specs: `rivoora-claude-code-prompt.md` (sprint 1), `rivoora-sprint2-jobsheets-prompt.md` (sprint 2),
 `rivoora-sprint3-supervisor-prompt.md` (sprint 3), `rivoora-sprint4-taka-entry-prompt.md` (sprint 4),
-`rivoora-sprint5-order-dashboard-prompt.md` (sprint 5).
+`rivoora-sprint5-order-dashboard-prompt.md` (sprint 5), `rivoora-sprint6-demo-feedback-prompt.md` (sprint 6).
 
 ## Monorepo layout (npm workspaces)
 
@@ -23,11 +26,14 @@ Specs: `rivoora-claude-code-prompt.md` (sprint 1), `rivoora-sprint2-jobsheets-pr
 shared/   @rivoora/shared — TS source used by BOTH client and server (no build step)
   src/roles.ts      role config + permissions (single source of truth)
   src/statuses.ts   order + jobsheet status config, orderStatusForJobsheets(), jobsheetStatusLabel()
-  src/units.ts      kg | pcs | g | meters
+  src/units.ts      kg | pcs | g | meters (DEFAULT_UNIT = pcs)
+  src/orderTypes.ts ORDER_TYPES lump | pcs_to_pcs + ORDER_TYPE_LABEL (not linked to the unit)
   src/codes.ts      normalizeCode(); variationCode() is only a placeholder suggestion (D101 → D101N1)
   src/production.ts SECTIONS_PER_BEAM = 3 (never hardcode 3 anywhere else)
-  src/jobsheets.ts  ALL jobsheet maths (pure): planJobsheets, planFramesEdit (auto-adjust), coverage, change-machine helpers
-  src/takas.ts      taka validation (digits, duplicates within ONE jobsheet), takaSummary(), QR url build/parse
+  src/jobsheets.ts  ALL jobsheet maths (pure): planJobsheets, planFramesEdit (auto-adjust), coverage, change-machine helpers;
+                    jobsheetRef(orderNo, jobsheetNo) "Order #26 (319)" / jobsheetRefShort "#26 (319)"
+  src/takas.ts      taka validation (TAKA_NO_REGEX digits with - /, duplicates within ONE jobsheet), meters + pcs helpers,
+                    damageLabel(), takaSummary(), QR url build/parse
   src/pipeline.ts   order pipeline config: MAIN_STAGES, SUB_STAGES, TAKA_STAGES, DAMAGE_TYPE_CONFIG, ALERT_RULES (see "Order dashboard")
   src/orderDashboard.ts  buildOrderDashboard(input, now) — pure; ALL dashboard counts / bar shares / alerts
   src/*.test.ts     vitest — `npm test` (jobsheets.test.ts, takas.test.ts, orderDashboard.test.ts)
@@ -40,22 +46,26 @@ server/   Express + Drizzle + Turso (libSQL)
   src/db/migrate.ts     applies migrations      src/db/seed.ts + patterns.ts   demo data + SVG patterns
   src/routes/*          thin Express routers    src/services/*   all SQL / business rules
                         (services/takas.ts: enter / edit / order takas / Taka list; taka-shared.ts avoids an import cycle;
-                        services/dashboard.ts: order dashboard, sub-stage items, damages)
+                        services/dashboard.ts: order dashboard, sub-stage items, damages;
+                        services/damages.ts: Damage master + resolveDamage (find-or-create "Other" names))
   src/middleware/role.ts  X-Role header → req.role; requirePermission(...)
   src/middleware/error.ts consistent `{ error: { message, field? } }`
   src/storage/*         image storage driver (local disk now; swap for R2/S3 in storage/index.ts)
   uploads/              uploaded images (gitignored, except uploads/demo/ seed images)
 client/   Vite + React 18 + TS + Tailwind + Radix (shadcn-style components written in-repo)
-  src/components/ui/*      design system (select.tsx = THE standard dropdown, modal.tsx, date-picker, …)
+  src/components/ui/*      design system (select.tsx = THE standard dropdown, modal.tsx, date-picker, segmented.tsx
+                           (attached tappable options), jobsheet-ref.tsx (<JobsheetRef> order-first label), …)
   src/components/layout/*  sidebar / tablet rail / mobile bottom nav, top bar, profile menu (role switch)
   src/features/orders/*    list + selection mode, filters, add order, saved-designs drawer, details page (header + tabs)
   src/features/orders/dashboard/*  order-header, dashboard-tab, damages-tab, view-state (URL tab/stage/sub/type), api
-  src/features/masters/*   customers, materials, designs, machines (+ generic master-list scaffold)
+  src/features/masters/*   customers (+ brokers), materials, designs, machines, damages (Damage master) (+ generic master-list scaffold)
   src/features/jobsheets/* order Jobsheets section (+ send selection), forms, details page, print route,
-                           supervisor module (supervisor-jobsheets-page, run-dialogs, activity)
+                           supervisor module (supervisor-jobsheets-page = Order | All views + SupervisorJobsheetList,
+                           supervisor-order-jobsheets-page, run-dialogs, activity)
   src/features/machine-view/* the machine floor board
   src/features/takas/*     Taka entry role: scan-page (qr-scanner), jobsheet-qr-page (/j/:no), taka-jobsheets-page,
-                           taka-entry-page; takas-card (order + jobsheet Takas blocks) + edit-takas-dialog (Jemish/Gaurang)
+                           taka-entry-page; takas-card (order + jobsheet Takas blocks) + edit-takas-dialog (Jemish/Gaurang);
+                           damage-dialog (the damage popup, both screens) + taka-no-keys (the – / helper keys)
   src/lib/bilingual.tsx    bi('Submit','जमा करें') + <Bi en hi /> for the Taka entry screens
   src/config/roles.ts, statuses.ts   re-exports from shared (client-side mirror)
   src/lib/api.ts           fetch wrapper — adds X-Role, parses error JSON into ApiError
@@ -111,6 +121,19 @@ run migrate + seed against it first). Vite's proxy target can be changed with `A
   Taka entry screen (number → meters → Damage per row) and in Edit takas; helpers `cleanMeters` / `parseMeters` /
   `formatMeters` / `totalMeters` in `shared/src/takas.ts`. Shown on every taka chip ("12 · 105.5 m") and as totals
   (`OrderTakas.totalMeters`, Takas card "Total meters" tile, taka event summaries "3 takas (1 damage) · 203.75 m").
+- Sprint 6 (migration 0007): `customer_brokers` (customer_id, name ≤ 80, soft delete; partial unique
+  `(customer_id, lower(name)) WHERE is_deleted = 0`) — saved with the customer in one transaction (renames go through a
+  temporary `~id` name, removed brokers are soft-deleted and stay on old orders); `orders.broker_id` (nullable, must be
+  one of the customer's brokers → 400 `brokerId`; an already-saved, since removed broker may stay on edit);
+  `orders.order_type` (`lump` | `pcs_to_pcs`, NOT NULL default/backfill `pcs_to_pcs`; the API requires it);
+  `takas.pcs` (INTEGER nullable; the API requires 1–9999 on new and CHANGED takas — an unchanged older taka without pcs
+  may stay without); `damages` (Damage master: name unique case-insensitive among active, notes, soft delete, delete
+  409 while an active taka uses it); `takas.damage_id` (WHAT the damage is; `damage_type` = WHERE stays `machine` for
+  taka entry / Edit takas). Taka payloads carry `damage: {damageId} | {otherName} | null` (Edit takas also
+  `{damageId: null}` = keep an older nameless damage); "Other" names are found case-insensitively or added to the
+  master inside the taka transaction (also for the Taka entry role). The DTO name comes from `takaDamageName`
+  (correlated subquery) — so `takaColumns` can't be used in RETURNING.
+- Taka numbers: `^\d+([-/]\d+)*$`, max 15 (`TAKA_NO_REGEX`); duplicates exact per jobsheet. The QR stays `/j/<digits>`.
 - `takas.stage` (migration 0005, NOT NULL default `entered`, indexed): where the taka is — values in `TAKA_STAGES`
   (`shared/src/pipeline.ts`). Everything is `entered` today; nothing else writes it yet. Carried on the `Taka` DTO.
 - Jobsheet workflow columns (migration 0003): `status` (pending | sent | ongoing | completed, indexed), `sent_at`,
@@ -128,6 +151,8 @@ run migrate + seed against it first). Vite's proxy target can be changed with `A
 
 - `X-Role: jemish | gaurang | supervisor | taka_entry` header on every `/api` call (client stores the role in localStorage
   `rivoora.role`). Missing/invalid header → 400. Permissions are enforced on the server via `requirePermission`.
+- `canManageDamages` (Jemish + Gaurang): Damage master writes (`/damages`, read with `canViewMasters`).
+  `GET /lookup/damages` = `canViewMasters | canEnterTakas | canEditTakas` (not the supervisor).
 - Permissions live in `shared/src/roles.ts`. Adding a role: add key + config there (incl. `landing` route), then add
   it to `visibleTo` of the order / jobsheet statuses it may see.
 - Rate: returned by `GET /api/orders/:id` only when `canSeeRate`; the list endpoint never returns rate.
@@ -172,7 +197,7 @@ run migrate + seed against it first). Vite's proxy target can be changed with `A
   Use `isReadyOrLater(status)` for "Jobsheet pending or any later status".
 - Jobsheet statuses: `JOBSHEET_STATUSES` in `shared/src/statuses.ts` (stored in `jobsheets.status`) — pending (slate) →
   sent (amber) → ongoing (blue) → completed (green), each with `visibleTo` and optional `roleLabels` (the supervisor
-  sees `sent` as "Pending"). Always render labels via `jobsheetStatusLabel(status, role)` /
+  sees `sent` as "Pending" and `ongoing` as "On-loom"). Always render labels via `jobsheetStatusLabel(status, role)` /
   `<StatusBadge kind="jobsheet" …/>`. Only Pending jobsheets can be edited/deleted (409 "Pull it back … first");
   pull back only Sent → Pending.
 - Auto-adjust (7.4) touches **only Pending** jobsheets: the last = highest-numbered Pending one. Coverage (7.5) counts
@@ -180,8 +205,13 @@ run migrate + seed against it first). Vite's proxy target can be changed with `A
 
 ## API (all under /api, JSON)
 
-- `GET /orders?search=&status=a,b&material=1,2&from=&to=&page=&limit=` — lean list (customer + material joined,
-  plus `designCode` / `designThumbUrl` = variation, else design; search also matches design/variation codes)
+- `GET /orders?search=&status=a,b&material=1,2&type=lump,pcs_to_pcs&from=&to=&page=&limit=` — lean list (customer +
+  material + broker joined, `orderType`, `brokerName`, `designCode` / `designThumbUrl` = variation, else design; search
+  also matches design/variation codes and broker names). Order bodies: `orderType` (required), `brokerId?`.
+- Customers: body gains `brokers: [{id?, name}]`; `Customer.brokers`; search also matches broker names ·
+  `GET /lookup/customers/:id/brokers` · CRUD `/damages` · `GET /lookup/damages?search=`.
+- **Every jobsheet response carries `orderNo`** (lists, details, by-no, machine view, dashboard items, damages, takas
+  groups, write results). Restricted roles still get only the order number.
 - `GET /orders/:id` (incl. `jobsheetCount`, `jobsheetPieces`) · `POST /orders` · `PUT /orders/:id` (`canEditOrder`, same body as
   create, any status the role can see, status unchanged; unit locked once jobsheets exist → 400 `unit`; note images = full new set) · `POST /orders/send-to-production {orderIds}` · `POST /orders/:id/undo-production`
 - Order dashboard (same visibility as `GET /orders/:id`): `GET /orders/:id/dashboard` (counts only — one batch: order,
@@ -205,8 +235,12 @@ run migrate + seed against it first). Vite's proxy target can be changed with `A
   `PUT /jobsheets/:id/takas {takas:[{id?,takaNo,isDamaged}], note}` (`canEditTakas`; replace-set, soft-deletes missing
   ids; new rows only on Completed jobsheets, 409 otherwise; `takas_edited` event) · `GET /orders/:id/takas` (grouped by
   jobsheet + total / damaged). Field errors come back as `takas.<index>.takaNo` (index in the submitted list).
-- Supervisor: `GET /jobsheets?tab=all|pending|ongoing|completed&search=&page=&limit=` (Sent/Ongoing/Completed only; sorted
-  Pending → Ongoing by number, Completed newest first; returns `counts` per tab) · `POST /jobsheets/:id/start {machineId}`
+- Supervisor: `GET /jobsheets?tab=all|pending|ongoing|completed&search=&orderId=&page=&limit=` (Sent/Ongoing/Completed only;
+  sorted Pending → Ongoing by number, Completed newest first; returns `counts` per tab; with `orderId` also `order`
+  = {orderNo, design} header, 404 when that order has no visible jobsheets) · `GET /jobsheets/orders?search=` (Order view:
+  one GROUP BY query — orders with Pending/On-loom work first by number, fully completed last by last completion; only
+  number, design, counts) · jobsheet search = order no OR jobsheet no (prefix) OR design code, leading `#` ignored ·
+  `POST /jobsheets/:id/start {machineId}`
   (one of its active machines) · `POST /jobsheets/:id/complete {completedFrames}` · `POST /jobsheets/:id/change-machine
   {newMachineId, completedFrames, nextFrames}` (completes the current one; creates a new **Sent** jobsheet: new number,
   frames = next, picks copied, parent + suggested machine set, machines = all active; plan unchanged) — `canRunJobsheets`.
@@ -258,8 +292,17 @@ run migrate + seed against it first). Vite's proxy target can be changed with `A
   6 numeric fields (`inputMode=numeric`, digits only, Enter → next) with Damage toggles, Add more → note (+ disabled mic)
   → sticky Submit (above the bottom nav) → confirm dialog → success screen (Scan next / Back to list / Add more) →
   secondary details. Validation always via the shared `validateTakaNumbers`.
-- Print route: CSS is injected with a `<style>` only while mounted (`@page A4, 10mm`), 2 pages per jobsheet (front +
-  design back, `break-after: page`), Noto Sans Devanagari loaded only there; Print waits for images + font.
+- Print route: CSS is injected with a `<style>` only while mounted (`@page A4, 10mm`), ONE page per jobsheet
+  (`break-after: page`; the design back page was removed in Sprint 6), Noto Sans Devanagari loaded only there; Print
+  waits for the font + QR only. Number box = "ORDER 26 (319)"; QR caption `Scan · 26 (319)`; assigned looms as small
+  "Assigned: 7, 9" above an EMPTY Loom no box (the supervisor writes the loom used).
+- Order number first: show jobsheets with `<JobsheetRef orderNo jobsheetNo />` (order number bold, bracket small/muted)
+  or `jobsheetRef()` / `jobsheetRefShort()` for plain text (toasts, titles, aria). Never "Jobsheet 319" alone.
+- Taka rows: number → meters → pcs (required) → Damage. The – / keys (`TakaNoKeys`) show only under the FOCUSED taka
+  number field (pointer-down keeps focus). Damage opens `DamageDialog` (master name or "Other"; damaged rows offer
+  Change / Remove). Chips: "6245 · 105.5 m · 12 pcs" + `damageLabel()` "Machine damage · Hole".
+- Supervisor `/jobsheets`: Segmented `Order | All` (`?view=all`, default Order). Order view → `/jobsheets/order/:orderId`
+  (header + the same `SupervisorJobsheetList` with `orderId`). Query key `['jobsheets','orders', params]`.
 - Order details page (`/orders/:id`): "← Orders" → `OrderHeader` (design thumb opens the Lightbox, order # + status +
   Undo send for production, detail grid; phones show 4 fields + "More details") → tabs **Dashboard** (default) ·
   **Jobsheets** (the unchanged `OrderJobsheetsSection`) · **Takas** (the unchanged `OrderTakasCard`) · **Damages** ·
@@ -323,5 +366,5 @@ run migrate + seed against it first). Vite's proxy target can be changed with `A
 
 ## Not built yet (next sprints)
 
-Login/auth, statuses after Taka entry done (dispatch etc.), butta cutting / mill / ready flows (the dashboard stages are wired but `connected: false`), butta / mill damage recording, jobsheets for kg / g / meter orders, further order
+Login/auth, statuses after Taka entry done (dispatch etc.), real-phone (Android/iPhone) check of the taka keypad + – / keys, butta cutting / mill / ready flows (the dashboard stages are wired but `connected: false`), butta / mill damage recording, jobsheets for kg / g / meter orders, further order
 actions, voice notes (the mic icon is a placeholder with a "coming soon" tooltip), and cleanup of orphaned uploaded images.

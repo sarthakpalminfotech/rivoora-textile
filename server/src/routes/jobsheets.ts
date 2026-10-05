@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { jobsheetListQuerySchema } from '@rivoora/shared';
+import { jobsheetListQuerySchema, supervisorOrderListQuerySchema } from '@rivoora/shared';
 import { ah, csv, parseId } from '../lib/http';
 import { requirePermission } from '../middleware/role';
 import {
@@ -10,6 +10,7 @@ import {
   getJobsheet,
   jobsheetByNo,
   listSupervisorJobsheets,
+  listSupervisorOrders,
   printJobsheets,
   pullBackJobsheet,
   startJobsheet,
@@ -35,6 +36,15 @@ jobsheetsRouter.get(
   requirePermission('canViewJobsheetsModule'),
   ah(async (req, res) => {
     res.json(await listSupervisorJobsheets(req.role, jobsheetListQuerySchema.parse(req.query)));
+  }),
+);
+
+/** The supervisor's Order view: jobsheets grouped by order (number + design + counts only). */
+jobsheetsRouter.get(
+  '/orders',
+  requirePermission('canViewJobsheetsModule'),
+  ah(async (req, res) => {
+    res.json(await listSupervisorOrders(req.role, supervisorOrderListQuerySchema.parse(req.query)));
   }),
 );
 

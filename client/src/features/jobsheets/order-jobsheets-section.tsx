@@ -2,12 +2,13 @@ import { ArrowUpFromLine, ClipboardList, CornerDownRight, FilePlus2, Hourglass, 
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
-import { isReadyOrLater, JOBSHEET_STATUS, type JobsheetListItem, type OrderDetail } from '@rivoora/shared';
+import { isReadyOrLater, JOBSHEET_STATUS, jobsheetRef, type JobsheetListItem, type OrderDetail } from '@rivoora/shared';
 import { ErrorState } from '@/components/list-parts';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { EmptyState } from '@/components/ui/empty-state';
+import { JobsheetRef } from '@/components/ui/jobsheet-ref';
 import { Skeleton } from '@/components/ui/skeleton';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { Tooltip } from '@/components/ui/tooltip';
@@ -73,7 +74,7 @@ function JobsheetCard({ js, selecting, checked, onClick, onToggle }: CardProps) 
       tabIndex={disabled ? -1 : 0}
       aria-disabled={disabled || undefined}
       aria-pressed={selectable ? checked : undefined}
-      aria-label={selectable ? `Select jobsheet ${js.jobsheetNo}` : `Open jobsheet ${js.jobsheetNo}`}
+      aria-label={selectable ? `Select ${jobsheetRef(js.orderNo, js.jobsheetNo)}` : `Open ${jobsheetRef(js.orderNo, js.jobsheetNo)}`}
       onClick={() => !disabled && onClick()}
       onKeyDown={(e) => {
         if (!disabled && (e.key === 'Enter' || (selecting && e.key === ' '))) {
@@ -91,20 +92,22 @@ function JobsheetCard({ js, selecting, checked, onClick, onToggle }: CardProps) 
     >
       {selectable && (
         <div onClick={(e) => e.stopPropagation()} className="pt-0.5">
-          <Checkbox checked={checked} onCheckedChange={onToggle} aria-label={`Select jobsheet ${js.jobsheetNo}`} />
+          <Checkbox checked={checked} onCheckedChange={onToggle} aria-label={`Select ${jobsheetRef(js.orderNo, js.jobsheetNo)}`} />
         </div>
       )}
       <div className="flex min-w-0 flex-1 flex-col gap-3">
         <div className="flex w-full items-start justify-between gap-2">
           <div className="min-w-0">
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Jobsheet</p>
-            <p className="text-2xl font-bold leading-tight text-slate-900">{js.jobsheetNo}</p>
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Order (jobsheet)</p>
+            <p className="text-2xl font-bold leading-tight text-slate-900">
+              <JobsheetRef orderNo={js.orderNo} jobsheetNo={js.jobsheetNo} variant="short" />
+            </p>
           </div>
           <StatusBadge kind="jobsheet" status={js.status} className="mt-0.5 min-w-0 shrink" />
         </div>
         {js.parentJobsheetNo !== null && (
           <p className="-mt-1 flex items-center gap-1 text-xs font-medium text-slate-500">
-            <CornerDownRight className="size-3.5 shrink-0" aria-hidden /> continued from {js.parentJobsheetNo}
+            <CornerDownRight className="size-3.5 shrink-0" aria-hidden /> continued from #{js.orderNo} ({js.parentJobsheetNo})
           </p>
         )}
         <dl className="mt-auto grid w-full grid-cols-3 gap-2 border-t border-border pt-3">

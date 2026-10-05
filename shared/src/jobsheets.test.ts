@@ -12,6 +12,8 @@ import {
   remainingFrames,
   formatExactFrames,
   jobsheetQuantityWarning,
+  jobsheetRef,
+  jobsheetRefShort,
   planFramesEdit,
   planJobsheets,
   remainingPieces,
@@ -321,7 +323,7 @@ describe('jobsheet status labels per role', () => {
   it('the supervisor sees Sent as Pending', () => {
     expect(jobsheetStatusLabel('sent', 'jemish')).toBe('Sent to supervisor');
     expect(jobsheetStatusLabel('sent', 'supervisor')).toBe('Pending');
-    expect(jobsheetStatusLabel('ongoing', 'supervisor')).toBe('Ongoing');
+    expect(jobsheetStatusLabel('ongoing', 'supervisor')).toBe('On-loom');
     expect(jobsheetStatusLabel('pending', 'gaurang')).toBe('Pending');
   });
 });
@@ -344,14 +346,22 @@ describe('change machine helpers', () => {
   });
 
   it('summary and completed-frames notes', () => {
-    expect(changeMachineSummary({ jobsheetNo: 319, completed: 4, next: 6, newMachineNo: 9 })).toBe(
-      'Jobsheet 319 will be completed with 4 frames. A new jobsheet with 6 frames will be created for Machine 9.',
+    expect(changeMachineSummary({ orderNo: 26, jobsheetNo: 319, completed: 4, next: 6, newMachineNo: 9 })).toBe(
+      'Order #26 (319) will be completed with 4 frames. A new jobsheet with 6 frames will be created for Machine 9.',
     );
-    expect(changeMachineSummary({ jobsheetNo: 319, completed: 1, next: 1, newMachineNo: null })).toBe(
-      'Jobsheet 319 will be completed with 1 frame. A new jobsheet with 1 frame will be created.',
+    expect(changeMachineSummary({ orderNo: 26, jobsheetNo: 319, completed: 1, next: 1, newMachineNo: null })).toBe(
+      'Order #26 (319) will be completed with 1 frame. A new jobsheet with 1 frame will be created.',
     );
     expect(completedFramesNote(10, 8)).toBe("Assigned 10 — you're recording 8 (2 fewer).");
     expect(completedFramesNote(10, 11)).toBe("Assigned 10 — you're recording 11 (1 more).");
     expect(completedFramesNote(10, 10)).toBeNull();
+  });
+});
+
+describe('jobsheetRef (order number first)', () => {
+  it('puts the order number first and the jobsheet number in brackets', () => {
+    expect(jobsheetRef(26, 319)).toBe('Order #26 (319)');
+    expect(jobsheetRefShort(26, 319)).toBe('#26 (319)');
+    expect(jobsheetRef(1, 1)).toBe('Order #1 (1)');
   });
 });

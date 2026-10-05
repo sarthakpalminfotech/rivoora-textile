@@ -2,7 +2,7 @@ import { ArrowLeft, CalendarClock, ImageOff, PackageCheck, Send } from 'lucide-r
 import { useState, type ReactNode } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
-import { isReadyOrLater, STATUS, type OrderDetail } from '@rivoora/shared';
+import { isReadyOrLater, ORDER_TYPE_LABEL, STATUS, type OrderDetail } from '@rivoora/shared';
 import { usePageTitle } from '@/components/layout/page-title';
 import { ErrorState } from '@/components/list-parts';
 import { Button } from '@/components/ui/button';
@@ -80,6 +80,14 @@ function DetailsTab({ order }: { order: OrderDetail }) {
   return (
     <div className="flex flex-col gap-4 lg:grid lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start">
       <div className="min-w-0 space-y-4">
+        <Card title="Order">
+          <dl className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+            <Item label="Order type">{ORDER_TYPE_LABEL[order.orderType]}</Item>
+            <Item label="Client">{order.customer.name}</Item>
+            <Item label="Broker">{order.broker ? order.broker.name : <span className="font-normal text-slate-400">—</span>}</Item>
+          </dl>
+        </Card>
+
         <Card title="Notes">
           {order.notes ? (
             <p className="whitespace-pre-line text-[15px] leading-relaxed text-slate-700">{order.notes}</p>

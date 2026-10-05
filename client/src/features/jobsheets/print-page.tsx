@@ -1,8 +1,8 @@
 import { AlertTriangle, ArrowLeft, Loader2, Printer } from 'lucide-react';
-import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import QRCode from 'qrcode';
-import { jobsheetQrUrl, type JobsheetPrintItem } from '@rivoora/shared';
+import { jobsheetQrUrl, jobsheetRefShort, type JobsheetPrintItem } from '@rivoora/shared';
 import { usePageTitle } from '@/components/layout/page-title';
 import { ErrorState } from '@/components/list-parts';
 import { Button } from '@/components/ui/button';
@@ -12,7 +12,7 @@ import { useJobsheetPrint } from './api';
 
 /*
  * Print layout. A4 = 210 × 297 mm with 10 mm margins → 190 × 277 mm of content per page.
- * Each jobsheet prints as 2 pages (front + design back) so double-sided pairs never shift.
+ * Each jobsheet prints as ONE page (the design back page was removed in Sprint 6).
  * Everything is scoped under .jsp and injected only while this route is mounted.
  */
 const PAGE_W_MM = 210;
@@ -37,8 +37,11 @@ const CSS = `
 .jsp-line { flex: 1; border-bottom: 1px solid var(--ink); min-width: 10mm; }
 
 .jsp-om { text-align: center; font-family: 'Noto Sans Devanagari', sans-serif; font-weight: 600; font-size: 15pt; line-height: 1.2; }
-.jsp-no { margin-top: 2.5mm; width: 105mm; height: 20mm; display: flex; align-items: center; justify-content: center;
-  font-size: 34pt; font-weight: 800; letter-spacing: 0.04em; }
+/* Order number large, the jobsheet number in brackets beside it, smaller: "ORDER 26 (319)". */
+.jsp-no { margin-top: 2.5mm; width: 105mm; height: 20mm; display: flex; align-items: baseline; justify-content: center; gap: 2.5mm;
+  padding-top: 2mm; font-size: 34pt; font-weight: 800; letter-spacing: 0.04em; line-height: 1; }
+.jsp-no-lbl { font-size: 8pt; font-weight: 700; letter-spacing: 0.12em; align-self: center; }
+.jsp-no-js { font-size: 18pt; font-weight: 700; letter-spacing: 0.02em; }
 
 /* QR in the empty space right of the number box (top 0 → ~31 mm; the main box starts at ~32 mm). */
 .jsp-qr { position: absolute; top: 0; right: 0; width: 28mm; display: flex; flex-direction: column; align-items: center; }
@@ -51,6 +54,7 @@ const CSS = `
 .jsp-row { display: flex; align-items: flex-end; gap: 2mm; height: 8mm; }
 .jsp-idbox { padding: 3mm; display: flex; flex-direction: column; gap: 3mm; justify-content: center; }
 .jsp-idrow { display: flex; flex-direction: column; gap: 1.2mm; }
+.jsp-assigned { font-size: 8.5pt; font-weight: 600; line-height: 1; }
 .jsp-vbox { border: 1.4px solid var(--ink); min-height: 14mm; padding: 1.5mm 3mm; display: flex; align-items: center;
   word-break: break-word; }
 
@@ -73,12 +77,6 @@ const CSS = `
 .jsp-damage h3 { margin: 0 0 1mm; text-align: center; font-weight: 800; font-size: 12pt; letter-spacing: 0.08em; }
 .jsp-damage .jsp-row { flex: 1; height: auto; }
 
-.jsp-back { position: relative; display: flex; flex-direction: column; align-items: center; width: 190mm; height: 277mm; }
-.jsp-back-code { font-size: 32pt; font-weight: 800; letter-spacing: 0.03em; margin: 2mm 0 5mm; text-align: center; }
-.jsp-back-img { flex: 1; min-height: 0; width: 100%; display: flex; align-items: center; justify-content: center; }
-.jsp-back-img img { max-width: 100%; max-height: 100%; object-fit: contain; }
-.jsp-back-tag { position: absolute; top: 0; right: 0; font-size: 9pt; font-weight: 600; color: #444; }
-.jsp-back-empty { color: #888; font-size: 10pt; }
 
 @media screen {
   .jsp-page { box-shadow: 0 1px 3px rgb(15 23 42 / 0.12), 0 8px 24px rgb(15 23 42 / 0.08); }
@@ -93,7 +91,7 @@ const CSS = `
   .jsp-fit { max-width: none !important; overflow: visible !important; }
   /* 1 mm of slack so rounding never spills onto an extra sheet. */
   .jsp-page { width: 190mm; height: 276mm; padding: 0; box-shadow: none; break-after: page; page-break-after: always; }
-  .jsp-sheet, .jsp-back { height: 276mm; }
+  .jsp-sheet { height: 276mm; }
   .jsp-page:last-child { break-after: auto; page-break-after: auto; }
 }
 `;
@@ -104,12 +102,16 @@ function FrontPage({ js, qrSvg }: { js: JobsheetPrintItem; qrSvg: string | undef
   return (
     <div className="jsp-sheet">
       <div className="jsp-om">॥ श्री गणेशाय नमः ॥</div>
-      <div className="jsp-no jsp-b">{js.jobsheetNo}</div>
+      <div className="jsp-no jsp-b" aria-label={`Order ${js.orderNo}, jobsheet ${js.jobsheetNo}`}>
+        <span className="jsp-no-lbl">ORDER</span>
+        <span>{js.orderNo}</span>
+        <span className="jsp-no-js">({js.jobsheetNo})</span>
+      </div>
       {qrSvg && (
         <div className="jsp-qr">
-          {/* SVG generated locally by the qrcode package from our own URL. */}
+          {/* SVG generated locally by the qrcode package from our own URL (still /j/<jobsheetNo>). */}
           <div className="jsp-qr-code" dangerouslySetInnerHTML={{ __html: qrSvg }} />
-          <div className="jsp-qr-cap">Scan · {js.jobsheetNo}</div>
+          <div className="jsp-qr-cap">Scan · {jobsheetRefShort(js.orderNo, js.jobsheetNo).slice(1)}</div>
         </div>
       )}
 
@@ -131,7 +133,9 @@ function FrontPage({ js, qrSvg }: { js: JobsheetPrintItem; qrSvg: string | undef
           <div className="jsp-idbox jsp-b">
             <div className="jsp-idrow">
               <span className="jsp-lbl">Loom no:</span>
-              <div className="jsp-vbox jsp-val">{js.machineNos.join(', ')}</div>
+              {/* The assigned looms as a hint; the box stays empty for the loom actually used (written by hand). */}
+              <span className="jsp-assigned">{js.machineNos.length ? `Assigned: ${js.machineNos.join(', ')}` : ' '}</span>
+              <div className="jsp-vbox jsp-val" />
             </div>
             <div className="jsp-idrow">
               <span className="jsp-lbl">Design no:</span>
@@ -218,45 +222,6 @@ function FrontPage({ js, qrSvg }: { js: JobsheetPrintItem; qrSvg: string | undef
   );
 }
 
-function BackPage({ js, onImageDone }: { js: JobsheetPrintItem; onImageDone: () => void }) {
-  return (
-    <div className="jsp-back">
-      <span className="jsp-back-tag">Jobsheet {js.jobsheetNo}</span>
-      {js.designCode && <div className="jsp-back-code">{js.designCode}</div>}
-      <div className="jsp-back-img">
-        {js.imageUrl ? (
-          <img
-            src={js.imageUrl}
-            alt={`Design ${js.designCode ?? ''}`}
-            loading="eager"
-            decoding="sync"
-            ref={(el) => {
-              // Already-cached images may be complete before React attaches onLoad.
-              if (el?.complete && el.dataset.done !== '1') {
-                el.dataset.done = '1';
-                onImageDone();
-              }
-            }}
-            onLoad={(e) => {
-              if (e.currentTarget.dataset.done !== '1') {
-                e.currentTarget.dataset.done = '1';
-                onImageDone();
-              }
-            }}
-            onError={(e) => {
-              if (e.currentTarget.dataset.done !== '1') {
-                e.currentTarget.dataset.done = '1';
-                onImageDone();
-              }
-            }}
-          />
-        ) : (
-          <span className="jsp-back-empty">No design attached</span>
-        )}
-      </div>
-    </div>
-  );
-}
 
 /** Makes sure Noto Sans Devanagari (for ॥ श्री गणेशाय नमः ॥; also loaded globally) is ready before printing. */
 function useDevanagariFont() {
@@ -349,16 +314,18 @@ export default function JobsheetPrintPage() {
   const fontReady = useDevanagariFont();
   const qrCodes = useQrCodes(data);
   const { ref, scale } = usePageScale();
-  const [loadedImages, setLoadedImages] = useState(0);
-  const onImageDone = useCallback(() => setLoadedImages((n) => n + 1), []);
 
   usePageTitle(
-    data ? (data.length === 1 ? `Print jobsheet ${data[0].jobsheetNo}` : `Print ${data.length} jobsheets`) : 'Print jobsheets',
+    data
+      ? data.length === 1
+        ? `Print jobsheet ${jobsheetRefShort(data[0].orderNo, data[0].jobsheetNo)}`
+        : `Print ${data.length} jobsheets`
+      : 'Print jobsheets',
   );
 
-  const imageCount = data?.filter((j) => j.imageUrl).length ?? 0;
-  const ready = !!data && fontReady && !!qrCodes && loadedImages >= imageCount;
-  const pageCount = (data?.length ?? 0) * 2;
+  // Print waits only for the font and the QR codes (one page per jobsheet, no images).
+  const ready = !!data && fontReady && !!qrCodes;
+  const pageCount = data?.length ?? 0;
 
   const goBack = () => {
     if (location.key !== 'default') navigate(-1);
@@ -379,7 +346,7 @@ export default function JobsheetPrintPage() {
           </Button>
           <p className="min-w-0 flex-1 truncate text-sm font-medium text-slate-600">
             {data
-              ? `${data.length} jobsheet${data.length === 1 ? '' : 's'} · ${pageCount} A4 pages (front + design)`
+              ? `${data.length} jobsheet${data.length === 1 ? '' : 's'} · ${pageCount} A4 page${pageCount === 1 ? '' : 's'}`
               : 'Jobsheets'}
           </p>
           <Button onClick={() => window.print()} disabled={!ready}>
@@ -434,14 +401,11 @@ export default function JobsheetPrintPage() {
               }}
             >
               <div className="jsp-pages flex flex-col" style={{ gap: gapPx }}>
-                {data.flatMap((js) => [
-                  <div key={`${js.id}-f`} className="jsp-page">
+                {data.map((js) => (
+                  <div key={js.id} className="jsp-page">
                     <FrontPage js={js} qrSvg={qrCodes?.get(js.jobsheetNo)} />
-                  </div>,
-                  <div key={`${js.id}-b`} className="jsp-page">
-                    <BackPage js={js} onImageDone={onImageDone} />
-                  </div>,
-                ])}
+                  </div>
+                ))}
               </div>
             </div>
           </div>

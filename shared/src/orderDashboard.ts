@@ -1,4 +1,4 @@
-import { coverageWarnings, effectiveFrames, coverageFrames, type CoverageWarningKind } from './jobsheets';
+import { coverageWarnings, effectiveFrames, coverageFrames, jobsheetRef, type CoverageWarningKind } from './jobsheets';
 import {
   ALERT_NOT_STARTED_HOURS,
   DAMAGE_TYPE_CONFIG,
@@ -30,6 +30,7 @@ import type { JobsheetStatusKey, OrderStatusKey } from './statuses';
 /* ------------------------------------------------------------------ */
 
 export interface DashboardOrderInput {
+  orderNo: number;
   unit: string;
   quantity: number;
   /** `orders.jobsheet_pieces` */
@@ -57,6 +58,8 @@ export interface DashboardTakaInput {
   isDamaged: boolean;
   damageType: string | null;
   count?: number;
+  /** Pcs of the taka (aggregated rows: the sum; null when none of them has pcs). */
+  pcs?: number | null;
 }
 
 export interface DashboardInput {
@@ -83,6 +86,8 @@ export interface SubStageCount {
   /** On loom: distinct running machines. */
   machines: number;
   damaged: number;
+  /** Taka sub-stages: pcs entered on its takas (null when none has pcs). */
+  takaPcs: number | null;
   /** Waiting to start: the oldest `sent_at`. */
   oldestSince: string | null;
   /** True when the oldest item is over the alert limit. */
@@ -113,6 +118,8 @@ export interface ProductionTotals {
   wovenPcs: number;
   onLoomFrames: number;
   takas: number;
+  /** Pcs entered on the takas (null when no taka has pcs yet). */
+  takaPcs: number | null;
 }
 
 export interface DashboardProgress {
@@ -203,6 +210,7 @@ export function buildOrderDashboard(input: DashboardInput, now: Date = new Date(
         jobsheetCount: 0,
         machines: 0,
         damaged: 0,
+        takaPcs: null,
         oldestSince: null,
         overdue: false,
       },
@@ -213,13 +221,16 @@ export function buildOrderDashboard(input: DashboardInput, now: Date = new Date(
   const takasByJobsheet = new Map<number, Map<MainStageKey, number>>();
   const subJobsheets = new Map<SubStageKey, Set<number>>();
   let takaCount = 0;
+  let takaPcs: number | null = null;
   const damageCounts = new Map<DamageType, number>();
   for (const t of takas) {
     const n = t.count ?? 1;
     if (n <= 0) continue;
     takaCount += n;
+    if (t.pcs != null) takaPcs = (takaPcs ?? 0) + t.pcs;
     const sub = subs.get(takaSub(t.stage))!;
     sub.count += n;
+    if (t.pcs != null) sub.takaPcs = (sub.takaPcs ?? 0) + t.pcs;
     if (t.isDamaged) {
       sub.damaged += n;
       damageCounts.set(damageOf(t), (damageCounts.get(damageOf(t)) ?? 0) + n);
@@ -270,7 +281,7 @@ export function buildOrderDashboard(input: DashboardInput, now: Date = new Date(
         alerts.push({
           rule: 'not_started',
           kind: 'not_started',
-          message: `Jobsheet ${j.jobsheetNo} sent to supervisor ${formatHours(h)} ago, not started yet`,
+          message: `${jobsheetRef(order.orderNo, j.jobsheetNo)} sent to supervisor ${formatHours(h)} ago, not started yet`,
           jobsheetId: j.id,
           jobsheetNo: j.jobsheetNo,
         });
@@ -353,6 +364,7 @@ export function buildOrderDashboard(input: DashboardInput, now: Date = new Date(
       wovenPcs,
       onLoomFrames,
       takas: takaCount,
+      takaPcs,
     },
     damages,
     damageTotal: damages.reduce((n, d) => n + d.count, 0),

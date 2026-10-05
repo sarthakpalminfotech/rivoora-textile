@@ -51,7 +51,12 @@ export function useEnterTakas(jobsheetId: number) {
     meta: { silentFieldErrors: true },
     mutationFn: (data: TakaEntryInput) => api.post<TakaEntryResult>(`/jobsheets/${jobsheetId}/takas`, data),
     // The jobsheet (status / note), order status, taka lists, supervisor list and machine board all change.
-    onSuccess: (res) => invalidateAfterWrite(qc, res.orderId),
+    onSuccess: (res) => {
+      invalidateAfterWrite(qc, res.orderId);
+      // An "Other" damage name may have been added to the Damage master.
+      void qc.invalidateQueries({ queryKey: ['lookup', 'damages'] });
+      void qc.invalidateQueries({ queryKey: ['damages'] });
+    },
   });
 }
 
@@ -61,6 +66,11 @@ export function useEditTakas(jobsheetId: number) {
   return useMutation({
     meta: { silentFieldErrors: true },
     mutationFn: (data: TakaEditInput) => api.put<TakaEditResult>(`/jobsheets/${jobsheetId}/takas`, data),
-    onSuccess: (res) => invalidateAfterWrite(qc, res.orderId),
+    onSuccess: (res) => {
+      invalidateAfterWrite(qc, res.orderId);
+      // An "Other" damage name may have been added to the Damage master.
+      void qc.invalidateQueries({ queryKey: ['lookup', 'damages'] });
+      void qc.invalidateQueries({ queryKey: ['damages'] });
+    },
   });
 }

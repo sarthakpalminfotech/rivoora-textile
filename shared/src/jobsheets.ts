@@ -294,6 +294,7 @@ export function nextFramesAfterCompletedChange(p: {
 
 /** Live summary line of the Change machine dialog. */
 export function changeMachineSummary(p: {
+  orderNo: number;
   jobsheetNo: number;
   completed: number;
   next: number;
@@ -301,7 +302,7 @@ export function changeMachineSummary(p: {
 }): string {
   const fr = (n: number) => `${n} frame${n === 1 ? '' : 's'}`;
   const target = p.newMachineNo !== null ? ` for Machine ${p.newMachineNo}` : '';
-  return `Jobsheet ${p.jobsheetNo} will be completed with ${fr(p.completed)}. A new jobsheet with ${fr(p.next)} will be created${target}.`;
+  return `${jobsheetRef(p.orderNo, p.jobsheetNo)} will be completed with ${fr(p.completed)}. A new jobsheet with ${fr(p.next)} will be created${target}.`;
 }
 
 /** "Assigned 10 — you're recording 8 (2 fewer)." or null when equal. */
@@ -309,4 +310,23 @@ export function completedFramesNote(assigned: number, completed: number): string
   if (completed === assigned) return null;
   const diff = Math.abs(assigned - completed);
   return `Assigned ${assigned} — you're recording ${completed} (${diff} ${completed < assigned ? 'fewer' : 'more'}).`;
+}
+
+/* ------------------------------------------------------------------ */
+/* Order-number-first references                                        */
+/* ------------------------------------------------------------------ */
+
+/*
+ * The factory talks about orders, so the ORDER number is the main number wherever a jobsheet appears and the
+ * jobsheet number follows in brackets. `jobsheet_no` itself is unchanged (global, never reused, used by the QR).
+ */
+
+/** "Order #26 (319)" */
+export function jobsheetRef(orderNo: number, jobsheetNo: number): string {
+  return `Order #${orderNo} (${jobsheetNo})`;
+}
+
+/** "#26 (319)" — chips, tiles, toasts and other tight spots. */
+export function jobsheetRefShort(orderNo: number, jobsheetNo: number): string {
+  return `#${orderNo} (${jobsheetNo})`;
 }
