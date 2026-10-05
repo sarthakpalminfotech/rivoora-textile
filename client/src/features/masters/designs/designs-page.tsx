@@ -14,6 +14,18 @@ import { useDesigns } from '../api';
 import { MasterToolbar } from '../master-list';
 import { DesignFormDialog } from './design-form';
 
+/** Small "Butta" tag: the design goes for butta cutting. */
+export function ButtaTag({ className }: { className?: string }) {
+  return (
+    <span
+      className={`inline-flex shrink-0 items-center rounded-full bg-amber-100 px-1.5 py-px text-[10px] font-bold uppercase tracking-wide text-amber-800 ${className ?? ''}`}
+      title="Goes for butta cutting"
+    >
+      Butta
+    </span>
+  );
+}
+
 export function DesignCard({ design, onClick }: { design: DesignListItem; onClick: () => void }) {
   return (
     <button
@@ -24,7 +36,10 @@ export function DesignCard({ design, onClick }: { design: DesignListItem; onClic
       <ImageThumb thumbUrl={design.thumbUrl} alt={design.code} preview={false} rounded="rounded-none" className="aspect-square w-full" />
       <div className="flex min-w-0 items-center gap-2 px-3 py-2.5">
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-bold text-slate-900">{design.code}</p>
+          <p className="flex items-center gap-1.5 truncate text-sm font-bold text-slate-900">
+            <span className="truncate">{design.code}</span>
+            {design.buttaCutting && <ButtaTag />}
+          </p>
           <p className="truncate text-xs text-slate-500">{[design.name, design.materialName].filter(Boolean).join(' · ') || ' '}</p>
         </div>
         {design.variationCount > 0 && (

@@ -1,17 +1,19 @@
-import { AlertTriangle, PackageCheck, Pencil } from 'lucide-react';
+import { PackageCheck, Pencil } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import {
-  damageLabel,
   formatMeters,
   formatPcs,
   JOBSHEET_STATUS,
+  takaStageShortLabel,
+  TAKA_STAGES,
   totalMeters,
   totalPcs,
   type JobsheetDetail,
   type JobsheetTakaGroup,
   type OrderDetail,
   type Taka,
+  type TakaStage,
 } from '@rivoora/shared';
 import { ErrorState } from '@/components/list-parts';
 import { Button } from '@/components/ui/button';
@@ -23,8 +25,11 @@ import { cn } from '@/lib/utils';
 import { FramesValue, machineNumbers, StatTile } from '../jobsheets/parts';
 import { useOrderTakas } from './api';
 import { EditTakasDialog, type EditTakasTarget } from './edit-takas-dialog';
+import { StageDot, TakaChip } from './taka-chip';
+import { TakaDrawer } from './taka-drawer';
 
 type Filter = 'all' | 'damaged';
+type StageFilter = 'all' | TakaStage;
 
 function Shell({ title = 'Takas', action, children }: { title?: string; action?: ReactNode; children: ReactNode }) {
   return (
@@ -42,31 +47,25 @@ function Shell({ title = 'Takas', action, children }: { title?: string; action?:
 }
 
 /**
- * Taka chips: "6245 · 105.5 m · 12 pcs" (older takas without pcs show "—"); damaged ones in red with
- * "Machine damage · Hole" (where + what).
+ * Taka chips: "6245 · 105.5 m · 12 pcs" with a stage dot; open damages in red ("Machine damage · Hole · 2 pcs"),
+ * resolved ones grey, and a green "Fresh" tag. Tapping a chip opens the taka details drawer (`onOpen`).
  */
-export function TakaChips({ takas }: { takas: Taka[] }) {
+export function TakaChips({
+  takas,
+  onOpen,
+  showStage = true,
+  showChallan = false,
+}: {
+  takas: Taka[];
+  onOpen?: (t: Taka) => void;
+  showStage?: boolean;
+  showChallan?: boolean;
+}) {
   return (
     <ul className="flex flex-wrap gap-1.5">
-      {takas.map((t) => {
-        const sub = cn('text-[13px] font-semibold', t.isDamaged ? 'text-red-600' : 'text-slate-500');
-        return (
-          <li
-            key={t.id}
-            className={cn(
-              'inline-flex min-h-8 max-w-full flex-wrap items-center gap-x-1.5 rounded-full border px-3 py-0.5 text-[15px] font-bold tabular-nums',
-              t.isDamaged ? 'border-red-200 bg-red-50 text-red-700' : 'border-slate-200 bg-slate-50 text-slate-800',
-            )}
-            title={t.isDamaged ? damageLabel(t.damageType, t.damageName) : undefined}
-          >
-            {t.isDamaged && <AlertTriangle className="size-3.5 shrink-0" aria-hidden />}
-            {t.takaNo}
-            {t.meters != null && <span className={sub}>· {formatMeters(t.meters)}</span>}
-            <span className={sub}>· {t.pcs != null ? formatPcs(t.pcs) : '— pcs'}</span>
-            {t.isDamaged && <span className="text-[12px] font-semibold">{damageLabel(t.damageType, t.damageName)}</span>}
-          </li>
-        );
-      })}
+      {takas.map((t) => (
+        <TakaChip key={t.id} taka={t} showStage={showStage} showChallan={showChallan} onClick={onOpen ? () => onOpen(t) : undefined} />
+      ))}
     </ul>
   );
 }
@@ -93,6 +92,29 @@ function FilterToggle({ value, onChange, damaged }: { value: Filter; onChange: (
   );
 }
 
+/** Stage filter pills (next to All / Damaged only): All + every stage that has takas, with a colour dot. */
+function StageFilterPills({ value, onChange, stages }: { value: StageFilter; onChange: (s: StageFilter) => void; stages: TakaStage[] }) {
+  return (
+    <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Filter takas by stage">
+      {(['all', ...stages] as const).map((s) => (
+        <button
+          key={s}
+          type="button"
+          onClick={() => onChange(s)}
+          aria-pressed={value === s}
+          className={cn(
+            'inline-flex min-h-8 items-center gap-1.5 rounded-full border px-3 text-[13px] font-semibold transition-colors',
+            value === s ? 'border-primary bg-primary-soft text-primary' : 'border-border bg-white text-slate-600 hover:bg-muted',
+          )}
+        >
+          {s !== 'all' && <StageDot stage={s} className="ring-0" />}
+          {s === 'all' ? 'All stages' : takaStageShortLabel(s)}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function machineText(g: Pick<JobsheetTakaGroup, 'status' | 'runningMachine' | 'machines'>) {
   if (g.runningMachine && (g.status === JOBSHEET_STATUS.ONGOING || g.status === JOBSHEET_STATUS.COMPLETED)) {
     return `Machine ${g.runningMachine.machineNo}`;
@@ -104,15 +126,19 @@ function machineText(g: Pick<JobsheetTakaGroup, 'status' | 'runningMachine' | 'm
 function TakaGroup({
   group,
   filter,
+  stage = 'all',
   header,
   onEdit,
+  onOpen,
 }: {
   group: JobsheetTakaGroup;
   filter: Filter;
+  stage?: StageFilter;
   header: boolean;
   onEdit?: () => void;
+  onOpen?: (t: Taka) => void;
 }) {
-  const shown = filter === 'damaged' ? group.takas.filter((t) => t.isDamaged) : group.takas;
+  const shown = group.takas.filter((t) => (filter === 'damaged' ? t.isDamaged : true) && (stage === 'all' || t.stage === stage));
   const machine = machineText(group);
   return (
     <div className={cn(header && 'rounded-xl border border-border p-3.5')}>
@@ -147,9 +173,9 @@ function TakaGroup({
       {group.takas.length === 0 ? (
         <p className="text-sm text-muted-foreground">No takas yet</p>
       ) : shown.length === 0 ? (
-        <p className="text-sm text-muted-foreground">No damaged takas</p>
+        <p className="text-sm text-muted-foreground">{filter === 'damaged' ? 'No damaged takas' : 'No takas in this stage'}</p>
       ) : (
-        <TakaChips takas={shown} />
+        <TakaChips takas={shown} onOpen={onOpen} />
       )}
       {group.note && (
         <p className="mt-2.5 whitespace-pre-line rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-700">
@@ -166,7 +192,7 @@ function Summary({ total, damaged, meters, pcs }: { total: number; damaged: numb
     <div className="grid grid-cols-2 gap-2.5 sm:max-w-3xl sm:grid-cols-4">
       <StatTile label="Total takas" value={total} />
       <StatTile
-        label="Damaged · Machine damage"
+        label="Damaged takas"
         value={<span className={cn(damaged > 0 && 'text-red-600')}>{damaged}</span>}
         className={cn(damaged > 0 && 'border-red-200 bg-red-50/60')}
       />
@@ -190,9 +216,14 @@ export function OrderTakasCard({ order }: { order: OrderDetail }) {
   const { can } = useRole();
   const query = useOrderTakas(order.id);
   const [filter, setFilter] = useState<Filter>('all');
+  const [stage, setStage] = useState<StageFilter>('all');
   const [editing, setEditing] = useState<EditTakasTarget | null>(null);
+  const [openTaka, setOpenTaka] = useState<Taka | null>(null);
   const canEdit = can('canEditTakas');
   const data = query.data;
+  // Only the stages that have takas get a pill.
+  const stagesPresent = TAKA_STAGES.filter((s) => data?.groups.some((g) => g.takas.some((t) => t.stage === s)));
+  const activeStage: StageFilter = stage !== 'all' && !stagesPresent.includes(stage) ? 'all' : stage;
 
   let body: ReactNode;
   if (query.isPending) {
@@ -208,17 +239,24 @@ export function OrderTakasCard({ order }: { order: OrderDetail }) {
   } else if (query.isError || !data) {
     body = <ErrorState error={query.error} onRetry={() => void query.refetch()} />;
   } else {
-    const groups = filter === 'damaged' ? data.groups.filter((g) => g.takas.some((t) => t.isDamaged)) : data.groups;
+    const groups = data.groups.filter((g) =>
+      filter === 'damaged' || activeStage !== 'all'
+        ? g.takas.some((t) => (filter === 'damaged' ? t.isDamaged : true) && (activeStage === 'all' || t.stage === activeStage))
+        : true,
+    );
     body = (
       <div className="space-y-4">
         <Summary total={data.total} damaged={data.damaged} meters={data.totalMeters} pcs={data.totalPcs} />
+        {stagesPresent.length > 1 && <StageFilterPills value={activeStage} onChange={setStage} stages={stagesPresent} />}
         <div className="space-y-3">
           {groups.map((g) => (
             <TakaGroup
               key={g.jobsheetId}
               group={g}
               filter={filter}
+              stage={activeStage}
               header
+              onOpen={setOpenTaka}
               // A jobsheet without takas can only get them once it is completed.
               onEdit={canEdit && (g.takas.length > 0 || g.status === JOBSHEET_STATUS.COMPLETED) ? () => setEditing(toTarget(g)) : undefined}
             />
@@ -232,6 +270,7 @@ export function OrderTakasCard({ order }: { order: OrderDetail }) {
     <Shell action={data && data.total > 0 ? <FilterToggle value={filter} onChange={setFilter} damaged={data.damaged} /> : undefined}>
       {body}
       {canEdit && <EditTakasDialog target={editing} onClose={() => setEditing(null)} />}
+      <TakaDrawer takaId={openTaka?.id ?? null} takaNo={openTaka?.takaNo} onClose={() => setOpenTaka(null)} />
     </Shell>
   );
 }

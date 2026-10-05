@@ -32,6 +32,7 @@ const designColumns = {
   notes: designs.notes,
   materialId: materials.id,
   materialName: materials.name,
+  buttaCutting: designs.buttaCutting,
   createdAt: designs.createdAt,
   updatedAt: designs.updatedAt,
 };
@@ -58,6 +59,7 @@ export async function listDesigns({ page, limit, search }: PaginationQuery): Pro
         imageUrl: designs.imageUrl,
         variationCount: sql<number>`(SELECT COUNT(*) FROM ${designVariations} dv WHERE dv.design_id = "designs"."id")`,
         materialName: materials.name,
+        buttaCutting: designs.buttaCutting,
       })
       .from(designs)
       .leftJoin(materials, eq(materials.id, designs.materialId))
@@ -139,6 +141,7 @@ export async function insertDesign(
     imageUrl: string | null;
     thumbUrl: string | null;
     materialId?: number | null;
+    buttaCutting: boolean;
   },
   field = 'code',
 ) {

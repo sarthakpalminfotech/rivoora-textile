@@ -63,6 +63,20 @@ export const ORDER_STATUSES = [
     badge: { bg: '#F3E8FF', text: '#6B21A8', dot: '#A855F7' },
     visibleTo: FROM_READY,
   },
+  {
+    key: 'in_butta_cutting',
+    label: 'In butta cutting',
+    sequence: 70,
+    badge: { bg: '#FFEDD5', text: '#9A3412', dot: '#F97316' },
+    visibleTo: FROM_READY,
+  },
+  {
+    key: 'ready_for_mill',
+    label: 'Ready for mill',
+    sequence: 80,
+    badge: { bg: '#FAE8FF', text: '#86198F', dot: '#D946EF' },
+    visibleTo: FROM_READY,
+  },
 ] as const satisfies readonly StatusConfig[];
 
 export type OrderStatusKey = (typeof ORDER_STATUSES)[number]['key'];
@@ -74,6 +88,8 @@ export const STATUS = {
   IN_PRODUCTION: 'in_production',
   PRODUCTION_COMPLETED: 'production_completed',
   TAKA_ENTRY_DONE: 'taka_entry_done',
+  IN_BUTTA_CUTTING: 'in_butta_cutting',
+  READY_FOR_MILL: 'ready_for_mill',
 } as const satisfies Record<string, OrderStatusKey>;
 
 export const STATUS_KEYS = ORDER_STATUSES.map((s) => s.key) as [OrderStatusKey, ...OrderStatusKey[]];
@@ -206,16 +222,24 @@ export interface JobsheetStatusInput {
 }
 
 /**
- * The order status that follows from its active jobsheets (for orders that are Jobsheet pending or later):
- * none → Jobsheet pending · all Completed and every one has a taka → Taka entry done · all Completed → Production
- * completed · any Ongoing / Completed → In production · otherwise (all Pending / Sent) → Jobsheet created.
- * Plain status strings are accepted too (no takas).
+ * The order status that follows from its active jobsheets and takas (for orders that are Jobsheet pending or later):
+ * none → Jobsheet pending · all Completed and every one has a taka ("taka entry done" conditions) → Taka entry done,
+ * or — by where the takas are — In butta cutting (at least one taka at butta cutting / in butta QC) or Ready for mill
+ * (every active taka waits for the mill) · all Completed → Production completed · any Ongoing / Completed → In
+ * production · otherwise (all Pending / Sent) → Jobsheet created.
+ * Plain status strings are accepted too (no takas). `takaStages` = the stage of every active taka of the order.
  */
-export function orderStatusForJobsheets(jobsheets: readonly (string | JobsheetStatusInput)[]): OrderStatusKey {
+export function orderStatusForJobsheets(
+  jobsheets: readonly (string | JobsheetStatusInput)[],
+  takaStages: readonly string[] = [],
+): OrderStatusKey {
   const list = jobsheets.map((j) => (typeof j === 'string' ? { status: j, takaCount: 0 } : j));
   if (list.length === 0) return STATUS.READY_PRODUCTION;
   if (list.every((j) => j.status === JOBSHEET_STATUS.COMPLETED)) {
-    return list.every((j) => (j.takaCount ?? 0) > 0) ? STATUS.TAKA_ENTRY_DONE : STATUS.PRODUCTION_COMPLETED;
+    if (!list.every((j) => (j.takaCount ?? 0) > 0)) return STATUS.PRODUCTION_COMPLETED;
+    if (takaStages.some((s) => s === 'at_butta' || s === 'butta_qc')) return STATUS.IN_BUTTA_CUTTING;
+    if (takaStages.length > 0 && takaStages.every((s) => s === 'waiting_mill')) return STATUS.READY_FOR_MILL;
+    return STATUS.TAKA_ENTRY_DONE;
   }
   if (list.some((j) => j.status === JOBSHEET_STATUS.ONGOING || j.status === JOBSHEET_STATUS.COMPLETED)) {
     return STATUS.IN_PRODUCTION;

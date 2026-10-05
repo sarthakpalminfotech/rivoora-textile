@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { ah, parseId } from '../lib/http';
 import { requirePermission } from '../middleware/role';
 import { lookupBrokers, lookupCustomers } from '../services/customers';
+import { lookupButtaParties } from '../services/butta-parties';
 import { lookupDamages } from '../services/damages';
 import { lookupMachines } from '../services/machines';
 import { lookupMaterials } from '../services/materials';
@@ -38,13 +39,23 @@ lookupRouter.get(
   }),
 );
 
-/** Damage names for the damage popup: Jemish, Gaurang (edit takas) and the Taka entry role. */
+/** Damage names for the damage popup: Jemish, Gaurang (edit takas), the Taka entry role and Butta QC. */
 lookupRouter.get(
   '/damages',
-  requirePermission('canViewMasters', 'canEnterTakas', 'canEditTakas'),
+  requirePermission('canViewMasters', 'canEnterTakas', 'canEditTakas', 'canButtaQc'),
   ah(async (req, res) => {
     res.set('Cache-Control', 'private, max-age=10');
     res.json(await lookupDamages(querySchema.parse(req.query).search));
+  }),
+);
+
+/** Butta parties for the Send dialog (Jemish, Gaurang, Godown supervisor). */
+lookupRouter.get(
+  '/butta-parties',
+  requirePermission('canManageButtaParties', 'canUseButtaModule'),
+  ah(async (req, res) => {
+    res.set('Cache-Control', 'private, max-age=10');
+    res.json(await lookupButtaParties(querySchema.parse(req.query).search));
   }),
 );
 

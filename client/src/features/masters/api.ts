@@ -1,6 +1,8 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type {
   Broker,
+  ButtaParty,
+  ButtaPartyInput,
   Customer,
   CustomerInput,
   Damage,
@@ -269,6 +271,53 @@ export function useDeleteMachine() {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: masterKeys.machines });
       void qc.invalidateQueries({ queryKey: masterKeys.lookupMachines });
+    },
+  });
+}
+
+/* ---------- butta parties ---------- */
+
+export const buttaPartyKeys = {
+  all: ['butta-parties'] as const,
+  lookup: ['lookup', 'butta-parties'] as const,
+};
+
+export const useButtaParties = (search: string) =>
+  useInfiniteList<ButtaParty>([...buttaPartyKeys.all, 'list'], '/butta-parties', { search });
+
+/** Active butta parties for the Send dialog. */
+export function useButtaPartyLookup(search = '', enabled = true) {
+  return useQuery({
+    queryKey: [...buttaPartyKeys.lookup, search],
+    queryFn: ({ signal }) => api.get<LookupItem[]>('/lookup/butta-parties', { search }, signal),
+    placeholderData: keepPreviousData,
+    staleTime: 30_000,
+    enabled,
+  });
+}
+
+export function useSaveButtaParty() {
+  const qc = useQueryClient();
+  return useMutation({
+    meta: { silentFieldErrors: true },
+    mutationFn: ({ id, data }: { id?: number; data: ButtaPartyInput }) =>
+      id ? api.put<ButtaParty>(`/butta-parties/${id}`, data) : api.post<ButtaParty>('/butta-parties', data),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: buttaPartyKeys.all });
+      void qc.invalidateQueries({ queryKey: buttaPartyKeys.lookup });
+      // The party name is on the challans.
+      void qc.invalidateQueries({ queryKey: ['butta'] });
+    },
+  });
+}
+
+export function useDeleteButtaParty() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => api.delete(`/butta-parties/${id}`),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: buttaPartyKeys.all });
+      void qc.invalidateQueries({ queryKey: buttaPartyKeys.lookup });
     },
   });
 }

@@ -1,5 +1,5 @@
-import { AlertTriangle, Plus, X } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { Plus, X } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import {
   cleanMeters,
@@ -14,7 +14,6 @@ import {
   parseMeters,
   parsePcs,
   PCS_ERROR_TEXT,
-  TAKA_ERROR_TEXT,
   TAKA_NO_MAX_LENGTH,
   totalMeters,
   totalPcs,
@@ -30,7 +29,9 @@ import { ResponsiveModal } from '@/components/ui/modal';
 import { ApiError } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { useEditTakas } from './api';
-import { DamageDialog, damageChoiceName, damageChoiceOf, damagePayload, type DamageChoice } from './damage-dialog';
+import { editEntryPayload, entriesOfTaka, entryLabel as entryLabelText, entrySignature, TakaDamageControl, type DamageEntry } from './damage-dialog';
+import { takaErrorText, useUsedTakaNumbers } from './taka-check';
+import { TakaDamageLines } from './taka-chip';
 import { TakaNoKeys } from './taka-no-keys';
 
 export interface EditTakasTarget {
@@ -50,12 +51,14 @@ interface Row {
   meters: string;
   /** Pcs as typed (required on new / changed takas). */
   pcs: string;
-  damage: DamageChoice | null;
+  /** The OPEN damages (editable); resolved ones are read-only and shown below the row. */
+  damages: DamageEntry[];
+  resolved: Taka['damages'];
   /** The saved values of an existing taka (to tell whether it was changed). */
-  orig?: { value: string; meters: string; pcs: string; damage: string };
+  orig?: { value: string; meters: string; pcs: string; damages: string };
 }
 
-const damageKey = (d: DamageChoice | null) => (!d ? '' : d.kind === 'master' ? `#${d.damageId}` : d.kind === 'other' ? `~${d.name.trim().toLowerCase()}` : 'legacy');
+const damagesKey = (list: DamageEntry[]) => list.map(entrySignature).join(',');
 
 let rowKey = 0;
 const toRows = (takas: Taka[]): Row[] =>
@@ -66,13 +69,14 @@ const toRows = (takas: Taka[]): Row[] =>
       value: t.takaNo,
       meters: t.meters != null ? String(t.meters) : '',
       pcs: t.pcs != null ? String(t.pcs) : '',
-      damage: damageChoiceOf(t),
+      damages: entriesOfTaka(t),
+      resolved: t.damages.filter((d) => d.status === 'resolved'),
     };
-    return { ...row, orig: { value: row.value, meters: row.meters, pcs: row.pcs, damage: damageKey(row.damage) } };
+    return { ...row, orig: { value: row.value, meters: row.meters, pcs: row.pcs, damages: damagesKey(row.damages) } };
   });
 
 const isChanged = (r: Row) =>
-  !r.orig || r.orig.value !== r.value.trim() || r.orig.meters !== r.meters || r.orig.pcs !== r.pcs || r.orig.damage !== damageKey(r.damage);
+  !r.orig || r.orig.value !== r.value.trim() || r.orig.meters !== r.meters || r.orig.pcs !== r.pcs || r.orig.damages !== damagesKey(r.damages);
 
 /**
  * Pcs rule (the server checks the same): new and changed takas need pcs; an older taka that never had pcs may stay
@@ -94,7 +98,6 @@ export function EditTakasDialog({ target, onClose }: { target: EditTakasTarget |
   const [serverError, setServerError] = useState<{ key: number; message: string } | null>(null);
   const [showErrors, setShowErrors] = useState(false);
   const [focusedKey, setFocusedKey] = useState<number | null>(null);
-  const [damageRow, setDamageRow] = useState<number | null>(null);
   const inputs = useRef(new Map<number, HTMLInputElement>());
 
   useEffect(() => {
@@ -111,7 +114,12 @@ export function EditTakasDialog({ target, onClose }: { target: EditTakasTarget |
   const canAdd = target?.status === JOBSHEET_STATUS.COMPLETED;
   // New empty rows are ignored on save; an emptied existing row is an error (remove it with ✕ instead).
   const kept = rows.filter((r) => r.id !== undefined || r.value.trim() !== '');
-  const errorList = validateTakaNumbers(kept.map((r) => r.value));
+  // Taka numbers are unique across the whole system (live check; this jobsheet's own saved numbers are ignored).
+  const used = useUsedTakaNumbers(
+    rows.map((r) => r.value),
+    useMemo(() => new Set((target?.takas ?? []).map((t) => t.takaNo)), [target]),
+  );
+  const errorList = validateTakaNumbers(kept.map((r) => r.value), [], { used });
   const errors = new Map(kept.map((r, i) => [r.key, errorList[i]]));
   const meterErrors = new Map(kept.map((r) => [r.key, parseMeters(r.meters).error]));
   const pcsErrors = new Map(kept.map((r) => [r.key, pcsError(r)]));
@@ -136,7 +144,7 @@ export function EditTakasDialog({ target, onClose }: { target: EditTakasTarget |
           takaNo: r.value.trim(),
           meters: parseMeters(r.meters).meters,
           pcs: parsePcs(r.pcs).pcs,
-          damage: damagePayload(r.damage),
+          damages: r.damages.map(editEntryPayload),
         })),
         note: note.trim() || null,
       },
@@ -162,7 +170,6 @@ export function EditTakasDialog({ target, onClose }: { target: EditTakasTarget |
     );
   };
 
-  const damageTarget = rows.find((r) => r.key === damageRow);
   const field = (invalid: boolean) =>
     cn(
       'h-11 w-full rounded-[10px] border bg-white text-base font-bold tabular-nums placeholder:text-sm placeholder:font-normal focus:outline-none focus:ring-2 disabled:bg-slate-50 disabled:opacity-60',
@@ -211,14 +218,13 @@ export function EditTakasDialog({ target, onClose }: { target: EditTakasTarget |
                     serverError?.key === r.key
                       ? serverError.message
                       : showErrors && err
-                        ? TAKA_ERROR_TEXT[err].en
+                        ? takaErrorText(err, r.value, used).en
                         : meterErr
                           ? METERS_ERROR_TEXT[meterErr].en
                           : pErr
                             ? PCS_ERROR_TEXT[pErr].en
                             : null;
                   const numberInvalid = (showErrors && !!err) || serverError?.key === r.key;
-                  const name = damageChoiceName(r.damage);
                   const removeButton = (className: string) => (
                     <button
                       type="button"
@@ -233,7 +239,7 @@ export function EditTakasDialog({ target, onClose }: { target: EditTakasTarget |
                     </button>
                   );
                   return (
-                    <li key={r.key} className={cn('rounded-xl p-1.5', r.damage && 'bg-red-50 ring-1 ring-red-200')}>
+                    <li key={r.key} className={cn('rounded-xl p-1.5', r.damages.length > 0 && 'bg-red-50 ring-1 ring-red-200')}>
                       {/* Phones: number (+ remove) on one line, meters · pcs · damage on the next. md+: one row. */}
                       <div className="flex flex-col gap-2 md:flex-row md:items-center">
                         <div className="flex min-w-0 items-center gap-2 md:flex-1">
@@ -246,7 +252,7 @@ export function EditTakasDialog({ target, onClose }: { target: EditTakasTarget |
                             value={r.value}
                             onChange={(e) => {
                               const value = cleanTakaNo(e.target.value);
-                              setRow(r.key, value ? { value } : { value, meters: '', pcs: '', damage: null });
+                              setRow(r.key, value ? { value } : { value, meters: '', pcs: '', damages: [] });
                             }}
                             onFocus={() => setFocusedKey(r.key)}
                             onBlur={() => setFocusedKey((k) => (k === r.key ? null : k))}
@@ -294,25 +300,32 @@ export function EditTakasDialog({ target, onClose }: { target: EditTakasTarget |
                               pcs
                             </span>
                           </div>
-                          <button
-                            type="button"
-                            onClick={() => setDamageRow(r.key)}
+                          <TakaDamageControl
+                            entries={r.damages}
+                            onChange={(damages) => setRow(r.key, { damages })}
+                            takaLabel={`Taka ${r.value || i + 1}`}
+                            takaPcs={parsePcs(r.pcs).pcs}
                             disabled={!r.value}
-                            aria-pressed={!!r.damage}
-                            aria-label={r.damage ? `Change damage on taka ${r.value || i + 1}` : `Damage on taka ${r.value || i + 1}`}
-                            className={cn(
-                              'inline-flex h-11 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-[10px] border px-2.5 text-[13px] font-semibold transition-colors disabled:opacity-40 md:max-w-44 md:flex-none',
-                              r.damage ? 'border-red-600 bg-red-600 text-white' : 'border-input bg-white text-slate-600 hover:text-red-600',
-                            )}
-                          >
-                            <AlertTriangle className="size-4 shrink-0" aria-hidden />
-                            <span className="truncate">{r.damage ? (name ? `Damage · ${name}` : 'Machine damage') : 'Damage'}</span>
-                          </button>
+                            size="sm"
+                            className="min-w-0 flex-1 md:max-w-44 md:flex-none"
+                          />
                           {removeButton('hidden md:flex')}
                         </div>
                       </div>
                       {focusedKey === r.key && (
                         <TakaNoKeys className="ml-8 mt-1.5" size="md" input={() => inputs.current.get(r.key)} onValue={(value) => setRow(r.key, { value })} />
+                      )}
+                      {(r.damages.length > 0 || r.resolved.length > 0) && (
+                        <div className="ml-8 mt-1.5">
+                          <ul className="space-y-0.5">
+                            {r.damages.map((d) => (
+                              <li key={d.key} className="text-[12px] font-semibold text-red-600">
+                                {entryLabelText(d)}
+                              </li>
+                            ))}
+                          </ul>
+                          {r.resolved.length > 0 && <TakaDamageLines damages={r.resolved} className="mt-0.5" />}
+                        </div>
                       )}
                       {message && (
                         <p role="alert" className="ml-8 mt-1 text-[13px] font-medium text-destructive">
@@ -328,7 +341,7 @@ export function EditTakasDialog({ target, onClose }: { target: EditTakasTarget |
               variant="secondary"
               className="mt-3 w-full border-dashed"
               disabled={!canAdd}
-              onClick={() => setRows((prev) => [...prev, { key: ++rowKey, value: '', meters: '', pcs: '', damage: null }])}
+              onClick={() => setRows((prev) => [...prev, { key: ++rowKey, value: '', meters: '', pcs: '', damages: [], resolved: [] }])}
             >
               <Plus /> Add row
             </Button>
@@ -342,14 +355,6 @@ export function EditTakasDialog({ target, onClose }: { target: EditTakasTarget |
           </Field>
         </div>
       )}
-      <DamageDialog
-        open={!!damageTarget}
-        onOpenChange={(o) => !o && setDamageRow(null)}
-        takaLabel={damageTarget ? `Taka ${damageTarget.value}` : ''}
-        value={damageTarget?.damage ?? null}
-        onConfirm={(damage) => damageTarget && setRow(damageTarget.key, { damage })}
-        onRemove={() => damageTarget && setRow(damageTarget.key, { damage: null })}
-      />
     </ResponsiveModal>
   );
 }

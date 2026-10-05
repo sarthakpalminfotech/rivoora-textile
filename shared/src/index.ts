@@ -10,3 +10,5 @@ export * from './jobsheets';
 export * from './takas';
 export * from './pipeline';
 export * from './orderDashboard';
+export * from './company';
+export * from './butta';

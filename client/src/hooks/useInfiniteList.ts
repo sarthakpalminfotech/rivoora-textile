@@ -8,7 +8,13 @@ export const PAGE_SIZE = 20;
 type Params = Parameters<typeof buildQuery>[0];
 
 /** Server-paginated list with infinite loading. */
-export function useInfiniteList<T>(key: QueryKey, path: string, params: Params = {}, enabled = true) {
+export function useInfiniteList<T>(
+  key: QueryKey,
+  path: string,
+  params: Params = {},
+  enabled = true,
+  options: { refetchInterval?: number; refetchOnWindowFocus?: boolean } = {},
+) {
   const query = useInfiniteQuery({
     queryKey: [...key, params],
     queryFn: ({ pageParam, signal }) =>
@@ -17,6 +23,7 @@ export function useInfiniteList<T>(key: QueryKey, path: string, params: Params =
     getNextPageParam: (last) => (last.hasMore ? last.page + 1 : undefined),
     placeholderData: keepPreviousData,
     enabled,
+    ...options,
   });
   const items = useMemo(() => query.data?.pages.flatMap((p) => p.items) ?? [], [query.data]);
   const total = query.data?.pages[0]?.total;

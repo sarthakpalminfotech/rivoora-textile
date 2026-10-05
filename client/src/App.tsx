@@ -32,6 +32,12 @@ const ScanPage = lazy(() => import('@/features/takas/scan-page'));
 const JobsheetQrPage = lazy(() => import('@/features/takas/jobsheet-qr-page'));
 const TakaJobsheetsPage = lazy(() => import('@/features/takas/taka-jobsheets-page'));
 const TakaEntryPage = lazy(() => import('@/features/takas/taka-entry-page'));
+const ButtaPage = lazy(() => import('@/features/butta/butta-page'));
+const ChallanDetailsPage = lazy(() => import('@/features/butta/challan-details-page'));
+const ChallanPrintPage = lazy(() => import('@/features/butta/challan-print-page'));
+const ButtaPartiesPage = lazy(() => import('@/features/masters/butta-parties/butta-parties-page'));
+const QcHomePage = lazy(() => import('@/features/butta-qc/qc-home-page'));
+const QcTakaPage = lazy(() => import('@/features/butta-qc/qc-taka-page'));
 const NotFoundPage = lazy(() => import('@/pages/not-found-page'));
 
 const guard = (permission: keyof RolePermissions, element: ReactNode) => (
@@ -87,6 +93,16 @@ const router = createBrowserRouter([
         ),
       },
       {
+        path: '/print/challan/:id',
+        element: (
+          <Suspense fallback={<PageSkeleton />}>
+            <RequirePermission permission="canUseButtaModule">
+              <ChallanPrintPage />
+            </RequirePermission>
+          </Suspense>
+        ),
+      },
+      {
         element: <AppLayout />,
         children: [
           { index: true, element: <LandingRedirect /> },
@@ -98,6 +114,12 @@ const router = createBrowserRouter([
           { path: 'designs/:id', element: guard('canViewMasters', <DesignDetailPage />) },
           { path: 'machines', element: guard('canViewMasters', <MachinesPage />) },
           { path: 'damages', element: guard('canViewMasters', <DamagesPage />) },
+          { path: 'butta-parties', element: guard('canManageButtaParties', <ButtaPartiesPage />) },
+          // Butta cutting module (Jemish, Gaurang, Godown supervisor) and the Butta QC role.
+          { path: 'butta', element: guard('canUseButtaModule', <ButtaPage />) },
+          { path: 'butta/challans/:id', element: guard('canUseButtaModule', <ChallanDetailsPage />) },
+          { path: 'butta-qc', element: guard('canButtaQc', <QcHomePage />) },
+          { path: 'butta-qc/taka/:takaNo', element: guard('canButtaQc', <QcTakaPage />) },
           { path: 'jobsheets', element: <JobsheetsRoute /> },
           // The supervisor's Order view: one order's jobsheets.
           { path: 'jobsheets/order/:orderId', element: guard('canViewJobsheetsModule', <SupervisorOrderJobsheetsPage />) },

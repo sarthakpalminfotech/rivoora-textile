@@ -3,10 +3,13 @@ import {
   ClipboardCheck,
   ClipboardList,
   Factory,
+  BadgeCheck,
   LayoutGrid,
   Layers,
   Palette,
   ScanLine,
+  Scissors,
+  Store,
   Users,
   type LucideIcon,
 } from 'lucide-react';
@@ -31,11 +34,15 @@ export const NAV_ITEMS: NavItem[] = [
   { to: '/jobsheets', label: 'Jobsheets', icon: ClipboardCheck, permission: 'canViewJobsheetsModule', group: 'main' },
   { to: '/jobsheets', label: 'Jobsheets', hi: 'जॉबशीट', icon: ClipboardCheck, permission: 'canUseTakaModules', group: 'main' },
   { to: '/machine-view', label: 'Machine view', icon: LayoutGrid, permission: 'canViewMachineView', group: 'main' },
+  // Butta cutting: Jemish, Gaurang and the Godown supervisor. Butta QC: the QC role (bilingual).
+  { to: '/butta', label: 'Butta cutting', icon: Scissors, permission: 'canUseButtaModule', group: 'main' },
+  { to: '/butta-qc', label: 'Butta QC', hi: 'बुट्टा QC', icon: BadgeCheck, permission: 'canButtaQc', group: 'main' },
   { to: '/customers', label: 'Customers', icon: Users, permission: 'canViewMasters', group: 'masters' },
   { to: '/materials', label: 'Materials', icon: Layers, permission: 'canViewMasters', group: 'masters' },
   { to: '/designs', label: 'Designs', icon: Palette, permission: 'canViewMasters', group: 'masters' },
   { to: '/machines', label: 'Machines', icon: Factory, permission: 'canViewMasters', group: 'masters' },
   { to: '/damages', label: 'Damage master', icon: Bandage, permission: 'canViewMasters', group: 'masters' },
+  { to: '/butta-parties', label: 'Butta parties', icon: Store, permission: 'canManageButtaParties', group: 'masters' },
 ];
 
 export function navItemsFor(can: (p: keyof RolePermissions) => boolean): NavItem[] {

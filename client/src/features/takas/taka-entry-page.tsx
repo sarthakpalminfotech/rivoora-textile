@@ -6,7 +6,6 @@ import {
   cleanMeters,
   cleanPcs,
   cleanTakaNo,
-  damageLabel,
   formatMeters,
   formatPcs,
   hasTakaErrors,
@@ -16,7 +15,6 @@ import {
   parseMeters,
   parsePcs,
   PCS_ERROR_TEXT,
-  TAKA_ERROR_TEXT,
   TAKA_NO_MAX_LENGTH,
   totalMeters,
   totalPcs,
@@ -40,7 +38,9 @@ import { cn } from '@/lib/utils';
 import { useJobsheet } from '../jobsheets/api';
 import { FramesValue, machineNumbers } from '../jobsheets/parts';
 import { useEnterTakas } from './api';
-import { DamageDialog, damageChoiceName, damagePayload, type DamageChoice } from './damage-dialog';
+import { entryLabel, entryPayload, TakaDamageControl, type DamageEntry } from './damage-dialog';
+import { takaErrorText, useUsedTakaNumbers } from './taka-check';
+import { TakaChip } from './taka-chip';
 import { TakaNoKeys } from './taka-no-keys';
 
 const DEFAULT_ROWS = 6;
@@ -54,12 +54,13 @@ interface Row {
   pcs: string;
   /** The user left the pcs field (its error shows from then on). */
   pcsTouched: boolean;
-  damage: DamageChoice | null;
+  /** Every damage of the taka (one or more; each with its damaged pcs). */
+  damages: DamageEntry[];
 }
 
 let rowKey = 0;
 const emptyRows = (n: number): Row[] =>
-  Array.from({ length: n }, () => ({ key: ++rowKey, value: '', meters: '', pcs: '', pcsTouched: false, damage: null }));
+  Array.from({ length: n }, () => ({ key: ++rowKey, value: '', meters: '', pcs: '', pcsTouched: false, damages: [] }));
 
 /** "3 takas · 203.75 m · 36 pcs" (English) for a list of takas / rows. */
 function totalsLine(list: { meters?: number | null; pcs?: number | null }[]) {
@@ -74,25 +75,6 @@ function Section({ title, children, className }: { title: ReactNode; children: R
       <h2 className="mb-3 text-[15px] font-bold text-slate-800">{title}</h2>
       {children}
     </section>
-  );
-}
-
-/** Read-only chip of a saved taka: "6245 · 105.5 m · 12 pcs" (damaged ones in red, with the damage name). */
-function TakaChip({ taka }: { taka: Pick<Taka, 'takaNo' | 'isDamaged' | 'meters' | 'pcs' | 'damageType' | 'damageName'> }) {
-  const sub = cn('text-[15px] font-semibold', taka.isDamaged ? 'text-red-600' : 'text-slate-500');
-  return (
-    <li
-      className={cn(
-        'inline-flex min-h-10 max-w-full flex-wrap items-center gap-x-1.5 rounded-full border px-3.5 py-1 text-lg font-bold tabular-nums',
-        taka.isDamaged ? 'border-red-200 bg-red-50 text-red-700' : 'border-slate-200 bg-slate-50 text-slate-800',
-      )}
-    >
-      {taka.isDamaged && <AlertTriangle className="size-4 shrink-0" aria-hidden />}
-      {taka.takaNo}
-      {taka.meters != null && <span className={sub}>· {formatMeters(taka.meters)}</span>}
-      <span className={sub}>· {taka.pcs != null ? formatPcs(taka.pcs) : '— pcs'}</span>
-      {taka.isDamaged && <span className="text-xs font-semibold">{damageLabel(taka.damageType, taka.damageName)}</span>}
-    </li>
   );
 }
 
@@ -195,7 +177,7 @@ function SuccessView({ js, saved, autoCompleted, onAddMore }: { js: JobsheetDeta
       )}
       <ul className="mt-4 flex flex-wrap justify-center gap-2" aria-label={bi('Saved takas', 'सेव हुए टाका')}>
         {saved.map((t) => (
-          <TakaChip key={t.id} taka={t} />
+          <TakaChip key={t.id} taka={t} size="lg" bilingual />
         ))}
       </ul>
       {autoCompleted && (
@@ -239,12 +221,11 @@ export default function TakaEntryPage() {
   const enter = useEnterTakas(id);
   const [rows, setRows] = useState<Row[]>(() => emptyRows(DEFAULT_ROWS));
   const [note, setNote] = useState('');
-  const [serverError, setServerError] = useState<{ key: number; field: 'takaNo' | 'pcs' | 'damage' | 'other'; message: string } | null>(null);
+  const [serverError, setServerError] = useState<{ key: number; field: 'takaNo' | 'pcs' | 'damages' | 'other'; message: string } | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [saved, setSaved] = useState<{ takas: Taka[]; autoCompleted: boolean } | null>(null);
   /** The taka number field that has focus (its – / helper keys are shown). */
   const [focusedKey, setFocusedKey] = useState<number | null>(null);
-  const [damageRow, setDamageRow] = useState<number | null>(null);
   const [showAllErrors, setShowAllErrors] = useState(false);
   const inputs = useRef(new Map<number, HTMLInputElement>());
   const meterInputs = useRef(new Map<number, HTMLInputElement>());
@@ -254,9 +235,14 @@ export default function TakaEntryPage() {
   );
 
   const existing = useMemo(() => js?.takas ?? [], [js]);
+  // Taka numbers are unique across the whole system: a debounced live check shows "already used" before submit.
+  const used = useUsedTakaNumbers(
+    rows.map((r) => r.value),
+    useMemo(() => new Set(existing.map((t) => t.takaNo)), [existing]),
+  );
   const errors = useMemo(
-    () => validateTakaNumbers(rows.map((r) => r.value), existing.map((t) => t.takaNo), { ignoreEmpty: true }),
-    [rows, existing],
+    () => validateTakaNumbers(rows.map((r) => r.value), existing.map((t) => t.takaNo), { ignoreEmpty: true, used }),
+    [rows, existing, used],
   );
   const meterErrors = useMemo(() => rows.map((r) => parseMeters(r.meters).error), [rows]);
   // Pcs are required on every row that has a number.
@@ -362,7 +348,7 @@ export default function TakaEntryPage() {
       takaNo: r.value.trim(),
       meters: parseMeters(r.meters).meters,
       pcs: parsePcs(r.pcs).pcs!,
-      damage: damagePayload(r.damage) as Exclude<ReturnType<typeof damagePayload>, { damageId: null }>,
+      damages: r.damages.map(entryPayload),
     }));
     enter.mutate(
       { takas: toSave, note: note.trim() || null },
@@ -378,11 +364,11 @@ export default function TakaEntryPage() {
         },
         onError: (err) => {
           setConfirmOpen(false);
-          // `takas.3.takaNo` / `takas.3.pcs` / `takas.3.damage` → the 4th filled row.
+          // `takas.3.takaNo` / `takas.3.pcs` / `takas.3.damages.0.pcs` → the 4th filled row.
           const m = err instanceof ApiError && err.field ? /^takas\.(\d+)\.(\w+)/.exec(err.field) : null;
           const row = m ? filled[Number(m[1])] : undefined;
           if (row) {
-            const field = m![2] === 'takaNo' || m![2] === 'pcs' || m![2] === 'damage' ? m![2] : 'other';
+            const field = m![2] === 'takaNo' || m![2] === 'pcs' || m![2] === 'damages' ? m![2] : 'other';
             setServerError({ key: row.key, field, message: err.message });
             (field === 'pcs' ? pcsInputs : inputs).current.get(row.key)?.focus();
           }
@@ -391,7 +377,6 @@ export default function TakaEntryPage() {
     );
   };
 
-  const damageTarget = rows.find((r) => r.key === damageRow);
   const filledTotals = totalsLine(filled.map((r) => ({ meters: parseMeters(r.meters).meters, pcs: parsePcs(r.pcs).pcs })));
 
   return (
@@ -425,7 +410,7 @@ export default function TakaEntryPage() {
         >
           <ul className="flex flex-wrap gap-2">
             {existing.map((t) => (
-              <TakaChip key={t.id} taka={t} />
+              <TakaChip key={t.id} taka={t} size="lg" bilingual />
             ))}
           </ul>
         </Section>
@@ -446,11 +431,10 @@ export default function TakaEntryPage() {
             const inputId = `taka-${r.key}`;
             const metersId = `taka-${r.key}-m`;
             const pcsId = `taka-${r.key}-p`;
-            const damageName = damageChoiceName(r.damage);
             return (
               <li
                 key={r.key}
-                className={cn('-mx-2 rounded-xl px-2 py-1.5 transition-colors', r.damage && 'bg-red-50 ring-1 ring-red-200')}
+                className={cn('-mx-2 rounded-xl px-2 py-1.5 transition-colors', r.damages.length > 0 && 'bg-red-50 ring-1 ring-red-200')}
               >
                 {/* Phones: number on its own line, then meters + pcs side by side, then Damage. md+: one row. */}
                 <div className="grid grid-cols-2 gap-x-2 gap-y-1 md:grid-cols-[minmax(0,1fr)_112px_96px_156px]">
@@ -467,7 +451,7 @@ export default function TakaEntryPage() {
                       value={r.value}
                       onChange={(e) => {
                         const value = cleanTakaNo(e.target.value);
-                        setRow(r.key, value ? { value } : { value, meters: '', pcs: '', pcsTouched: false, damage: null });
+                        setRow(r.key, value ? { value } : { value, meters: '', pcs: '', pcsTouched: false, damages: [] });
                       }}
                       onFocus={() => setFocusedKey(r.key)}
                       onBlur={() => setFocusedKey((k) => (k === r.key ? null : k))}
@@ -557,38 +541,19 @@ export default function TakaEntryPage() {
                     className={cn(fieldBox(showPcsErr || !!pcsMessage), 'self-start px-3 text-[20px] font-bold md:row-start-2')}
                     placeholder="0"
                   />
-                  <button
-                    type="button"
-                    onClick={() => setDamageRow(r.key)}
-                    disabled={!r.value}
-                    aria-pressed={!!r.damage}
-                    aria-label={
-                      r.damage
-                        ? bi(`Change damage on taka ${n}`, `टाका ${n} की खराबी बदलें`)
-                        : bi(`Damage on taka ${n}`, `टाका ${n} में खराबी`)
-                    }
-                    className={cn(
-                      'col-span-2 mt-1 flex min-h-12 min-w-0 items-center justify-center gap-1.5 rounded-xl border-2 px-2 text-sm font-bold transition-colors disabled:cursor-not-allowed disabled:opacity-40 md:col-span-1 md:row-start-2 md:mt-0 md:h-14 md:self-start',
-                      r.damage
-                        ? 'border-red-600 bg-red-600 text-white shadow-sm'
-                        : 'border-slate-200 bg-white text-slate-600 hover:border-red-300 hover:text-red-600',
-                    )}
-                  >
-                    <AlertTriangle className="size-5 shrink-0" aria-hidden />
-                    <span className="flex min-w-0 flex-col text-left leading-tight">
-                      <span className="truncate">
-                        Damage{r.damage && damageName ? ` · ${damageName}` : ''}
-                      </span>
-                      <span lang="hi" className="text-[13px]">
-                        खराबी
-                      </span>
-                    </span>
-                  </button>
+                  <TakaDamageControl
+                    entries={r.damages}
+                    onChange={(damages) => setRow(r.key, { damages })}
+                    takaLabel={bi(`Taka ${r.value}`, `टाका ${r.value}`)}
+                    takaPcs={parsePcs(r.pcs).pcs}
+                    disabled={!r.value || parsePcs(r.pcs).error !== null}
+                    className="col-span-2 mt-1 md:col-span-1 md:row-start-2 md:mt-0"
+                  />
                 </div>
                 {invalid && (
                   <p id={`${inputId}-err`} role="alert" className="mt-1 text-sm font-semibold text-destructive">
-                    {numberMessage ?? `${TAKA_ERROR_TEXT[err!].en} / `}
-                    {!numberMessage && <span lang="hi">{TAKA_ERROR_TEXT[err!].hi}</span>}
+                    {numberMessage ?? `${takaErrorText(err!, r.value, used).en} / `}
+                    {!numberMessage && <span lang="hi">{takaErrorText(err!, r.value, used).hi}</span>}
                   </p>
                 )}
                 {meterErr && (
@@ -655,15 +620,6 @@ export default function TakaEntryPage() {
 
       <DetailsCard js={js} />
 
-      <DamageDialog
-        open={!!damageTarget}
-        onOpenChange={(o) => !o && setDamageRow(null)}
-        takaLabel={damageTarget ? bi(`Taka ${damageTarget.value}`, `टाका ${damageTarget.value}`) : ''}
-        value={damageTarget?.damage ?? null}
-        onConfirm={(damage) => damageTarget && setRow(damageTarget.key, { damage })}
-        onRemove={() => damageTarget && setRow(damageTarget.key, { damage: null })}
-      />
-
       <ResponsiveModal
         open={confirmOpen}
         onOpenChange={(o) => !enter.isPending && setConfirmOpen(o)}
@@ -694,19 +650,23 @@ export default function TakaEntryPage() {
             const pcs = parsePcs(r.pcs).pcs;
             return (
               <li key={r.key} className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 px-4 py-2.5">
-                <span className={cn('text-2xl font-bold tabular-nums', r.damage ? 'text-red-600' : 'text-slate-900')}>
+                <span className={cn('text-2xl font-bold tabular-nums', r.damages.length ? 'text-red-600' : 'text-slate-900')}>
                   {r.value}
                   {meters !== null && <span className="ml-2 text-lg font-semibold text-slate-500">{formatMeters(meters)}</span>}
                   {pcs !== null && <span className="ml-2 text-lg font-semibold text-slate-500">· {formatPcs(pcs)}</span>}
                 </span>
-                {r.damage && (
-                  <span className="inline-flex min-w-0 items-center gap-1 text-base font-bold text-red-600">
-                    <AlertTriangle className="size-5 shrink-0" aria-hidden />
-                    <span className="truncate">{damageLabel('machine', damageChoiceName(r.damage))}</span>
-                    <span lang="hi" className="shrink-0 text-sm">
-                      / खराबी
-                    </span>
-                  </span>
+                {r.damages.length > 0 && (
+                  <ul className="basis-full space-y-0.5">
+                    {r.damages.map((d) => (
+                      <li key={d.key} className="flex min-w-0 items-center gap-1 text-base font-bold text-red-600">
+                        <AlertTriangle className="size-5 shrink-0" aria-hidden />
+                        <span className="truncate">{entryLabel(d)}</span>
+                        <span lang="hi" className="shrink-0 text-sm">
+                          / खराबी
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
                 )}
               </li>
             );

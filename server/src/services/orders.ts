@@ -273,7 +273,12 @@ async function resolveOrderRefs(
     // A design uploaded from the order form is saved into the Design Master.
     const created = await insertDesign(
       tx,
-      { code: data.newDesign.code, imageUrl: data.newDesign.imageUrl, thumbUrl: data.newDesign.thumbUrl },
+      {
+        code: data.newDesign.code,
+        imageUrl: data.newDesign.imageUrl,
+        thumbUrl: data.newDesign.thumbUrl,
+        buttaCutting: data.newDesign.buttaCutting,
+      },
       'designCode',
     );
     designId = created.id;

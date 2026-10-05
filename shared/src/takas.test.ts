@@ -7,7 +7,14 @@ import {
   cleanTakaNo,
   compareTakaNo,
   damageLabel,
+  damagePcsErrorText,
+  damageResolvedText,
   formatPcs,
+  hasOpenDamage,
+  initialTakaStage,
+  isFreshAfterDamage,
+  parseDamagePcs,
+  takaUsedText,
   hasTakaErrors,
   jobsheetQrUrl,
   parseJobsheetQr,
@@ -51,6 +58,16 @@ describe('taka number validation (one jobsheet)', () => {
     expect(validateTakaNumbers(['6245', '6246', '6245'])).toEqual([null, null, 'duplicate']);
   });
 
+  it('flags numbers already used anywhere (global uniqueness) — the used list wins over duplicates', () => {
+    const used = new Map([['6245', '#26 (319)']]);
+    expect(validateTakaNumbers(['6245', '6250', '6250'], [], { used })).toEqual(['already_used', null, 'duplicate']);
+    expect(takaUsedText('6245', '#26 (319)')).toEqual({
+      en: 'Taka 6245 is already used (Order #26 (319))',
+      hi: 'टाका 6245 पहले से है',
+    });
+    expect(takaUsedText('6245').en).toBe('Taka 6245 is already used');
+  });
+
   it('flags numbers already entered on the same jobsheet', () => {
     const errors = validateTakaNumbers(['6245', '6250'], ['6245', '6246']);
     expect(errors).toEqual(['already_entered', null]);
@@ -77,7 +94,7 @@ describe('taka number validation (one jobsheet)', () => {
   });
 
   it('server schemas: number format, pcs required, at least one taka on entry, empty set allowed on edit', () => {
-    expect(takaEntrySchema.safeParse({ takas: [{ takaNo: '0045', pcs: 12, damage: { damageId: 3 } }] }).success).toBe(true);
+    expect(takaEntrySchema.safeParse({ takas: [{ takaNo: '0045', pcs: 12, damages: [{ damageId: 3, pcs: 2 }] }] }).success).toBe(true);
     expect(takaEntrySchema.safeParse({ takas: [{ takaNo: '62/45-1', pcs: 1 }] }).success).toBe(true);
     expect(takaEntrySchema.safeParse({ takas: [{ takaNo: '45a', pcs: 1 }] }).success).toBe(false);
     expect(takaEntrySchema.safeParse({ takas: [{ takaNo: '45-', pcs: 1 }] }).success).toBe(false);
@@ -85,7 +102,7 @@ describe('taka number validation (one jobsheet)', () => {
     expect(takaEntrySchema.safeParse({ takas: [] }).success).toBe(false);
     expect(takaEditSchema.safeParse({ takas: [], note: '' }).success).toBe(true);
     const parsed = takaEntrySchema.parse({ takas: [{ takaNo: ' 7 ', pcs: 10 }], note: '  ' });
-    expect(parsed.takas[0]).toEqual({ takaNo: '7', meters: null, pcs: 10, damage: null });
+    expect(parsed.takas[0]).toEqual({ takaNo: '7', meters: null, pcs: 10, damages: [] });
     expect(parsed.note).toBeNull();
   });
 
@@ -250,31 +267,70 @@ describe('pcs per taka', () => {
   });
 });
 
-describe('damage payload', () => {
-  it('accepts a master damage, an "Other" name or null', () => {
-    expect(takaDamageSchema.parse({ damageId: 4 })).toEqual({ damageId: 4 });
-    expect(takaDamageSchema.parse({ otherName: '  Oil stain ' })).toEqual({ otherName: 'Oil stain' });
-    expect(takaDamageSchema.parse(null)).toBeNull();
-    expect(takaDamageSchema.parse(undefined)).toBeNull();
+describe('damage payload (a list per taka)', () => {
+  it('accepts master damages and "Other" names, each with the damaged pcs', () => {
+    expect(takaDamageSchema.parse({ damageId: 4, pcs: 2 })).toEqual({ damageId: 4, pcs: 2 });
+    expect(takaDamageSchema.parse({ otherName: '  Oil stain ', pcs: 1 })).toEqual({ otherName: 'Oil stain', pcs: 1 });
+    const parsed = takaEntrySchema.parse({
+      takas: [{ takaNo: '1', pcs: 12, damages: [{ damageId: 1, pcs: 2 }, { otherName: 'Hole', pcs: 1 }] }],
+    });
+    expect(parsed.takas[0].damages).toHaveLength(2);
   });
 
-  it('a damage needs a name: empty Other, both keys or a missing id are rejected', () => {
-    expect(takaDamageSchema.safeParse({ otherName: '   ' }).success).toBe(false);
-    expect(takaDamageSchema.safeParse({ damageId: 1, otherName: 'Hole' }).success).toBe(false);
-    expect(takaDamageSchema.safeParse({ damageId: null }).success).toBe(false);
-    expect(takaDamageSchema.safeParse({}).success).toBe(false);
-    expect(takaDamageSchema.safeParse({ otherName: 'x'.repeat(81) }).success).toBe(false);
+  it('a damage needs a name and pcs: empty Other, both keys, missing pcs or id are rejected', () => {
+    expect(takaDamageSchema.safeParse({ otherName: '   ', pcs: 1 }).success).toBe(false);
+    expect(takaDamageSchema.safeParse({ damageId: 1, otherName: 'Hole', pcs: 1 }).success).toBe(false);
+    expect(takaDamageSchema.safeParse({ damageId: 1 }).success).toBe(false);
+    expect(takaDamageSchema.safeParse({ damageId: 1, pcs: 0 }).success).toBe(false);
+    expect(takaDamageSchema.safeParse({ damageId: null, pcs: 1 }).success).toBe(false);
+    expect(takaDamageSchema.safeParse({ otherName: 'x'.repeat(81), pcs: 1 }).success).toBe(false);
   });
 
-  it('edit keeps an older nameless damage only as { damageId: null }', () => {
-    const parsed = takaEditSchema.parse({ takas: [{ id: 1, takaNo: '5', pcs: 2, damage: { damageId: null } }], note: null });
-    expect(parsed.takas[0].damage).toEqual({ damageId: null });
+  it('edit keeps an older nameless damage as { id, damageId: null, pcs: null }', () => {
+    const parsed = takaEditSchema.parse({ takas: [{ id: 1, takaNo: '5', pcs: 2, damages: [{ id: 9, damageId: null, pcs: null }] }], note: null });
+    expect(parsed.takas[0].damages).toEqual([{ id: 9, damageId: null, pcs: null }]);
+    expect(takaEditSchema.parse({ takas: [{ id: 1, takaNo: '5', pcs: 2 }], note: null }).takas[0].damages).toEqual([]);
   });
 
-  it('labels where + what', () => {
+  it('labels where + what + pcs', () => {
+    expect(damageLabel('machine', 'Hole', 2)).toBe('Machine damage · Hole · 2 pcs');
     expect(damageLabel('machine', 'Hole')).toBe('Machine damage · Hole');
     expect(damageLabel('machine', null)).toBe('Machine damage');
     expect(damageLabel(null)).toBe('Machine damage');
+    expect(damageLabel('butta', 'Cut', 1)).toBe('Butta cutting damage · Cut · 1 pcs');
+  });
+
+  it('open / resolved / Fresh', () => {
+    const open = { status: 'open' };
+    const resolved = { status: 'resolved', resolvedStage: 'butta_qc' };
+    expect(hasOpenDamage([open, resolved])).toBe(true);
+    expect(isFreshAfterDamage([resolved])).toBe(true);
+    expect(isFreshAfterDamage([open, resolved])).toBe(false);
+    expect(isFreshAfterDamage([])).toBe(false);
+    expect(damageResolvedText(resolved)).toBe('Resolved at butta QC');
+    expect(damageResolvedText(open)).toBeNull();
+  });
+
+  it('damaged pcs: 1 to the taka pcs', () => {
+    expect(parseDamagePcs('', 12)).toEqual({ pcs: null, error: 'required' });
+    expect(parseDamagePcs('3', 12)).toEqual({ pcs: 3, error: null });
+    expect(parseDamagePcs('12', 12)).toEqual({ pcs: 12, error: null });
+    expect(parseDamagePcs('13', 12).error).toBe('too_big');
+    expect(parseDamagePcs('0', 12).error).toBe('zero');
+    expect(parseDamagePcs('1.5', 12).error).toBe('invalid');
+    expect(damagePcsErrorText('too_big', 12).en).toContain('12');
+  });
+});
+
+describe('where a new taka goes (initialTakaStage)', () => {
+  it('butta designs and orders without a design wait for butta cutting', () => {
+    expect(initialTakaStage({ buttaCutting: true })).toBe('entered');
+    expect(initialTakaStage(null)).toBe('entered');
+    expect(initialTakaStage(undefined)).toBe('entered');
+  });
+
+  it('designs that skip butta cutting go straight to waiting for the mill', () => {
+    expect(initialTakaStage({ buttaCutting: false })).toBe('waiting_mill');
   });
 });
 

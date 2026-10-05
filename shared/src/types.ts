@@ -3,8 +3,9 @@ import type { JobsheetStatusKey, OrderStatusKey } from './statuses';
 import type { Unit } from './units';
 import type { OrderType } from './orderTypes';
 import type { Coverage, CoverageWarning } from './jobsheets';
-import type { JobsheetTab, TakaTab } from './schemas';
+import type { ChallanFilter, JobsheetTab, TakaTab } from './schemas';
 import type { DamageType, SubStageKey, TakaStage } from './pipeline';
+import type { DamageStatus } from './takas';
 
 export interface ApiErrorBody {
   error: { message: string; field?: string };
@@ -83,6 +84,8 @@ export interface DesignListItem {
   imageUrl: string | null;
   variationCount: number;
   materialName: string | null;
+  /** Goes for butta cutting (shows a "Butta" tag). */
+  buttaCutting: boolean;
 }
 
 export interface Design {
@@ -94,6 +97,8 @@ export interface Design {
   notes: string | null;
   /** Fixed material for this design, if any. */
   material: { id: number; name: string } | null;
+  /** Goes for butta cutting — decides where takas go after taka entry (changing it affects takas entered from then on). */
+  buttaCutting: boolean;
   createdAt: string;
   updatedAt: string;
   variations: DesignVariation[];
@@ -483,22 +488,41 @@ export interface MachineViewData {
 
 /* ---------- takas ---------- */
 
+/** One damage of a taka (the source of truth is `taka_damages`). */
+export interface TakaDamage {
+  id: number;
+  /** WHAT the damage is (Damage master); null on an older damage recorded without a name. */
+  damageId: number | null;
+  damageName: string | null;
+  /** WHERE it was found. */
+  foundAt: DamageType;
+  /** Damaged pcs; null on an older (migrated) damage. */
+  pcs: number | null;
+  status: DamageStatus;
+  resolvedAt: string | null;
+  resolvedBy: RoleKey | null;
+  /** e.g. `butta_qc` */
+  resolvedStage: string | null;
+  createdAt: string;
+}
+
 export interface Taka {
   id: number;
-  /** Digits, kept as text (leading zeros matter). Unique within a jobsheet only. */
+  /** Digits (with - /), kept as text (leading zeros matter). Unique across the whole system since Sprint 7. */
   takaNo: string;
   /** Length in meters, when entered. */
   meters: number | null;
   /** Pieces in the taka (required since Sprint 6; older takas have none). */
   pcs: number | null;
+  /** The taka has at least one OPEN damage (denormalized from `taka_damages`). No open damage = "Fresh". */
   isDamaged: boolean;
-  /** WHERE the damage was found: `machine` when damaged at taka entry. */
-  damageType: DamageType | null;
-  /** WHAT the damage is (Damage master); null for older damage recorded without a name. */
-  damageId: number | null;
-  damageName: string | null;
+  /** Every damage of the taka — open ones and resolved ones. */
+  damages: TakaDamage[];
   /** Where the taka is (`entered` = Taka entry done · waiting for butta cutting). See `TAKA_STAGES`. */
   stage: TakaStage;
+  /** The challan the taka is on (while at butta cutting / after it came back). */
+  challanId: number | null;
+  challanNo: number | null;
   enteredBy: RoleKey;
   createdAt: string;
 }
@@ -620,15 +644,12 @@ export type DashboardItems =
   | { sub: SubStageKey; kind: 'jobsheets'; connected: boolean; jobsheets: DashboardJobsheetItem[] }
   | { sub: SubStageKey; kind: 'takas'; connected: boolean; groups: DashboardTakaGroup[] };
 
-/** One damaged taka on the Damages tab. */
+/** One damaged taka on the Damages tab, with the damages that match the filter. */
 export interface DamagedTaka {
   id: number;
   takaNo: string;
   meters: number | null;
   pcs: number | null;
-  damageType: DamageType;
-  damageId: number | null;
-  damageName: string | null;
   stage: TakaStage;
   jobsheetId: number;
   jobsheetNo: number;
@@ -637,14 +658,262 @@ export interface DamagedTaka {
   /** The jobsheet's common taka note. */
   note: string | null;
   createdAt: string;
+  /** Damages of this taka that match the `type` / `resolved` filter. */
+  damages: TakaDamage[];
 }
 
-/** GET /orders/:id/damages?type= */
+/** GET /orders/:id/damages?type=&resolved= */
 export interface OrderDamages {
   orderId: number;
-  counts: { type: DamageType; count: number }[];
+  /** OPEN damages by where they were found, with their damaged pcs. */
+  counts: { type: DamageType; count: number; pcs: number | null }[];
+  /** Open damages in total. */
   total: number;
-  /** Filtered by `type` when given. */
+  /** Resolved damages (shown when "Show resolved" is on). */
+  resolvedTotal: number;
+  /** Filtered by `type` when given; resolved damages only when asked for. */
   items: DamagedTaka[];
 }
 
+/* ---------- taka details + history ---------- */
+
+export const TAKA_EVENT_KINDS = [
+  'entered',
+  'sent_butta',
+  'received_butta',
+  'receive_undone',
+  'butta_qc_done',
+  'damage_added',
+  'damage_resolved',
+  'damage_kept',
+  'edited',
+  'challan_cancelled',
+] as const;
+export type TakaEventKind = (typeof TAKA_EVENT_KINDS)[number];
+
+export interface TakaEvent {
+  id: number;
+  event: TakaEventKind;
+  challanId: number | null;
+  challanNo: number | null;
+  note: string | null;
+  role: RoleKey;
+  createdAt: string;
+}
+
+/** Design of a taka's order — image + code, never the client. */
+export interface TakaDesignInfo {
+  code: string | null;
+  thumbUrl: string | null;
+  imageUrl: string | null;
+}
+
+/** GET /takas/:id and GET /takas/by-no/:no (restricted roles get no client / rate — only these fields). */
+export interface TakaDetail {
+  id: number;
+  takaNo: string;
+  meters: number | null;
+  pcs: number | null;
+  isDamaged: boolean;
+  damages: TakaDamage[];
+  stage: TakaStage;
+  orderId: number;
+  orderNo: number;
+  jobsheetId: number;
+  jobsheetNo: number;
+  /** The quality = the order's material. */
+  quality: string | null;
+  design: TakaDesignInfo;
+  /** The active challan row of the taka (also after it came back). */
+  challan: {
+    id: number;
+    challanNo: number;
+    sentAt: string;
+    receivedAt: string | null;
+    /** Butta QC has been completed (the taka moved on to waiting for the mill). */
+    qcDone: boolean;
+  } | null;
+  /** Taka history — Jemish / Gaurang only (empty for the new roles). */
+  events: TakaEvent[];
+  createdAt: string;
+}
+
+/** GET /takas/check?no= */
+export interface TakaAvailability {
+  available: boolean;
+  usedBy?: { orderNo: number; jobsheetNo: number };
+}
+
+/* ---------- butta parties + challans ---------- */
+
+export interface ButtaParty {
+  id: number;
+  name: string;
+  address: string | null;
+  mobile: string | null;
+  gstin: string | null;
+  notes: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** An order with takas waiting for butta cutting (Send → Pending card). */
+export interface ButtaPendingOrder {
+  orderId: number;
+  orderNo: number;
+  designCode: string | null;
+  thumbUrl: string | null;
+  imageUrl: string | null;
+  quality: string | null;
+  takaCount: number;
+  totalMeters: number;
+}
+
+export type ButtaPendingOrderPage = Paginated<ButtaPendingOrder>;
+
+export interface ButtaPendingTaka {
+  id: number;
+  takaNo: string;
+  meters: number | null;
+  pcs: number | null;
+  /** Has an open damage. */
+  isDamaged: boolean;
+}
+
+/** GET /butta/pending-orders/:orderId/takas */
+export interface ButtaPendingOrderTakas {
+  order: ButtaPendingOrder;
+  takas: ButtaPendingTaka[];
+}
+
+export type ChallanStatus = 'active' | 'cancelled';
+
+/** One challan card (Send → In butta cutting, Receive → Challans). */
+export interface ChallanListItem {
+  id: number;
+  challanNo: number;
+  status: ChallanStatus;
+  partyName: string;
+  challanDate: string;
+  ewayNo: string | null;
+  totalTakas: number;
+  totalMeters: number;
+  receivedCount: number;
+  createdAt: string;
+}
+
+export interface ChallanPage extends Paginated<ChallanListItem> {
+  filter: ChallanFilter;
+}
+
+export interface ChallanTakaRow {
+  id: number;
+  takaNo: string;
+  /** Meters / pcs at the time of sending. */
+  meters: number | null;
+  pcs: number | null;
+  receivedAt: string | null;
+  /** Butta QC done. */
+  qcDone: boolean;
+  isDamaged: boolean;
+}
+
+export interface ChallanOrderGroup {
+  orderId: number;
+  orderNo: number;
+  designCode: string | null;
+  thumbUrl: string | null;
+  imageUrl: string | null;
+  quality: string | null;
+  takaCount: number;
+  totalMeters: number;
+  /** In butta cutting first, then received. */
+  takas: ChallanTakaRow[];
+}
+
+/** GET /butta/challans/:id */
+export interface ChallanDetail {
+  id: number;
+  challanNo: number;
+  status: ChallanStatus;
+  party: { id: number; name: string; address: string | null; mobile: string | null; gstin: string | null };
+  challanDate: string;
+  ewayNo: string | null;
+  createdBy: RoleKey;
+  createdAt: string;
+  cancelledAt: string | null;
+  totalTakas: number;
+  totalMeters: number;
+  receivedCount: number;
+  pendingCount: number;
+  /** Cancel is allowed while nothing was received (and the challan is active). */
+  canCancel: boolean;
+  orders: ChallanOrderGroup[];
+}
+
+/** GET /butta/challans/:id/print — no order number and no client anywhere. */
+export interface ChallanPrintData {
+  challanNo: number;
+  status: ChallanStatus;
+  challanDate: string;
+  ewayNo: string | null;
+  party: { name: string; address: string | null; mobile: string | null; gstin: string | null };
+  /** The qualities (materials) of the takas, in order. */
+  qualities: string[];
+  /** By order, then taka number — meters at the time of sending. */
+  takas: { takaNo: string; meters: number | null }[];
+}
+
+export interface ChallanCreateResult {
+  challanId: number;
+  challanNo: number;
+  totalTakas: number;
+  totalMeters: number;
+}
+
+export type ReceiveCode = 'received' | 'not_found' | 'not_sent' | 'already_received' | 'changed';
+
+export interface ReceiveResult {
+  takaId: number | null;
+  takaNo: string;
+  ok: boolean;
+  code: ReceiveCode;
+  /** Plain-English reason (alerts) — filled for every result. */
+  message: string;
+  orderNo: number | null;
+  challanId: number | null;
+  challanNo: number | null;
+  meters: number | null;
+  receivedAt: string | null;
+}
+
+/** POST /butta/receive */
+export interface ReceiveResponse {
+  results: ReceiveResult[];
+  received: number;
+}
+
+/** One taka in the Butta QC "QC pending" list. */
+export interface QcPendingTaka {
+  id: number;
+  takaNo: string;
+  orderNo: number;
+  meters: number | null;
+  pcs: number | null;
+  challanNo: number | null;
+  receivedAt: string | null;
+  isDamaged: boolean;
+}
+
+export type QcPendingPage = Paginated<QcPendingTaka>;
+
+/** POST /butta-qc/:takaId */
+export interface QcResult {
+  takaId: number;
+  takaNo: string;
+  /** No open damage left = Fresh. */
+  fresh: boolean;
+  resolved: number;
+  kept: number;
+  added: number;
+}

@@ -43,6 +43,11 @@ export const errorHandler: ErrorRequestHandler = (err, _req, res, _next) => {
     return;
   }
   const text = String((err as Error)?.message ?? err);
+  if (/UNIQUE constraint failed.*taka_no/i.test(text)) {
+    // Two people saved the same taka number at the same moment (the pre-check passed for both).
+    send(res, 409, 'A taka number you entered was just used by someone else / यह टाका नंबर अभी किसी और ने इस्तेमाल किया');
+    return;
+  }
   if (/UNIQUE constraint failed/i.test(text)) {
     send(res, 409, 'A record with the same value already exists');
     return;

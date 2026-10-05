@@ -10,10 +10,13 @@ export function RequirePermission({ permission, children }: { permission: keyof 
   return <>{children}</>;
 }
 
-/** Unknown routes: the Taka entry role is always sent back to his landing (`/scan`); others see Not found. */
+/**
+ * Unknown routes: the single-module roles (Taka entry, Godown supervisor, Butta QC — no orders and no jobsheets
+ * module) are always sent back to their landing; others see Not found.
+ */
 export function NotFoundOrLanding({ fallback }: { fallback: ReactNode }) {
   const { can, config } = useRole();
-  if (can('canUseTakaModules')) return <Navigate to={config.landing} replace />;
+  if (!can('canViewOrders') && !can('canViewJobsheetsModule')) return <Navigate to={config.landing} replace />;
   return <>{fallback}</>;
 }
 

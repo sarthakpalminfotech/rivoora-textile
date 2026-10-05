@@ -35,7 +35,7 @@ import { applyServerFieldError } from '@/lib/form';
 import { cn, toNumber } from '@/lib/utils';
 import { useBrokerLookup, useCustomerLookup, useMaterialLookup } from '../masters/api';
 import { CustomerFormDialog } from '../masters/customers/customer-form';
-import { designCodeField, useCodeAvailability } from '../masters/designs/design-form';
+import { BUTTA_OPTIONS, designCodeField, useCodeAvailability, type ButtaChoice } from '../masters/designs/design-form';
 import { useCreateOrder, useUpdateOrder } from './api';
 import { SavedDesignsDrawer, type SavedDesignPick } from './saved-designs-drawer';
 
@@ -51,6 +51,8 @@ const schema = z
     materialId: z.number().nullable(),
     design: z.custom<DesignAttachment | null>(),
     newDesignCode: z.string(),
+    /** "Goes for butta cutting?" of a design uploaded from this form (required for an upload). */
+    newDesignButta: z.enum(['yes', 'no']).nullable(),
     quantity: z.string().trim(),
     unit: z.enum(UNITS),
     rate: z.string().trim(),
@@ -72,6 +74,7 @@ const schema = z
     if (v.design?.kind === 'upload') {
       const res = designCodeField.safeParse(v.newDesignCode);
       if (!res.success) ctx.addIssue({ code: 'custom', path: ['newDesignCode'], message: res.error.issues[0].message });
+      if (!v.newDesignButta) ctx.addIssue({ code: 'custom', path: ['newDesignButta'], message: 'Choose Yes or No' });
     }
   });
 type FormValues = z.infer<typeof schema>;
@@ -84,6 +87,7 @@ const defaults = (): FormValues => ({
   materialId: null,
   design: null,
   newDesignCode: '',
+  newDesignButta: null,
   quantity: '',
   unit: DEFAULT_UNIT,
   rate: '',
@@ -112,6 +116,7 @@ const fromOrder = (o: OrderDetail): FormValues => {
         }
       : null,
     newDesignCode: '',
+    newDesignButta: null,
     quantity: String(o.quantity),
     unit: o.unit,
     rate: o.rate != null ? String(o.rate) : '',
@@ -219,7 +224,7 @@ export function OrderForm({ order }: { order?: OrderDetail }) {
 
   const setDesign = (d: DesignAttachment | null) => {
     setValue('design', d, { shouldDirty: true });
-    clearErrors(['newDesignCode']);
+    clearErrors(['newDesignCode', 'newDesignButta']);
   };
 
   const onSubmit = handleSubmit((v) => {
@@ -236,7 +241,7 @@ export function OrderForm({ order }: { order?: OrderDetail }) {
       variationId: v.design?.kind === 'saved' ? v.design.variationId : null,
       newDesign:
         v.design?.kind === 'upload'
-          ? { code: v.newDesignCode, imageUrl: v.design.imageUrl, thumbUrl: v.design.thumbUrl }
+          ? { code: v.newDesignCode, imageUrl: v.design.imageUrl, thumbUrl: v.design.thumbUrl, buttaCutting: v.newDesignButta === 'yes' }
           : null,
       quantity: toNumber(v.quantity)!,
       unit: v.unit,
@@ -246,7 +251,7 @@ export function OrderForm({ order }: { order?: OrderDetail }) {
       noteImages: v.noteImages,
     };
     const onError = (err: unknown) => {
-      const handled = applyServerFieldError(err, setError, ['customerId', 'brokerId', 'orderType', 'materialId', 'quantity', 'unit', 'rate', 'orderDate', 'newDesignCode', 'notes'], {
+      const handled = applyServerFieldError(err, setError, ['customerId', 'brokerId', 'orderType', 'materialId', 'quantity', 'unit', 'rate', 'orderDate', 'newDesignCode', 'newDesignButta', 'notes'], {
         designCode: 'newDesignCode',
         'newDesign.code': 'newDesignCode',
       });
@@ -493,6 +498,33 @@ export function OrderForm({ order }: { order?: OrderDetail }) {
                     />
                   </Field>
                 )}
+                {design.kind === 'upload' && (
+                  <Field
+                    label="Goes for butta cutting?"
+                    htmlFor="new-design-butta"
+                    required
+                    error={errors.newDesignButta?.message}
+                    hint="Changing this affects takas entered from now on."
+                  >
+                    <Controller
+                      control={control}
+                      name="newDesignButta"
+                      render={({ field }) => (
+                        <Segmented<ButtaChoice>
+                          id="new-design-butta"
+                          aria-label="Goes for butta cutting"
+                          options={[...BUTTA_OPTIONS]}
+                          value={field.value}
+                          onChange={(v) => {
+                            field.onChange(v);
+                            clearErrors('newDesignButta');
+                          }}
+                          invalid={!!errors.newDesignButta}
+                        />
+                      )}
+                    />
+                  </Field>
+                )}
                 <div className="mt-auto flex flex-wrap gap-2">
                   {design.kind === 'saved' ? (
                     <Button variant="secondary" size="sm" onClick={() => setDrawerOpen(true)}>
@@ -513,6 +545,7 @@ export function OrderForm({ order }: { order?: OrderDetail }) {
                     onClick={() => {
                       setDesign(null);
                       setValue('newDesignCode', '');
+                      setValue('newDesignButta', null);
                       setMaterialFromDesign(null);
                     }}
                   >

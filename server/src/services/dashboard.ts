@@ -7,7 +7,6 @@ import {
   DAMAGE_TYPE_CONFIG,
   DAMAGE_TYPES,
   getSubStage,
-  isDamageType,
   jobsheetSubStage,
   SUB_STAGE_KEYS,
   type DamagedTaka,
@@ -21,10 +20,10 @@ import {
   type Taka,
 } from '@rivoora/shared';
 import { db } from '../db/client';
-import { jobsheets, orders, takas } from '../db/schema';
+import { jobsheets, orders, takaDamages, takas } from '../db/schema';
 import { notFound } from '../lib/errors';
 import { activeTakaCount, machinesJson, parseMachinesJson, runningMachine, runningMachineColumns, toMachineRef } from './jobsheets';
-import { sortTakas, takaColumns, takaDamageName } from './taka-shared';
+import { mapTaka, parseDamagesJson, sortTakas, takaColumns, takaDamagesJson } from './taka-shared';
 
 /**
  * Order dashboard (Jemish / Gaurang): counts, the items of one sub-stage, and the damaged takas.
@@ -52,7 +51,7 @@ function assertVisible<T extends { status: string }>(role: RoleKey, order: T | u
 
 /** GET /orders/:id/dashboard — one round trip: the order, its jobsheets, and the takas aggregated by stage. */
 export async function getOrderDashboard(role: RoleKey, orderId: number): Promise<OrderDashboard> {
-  const [orderRows, sheetRows, takaRows] = await db.batch([
+  const [orderRows, sheetRows, takaRows, damageRows] = await db.batch([
     db.select(orderColumns).from(orders).where(eq(orders.id, orderId)),
     db
       .select({
@@ -73,14 +72,25 @@ export async function getOrderDashboard(role: RoleKey, orderId: number): Promise
         jobsheetId: takas.jobsheetId,
         stage: takas.stage,
         isDamaged: takas.isDamaged,
-        damageType: takas.damageType,
         count: sql<number>`COUNT(*)`,
         pcs: sql<number | null>`SUM(${takas.pcs})`,
       })
       .from(takas)
       .innerJoin(jobsheets, eq(jobsheets.id, takas.jobsheetId))
       .where(activeTakasOf(orderId))
-      .groupBy(takas.jobsheetId, takas.stage, takas.isDamaged, takas.damageType),
+      .groupBy(takas.jobsheetId, takas.stage, takas.isDamaged),
+    // OPEN damages by where they were found (the damage tiles).
+    db
+      .select({
+        foundAt: takaDamages.foundAt,
+        count: sql<number>`COUNT(*)`,
+        pcs: sql<number | null>`SUM(${takaDamages.pcs})`,
+      })
+      .from(takaDamages)
+      .innerJoin(takas, eq(takas.id, takaDamages.takaId))
+      .innerJoin(jobsheets, eq(jobsheets.id, takas.jobsheetId))
+      .where(and(activeTakasOf(orderId), eq(takaDamages.status, 'open'), eq(takaDamages.isDeleted, false)))
+      .groupBy(takaDamages.foundAt),
   ]);
   const order = assertVisible(role, orderRows[0]);
   const data = buildOrderDashboard(
@@ -88,6 +98,7 @@ export async function getOrderDashboard(role: RoleKey, orderId: number): Promise
       order,
       jobsheets: sheetRows,
       takas: takaRows.map((t) => ({ ...t, count: Number(t.count), pcs: t.pcs === null ? null : Number(t.pcs) })),
+      damages: damageRows.map((d) => ({ foundAt: d.foundAt, count: Number(d.count), pcs: d.pcs === null ? null : Number(d.pcs) })),
     },
     new Date(),
   );
@@ -176,7 +187,7 @@ export async function getDashboardItems(role: RoleKey, orderId: number, query: u
       g = { jobsheetId, jobsheetNo, orderNo: order.orderNo, status: jobsheetStatus, frames, completedFrames, takas: [] };
       groups.push(g);
     }
-    g.takas.push(t as Taka);
+    g.takas.push(mapTaka(t) as Taka);
   }
   for (const g of groups) g.takas = sortTakas(g.takas);
   return { sub, kind: 'takas', connected: config.connected, groups };
@@ -188,11 +199,19 @@ export const damagesQuerySchema = z.object({
     .or(z.literal(''))
     .optional()
     .transform((v) => v || undefined),
+  /** "Show resolved" — also list resolved damages (off by default). */
+  resolved: z
+    .enum(['1', 'true', '0', 'false', ''])
+    .optional()
+    .transform((v) => v === '1' || v === 'true'),
 });
 
-/** GET /orders/:id/damages?type= — every damaged active taka, counts per damage type. */
+/**
+ * GET /orders/:id/damages?type=&resolved= — the damaged takas of the order. Counts are OPEN damages by where they
+ * were found (with damaged pcs); resolved damages are listed only with `resolved=1`.
+ */
 export async function getOrderDamages(role: RoleKey, orderId: number, query: unknown): Promise<OrderDamages> {
-  const { type } = damagesQuerySchema.parse(query);
+  const { type, resolved } = damagesQuerySchema.parse(query);
   const [orderRows, rows] = await db.batch([
     db.select(orderColumns).from(orders).where(eq(orders.id, orderId)),
     db
@@ -201,34 +220,47 @@ export async function getOrderDamages(role: RoleKey, orderId: number, query: unk
         takaNo: takas.takaNo,
         meters: takas.meters,
         pcs: takas.pcs,
-        damageType: takas.damageType,
-        damageId: takas.damageId,
-        damageName: takaDamageName,
         stage: takas.stage,
         createdAt: takas.createdAt,
         jobsheetId: jobsheets.id,
         jobsheetNo: jobsheets.jobsheetNo,
         jobsheetStatus: jobsheets.status,
         note: jobsheets.takaNote,
+        damagesJson: takaDamagesJson,
       })
       .from(takas)
       .innerJoin(jobsheets, eq(jobsheets.id, takas.jobsheetId))
-      .where(and(activeTakasOf(orderId), eq(takas.isDamaged, true)))
+      .where(
+        and(
+          activeTakasOf(orderId),
+          sql`EXISTS (SELECT 1 FROM taka_damages d WHERE d.taka_id = "takas"."id" AND d.is_deleted = 0)`,
+        ),
+      )
       .orderBy(asc(jobsheets.jobsheetNo), asc(takas.id)),
   ]);
   const order = assertVisible(role, orderRows[0]);
-  const all: DamagedTaka[] = rows.map((r) => ({
-    ...r,
-    orderNo: order.orderNo,
-    // Damage recorded before types existed counts as machine damage.
-    damageType: isDamageType(r.damageType) ? r.damageType : 'machine',
-  }));
-  const counts = DAMAGE_TYPE_CONFIG.map((d) => ({ type: d.key, count: all.filter((t) => t.damageType === d.key).length }));
+
+  const counts = new Map<DamageType, { count: number; pcs: number | null }>(DAMAGE_TYPES.map((t) => [t, { count: 0, pcs: null }]));
+  let resolvedTotal = 0;
+  const items: DamagedTaka[] = [];
+  for (const { damagesJson, ...r } of rows) {
+    const all = parseDamagesJson(damagesJson);
+    for (const d of all) {
+      if (d.status === 'open') {
+        const c = counts.get(d.foundAt)!;
+        c.count += 1;
+        if (d.pcs !== null) c.pcs = (c.pcs ?? 0) + d.pcs;
+      } else resolvedTotal += 1;
+    }
+    const shown = all.filter((d) => (resolved || d.status === 'open') && (!type || d.foundAt === type));
+    if (shown.length) items.push({ ...r, orderNo: order.orderNo, damages: shown });
+  }
   const byNo = (a: DamagedTaka, b: DamagedTaka) => a.jobsheetNo - b.jobsheetNo || compareTakaNo(a.takaNo, b.takaNo);
   return {
     orderId: order.id,
-    counts,
-    total: all.length,
-    items: (type ? all.filter((t) => t.damageType === (type as DamageType)) : all).sort(byNo),
+    counts: DAMAGE_TYPE_CONFIG.map((d) => ({ type: d.key, count: counts.get(d.key)!.count, pcs: counts.get(d.key)!.pcs })),
+    total: [...counts.values()].reduce((n, c) => n + c.count, 0),
+    resolvedTotal,
+    items: items.sort(byNo),
   };
 }

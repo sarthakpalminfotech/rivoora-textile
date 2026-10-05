@@ -4,7 +4,7 @@
  * To add a role: add its key to ROLE_KEYS, give it a config below and
  * add it to `visibleTo` of the statuses it may see (see statuses.ts).
  */
-export const ROLE_KEYS = ['jemish', 'gaurang', 'supervisor', 'taka_entry'] as const;
+export const ROLE_KEYS = ['jemish', 'gaurang', 'supervisor', 'taka_entry', 'godown_supervisor', 'butta_qc'] as const;
 export type RoleKey = (typeof ROLE_KEYS)[number];
 
 export interface RolePermissions {
@@ -42,6 +42,14 @@ export interface RolePermissions {
   canEditTakas: boolean;
   /** See takas on order and jobsheet details (the Taka entry role: on his own screens only). */
   canViewTakas: boolean;
+  /** Butta cutting module (`/butta`): send takas on a challan + receive them back. */
+  canUseButtaModule: boolean;
+  /** Cancel a challan (only while nothing on it has been received). */
+  canCancelChallan: boolean;
+  /** Butta parties master. */
+  canManageButtaParties: boolean;
+  /** Butta QC screens (`/butta-qc`): check the takas received back from butta cutting. */
+  canButtaQc: boolean;
 }
 
 export interface RoleConfig {
@@ -59,6 +67,27 @@ export interface RoleConfig {
 }
 
 const NO_TAKAS = { canUseTakaModules: false, canEnterTakas: false, canEditTakas: false, canViewTakas: false };
+const NO_BUTTA = { canUseButtaModule: false, canCancelChallan: false, canManageButtaParties: false, canButtaQc: false };
+/** Everything off — the base of the two Sprint 7 roles, which only get what they need. */
+const NOTHING = {
+  canViewOrders: false,
+  canViewMasters: false,
+  canSeeRate: false,
+  canAddOrder: false,
+  canEditOrder: false,
+  canSendToProduction: false,
+  canUndoProduction: false,
+  canManageMasters: false,
+  canManageDamages: false,
+  canManageJobsheets: false,
+  canManageMachines: false,
+  canViewJobsheetsModule: false,
+  canRunJobsheets: false,
+  canPrintJobsheets: false,
+  canViewMachineView: false,
+  ...NO_TAKAS,
+  ...NO_BUTTA,
+};
 
 export const ROLES: Record<RoleKey, RoleConfig> = {
   jemish: {
@@ -86,6 +115,10 @@ export const ROLES: Record<RoleKey, RoleConfig> = {
       ...NO_TAKAS,
       canEditTakas: true,
       canViewTakas: true,
+      canUseButtaModule: true,
+      canCancelChallan: true,
+      canManageButtaParties: true,
+      canButtaQc: false,
     },
   },
   gaurang: {
@@ -114,6 +147,10 @@ export const ROLES: Record<RoleKey, RoleConfig> = {
       ...NO_TAKAS,
       canEditTakas: true,
       canViewTakas: true,
+      canUseButtaModule: true,
+      canCancelChallan: true,
+      canManageButtaParties: true,
+      canButtaQc: false,
     },
   },
   supervisor: {
@@ -139,6 +176,7 @@ export const ROLES: Record<RoleKey, RoleConfig> = {
       canPrintJobsheets: true,
       canViewMachineView: true,
       ...NO_TAKAS,
+      ...NO_BUTTA,
     },
   },
   taka_entry: {
@@ -168,7 +206,26 @@ export const ROLES: Record<RoleKey, RoleConfig> = {
       canEnterTakas: true,
       canEditTakas: false,
       canViewTakas: true,
+      ...NO_BUTTA,
     },
+  },
+  godown_supervisor: {
+    key: 'godown_supervisor',
+    name: 'Godown supervisor',
+    title: 'Godown',
+    initials: 'GS',
+    landing: '/butta',
+    // Restricted view: order numbers, design and quality only (no client, rate or other order details).
+    permissions: { ...NOTHING, canUseButtaModule: true },
+  },
+  butta_qc: {
+    key: 'butta_qc',
+    name: 'Butta QC',
+    title: 'बुट्टा QC',
+    initials: 'Q',
+    landing: '/butta-qc',
+    bilingual: true,
+    permissions: { ...NOTHING, canButtaQc: true },
   },
 };
 

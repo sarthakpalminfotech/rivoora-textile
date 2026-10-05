@@ -3,7 +3,7 @@
  * Pure helpers shared by the server (validation) and the client (inline errors, summaries, QR scanning).
  */
 
-import { DAMAGE_TYPE_LABEL, isDamageType } from './pipeline';
+import { DAMAGE_TYPE_LABEL, isDamageType, type TakaStage } from './pipeline';
 
 /**
  * Taka numbers: digits with single `-` or `/` separators between them (`6245`, `6245-1`, `62/45`), no letters.
@@ -22,7 +22,7 @@ export const TAKA_NO_REGEX = /^\d+([-/]\d+)*$/;
 export const MAX_TAKAS_PER_SUBMIT = 200;
 export const MAX_TAKAS_PER_JOBSHEET = 500;
 
-export type TakaNoError = 'required' | 'format' | 'too_long' | 'duplicate' | 'already_entered';
+export type TakaNoError = 'required' | 'format' | 'too_long' | 'duplicate' | 'already_entered' | 'already_used';
 
 /**
  * While typing / pasting: keeps digits, `-` and `/` only, drops a leading separator, collapses repeated
@@ -36,7 +36,7 @@ export function cleanTakaNo(value: string): string {
     .slice(0, TAKA_NO_MAX_LENGTH);
 }
 
-export function takaNoError(value: string): Exclude<TakaNoError, 'duplicate' | 'already_entered'> | null {
+export function takaNoError(value: string): Exclude<TakaNoError, 'duplicate' | 'already_entered' | 'already_used'> | null {
   const v = value.trim();
   if (!v) return 'required';
   if (v.length > TAKA_NO_MAX_LENGTH) return 'too_long';
@@ -45,15 +45,16 @@ export function takaNoError(value: string): Exclude<TakaNoError, 'duplicate' | '
 }
 
 /**
- * Validates the taka numbers of ONE jobsheet. Empty rows are ignored when `ignoreEmpty` is set (the entry screen);
- * otherwise they are an error (the edit form). Duplicates are checked within the list and against `existing`
- * (numbers already saved on the same jobsheet). Numbers are NOT unique across jobsheets or orders.
+ * Validates the taka numbers of a submit. Empty rows are ignored when `ignoreEmpty` is set (the entry screen);
+ * otherwise they are an error (the edit form). Duplicates are checked within the list, against `existing` (numbers
+ * already saved on the same jobsheet) and against `used` (numbers already used ANYWHERE in the system — since
+ * Sprint 7 a taka number never repeats across jobsheets, orders or years; the value is where it is used).
  * Returns one error (or null) per row, in the same order. The first occurrence of a duplicate is valid.
  */
 export function validateTakaNumbers(
   values: readonly string[],
   existing: readonly string[] = [],
-  { ignoreEmpty = false }: { ignoreEmpty?: boolean } = {},
+  { ignoreEmpty = false, used }: { ignoreEmpty?: boolean; used?: ReadonlyMap<string, string> | null } = {},
 ): (TakaNoError | null)[] {
   const saved = new Set(existing.map((v) => v.trim()));
   const seen = new Set<string>();
@@ -63,6 +64,7 @@ export function validateTakaNumbers(
     const err = takaNoError(v);
     if (err) return err;
     if (saved.has(v)) return 'already_entered';
+    if (used?.has(v)) return 'already_used';
     if (seen.has(v)) return 'duplicate';
     seen.add(v);
     return null;
@@ -78,7 +80,16 @@ export const TAKA_ERROR_TEXT: Record<TakaNoError, { en: string; hi: string }> = 
   too_long: { en: `At most ${TAKA_NO_MAX_LENGTH} characters`, hi: `ज़्यादा से ज़्यादा ${TAKA_NO_MAX_LENGTH} अक्षर` },
   duplicate: { en: 'Typed twice', hi: 'दो बार लिखा है' },
   already_entered: { en: 'Already entered for this jobsheet', hi: 'इस जॉबशीट में पहले से है' },
+  already_used: { en: 'Already used', hi: 'पहले से है' },
 };
+
+/** "Taka 6245 is already used (Order #26 (319)) / टाका 6245 पहले से है" — `ref` = where it is used, when known. */
+export function takaUsedText(takaNo: string, ref?: string | null): { en: string; hi: string } {
+  return {
+    en: `Taka ${takaNo} is already used${ref ? ` (Order ${ref})` : ''}`,
+    hi: `टाका ${takaNo} पहले से है`,
+  };
+}
 
 /* ------------------------------------------------------------------ */
 /* Meters per taka (optional)                                           */
@@ -171,18 +182,85 @@ export function totalPcs(takas: readonly { pcs?: number | null }[]): number | nu
 }
 
 /* ------------------------------------------------------------------ */
-/* Damage name                                                          */
+/* Damages (a list per taka)                                            */
 /* ------------------------------------------------------------------ */
 
 export const DAMAGE_NAME_MAX_LENGTH = 80;
 
+export const DAMAGE_STATUSES = ['open', 'resolved'] as const;
+export type DamageStatus = (typeof DAMAGE_STATUSES)[number];
+
+/** Where a damage was resolved (`taka_damages.resolved_stage`). */
+export const RESOLVED_STAGE_LABEL: Record<string, string> = { butta_qc: 'butta QC' };
+
+/** The fields of one damage row that the labels need. */
+export interface DamageLike {
+  foundAt: string;
+  damageName?: string | null;
+  pcs?: number | null;
+  status?: string;
+  resolvedStage?: string | null;
+}
+
 /**
- * "Machine damage · Hole" — where the damage was found (`damage_type`) + what it is (the Damage master name).
- * Older damage without a name shows just "Machine damage".
+ * "Machine damage · Hole · 2 pcs" — where the damage was found (`found_at`) + what it is (the Damage master name) +
+ * the damaged pcs. Older damage without a name or pcs shows just "Machine damage".
  */
-export function damageLabel(damageType: string | null | undefined, damageName?: string | null): string {
-  const where = DAMAGE_TYPE_LABEL[isDamageType(damageType) ? damageType : 'machine'];
-  return damageName ? `${where} · ${damageName}` : where;
+export function damageLabel(foundAt: string | null | undefined, damageName?: string | null, pcs?: number | null): string {
+  const where = DAMAGE_TYPE_LABEL[isDamageType(foundAt) ? foundAt : 'machine'];
+  return [where, damageName, pcs != null ? `${pcs} pcs` : null].filter(Boolean).join(' · ');
+}
+
+export const damageLabelOf = (d: DamageLike) => damageLabel(d.foundAt, d.damageName, d.pcs);
+
+/** "Resolved at butta QC" (grey) for a resolved damage, `null` for an open one. */
+export function damageResolvedText(d: Pick<DamageLike, 'status' | 'resolvedStage'>): string | null {
+  if (d.status !== 'resolved') return null;
+  const at = d.resolvedStage ? RESOLVED_STAGE_LABEL[d.resolvedStage] : null;
+  return at ? `Resolved at ${at}` : 'Resolved';
+}
+
+/** A taka with at least one OPEN damage is damaged; one whose damages are ALL resolved is "Fresh". */
+export const hasOpenDamage = (damages: readonly Pick<DamageLike, 'status'>[]) => damages.some((d) => d.status !== 'resolved');
+export const isFreshAfterDamage = (damages: readonly Pick<DamageLike, 'status'>[]) => damages.length > 0 && !hasOpenDamage(damages);
+
+/** Damaged pcs: a whole number from 1 to the taka's pcs. */
+export type DamagePcsError = 'required' | 'invalid' | 'zero' | 'too_big';
+
+export function parseDamagePcs(value: string, takaPcs: number | null): { pcs: number | null; error: DamagePcsError | null } {
+  const v = value.trim();
+  if (!v) return { pcs: null, error: 'required' };
+  if (!/^\d+$/.test(v)) return { pcs: null, error: 'invalid' };
+  const n = Number(v);
+  if (n < 1) return { pcs: null, error: 'zero' };
+  if (n > (takaPcs ?? TAKA_PCS_MAX)) return { pcs: null, error: 'too_big' };
+  return { pcs: n, error: null };
+}
+
+export function damagePcsErrorText(error: DamagePcsError, takaPcs: number | null): { en: string; hi: string } {
+  const max = takaPcs ?? TAKA_PCS_MAX;
+  switch (error) {
+    case 'required':
+      return { en: 'Enter the damaged pcs', hi: 'खराब पीस लिखें' };
+    case 'invalid':
+      return { en: 'Use a whole number', hi: 'पूरा अंक लिखें' };
+    case 'zero':
+      return { en: 'Pcs must be at least 1', hi: 'कम से कम 1 पीस' };
+    case 'too_big':
+      return { en: `At most ${max} pcs (the taka's pcs)`, hi: `ज़्यादा से ज़्यादा ${max} पीस` };
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Where a new taka goes after taka entry                               */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The stage a taka starts in: `entered` (waiting for butta cutting) when the order's design goes for butta cutting —
+ * or the order has no design — and `waiting_mill` when the design skips butta cutting.
+ */
+export function initialTakaStage(design: { buttaCutting: boolean } | null | undefined): TakaStage {
+  return !design || design.buttaCutting ? 'entered' : 'waiting_mill';
 }
 
 /* ------------------------------------------------------------------ */

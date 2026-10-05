@@ -16,7 +16,8 @@ details · History); a config-driven pipeline (Production → Butta cutting → 
 Sprint 6 = client demo feedback: order number first wherever a jobsheet shows ("Order #26 (319)"), customer brokers +
 order broker, order type (Lump / Pcs to pcs, required), default unit pcs, pcs per taka (required) + taka numbers with
 `-` `/`, Damage master + damage name on takas, one-page print, supervisor "On-loom" label + Order view.
-Specs: `rivoora-claude-code-prompt.md` (sprint 1), `rivoora-sprint2-jobsheets-prompt.md` (sprint 2),
+Sprint 7 = Butta cutting: taka numbers unique system-wide, Design "goes for butta cutting", damages as a list per taka (`taka_damages`), Butta parties master, Butta cutting module (/butta: Send → challan GSM-n, Receive), challan print (A4 landscape), Butta QC role, order statuses In butta cutting / Ready for mill, taka stages + history.
+Specs: `rivoora-sprint7-butta-cutting-prompt.md`, `rivoora-claude-code-prompt.md` (sprint 1), `rivoora-sprint2-jobsheets-prompt.md` (sprint 2),
 `rivoora-sprint3-supervisor-prompt.md` (sprint 3), `rivoora-sprint4-taka-entry-prompt.md` (sprint 4),
 `rivoora-sprint5-order-dashboard-prompt.md` (sprint 5), `rivoora-sprint6-demo-feedback-prompt.md` (sprint 6).
 
@@ -112,9 +113,9 @@ run migrate + seed against it first). Vite's proxy target can be changed with `A
   reused**: numbers come from the `counters` row `jobsheet_no` (upsert `value = value + n … RETURNING`) inside the write
   transaction — never `MAX()+1`. The order's jobsheet plan lives on `orders`: `jobsheet_pieces`, `target_frames`,
   `frames_per_jobsheet` (reset to 0/0/null when the last active jobsheet is deleted).
+- **Sprint 7 (migration 0008)** — read this first, it supersedes older taka notes: taka numbers are now UNIQUE ACROSS THE WHOLE SYSTEM (partial unique index `takas_taka_no_active_unique` on `taka_no` where not deleted; `migrate.ts` stops with a list of duplicates BEFORE migrating; live check `GET /takas/check?no=`, `takaUsedText` bilingual message, field error `takas.<i>.takaNo`). `designs.butta_cutting` (required Yes/No; backfilled true); `initialTakaStage(design)` in shared: butta design / no design → `entered`, else `waiting_mill`. Damages live in `taka_damages` (taka_id, damage_id, found_at machine|butta|mill, pcs, status open|resolved, resolved_at/by/stage); `takas.is_damaged` = has an open damage (recompute with `refreshIsDamaged` in the same tx); `takas.damage_type/damage_id` are DEPRECATED (not read/written). `taka_events` = taka history (entered, sent_butta, received_butta, receive_undone, butta_qc_done, damage_added/resolved/kept, edited, challan_cancelled) — write one per taka action via `writeTakaEvents`. `butta_parties`, `butta_challans` (challan_no from counters `butta_challan_no`, shown `GSM-n`, never reused, status active|cancelled), `butta_challan_takas` (meters/pcs at send, received_at/by, qc_done_at, is_active; one active row per taka). Taka stages: entered → at_butta → butta_qc → waiting_mill (`butta_done` removed). Order statuses `in_butta_cutting` (70) / `ready_for_mill` (80) come from `orderStatusForJobsheets(jobsheets, takaStages)`; every send/receive/QC/cancel ends with `recomputeOrdersStatus`. Server helpers: services/taka-ops.ts, taka-shared.ts (`takaColumns` + `mapTaka` — damages as JSON), butta.ts, butta-qc.ts, butta-parties.ts.
 - Takas (migration 0004): `takas` (`jobsheet_id`, denormalized `order_id`, `taka_no` TEXT digits — leading zeros kept,
-  `is_damaged`, `damage_type` = `machine` when damaged, `entered_by`, soft delete). Numbers are unique **per jobsheet
-  only** (partial unique index on `(jobsheet_id, taka_no) WHERE is_deleted = 0`); they repeat across jobsheets / orders.
+  `is_damaged`, `damage_type` = `machine` when damaged, `entered_by`, soft delete). Numbers WERE unique per jobsheet only (superseded by Sprint 7: unique system-wide) (partial unique index on `(jobsheet_id, taka_no) WHERE is_deleted = 0`); they repeat across jobsheets / orders.
   `jobsheets.taka_note` = one common note (entry appends a line; edit replaces it). Edits that renumber go through a
   temporary `~id` value so swaps never hit the unique index. Active takas per jobsheet = the `activeTakaCount` SQL.
 - `takas.meters` (migration 0006, REAL, nullable): optional length per taka (> 0, ≤ 9999.99, 2 decimals). Entered on the
@@ -363,6 +364,14 @@ run migrate + seed against it first). Vite's proxy target can be changed with `A
   (Vercel request limit 4.5 MB).
 - PWA: `client/public/manifest.webmanifest`, `icons/`, `sw.js` (no caching — offline message for navigations only);
   registered in `main.tsx` in production builds only.
+
+## Butta cutting (Sprint 7)
+
+- Roles: `godown_supervisor` (landing /butta, English, restricted view: order no + design + quality, never the client) and `butta_qc` (landing /butta-qc, bilingual). Permissions `canUseButtaModule` (Jemish, Gaurang, Godown), `canCancelChallan`, `canManageButtaParties` (Jemish, Gaurang), `canButtaQc`. `/jobsheets` router is closed to the new roles; unknown routes redirect single-module roles to their landing.
+- API: `/takas/check|by-no/:no|:id`, `/butta-parties`, `/lookup/butta-parties`, `/butta/pending-orders[/:id/takas]`, `/butta/challans[/:id|/:id/print|/:id/cancel]`, `/butta/receive[/:takaId/undo]`, `/butta-qc/pending`, `/butta-qc/:takaId`. Receive returns per-taka results (`not_found|not_sent|already_received|received`). Taka numbers with / go in URLs encoded.
+- Client: features/butta (butta-page tabs Send/Receive in URL, send-pending, challan-cards, receive-screen, challan-details-page, challan-print-page A4 landscape from `CHALLAN_PAPER`/`COMPANY` constants, paging helper `paginateChallanTakas` 4×12 per page), features/butta-qc, features/takas (damage-dialog = `DamageDialog` + `TakaDamageControl` multi-damage, taka-chip, taka-drawer, taka-check live number check). `TickBox` (ui/tick-box.tsx) is the button checkbox with a partial state.
+- Dashboard: butta + waiting_mill sub-stages connected; damage tiles count OPEN damages by found_at (+ pcs); Damages tab has Show resolved. Mill / ready flows still not connected.
+- Local testing without Turso: `TURSO_DATABASE_URL=file:<path>.db TURSO_AUTH_TOKEN=x` then `npm run db:migrate`.
 
 ## Not built yet (next sprints)
 

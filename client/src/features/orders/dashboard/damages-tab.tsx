@@ -2,10 +2,12 @@ import { AlertTriangle, Pencil, ShieldCheck } from 'lucide-react';
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
+  damageLabelOf,
   DAMAGE_TYPE_CONFIG,
-  DAMAGE_TYPE_LABEL,
+  damageResolvedText,
   formatMeters,
   formatPcs,
+  hasOpenDamage,
   takaStageLabel,
   type DamageType,
   type OrderDetail,
@@ -15,11 +17,13 @@ import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
 import { JobsheetRef } from '@/components/ui/jobsheet-ref';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Switch } from '@/components/ui/switch';
 import { useRole } from '@/hooks/useRole';
 import { formatDateTime } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { useOrderTakas } from '../../takas/api';
 import { EditTakasDialog, type EditTakasTarget } from '../../takas/edit-takas-dialog';
+import { FreshTag, StageDot } from '../../takas/taka-chip';
 import { toTarget } from '../../takas/takas-card';
 import { useOrderDamages } from './api';
 import { ComingSoon } from './dashboard-tab';
@@ -34,7 +38,9 @@ const FILTERS: { key: DamageType | null; label: string }[] = [
 export function DamagesTab({ order, view }: { order: OrderDetail; view: OrderView }) {
   const { can } = useRole();
   const type = view.damageType;
-  const query = useOrderDamages(order.id, type);
+  // "Show resolved" is off by default: only open damages are listed and counted.
+  const [showResolved, setShowResolved] = useState(false);
+  const query = useOrderDamages(order.id, type, showResolved);
   const canEdit = can('canEditTakas');
   // The existing Edit takas flow needs the jobsheet's full taka list.
   const takas = useOrderTakas(order.id, canEdit && order.jobsheetCount > 0);
@@ -51,7 +57,8 @@ export function DamagesTab({ order, view }: { order: OrderDetail; view: OrderVie
       {/* Summary tiles */}
       <ul className="grid grid-cols-2 gap-2.5 md:grid-cols-4 md:gap-3" aria-label="Damage counts">
         {DAMAGE_TYPE_CONFIG.map((d) => {
-          const n = data?.counts.find((c) => c.type === d.key)?.count ?? 0;
+          const count = data?.counts.find((c) => c.type === d.key);
+          const n = count?.count ?? 0;
           return (
             <li
               key={d.key}
@@ -67,20 +74,27 @@ export function DamagesTab({ order, view }: { order: OrderDetail; view: OrderVie
                 </span>
                 {!d.connected && <ComingSoon />}
               </p>
+              {n > 0 && count?.pcs != null && <p className="text-xs font-medium text-red-600">{formatPcs(count.pcs)} damaged</p>}
             </li>
           );
         })}
         <li className="min-w-0 rounded-xl border border-border bg-white p-3.5 shadow-soft">
-          <p className="text-[13px] font-medium text-slate-600">Total damaged</p>
+          <p className="text-[13px] font-medium text-slate-600">Open damages</p>
           <p className={cn('mt-0.5 text-2xl font-bold tabular-nums', data && data.total > 0 ? 'text-red-600' : 'text-slate-900')}>{data ? data.total : '–'}</p>
         </li>
       </ul>
 
       <section className="rounded-xl border border-border bg-white p-4 shadow-soft md:p-5" aria-labelledby="damages-title">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-          <h2 id="damages-title" className="text-sm font-semibold uppercase tracking-wide text-slate-500">
-            Damaged takas
-          </h2>
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+            <h2 id="damages-title" className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+              Damaged takas
+            </h2>
+            <label className="inline-flex cursor-pointer items-center gap-2 text-[13px] font-medium text-slate-600">
+              <Switch checked={showResolved} onCheckedChange={setShowResolved} aria-label="Show resolved damages" className="h-6 w-11" />
+              Show resolved{data && data.resolvedTotal > 0 && <span className="text-slate-400">({data.resolvedTotal})</span>}
+            </label>
+          </div>
           <div className="-mx-1 flex max-w-full gap-1.5 overflow-x-auto px-1 scrollbar-none" role="group" aria-label="Filter by damage type">
             {FILTERS.map((f) => (
               <button
@@ -111,8 +125,13 @@ export function DamagesTab({ order, view }: { order: OrderDetail; view: OrderVie
           <EmptyState icon={ShieldCheck} title="No damaged takas" className="py-10" />
         ) : (
           <ul className={cn('grid grid-cols-1 gap-3 sm:grid-cols-[repeat(auto-fill,minmax(18rem,1fr))]', query.isPlaceholderData && 'opacity-60')}>
-            {data.items.map((t) => (
-              <li key={t.id} className="flex min-w-0 flex-col gap-2 rounded-xl border border-red-200 bg-red-50/40 p-3.5">
+            {data.items.map((t) => {
+              const open = hasOpenDamage(t.damages);
+              return (
+              <li
+                key={t.id}
+                className={cn('flex min-w-0 flex-col gap-2 rounded-xl border p-3.5', open ? 'border-red-200 bg-red-50/40' : 'border-slate-200 bg-slate-50/60')}
+              >
                 <div className="flex items-start justify-between gap-2">
                   <p className="min-w-0 text-2xl font-bold leading-tight tabular-nums text-slate-900">
                     <span className="sr-only">Taka </span>
@@ -121,15 +140,21 @@ export function DamagesTab({ order, view }: { order: OrderDetail; view: OrderVie
                       {[t.meters != null && formatMeters(t.meters), t.pcs != null ? formatPcs(t.pcs) : '— pcs'].filter(Boolean).join(' · ')}
                     </span>
                   </p>
-                  <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-red-100 px-2.5 py-1 text-xs font-semibold text-red-700">
-                    <AlertTriangle className="size-3.5" aria-hidden />
-                    {DAMAGE_TYPE_LABEL[t.damageType]}
-                  </span>
+                  {!open && <FreshTag />}
                 </div>
-                {/* WHAT the damage is — the main fact of the card (older damage has no name). */}
-                <p className={cn('truncate text-lg font-bold', t.damageName ? 'text-red-700' : 'text-slate-400')} title={t.damageName ?? undefined}>
-                  {t.damageName ?? 'No damage name'}
-                </p>
+                {/* Every damage of the taka: WHAT + WHERE + damaged pcs, open in red, resolved in grey. */}
+                <ul className="space-y-1">
+                  {t.damages.map((d) => {
+                    const resolved = damageResolvedText(d);
+                    return (
+                      <li key={d.id} className={cn('flex flex-wrap items-center gap-x-1.5 text-[15px] font-bold', resolved ? 'text-slate-400' : 'text-red-700')}>
+                        {!resolved && <AlertTriangle className="size-4 shrink-0" aria-hidden />}
+                        <span className={cn(resolved && 'line-through')}>{damageLabelOf(d)}</span>
+                        {resolved && <span className="text-xs font-medium">· {resolved}</span>}
+                      </li>
+                    );
+                  })}
+                </ul>
                 <dl className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-sm">
                   <div className="min-w-0">
                     <dt className="text-[12px] text-muted-foreground">Order (jobsheet)</dt>
@@ -141,8 +166,9 @@ export function DamagesTab({ order, view }: { order: OrderDetail; view: OrderVie
                   </div>
                   <div className="min-w-0">
                     <dt className="text-[12px] text-muted-foreground">Stage</dt>
-                    <dd className="truncate font-medium text-slate-800" title={takaStageLabel(t.stage)}>
-                      {takaStageLabel(t.stage)}
+                    <dd className="flex items-center gap-1.5 truncate font-medium text-slate-800" title={takaStageLabel(t.stage)}>
+                      <StageDot stage={t.stage} />
+                      <span className="truncate">{takaStageLabel(t.stage)}</span>
                     </dd>
                   </div>
                   <div className="col-span-2 min-w-0">
@@ -168,7 +194,8 @@ export function DamagesTab({ order, view }: { order: OrderDetail; view: OrderVie
                   </Button>
                 )}
               </li>
-            ))}
+              );
+            })}
           </ul>
         )}
       </section>

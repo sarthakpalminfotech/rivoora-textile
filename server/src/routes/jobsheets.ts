@@ -19,6 +19,8 @@ import {
 import { editTakas, enterTakas } from '../services/takas';
 
 export const jobsheetsRouter = Router();
+// The godown supervisor and Butta QC roles have no access to jobsheets at all.
+jobsheetsRouter.use(requirePermission('canViewOrders', 'canViewJobsheetsModule', 'canUseTakaModules'));
 const manage = requirePermission('canManageJobsheets');
 const run = requirePermission('canRunJobsheets');
 

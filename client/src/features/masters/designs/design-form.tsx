@@ -12,6 +12,7 @@ import { ImageThumb } from '@/components/ui/image-thumb';
 import { ImageDropzone, ImagePickButton } from '@/components/ui/image-upload';
 import { Input, Textarea } from '@/components/ui/input';
 import { ResponsiveModal } from '@/components/ui/modal';
+import { Segmented } from '@/components/ui/segmented';
 import { Select } from '@/components/ui/select';
 import { useDebounce } from '@/hooks/useDebounce';
 import { api, errorMessage } from '@/lib/api';
@@ -38,11 +39,22 @@ export function useCodeAvailability(code: string, enabled: boolean) {
   });
 }
 
+/** "Goes for butta cutting?" — a required Yes / No choice (nothing pre-selected on a new design). */
+export const BUTTA_OPTIONS = [
+  { value: 'yes', label: 'Yes' },
+  { value: 'no', label: 'No' },
+] as const;
+export type ButtaChoice = (typeof BUTTA_OPTIONS)[number]['value'];
+
 const schema = z.object({
   code: designCodeField,
   name: z.string().max(120),
   notes: z.string().max(1000),
   materialId: z.number().nullable(),
+  buttaCutting: z
+    .enum(['yes', 'no'])
+    .nullable()
+    .refine((v): boolean => v !== null, 'Choose Yes or No'),
 });
 type FormValues = z.infer<typeof schema>;
 
@@ -79,6 +91,7 @@ export function DesignFormDialog({ open, onOpenChange, design, onSaved }: Design
       name: design?.name ?? '',
       notes: design?.notes ?? '',
       materialId: design?.material?.id ?? null,
+      buttaCutting: design ? (design.buttaCutting ? 'yes' : 'no') : null,
     });
     setMaterialLabel(design?.material?.name);
     setImage(design?.imageUrl && design.thumbUrl ? { url: design.imageUrl, thumbUrl: design.thumbUrl } : null);
@@ -86,7 +99,10 @@ export function DesignFormDialog({ open, onOpenChange, design, onSaved }: Design
 
   const onSubmit = handleSubmit((values) =>
     save.mutate(
-      { id: design?.id, data: { ...values, imageUrl: image?.url ?? null, thumbUrl: image?.thumbUrl ?? null } },
+      {
+        id: design?.id,
+        data: { ...values, buttaCutting: values.buttaCutting === 'yes', imageUrl: image?.url ?? null, thumbUrl: image?.thumbUrl ?? null },
+      },
       {
         onSuccess: (saved) => {
           toast.success(design ? 'Design updated' : `Design ${saved.code} added`);
@@ -94,7 +110,7 @@ export function DesignFormDialog({ open, onOpenChange, design, onSaved }: Design
           onSaved?.(saved);
         },
         onError: (err) => {
-          if (!applyServerFieldError(err, setError, ['code', 'name', 'notes', 'materialId'])) toast.error(errorMessage(err));
+          if (!applyServerFieldError(err, setError, ['code', 'name', 'notes', 'materialId', 'buttaCutting'])) toast.error(errorMessage(err));
         },
       },
     ),
@@ -189,6 +205,28 @@ export function DesignFormDialog({ open, onOpenChange, design, onSaved }: Design
                       </Button>
                     ) : undefined
                   }
+                />
+              )}
+            />
+          </Field>
+          <Field
+            label="Goes for butta cutting?"
+            htmlFor="d-butta"
+            required
+            error={errors.buttaCutting?.message}
+            hint="Changing this affects takas entered from now on."
+          >
+            <Controller
+              control={control}
+              name="buttaCutting"
+              render={({ field }) => (
+                <Segmented<ButtaChoice>
+                  id="d-butta"
+                  aria-label="Goes for butta cutting"
+                  options={[...BUTTA_OPTIONS]}
+                  value={field.value}
+                  onChange={field.onChange}
+                  invalid={!!errors.buttaCutting}
                 />
               )}
             />

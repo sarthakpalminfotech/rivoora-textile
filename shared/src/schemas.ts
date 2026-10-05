@@ -112,6 +112,11 @@ export const materialInputSchema = z.object({
 });
 export type MaterialInput = z.input<typeof materialInputSchema>;
 
+const buttaCuttingChoice = z.boolean({
+  required_error: 'Choose Yes or No',
+  invalid_type_error: 'Choose Yes or No',
+});
+
 export const designInputSchema = z.object({
   code: codeSchema,
   name: optText(120),
@@ -120,6 +125,8 @@ export const designInputSchema = z.object({
   thumbUrl: imageUrl.nullish().transform((v) => v ?? null),
   /** Fixed material for this design (optional) — pre-selected when the design is picked on an order. */
   materialId: z.number().int().positive().nullish().transform((v) => v ?? null),
+  /** Goes for butta cutting? Required (no default) — decides where takas go after taka entry. */
+  buttaCutting: buttaCuttingChoice,
 });
 export type DesignInput = z.input<typeof designInputSchema>;
 
@@ -143,7 +150,7 @@ export const orderCreateSchema = z
     designId: z.number().int().positive().nullish().transform((v) => v ?? null),
     variationId: z.number().int().positive().nullish().transform((v) => v ?? null),
     newDesign: z
-      .object({ code: codeSchema, imageUrl, thumbUrl: imageUrl })
+      .object({ code: codeSchema, imageUrl, thumbUrl: imageUrl, buttaCutting: buttaCuttingChoice })
       .nullish()
       .transform((v) => v ?? null),
     quantity: z.number().positive('Quantity must be more than 0').max(100_000_000),
@@ -315,30 +322,37 @@ const otherDamageName = z
   .min(1, 'Write the damage name')
   .max(DAMAGE_NAME_MAX_LENGTH, `At most ${DAMAGE_NAME_MAX_LENGTH} characters`);
 
-/**
- * The damage of a taka: a Damage master entry, or a typed "Other" name (the server finds it case-insensitively or
- * adds it to the master in the same transaction), or `null` = not damaged.
- */
-export const takaDamageSchema = z
-  .union([
-    z.object({ damageId: z.number().int().positive() }).strict(),
-    z.object({ otherName: otherDamageName }).strict(),
-  ])
-  .nullable()
-  .default(null);
-export type TakaDamageInput = z.input<typeof takaDamageSchema>;
+/** Damaged pcs of one damage: a whole number from 1 (the server also checks it against the taka's pcs). */
+const damagePcs = z
+  .number({ required_error: 'Enter the damaged pcs', invalid_type_error: 'Enter the damaged pcs' })
+  .int('Use a whole number')
+  .min(1, 'Pcs must be at least 1')
+  .max(TAKA_PCS_MAX, `At most ${TAKA_PCS_MAX} pcs`);
 
 /**
- * Edit takas also accepts `{ damageId: null }`: an older damaged taka that has no damage name yet and keeps it
- * that way (allowed only when that taka is already damaged without a name — the server checks).
+ * One damage of a taka: a Damage master entry or a typed "Other" name (the server finds it case-insensitively or
+ * adds it to the master in the same transaction) + the damaged pcs.
  */
-const takaEditDamageSchema = z
-  .union([
-    z.object({ damageId: z.number().int().positive().nullable() }).strict(),
-    z.object({ otherName: otherDamageName }).strict(),
-  ])
-  .nullable()
-  .default(null);
+export const takaDamageSchema = z.union([
+  z.object({ damageId: z.number().int().positive(), pcs: damagePcs }).strict(),
+  z.object({ otherName: otherDamageName, pcs: damagePcs }).strict(),
+]);
+export type TakaDamageInput = z.input<typeof takaDamageSchema>;
+
+const MAX_DAMAGES_PER_TAKA = 10;
+const takaDamages = z.array(takaDamageSchema).max(MAX_DAMAGES_PER_TAKA, `At most ${MAX_DAMAGES_PER_TAKA} damages per taka`).default([]);
+
+/**
+ * Edit takas: the OPEN damages of a taka after editing. Rows with an `id` are existing open damages (edited if they
+ * changed; open damages that are missing are removed); rows without one are new machine damages. An older damage
+ * that has no name / pcs yet keeps them as `damageId: null` / `pcs: null` (the server allows that only when it is
+ * unchanged). Resolved damages are never sent — they are read-only.
+ */
+const takaEditDamage = z.union([
+  z.object({ id: z.number().int().positive().optional(), damageId: z.number().int().positive().nullable(), pcs: damagePcs.nullable() }).strict(),
+  z.object({ id: z.number().int().positive().optional(), otherName: otherDamageName, pcs: damagePcs }).strict(),
+]);
+export type TakaEditDamageInput = z.input<typeof takaEditDamage>;
 
 /** Optional length of a taka in meters (> 0, ≤ 9999.99, rounded to 2 decimals). */
 const takaMeters = z
@@ -358,7 +372,7 @@ const takaNote = z
 /** POST /jobsheets/:id/takas — adds new takas only (Taka entry). */
 export const takaEntrySchema = z.object({
   takas: z
-    .array(z.object({ takaNo, meters: takaMeters, pcs: takaPcs, damage: takaDamageSchema }), { required_error: 'Enter at least one taka' })
+    .array(z.object({ takaNo, meters: takaMeters, pcs: takaPcs, damages: takaDamages }), { required_error: 'Enter at least one taka' })
     .min(1, 'Enter at least one taka')
     .max(MAX_TAKAS_PER_SUBMIT, `At most ${MAX_TAKAS_PER_SUBMIT} takas at a time`),
   note: takaNote,
@@ -378,7 +392,7 @@ export const takaEditSchema = z.object({
         takaNo,
         meters: takaMeters,
         pcs: takaPcs.nullish().transform((v) => v ?? null),
-        damage: takaEditDamageSchema,
+        damages: z.array(takaEditDamage).max(MAX_DAMAGES_PER_TAKA, `At most ${MAX_DAMAGES_PER_TAKA} damages per taka`).default([]),
       }),
     )
     .max(MAX_TAKAS_PER_JOBSHEET, `At most ${MAX_TAKAS_PER_JOBSHEET} takas per jobsheet`),
@@ -397,3 +411,77 @@ export const takaListQuerySchema = z.object({
   search: listSearch,
 });
 export type TakaListQuery = z.infer<typeof takaListQuerySchema>;
+
+/* ---------- butta cutting (Sprint 7) ---------- */
+
+export const BUTTA_PARTY_NAME_MAX_LENGTH = 120;
+
+/** Butta party master: the name is printed as "M/s. …" on the challan. */
+export const buttaPartyInputSchema = z.object({
+  name: z.string().trim().min(1, 'Name is required').max(BUTTA_PARTY_NAME_MAX_LENGTH, 'Name is too long'),
+  address: optText(500),
+  mobile: optText(20),
+  gstin: optText(20).transform((v) => (v ? v.toUpperCase() : null)),
+  notes: optText(1000),
+});
+export type ButtaPartyInput = z.input<typeof buttaPartyInputSchema>;
+
+/** POST /butta/challans */
+export const challanCreateSchema = z.object({
+  takaIds: z
+    .array(z.number().int().positive(), { required_error: 'Select at least one taka' })
+    .min(1, 'Select at least one taka')
+    .max(2000, 'At most 2000 takas on one challan')
+    .transform((ids) => [...new Set(ids)]),
+  partyId: z.number({ required_error: 'Select the butta party', invalid_type_error: 'Select the butta party' }).int().positive('Select the butta party'),
+  challanDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date'),
+  ewayNo: optText(40),
+});
+export type ChallanCreateInput = z.input<typeof challanCreateSchema>;
+
+/** POST /butta/receive — one taka number (the Taka number screen) or taka ids (ticked rows on a challan). */
+export const buttaReceiveSchema = z
+  .object({
+    takaNo,
+    takaIds: z.array(z.number().int().positive()).min(1).max(2000).optional(),
+  })
+  .partial()
+  .refine((v) => (v.takaNo !== undefined) !== (v.takaIds !== undefined), { message: 'Send either takaNo or takaIds' });
+export type ButtaReceiveInput = z.input<typeof buttaReceiveSchema>;
+
+export const CHALLAN_FILTERS = ['open', 'received', 'all'] as const;
+export type ChallanFilter = (typeof CHALLAN_FILTERS)[number];
+
+const pageQuery = {
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+  search: listSearch,
+};
+
+/** GET /butta/pending-orders and GET /butta-qc/pending */
+export const buttaListQuerySchema = z.object(pageQuery);
+export type ButtaListQuery = z.infer<typeof buttaListQuerySchema>;
+
+/** GET /butta/challans */
+export const challanListQuerySchema = z.object({ filter: z.enum(CHALLAN_FILTERS).default('open'), ...pageQuery });
+export type ChallanListQuery = z.infer<typeof challanListQuerySchema>;
+
+/** GET /takas/check?no= */
+export const takaCheckQuerySchema = z.object({ no: z.string().trim().max(40).default('') });
+
+/** Butta QC: the decision for each damage that was open when the taka was received. */
+export const qcDecisionSchema = z.object({
+  takaDamageId: z.number().int().positive(),
+  resolved: z.boolean(),
+  /** Needed only for an older damage that has no pcs yet. */
+  pcs: damagePcs.nullish().transform((v) => v ?? null),
+});
+
+/** POST /butta-qc/:takaId */
+export const qcSubmitSchema = z.object({
+  meters: takaMeters,
+  pcs: takaPcs,
+  damageDecisions: z.array(qcDecisionSchema).max(50).default([]),
+  newDamages: z.array(takaDamageSchema).max(MAX_DAMAGES_PER_TAKA, `At most ${MAX_DAMAGES_PER_TAKA} new damages`).default([]),
+});
+export type QcSubmitInput = z.input<typeof qcSubmitSchema>;

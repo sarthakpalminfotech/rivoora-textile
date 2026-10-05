@@ -68,7 +68,7 @@ import {
 } from '../db/schema';
 import { badRequest, conflict, notFound } from '../lib/errors';
 import { likePattern } from '../lib/http';
-import { sortTakas, TAKA_EVENTS, takaColumns } from './taka-shared';
+import { mapTaka, sortTakas, TAKA_EVENTS, takaColumns } from './taka-shared';
 
 const JOBSHEET_COUNTER = 'jobsheet_no';
 export const now = () => new Date().toISOString();
@@ -257,7 +257,16 @@ export async function recomputeOrderStatus(orderId: number, role: RoleKey, tx: T
     .select({ status: jobsheets.status, takaCount: activeTakaCount })
     .from(jobsheets)
     .where(and(eq(jobsheets.orderId, orderId), eq(jobsheets.isDeleted, false)));
-  const next = orderStatusForJobsheets(rows);
+  // The stage of every active taka (butta cutting / waiting for the mill drive the later order statuses).
+  const stageRows = await tx
+    .select({ stage: takas.stage })
+    .from(takas)
+    .innerJoin(jobsheets, eq(jobsheets.id, takas.jobsheetId))
+    .where(and(eq(takas.orderId, orderId), eq(takas.isDeleted, false), eq(jobsheets.isDeleted, false)));
+  const next = orderStatusForJobsheets(
+    rows,
+    stageRows.map((r) => r.stage),
+  );
   if (next === order.status) return false;
   return writeStatus(tx, role, orderId, order.status, next);
 }
@@ -600,7 +609,7 @@ export async function getJobsheet(role: RoleKey, id: number): Promise<JobsheetDe
     siblings: restricted ? [] : siblings,
     coverage,
     warnings: coverage ? coverageWarnings(coverage) : [],
-    takas: seesTakas ? sortTakas(takaRows) : null,
+    takas: seesTakas ? sortTakas(takaRows.map(mapTaka)) : null,
     takaNote: seesTakas ? r.takaNote : null,
   };
 }

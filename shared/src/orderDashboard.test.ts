@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { buildOrderDashboard, type DashboardJobsheetInput, type DashboardTakaInput } from './orderDashboard';
-import { ALERT_NOT_STARTED_HOURS, getSubStage, jobsheetSubStage, takaStageMain, TAKA_STAGES } from './pipeline';
+import { ALERT_NOT_STARTED_HOURS, getSubStage, jobsheetSubStage, takaStageColour, takaStageMain, TAKA_STAGES } from './pipeline';
 
 const NOW = new Date('2026-09-30T12:00:00.000Z');
 const hoursAgo = (h: number) => new Date(NOW.getTime() - h * 3_600_000).toISOString();
@@ -26,7 +26,6 @@ const taka = (jobsheetId: number, p: Partial<DashboardTakaInput> = {}): Dashboar
   jobsheetId,
   stage: 'entered',
   isDamaged: false,
-  damageType: null,
   ...p,
 });
 
@@ -36,7 +35,7 @@ const bar = (d: ReturnType<typeof buildOrderDashboard>, key: string) => d.bar.fi
 
 describe('pipeline config', () => {
   it('maps every taka stage to a main stage', () => {
-    expect(TAKA_STAGES.map(takaStageMain)).toEqual(['production', 'butta', 'butta', 'butta', 'mill', 'mill', 'ready']);
+    expect(TAKA_STAGES.map(takaStageMain)).toEqual(['production', 'butta', 'butta', 'mill', 'mill', 'mill', 'ready']);
   });
 
   it('jobsheet sub-stage rules', () => {
@@ -62,7 +61,8 @@ describe('buildOrderDashboard — sub-stages', () => {
       {
         order,
         jobsheets: [a, b, c, d, e, f, g, h],
-        takas: [taka(h.id), taka(h.id, { isDamaged: true, damageType: 'machine' }), taka(h.id)],
+        takas: [taka(h.id), taka(h.id, { isDamaged: true }), taka(h.id)],
+        damages: [{ foundAt: 'machine', count: 1, pcs: 2 }],
       },
       NOW,
     );
@@ -81,7 +81,7 @@ describe('buildOrderDashboard — sub-stages', () => {
   it('counts takas in future stages under their own sub-stage', () => {
     const a = js({ status: 'completed', frames: 10 });
     const d = buildOrderDashboard(
-      { order, jobsheets: [a], takas: [taka(a.id, { stage: 'at_butta', count: 2 }), taka(a.id, { stage: 'mill_qc', isDamaged: true, damageType: 'mill' })] },
+      { order, jobsheets: [a], takas: [taka(a.id, { stage: 'at_butta', count: 2 }), taka(a.id, { stage: 'mill_qc', isDamaged: true })] },
       NOW,
     );
     expect(sub(d, 'at_butta').count).toBe(2);
@@ -158,31 +158,66 @@ describe('buildOrderDashboard — alerts', () => {
   });
 });
 
-describe('buildOrderDashboard — damages', () => {
-  it('counts damaged takas per type (null type = machine)', () => {
+describe('buildOrderDashboard — damages (open damages by where they were found)', () => {
+  it('counts open damages and their pcs per found_at; damaged takas per sub-stage', () => {
     const a = js({ status: 'completed' });
     const d = buildOrderDashboard(
       {
         order,
         jobsheets: [a],
-        takas: [
-          taka(a.id, { isDamaged: true, damageType: 'machine', count: 2 }),
-          taka(a.id, { isDamaged: true, damageType: null }),
-          taka(a.id, { isDamaged: true, damageType: 'butta', stage: 'butta_qc' }),
-          taka(a.id, { count: 5 }),
+        takas: [taka(a.id, { isDamaged: true, count: 2 }), taka(a.id, { isDamaged: true, stage: 'butta_qc' }), taka(a.id, { count: 5 })],
+        // One taka has two open damages (machine + butta); a null found_at counts as machine.
+        damages: [
+          { foundAt: 'machine', count: 2, pcs: 5 },
+          { foundAt: null, count: 1 },
+          { foundAt: 'butta', count: 2, pcs: 3 },
         ],
       },
       NOW,
     );
     expect(d.damages).toEqual([
-      { type: 'machine', count: 3, connected: true },
-      { type: 'butta', count: 1, connected: false },
-      { type: 'mill', count: 0, connected: false },
+      { type: 'machine', count: 3, pcs: 5, connected: true },
+      { type: 'butta', count: 2, pcs: 3, connected: true },
+      { type: 'mill', count: 0, pcs: null, connected: false },
     ]);
-    expect(d.damageTotal).toBe(4);
-    expect(d.takaCount).toBe(9);
-    expect(main(d, 'production').damaged).toBe(3);
+    expect(d.damageTotal).toBe(5);
+    expect(d.takaCount).toBe(8);
+    expect(main(d, 'production').damaged).toBe(2);
     expect(main(d, 'butta').damaged).toBe(1);
+  });
+
+  it('no damages input = no damage counts', () => {
+    const a = js({ status: 'completed' });
+    const d = buildOrderDashboard({ order, jobsheets: [a], takas: [taka(a.id)] }, NOW);
+    expect(d.damageTotal).toBe(0);
+  });
+});
+
+describe('buildOrderDashboard — butta cutting is connected (Sprint 7)', () => {
+  it('counts the new stages under their sub-stages and flags what is connected', () => {
+    const a = js({ status: 'completed' });
+    const d = buildOrderDashboard(
+      {
+        order,
+        jobsheets: [a],
+        takas: [taka(a.id, { stage: 'entered', count: 3 }), taka(a.id, { stage: 'at_butta', count: 4 }), taka(a.id, { stage: 'butta_qc', count: 2 }), taka(a.id, { stage: 'waiting_mill', count: 5 })],
+      },
+      NOW,
+    );
+    expect(sub(d, 'taka_done').count).toBe(3);
+    expect(sub(d, 'at_butta')).toMatchObject({ count: 4, connected: true });
+    expect(sub(d, 'butta_qc')).toMatchObject({ count: 2, connected: true });
+    expect(sub(d, 'waiting_mill')).toMatchObject({ count: 5, connected: true, mainStage: 'mill' });
+    expect(sub(d, 'at_mill').connected).toBe(false);
+    expect(d.subStages.some((s) => (s.key as string) === 'butta_done')).toBe(false);
+    expect(main(d, 'butta')).toMatchObject({ count: 6, connected: true });
+    expect(main(d, 'mill')).toMatchObject({ count: 5 });
+    expect(getSubStage('butta_qc').label).toBe('Received · QC pending');
+  });
+
+  it('maps every taka stage to its colour dot', () => {
+    expect(takaStageColour('at_butta')).toBe('#F59E0B');
+    expect(takaStageColour('nonsense')).toBe('#94A3B8');
   });
 });
 
@@ -209,7 +244,7 @@ describe('buildOrderDashboard — taka pcs', () => {
   it('totals the pcs of the takas (aggregated rows carry sums); null while no taka has pcs', () => {
     const a = js({ status: 'completed' });
     const withPcs = buildOrderDashboard(
-      { order, jobsheets: [a], takas: [taka(a.id, { count: 2, pcs: 24 }), taka(a.id, { pcs: null }), taka(a.id, { isDamaged: true, damageType: 'machine', pcs: 5 })] },
+      { order, jobsheets: [a], takas: [taka(a.id, { count: 2, pcs: 24 }), taka(a.id, { pcs: null }), taka(a.id, { isDamaged: true, pcs: 5 })] },
       NOW,
     );
     expect(withPcs.production.takaPcs).toBe(29);

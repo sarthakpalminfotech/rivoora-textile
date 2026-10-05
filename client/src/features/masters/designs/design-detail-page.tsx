@@ -12,6 +12,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { useRole } from '@/hooks/useRole';
 import { formatDate } from '@/lib/format';
 import { useDeleteDesign, useDeleteVariation, useDesign } from '../api';
+import { ButtaTag } from './designs-page';
 import { DesignFormDialog } from './design-form';
 import { VariationFormDialog } from './variation-form';
 
@@ -97,6 +98,13 @@ export default function DesignDetailPage() {
             <div className="col-span-2">
               <dt className="text-muted-foreground">Material / Quality</dt>
               <dd className="font-semibold text-slate-900">{design.material?.name ?? 'Any material'}</dd>
+            </div>
+            <div className="col-span-2">
+              <dt className="text-muted-foreground">Goes for butta cutting</dt>
+              <dd className="flex items-center gap-2 font-semibold text-slate-900">
+                {design.buttaCutting ? 'Yes' : 'No'}
+                {design.buttaCutting && <ButtaTag />}
+              </dd>
             </div>
             <div>
               <dt className="text-muted-foreground">Variations</dt>

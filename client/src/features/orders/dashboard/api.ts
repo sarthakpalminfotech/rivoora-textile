@@ -7,7 +7,8 @@ export const dashboardKeys = {
   all: ['order-dashboard'] as const,
   summary: (orderId: number) => ['order-dashboard', orderId, 'summary'] as const,
   items: (orderId: number, sub: SubStageKey) => ['order-dashboard', orderId, 'items', sub] as const,
-  damages: (orderId: number, type: DamageType | null) => ['order-dashboard', orderId, 'damages', type ?? 'all'] as const,
+  damages: (orderId: number, type: DamageType | null, resolved: boolean) =>
+    ['order-dashboard', orderId, 'damages', type ?? 'all', resolved ? 'with-resolved' : 'open'] as const,
 };
 
 /** Counts only; refetches every 60 s and on window focus. */
@@ -30,10 +31,12 @@ export function useDashboardItems(orderId: number, sub: SubStageKey | null, enab
   });
 }
 
-export function useOrderDamages(orderId: number, type: DamageType | null, enabled = true) {
+/** Open damages by default; `resolved` ("Show resolved") also lists the resolved ones. */
+export function useOrderDamages(orderId: number, type: DamageType | null, resolved = false, enabled = true) {
   return useQuery({
-    queryKey: dashboardKeys.damages(orderId, type),
-    queryFn: ({ signal }) => api.get<OrderDamages>(`/orders/${orderId}/damages`, type ? { type } : undefined, signal),
+    queryKey: dashboardKeys.damages(orderId, type, resolved),
+    queryFn: ({ signal }) =>
+      api.get<OrderDamages>(`/orders/${orderId}/damages`, { ...(type ? { type } : {}), ...(resolved ? { resolved: 1 } : {}) }, signal),
     enabled: enabled && orderId > 0,
     placeholderData: keepPreviousData,
   });

@@ -477,7 +477,7 @@ function DetailBody({ orderId, sub }: { orderId: number; sub: SubStageKey }) {
                   <FramesValue status={g.status} frames={g.frames} completedFrames={g.completedFrames} withUnit />
                 </span>
               </Link>
-              <TakaChips takas={g.takas} />
+              <TakaChips takas={g.takas} showChallan={sub === 'at_butta' || sub === 'butta_qc'} />
             </div>
           ))}
         </div>

@@ -55,10 +55,18 @@ export interface DashboardJobsheetInput {
 export interface DashboardTakaInput {
   jobsheetId: number;
   stage: string;
+  /** The taka has at least one OPEN damage. */
   isDamaged: boolean;
-  damageType: string | null;
   count?: number;
   /** Pcs of the taka (aggregated rows: the sum; null when none of them has pcs). */
+  pcs?: number | null;
+}
+
+/** OPEN damages of the order, aggregated by where they were found (`taka_damages.found_at`). */
+export interface DashboardDamageInput {
+  foundAt: string | null;
+  count?: number;
+  /** Damaged pcs (the sum; null when none of them has pcs). */
   pcs?: number | null;
 }
 
@@ -66,6 +74,8 @@ export interface DashboardInput {
   order: DashboardOrderInput;
   jobsheets: readonly DashboardJobsheetInput[];
   takas: readonly DashboardTakaInput[];
+  /** Open damages by `found_at` (the damage tiles). Taka rows only say WHICH takas are damaged. */
+  damages?: readonly DashboardDamageInput[];
 }
 
 /* ------------------------------------------------------------------ */
@@ -140,7 +150,10 @@ export interface BarShare {
 
 export interface DamageCount {
   type: DamageType;
+  /** Open damages found at this point. */
   count: number;
+  /** Damaged pcs of those damages (null when none has pcs). */
+  pcs: number | null;
   connected: boolean;
 }
 
@@ -191,10 +204,10 @@ function hoursSince(iso: string | null, now: Date): number | null {
 }
 
 const takaSub = (stage: string): SubStageKey => (isTakaStage(stage) ? TAKA_STAGE_SUB[stage] : 'taka_done');
-const damageOf = (t: DashboardTakaInput): DamageType => (isDamageType(t.damageType) ? t.damageType : 'machine');
+const damageOf = (foundAt: string | null): DamageType => (isDamageType(foundAt) ? foundAt : 'machine');
 
 export function buildOrderDashboard(input: DashboardInput, now: Date = new Date()): OrderDashboardData {
-  const { order, jobsheets, takas } = input;
+  const { order, jobsheets, takas, damages: openDamages = [] } = input;
   const isPcs = order.unit === 'pcs';
 
   const subs = new Map<SubStageKey, SubStageCount>(
@@ -222,7 +235,6 @@ export function buildOrderDashboard(input: DashboardInput, now: Date = new Date(
   const subJobsheets = new Map<SubStageKey, Set<number>>();
   let takaCount = 0;
   let takaPcs: number | null = null;
-  const damageCounts = new Map<DamageType, number>();
   for (const t of takas) {
     const n = t.count ?? 1;
     if (n <= 0) continue;
@@ -231,10 +243,7 @@ export function buildOrderDashboard(input: DashboardInput, now: Date = new Date(
     const sub = subs.get(takaSub(t.stage))!;
     sub.count += n;
     if (t.pcs != null) sub.takaPcs = (sub.takaPcs ?? 0) + t.pcs;
-    if (t.isDamaged) {
-      sub.damaged += n;
-      damageCounts.set(damageOf(t), (damageCounts.get(damageOf(t)) ?? 0) + n);
-    }
+    if (t.isDamaged) sub.damaged += n;
     const set = subJobsheets.get(sub.key) ?? new Set<number>();
     set.add(t.jobsheetId);
     subJobsheets.set(sub.key, set);
@@ -338,9 +347,20 @@ export function buildOrderDashboard(input: DashboardInput, now: Date = new Date(
 
   const wovenPcs = wovenFrames * SECTIONS_PER_BEAM;
   const targetPcs = jobsheets.length > 0 ? order.jobsheetPieces : order.quantity;
+  const damageCounts = new Map<DamageType, { count: number; pcs: number | null }>();
+  for (const d of openDamages) {
+    const n = d.count ?? 1;
+    if (n <= 0) continue;
+    const type = damageOf(d.foundAt);
+    const cur = damageCounts.get(type) ?? { count: 0, pcs: null };
+    cur.count += n;
+    if (d.pcs != null) cur.pcs = (cur.pcs ?? 0) + d.pcs;
+    damageCounts.set(type, cur);
+  }
   const damages: DamageCount[] = DAMAGE_TYPE_CONFIG.map((d) => ({
     type: d.key,
-    count: damageCounts.get(d.key) ?? 0,
+    count: damageCounts.get(d.key)?.count ?? 0,
+    pcs: damageCounts.get(d.key)?.pcs ?? null,
     connected: d.connected,
   }));
 

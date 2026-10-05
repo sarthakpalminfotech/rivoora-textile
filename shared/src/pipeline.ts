@@ -3,9 +3,10 @@
  * rules. Config-driven so later sprints only CONNECT data instead of redesigning the page.
  *
  * ┌──────────────────────────────────────────────────────────────────────────────────────────────────────────┐
- * │ TO CONNECT LATER: when the butta cutting / mill / ready flows are built, move takas to the matching      │
- * │ `TakaStage` (`takas.stage`), set `connected: true` on the main stage, its sub-stages and the damage type │
- * │ below, and map the data here. `buildOrderDashboard` and the dashboard page must not need changes.         │
+ * │ CONNECTED (Sprint 7): taka entry → butta cutting (send / receive / QC) → waiting for mill.                │
+ * │ TO CONNECT LATER: the mill (at_mill, mill_qc) and ready flows — move takas to the matching `TakaStage`,   │
+ * │ set `connected: true` on their sub-stages and the mill damage type, and map the data here.               │
+ * │ `buildOrderDashboard` and the dashboard page must not need changes.                                       │
  * └──────────────────────────────────────────────────────────────────────────────────────────────────────────┘
  *
  * Production sub-stages are measured in jobsheets (by jobsheet status); every later sub-stage is measured in takas
@@ -34,9 +35,9 @@ export interface MainStageConfig {
 export const MAIN_STAGES: readonly MainStageConfig[] = [
   { key: 'production', label: 'Production', unit: 'jobsheets', colour: '#0EA5E9', connected: true },
   // Not connected yet — see the note at the top of this file.
-  { key: 'butta', label: 'Butta cutting', unit: 'takas', colour: '#F59E0B', connected: false },
-  // The whole order goes to the mill together for dyeing.
-  { key: 'mill', label: 'Mill', unit: 'takas', colour: '#8B5CF6', connected: false },
+  { key: 'butta', label: 'Butta cutting', unit: 'takas', colour: '#F59E0B', connected: true },
+  // The whole order goes to the mill together for dyeing. Only "Waiting for mill" is connected so far.
+  { key: 'mill', label: 'Mill', unit: 'takas', colour: '#8B5CF6', connected: true },
   { key: 'ready', label: 'Ready', unit: 'takas', colour: '#10B981', connected: false },
 ];
 
@@ -45,10 +46,11 @@ export const MAIN_STAGES: readonly MainStageConfig[] = [
 /* ------------------------------------------------------------------ */
 
 /**
- * Where a taka is. Every taka is `entered` today (Taka entry done · waiting for butta cutting); later sprints move
- * takas through the other values. Stored in `takas.stage` (NOT NULL, default `entered`).
+ * Where a taka is. `entered` = taka entry done, waiting for butta cutting · `at_butta` = sent on a challan ·
+ * `butta_qc` = received back, Butta QC pending · `waiting_mill` = Butta QC done (or the design skips butta
+ * cutting) · the rest comes with the mill / ready sprints. Stored in `takas.stage` (NOT NULL, default `entered`).
  */
-export const TAKA_STAGES = ['entered', 'at_butta', 'butta_qc', 'butta_done', 'at_mill', 'mill_qc', 'ready'] as const;
+export const TAKA_STAGES = ['entered', 'at_butta', 'butta_qc', 'waiting_mill', 'at_mill', 'mill_qc', 'ready'] as const;
 export type TakaStage = (typeof TAKA_STAGES)[number];
 export const DEFAULT_TAKA_STAGE: TakaStage = 'entered';
 
@@ -68,7 +70,7 @@ export const SUB_STAGE_KEYS = [
   'taka_done',
   'at_butta',
   'butta_qc',
-  'butta_done',
+  'waiting_mill',
   'at_mill',
   'mill_qc',
   'ready',
@@ -96,11 +98,11 @@ export const SUB_STAGES: readonly SubStageConfig[] = [
   { key: 'on_loom', label: 'On loom', shortLabel: 'On loom', mainStage: 'production', unit: 'jobsheets', colour: '#3B82F6', connected: true },
   { key: 'taka_pending', label: 'Taka entry pending', shortLabel: 'Taka entry pending', mainStage: 'production', unit: 'jobsheets', colour: '#14B8A6', connected: true },
   { key: 'taka_done', label: 'Taka entry done · waiting for butta cutting', shortLabel: 'Taka entry done', mainStage: 'production', unit: 'takas', colour: '#A855F7', connected: true, takaStages: ['entered'] },
-  // Butta cutting — to connect later.
-  { key: 'at_butta', label: 'At butta cutting', shortLabel: 'At butta cutting', mainStage: 'butta', unit: 'takas', colour: '#F59E0B', connected: false, takaStages: ['at_butta'] },
-  { key: 'butta_qc', label: 'Back, checking (QC)', shortLabel: 'Checking (QC)', mainStage: 'butta', unit: 'takas', colour: '#EAB308', connected: false, takaStages: ['butta_qc'] },
-  { key: 'butta_done', label: 'Checked · waiting for mill', shortLabel: 'Waiting for mill', mainStage: 'butta', unit: 'takas', colour: '#D97706', connected: false, takaStages: ['butta_done'] },
-  // Mill — to connect later.
+  // Butta cutting — connected in Sprint 7.
+  { key: 'at_butta', label: 'At butta cutting', shortLabel: 'At butta cutting', mainStage: 'butta', unit: 'takas', colour: '#F59E0B', connected: true, takaStages: ['at_butta'] },
+  { key: 'butta_qc', label: 'Received · QC pending', shortLabel: 'QC pending', mainStage: 'butta', unit: 'takas', colour: '#EAB308', connected: true, takaStages: ['butta_qc'] },
+  // Mill — "Waiting for mill" is connected; the mill itself comes later.
+  { key: 'waiting_mill', label: 'Waiting for mill', shortLabel: 'Waiting for mill', mainStage: 'mill', unit: 'takas', colour: '#D97706', connected: true, takaStages: ['waiting_mill'] },
   { key: 'at_mill', label: 'At mill (dyeing)', shortLabel: 'At mill', mainStage: 'mill', unit: 'takas', colour: '#8B5CF6', connected: false, takaStages: ['at_mill'] },
   { key: 'mill_qc', label: 'Back, checking (QC)', shortLabel: 'Checking (QC)', mainStage: 'mill', unit: 'takas', colour: '#A78BFA', connected: false, takaStages: ['mill_qc'] },
   // Ready — to connect later.
@@ -145,6 +147,16 @@ export function takaStageLabel(stage: string): string {
   return isTakaStage(stage) ? getSubStage(TAKA_STAGE_SUB[stage]).label : stage;
 }
 
+/** Short label of a taka's current stage (chips, the Takas tab filter). */
+export function takaStageShortLabel(stage: string): string {
+  return isTakaStage(stage) ? getSubStage(TAKA_STAGE_SUB[stage]).shortLabel : stage;
+}
+
+/** Colour of a taka's stage (the dot on a taka chip) — from the pipeline config. */
+export function takaStageColour(stage: string): string {
+  return isTakaStage(stage) ? getSubStage(TAKA_STAGE_SUB[stage]).colour : '#94A3B8';
+}
+
 /**
  * The jobsheet sub-stage of an active jobsheet: pending → Not assigned to supervisor · sent → Waiting to start on
  * loom · ongoing → On loom ·
@@ -183,7 +195,7 @@ export interface DamageTypeConfig {
 export const DAMAGE_TYPE_CONFIG: readonly DamageTypeConfig[] = [
   { key: 'machine', label: 'Machine damage', recordedWhen: 'At taka entry', connected: true },
   // To connect later: a NEW damage found at the QC after butta cutting / after the mill.
-  { key: 'butta', label: 'Butta cutting damage', recordedWhen: 'At the QC after butta cutting', connected: false },
+  { key: 'butta', label: 'Butta cutting damage', recordedWhen: 'At the QC after butta cutting', connected: true },
   { key: 'mill', label: 'Mill damage', recordedWhen: 'At the QC after the mill', connected: false },
 ];
 

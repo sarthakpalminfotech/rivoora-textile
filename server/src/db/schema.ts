@@ -9,7 +9,19 @@ import {
   uniqueIndex,
   type AnySQLiteColumn,
 } from 'drizzle-orm/sqlite-core';
-import type { DamageType, JobsheetEventKind, JobsheetStatusKey, OrderStatusKey, OrderType, RoleKey, TakaStage, Unit } from '@rivoora/shared';
+import type {
+  ChallanStatus,
+  DamageStatus,
+  DamageType,
+  JobsheetEventKind,
+  JobsheetStatusKey,
+  OrderStatusKey,
+  OrderType,
+  RoleKey,
+  TakaEventKind,
+  TakaStage,
+  Unit,
+} from '@rivoora/shared';
 
 const nowIso = sql`(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`;
 
@@ -92,6 +104,8 @@ export const designs = sqliteTable(
     notes: text('notes'),
     /** Optional fixed material — pre-selected on new orders using this design. */
     materialId: integer('material_id').references(() => materials.id),
+    /** Goes for butta cutting? Decides the stage of takas entered from now on (existing designs were backfilled true). */
+    buttaCutting: integer('butta_cutting', { mode: 'boolean' }).notNull().default(true),
     isDeleted: isDeleted(),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
@@ -302,8 +316,8 @@ export const damages = sqliteTable(
 );
 
 /**
- * Takas: numbered cloth pieces of a jobsheet, entered at the Taka entry desk. Numbers repeat across jobsheets
- * (they restart every year), so they are unique per jobsheet only. Soft-deleted when removed in an edit.
+ * Takas: numbered cloth pieces of a jobsheet, entered at the Taka entry desk. Since Sprint 7 a taka number is unique
+ * across the whole system (a partial unique index on `taka_no` among active rows). Soft-deleted when removed in an edit.
  */
 export const takas = sqliteTable(
   'takas',
@@ -321,10 +335,11 @@ export const takas = sqliteTable(
     meters: real('meters'),
     /** Pieces in the taka (1–9999). Required by the API on new / edited takas; null on older takas. */
     pcs: integer('pcs'),
+    /** Denormalized: the taka has at least one OPEN row in `taka_damages` (recomputed on every damage write). */
     isDamaged: integer('is_damaged', { mode: 'boolean' }).notNull().default(false),
-    /** WHERE the damage was found: `machine` when damaged at taka entry (more types later). */
+    /** @deprecated Sprint 7: damages live in `taka_damages` now. Kept in the DB, no longer read or written. */
     damageType: text('damage_type').$type<DamageType>(),
-    /** WHAT the damage is (Damage master). Null on older damage recorded without a name. */
+    /** @deprecated Sprint 7: damages live in `taka_damages` now. Kept in the DB, no longer read or written. */
     damageId: integer('damage_id').references(() => damages.id),
     /** Where the taka is: `entered` today; later sprints move it on (TAKA_STAGES in shared/pipeline.ts). */
     stage: text('stage').$type<TakaStage>().notNull().default('entered'),
@@ -339,7 +354,133 @@ export const takas = sqliteTable(
     index('takas_taka_no_idx').on(t.takaNo),
     index('takas_stage_idx').on(t.stage),
     index('takas_damage_idx').on(t.damageId),
-    uniqueIndex('takas_jobsheet_taka_no_active_unique').on(t.jobsheetId, t.takaNo).where(sql`${t.isDeleted} = 0`),
+    uniqueIndex('takas_taka_no_active_unique').on(t.takaNo).where(sql`${t.isDeleted} = 0`),
+  ],
+);
+
+/**
+ * Damages of a taka (the source of truth since Sprint 7). A taka can have several: where they were found
+ * (machine / butta / mill), the damaged pcs, and whether they are still open or were resolved (e.g. at butta QC).
+ */
+export const takaDamages = sqliteTable(
+  'taka_damages',
+  {
+    id: id(),
+    takaId: integer('taka_id')
+      .notNull()
+      .references(() => takas.id),
+    /** WHAT the damage is (Damage master). Null on an older damage recorded without a name. */
+    damageId: integer('damage_id').references(() => damages.id),
+    /** WHERE it was found. */
+    foundAt: text('found_at').$type<DamageType>().notNull().default('machine'),
+    /** Damaged pcs (1 to the taka's pcs). Null only on migrated rows. */
+    pcs: integer('pcs'),
+    status: text('status').$type<DamageStatus>().notNull().default('open'),
+    resolvedAt: text('resolved_at'),
+    resolvedBy: text('resolved_by').$type<RoleKey>(),
+    /** e.g. `butta_qc` */
+    resolvedStage: text('resolved_stage'),
+    createdBy: text('created_by').$type<RoleKey>().notNull(),
+    isDeleted: isDeleted(),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index('taka_damages_taka_idx').on(t.takaId), index('taka_damages_status_idx').on(t.status, t.foundAt)],
+);
+
+/** History of a taka: one row per taka action. */
+export const takaEvents = sqliteTable(
+  'taka_events',
+  {
+    id: id(),
+    takaId: integer('taka_id')
+      .notNull()
+      .references(() => takas.id),
+    event: text('event').$type<TakaEventKind>().notNull(),
+    challanId: integer('challan_id').references((): AnySQLiteColumn => buttaChallans.id),
+    note: text('note'),
+    role: text('role').$type<RoleKey>().notNull(),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index('taka_events_taka_idx').on(t.takaId)],
+);
+
+/** Butta parties (outsourced butta cutting). The name is printed as "M/s. …" on the challan. */
+export const buttaParties = sqliteTable(
+  'butta_parties',
+  {
+    id: id(),
+    name: text('name').notNull(),
+    address: text('address'),
+    mobile: text('mobile'),
+    gstin: text('gstin'),
+    notes: text('notes'),
+    isDeleted: isDeleted(),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [uniqueIndex('butta_parties_name_active_unique').on(sql`lower(${t.name})`).where(sql`${t.isDeleted} = 0`)],
+);
+
+/** Delivery challans sent to a butta party. `challan_no` comes from the `butta_challan_no` counter (never reused). */
+export const buttaChallans = sqliteTable(
+  'butta_challans',
+  {
+    id: id(),
+    challanNo: integer('challan_no').notNull(),
+    partyId: integer('party_id')
+      .notNull()
+      .references(() => buttaParties.id),
+    /** yyyy-MM-dd */
+    challanDate: text('challan_date').notNull(),
+    ewayNo: text('eway_no'),
+    status: text('status').$type<ChallanStatus>().notNull().default('active'),
+    cancelledAt: text('cancelled_at'),
+    cancelledBy: text('cancelled_by').$type<RoleKey>(),
+    createdBy: text('created_by').$type<RoleKey>().notNull(),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    uniqueIndex('butta_challans_challan_no_unique').on(t.challanNo),
+    index('butta_challans_party_idx').on(t.partyId),
+    index('butta_challans_status_idx').on(t.status),
+  ],
+);
+
+/**
+ * The takas of a challan with their meters / pcs AT THE TIME OF SENDING (the print never changes after QC edits).
+ * `is_active` = the row counts (false once the challan is cancelled): one active challan per taka.
+ */
+export const buttaChallanTakas = sqliteTable(
+  'butta_challan_takas',
+  {
+    id: id(),
+    challanId: integer('challan_id')
+      .notNull()
+      .references(() => buttaChallans.id),
+    takaId: integer('taka_id')
+      .notNull()
+      .references(() => takas.id),
+    /** Denormalized for order-level queries. */
+    orderId: integer('order_id')
+      .notNull()
+      .references(() => orders.id),
+    meters: real('meters'),
+    pcs: integer('pcs'),
+    isActive: integer('is_active', { mode: 'boolean' }).notNull().default(true),
+    receivedAt: text('received_at'),
+    receivedBy: text('received_by').$type<RoleKey>(),
+    /** Butta QC completed. */
+    qcDoneAt: text('qc_done_at'),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    index('butta_challan_takas_challan_idx').on(t.challanId),
+    index('butta_challan_takas_order_idx').on(t.orderId),
+    uniqueIndex('butta_challan_takas_taka_active_unique').on(t.takaId).where(sql`${t.isActive} = 1`),
   ],
 );
 

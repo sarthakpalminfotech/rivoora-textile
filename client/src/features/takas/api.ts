@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type {
   JobsheetByNo,
   OrderTakas,
+  TakaDetail,
   TakaEditInput,
   TakaEditResult,
   TakaEntryInput,
@@ -17,6 +18,7 @@ import { invalidateAfterWrite, jobsheetKeys } from '../jobsheets/api';
 export const takaKeys = {
   all: ['takas'] as const,
   order: (orderId: number) => ['takas', 'order', orderId] as const,
+  detail: (takaId: number) => ['takas', 'detail', takaId] as const,
 };
 
 /** The Taka entry Jobsheets list: one tab + search, paginated, with tab counts. */
@@ -41,6 +43,15 @@ export function useOrderTakas(orderId: number, enabled = true) {
     queryKey: takaKeys.order(orderId),
     queryFn: ({ signal }) => api.get<OrderTakas>(`/orders/${orderId}/takas`, undefined, signal),
     enabled: enabled && orderId > 0,
+  });
+}
+
+/** One taka with its damages and history (the taka details drawer). */
+export function useTakaDetail(takaId: number | null) {
+  return useQuery({
+    queryKey: takaKeys.detail(takaId ?? 0),
+    queryFn: ({ signal }) => api.get<TakaDetail>(`/takas/${takaId}`, undefined, signal),
+    enabled: takaId !== null && takaId > 0,
   });
 }
 
