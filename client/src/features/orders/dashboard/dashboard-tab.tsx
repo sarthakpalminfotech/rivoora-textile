@@ -1,4 +1,4 @@
-import { AlertTriangle, ArrowRight, ChevronRight, ClipboardList, CornerDownRight, Hourglass, Inbox, Plus, Send } from 'lucide-react';
+import { AlertTriangle, ArrowRight, Check, ChevronRight, ClipboardList, CornerDownRight, Hourglass, Inbox, Plus, Send } from 'lucide-react';
 import { useRef, useState, type ReactNode } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
@@ -80,7 +80,7 @@ const selectable = (selected: boolean) =>
 /* ------------------------------------------------------------------ */
 
 function ProgressCard({ data }: { data: OrderDashboard }) {
-  const { progress, bar, barTotalFrames, alerts } = data;
+  const { progress, bar, barTotalPcs, alerts } = data;
   const scrollToAlerts = () => document.getElementById('needs-attention')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   return (
     <section className="rounded-xl border border-border bg-white p-4 shadow-soft md:p-5" aria-label="Progress">
@@ -94,9 +94,9 @@ function ProgressCard({ data }: { data: OrderDashboard }) {
           <div
             className="flex h-3 w-full overflow-hidden rounded-full bg-slate-100"
             role="img"
-            aria-label={`Frames by stage: ${bar.map((b) => `${getMainStage(b.stage).label} ${fmt(b.frames)}`).join(', ')}`}
+            aria-label={`Pcs by stage: ${bar.map((b) => `${getMainStage(b.stage).label} ${fmt(b.pcs)}`).join(', ')}`}
           >
-            {barTotalFrames > 0 &&
+            {barTotalPcs > 0 &&
               bar
                 .filter((b) => b.share > 0)
                 .map((b) => (
@@ -104,19 +104,21 @@ function ProgressCard({ data }: { data: OrderDashboard }) {
                     key={b.stage}
                     className="h-full first:rounded-l-full last:rounded-r-full [&:not(:last-child)]:border-r-2 [&:not(:last-child)]:border-white"
                     style={{ width: `${b.share * 100}%`, backgroundColor: getMainStage(b.stage).colour }}
-                    title={`${getMainStage(b.stage).label}: ${fmt(b.frames)} frames`}
+                    title={`${getMainStage(b.stage).label}: ${fmt(b.pcs)} pcs · ${Math.round(b.share * 100)}%`}
                   />
                 ))}
           </div>
-          <ul className="mt-2 hidden flex-wrap gap-x-4 gap-y-1 md:flex">
-            {bar.map((b) => (
-              <li key={b.stage} className="inline-flex items-center gap-1.5 text-[12px] text-slate-500">
-                <span className="size-2 rounded-full" style={{ backgroundColor: getMainStage(b.stage).colour }} aria-hidden />
-                {getMainStage(b.stage).label}
-                <span className="font-semibold tabular-nums text-slate-700">{fmt(b.frames)}</span>
-              </li>
-            ))}
-          </ul>
+          <p className="mt-2 text-[12px] font-medium tabular-nums text-slate-600">
+            {fmt(barTotalPcs)} pcs
+            {bar
+              .filter((b) => b.share > 0)
+              .map((b) => (
+                <span key={b.stage} className="ml-1.5 inline-flex items-center gap-1 text-slate-500">
+                  · <span className="size-2 rounded-full" style={{ backgroundColor: getMainStage(b.stage).colour }} aria-hidden />
+                  {getMainStage(b.stage).label} <b className="font-semibold text-slate-700">{Math.round(b.share * 100)}%</b>
+                </span>
+              ))}
+          </p>
         </div>
         <div className="flex shrink-0 items-center gap-3">
           <p className="text-2xl font-bold tabular-nums text-slate-900">
@@ -147,6 +149,8 @@ function ProgressCard({ data }: { data: OrderDashboard }) {
 function MainStageCard({ stage, data, selected, onSelect }: { stage: MainStageCount; data: OrderDashboard; selected: boolean; onSelect: () => void }) {
   const config = getMainStage(stage.key);
   const muted = !stage.connected;
+  // Completed / skipped: a calm grey state (visual only — the card stays fully clickable).
+  const done = stage.state !== null;
   let secondary: ReactNode;
   if (stage.key === 'production') {
     secondary = data.isPcs ? (
@@ -160,12 +164,18 @@ function MainStageCard({ stage, data, selected, onSelect }: { stage: MainStageCo
     secondary = stage.connected ? `${stage.pcs.toLocaleString('en-IN')} pcs` : <ComingSoon />;
   }
   return (
-    <button type="button" onClick={onSelect} aria-pressed={selected} className={cn(selectable(selected), 'flex h-full w-full flex-col gap-1.5 p-3.5 md:p-4', muted && !selected && 'bg-slate-50/70')}>
-      <span className="flex items-center gap-2 text-[13px] font-semibold text-slate-600 md:text-sm">
-        <span className="size-2.5 shrink-0 rounded-full" style={{ backgroundColor: config.colour, opacity: muted ? 0.5 : 1 }} aria-hidden />
-        <span className="truncate">{config.label}</span>
+    <button type="button" onClick={onSelect} aria-pressed={selected} className={cn(selectable(selected), 'relative flex h-full w-full flex-col gap-1.5 p-3.5 md:p-4', (muted || done) && !selected && 'bg-slate-50/70')}>
+      {done && (
+        <span className="absolute right-2.5 top-2.5 inline-flex items-center gap-1 rounded-full bg-slate-200/80 px-2 py-0.5 text-[11px] font-semibold text-slate-500">
+          {stage.state === 'completed' ? <Check className="size-3" aria-hidden /> : null}
+          {stage.state === 'completed' ? 'Completed' : 'Skipped'}
+        </span>
+      )}
+      <span className={cn('flex items-center gap-2 text-[13px] font-semibold text-slate-600 md:text-sm', done && 'pr-[5.25rem]')}>
+        <span className="size-2.5 shrink-0 rounded-full" style={{ backgroundColor: done ? '#94A3B8' : config.colour, opacity: muted ? 0.5 : 1 }} aria-hidden />
+        <span className={cn('truncate', done && 'text-slate-500')}>{config.label}</span>
       </span>
-      <span className={cn('text-[26px] font-bold leading-none tabular-nums md:text-3xl', muted ? 'text-slate-400' : 'text-slate-900')}>
+      <span className={cn('text-[26px] font-bold leading-none tabular-nums md:text-3xl', muted || done ? 'text-slate-400' : 'text-slate-900')}>
         {stage.count.toLocaleString('en-IN')}
         <span className="ml-1.5 text-sm font-semibold text-slate-500">{unitWord(stage.unit, stage.count)}</span>
       </span>

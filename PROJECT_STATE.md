@@ -1018,3 +1018,15 @@ The seed adds demo brokers to three customers (only when they have none). No dam
 See the "Butta cutting (Sprint 7)" section and the Sprint 7 database note in CLAUDE.md. Summary: global unique taka numbers (migration stops on duplicates), Design butta flag, damages list per taka (+ pcs, resolve at QC), taka stages/events, Butta parties master, Butta cutting module (Send: pending order cards → takas drawer → challan GSM-n with party/date/eway; In butta cutting list; Receive: Taka number screen with undo + live Challans), challan details (cancel, tick-to-receive), challan print (A4 landscape, 48 takas/page), Butta QC role (bilingual), Godown supervisor role, order statuses In butta cutting / Ready for mill, order details additions (stage dots + filter, taka drawer + history, Show resolved).
 
 Verified: typecheck (all packages), 123 shared tests, a scripted API flow on a local libSQL file DB (migration with legacy data incl. duplicate stop, send/receive/undo/cancel/QC, restricted-role 403s) and a short browser check of Send, challan print and the QC screen. Not yet done: printing a challan on real paper, 360 px / tablet visual pass of every new screen, a run against the live Turso DB (run `npm run db:migrate` yourself — it lists duplicate taka numbers first if any exist), seeding demo butta data.
+
+---
+
+## 14. Sprint 8 — Mill, generic challans, partial damage resolve, damage images, Docs tab
+
+Current as of 2026-10-06; supersedes earlier butta notes. Details live in `CLAUDE.md` → "Sprint 8". Summary:
+migration `0009_sprint8_mill.sql` (butta challans moved into generic `challans` / `challan_takas` with a count check;
+`mill_parties`, `taka_damage_images`, `taka_damages.resolved_pcs`, `taka_events.taka_damage_id`); Mill module and Mill
+parties master built from the butta components with a `kind` prop; order statuses In mill / Received from mill;
+dashboard bar in pcs and Completed / Skipped stage cards; Butta QC Resolve popup with pcs + damage photos; order Docs
+tab; damage details screen. `npm test` (shared): 144 tests. NOT yet run against live Turso — run `npm run db:migrate`
+there first (it prints the before/after challan counts).

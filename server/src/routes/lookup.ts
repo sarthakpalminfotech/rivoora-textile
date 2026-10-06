@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { ah, parseId } from '../lib/http';
 import { requirePermission } from '../middleware/role';
 import { lookupBrokers, lookupCustomers } from '../services/customers';
-import { lookupButtaParties } from '../services/butta-parties';
+import { lookupParties } from '../services/parties';
 import { lookupDamages } from '../services/damages';
 import { lookupMachines } from '../services/machines';
 import { lookupMaterials } from '../services/materials';
@@ -55,7 +55,17 @@ lookupRouter.get(
   requirePermission('canManageButtaParties', 'canUseButtaModule'),
   ah(async (req, res) => {
     res.set('Cache-Control', 'private, max-age=10');
-    res.json(await lookupButtaParties(querySchema.parse(req.query).search));
+    res.json(await lookupParties('butta', querySchema.parse(req.query).search));
+  }),
+);
+
+/** Mill parties for the Send dialog (Jemish, Gaurang, Godown supervisor). */
+lookupRouter.get(
+  '/mill-parties',
+  requirePermission('canManageMillParties', 'canUseMillModule'),
+  ah(async (req, res) => {
+    res.set('Cache-Control', 'private, max-age=10');
+    res.json(await lookupParties('mill', querySchema.parse(req.query).search));
   }),
 );
 

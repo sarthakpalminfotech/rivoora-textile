@@ -4,6 +4,7 @@ import {
   buildOrderDashboard,
   canRoleSeeStatus,
   compareTakaNo,
+  damageOpenPcs,
   DAMAGE_TYPE_CONFIG,
   DAMAGE_TYPES,
   getSubStage,
@@ -20,7 +21,7 @@ import {
   type Taka,
 } from '@rivoora/shared';
 import { db } from '../db/client';
-import { jobsheets, orders, takaDamages, takas } from '../db/schema';
+import { challanTakas, jobsheets, orders, takaDamages, takas } from '../db/schema';
 import { notFound } from '../lib/errors';
 import { activeTakaCount, machinesJson, parseMachinesJson, runningMachine, runningMachineColumns, toMachineRef } from './jobsheets';
 import { mapTaka, parseDamagesJson, sortTakas, takaColumns, takaDamagesJson } from './taka-shared';
@@ -51,7 +52,7 @@ function assertVisible<T extends { status: string }>(role: RoleKey, order: T | u
 
 /** GET /orders/:id/dashboard — one round trip: the order, its jobsheets, and the takas aggregated by stage. */
 export async function getOrderDashboard(role: RoleKey, orderId: number): Promise<OrderDashboard> {
-  const [orderRows, sheetRows, takaRows, damageRows] = await db.batch([
+  const [orderRows, sheetRows, takaRows, damageRows, buttaRows] = await db.batch([
     db.select(orderColumns).from(orders).where(eq(orders.id, orderId)),
     db
       .select({
@@ -74,6 +75,7 @@ export async function getOrderDashboard(role: RoleKey, orderId: number): Promise
         isDamaged: takas.isDamaged,
         count: sql<number>`COUNT(*)`,
         pcs: sql<number | null>`SUM(${takas.pcs})`,
+        withoutPcs: sql<number>`SUM(CASE WHEN ${takas.pcs} IS NULL THEN 1 ELSE 0 END)`,
       })
       .from(takas)
       .innerJoin(jobsheets, eq(jobsheets.id, takas.jobsheetId))
@@ -84,21 +86,30 @@ export async function getOrderDashboard(role: RoleKey, orderId: number): Promise
       .select({
         foundAt: takaDamages.foundAt,
         count: sql<number>`COUNT(*)`,
-        pcs: sql<number | null>`SUM(${takaDamages.pcs})`,
+        // Damaged pcs still OPEN (a partly resolved damage counts only what is left).
+        pcs: sql<number | null>`SUM(${takaDamages.pcs} - ${takaDamages.resolvedPcs})`,
       })
       .from(takaDamages)
       .innerJoin(takas, eq(takas.id, takaDamages.takaId))
       .innerJoin(jobsheets, eq(jobsheets.id, takas.jobsheetId))
       .where(and(activeTakasOf(orderId), eq(takaDamages.status, 'open'), eq(takaDamages.isDeleted, false)))
       .groupBy(takaDamages.foundAt),
+    // Takas of the order that went through butta cutting (an active butta challan row) — 0 = the order skipped it.
+    db
+      .select({ n: sql<number>`COUNT(DISTINCT ${challanTakas.takaId})` })
+      .from(challanTakas)
+      .innerJoin(takas, eq(takas.id, challanTakas.takaId))
+      .innerJoin(jobsheets, eq(jobsheets.id, takas.jobsheetId))
+      .where(and(activeTakasOf(orderId), eq(challanTakas.kind, 'butta'), eq(challanTakas.isActive, true))),
   ]);
   const order = assertVisible(role, orderRows[0]);
   const data = buildOrderDashboard(
     {
       order,
       jobsheets: sheetRows,
-      takas: takaRows.map((t) => ({ ...t, count: Number(t.count), pcs: t.pcs === null ? null : Number(t.pcs) })),
+      takas: takaRows.map((t) => ({ ...t, count: Number(t.count), pcs: t.pcs === null ? null : Number(t.pcs), withoutPcs: Number(t.withoutPcs) })),
       damages: damageRows.map((d) => ({ foundAt: d.foundAt, count: Number(d.count), pcs: d.pcs === null ? null : Number(d.pcs) })),
+      buttaTakas: Number(buttaRows[0]?.n ?? 0),
     },
     new Date(),
   );
@@ -249,7 +260,8 @@ export async function getOrderDamages(role: RoleKey, orderId: number, query: unk
       if (d.status === 'open') {
         const c = counts.get(d.foundAt)!;
         c.count += 1;
-        if (d.pcs !== null) c.pcs = (c.pcs ?? 0) + d.pcs;
+        const open = damageOpenPcs(d);
+        if (open !== null) c.pcs = (c.pcs ?? 0) + open;
       } else resolvedTotal += 1;
     }
     const shown = all.filter((d) => (resolved || d.status === 'open') && (!type || d.foundAt === type));

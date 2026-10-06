@@ -1,16 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import {
+  applyResolve,
   CHALLAN_TAKAS_PER_PAGE,
-  challanLabel,
   challanTotals,
   formatChallanDate,
   formatChallanRowMeters,
   formatChallanTotalMeters,
   paginateChallanTakas,
-  parseChallanNo,
   takaEditNote,
   validateQcDecisions,
 } from './butta';
+import { challanLabel, CHALLAN_KIND_CONFIG, isTakaReady, parseChallanNo, splitReadyTakas } from './challans';
 import { COMPANY } from './company';
 import { can, landingRoute, ROLES } from './roles';
 import { buttaReceiveSchema, challanCreateSchema, designInputSchema, qcSubmitSchema } from './schemas';
@@ -28,6 +28,54 @@ describe('challan numbering', () => {
     expect(parseChallanNo('gsm')).toBeNull();
     expect(parseChallanNo('0')).toBeNull();
     expect(parseChallanNo('17a')).toBeNull();
+  });
+
+  it('mill challans are MIL-<n>, numbered by their own counter; a search needs the matching prefix', () => {
+    expect(challanLabel(1, 'mill')).toBe('MIL-1');
+    expect(challanLabel(12, 'mill')).toBe('MIL-12');
+    expect(challanLabel(173, 'butta')).toBe('GSM-173');
+    expect(CHALLAN_KIND_CONFIG.butta.counter).toBe('butta_challan_no');
+    expect(CHALLAN_KIND_CONFIG.mill.counter).toBe('mill_challan_no');
+    expect(parseChallanNo('MIL-12', 'mill')).toBe(12);
+    expect(parseChallanNo('mil 12', 'mill')).toBe(12);
+    expect(parseChallanNo('12', 'mill')).toBe(12);
+    expect(parseChallanNo('GSM-12', 'mill')).toBeNull();
+    expect(parseChallanNo('MIL-12', 'butta')).toBeNull();
+  });
+});
+
+describe('mill readiness and the send-ready-only split', () => {
+  const list = [
+    { id: 1, takaNo: '6245', stage: 'waiting_mill' },
+    { id: 2, takaNo: '6251', stage: 'at_butta' },
+    { id: 3, takaNo: '6252', stage: 'butta_qc' },
+    { id: 4, takaNo: '6253', stage: 'waiting_mill' },
+    { id: 5, takaNo: '6254', stage: 'entered' },
+  ];
+
+  it('mill: only waiting_mill takas are ready; butta: only entered', () => {
+    expect(isTakaReady('waiting_mill', 'mill')).toBe(true);
+    expect(isTakaReady('butta_qc', 'mill')).toBe(false);
+    expect(isTakaReady('entered', 'butta')).toBe(true);
+    expect(isTakaReady('waiting_mill', 'butta')).toBe(false);
+  });
+
+  it('splits a selection into ready / not ready, keeping the order', () => {
+    const { ready, notReady } = splitReadyTakas(list, 'mill');
+    expect(ready.map((t) => t.takaNo)).toEqual(['6245', '6253']);
+    expect(notReady.map((t) => [t.takaNo, t.stage])).toEqual([
+      ['6251', 'at_butta'],
+      ['6252', 'butta_qc'],
+      ['6254', 'entered'],
+    ]);
+    expect(splitReadyTakas(list, 'butta').ready.map((t) => t.id)).toEqual([5]);
+    expect(splitReadyTakas([], 'mill')).toEqual({ ready: [], notReady: [] });
+  });
+
+  it('the stages the kinds move takas between', () => {
+    expect(CHALLAN_KIND_CONFIG.mill).toMatchObject({ readyStage: 'waiting_mill', sentStage: 'at_mill', receivedStage: 'mill_qc' });
+    expect(CHALLAN_KIND_CONFIG.butta).toMatchObject({ readyStage: 'entered', sentStage: 'at_butta', receivedStage: 'butta_qc' });
+    expect(CHALLAN_KIND_CONFIG.mill.notSentStages).toContain('butta_qc');
   });
 });
 
@@ -89,34 +137,51 @@ describe('challan print paging (4 groups × 12 rows)', () => {
   });
 });
 
-describe('QC decision validation', () => {
+describe('QC decision validation (resolved pcs)', () => {
   const open = [
-    { id: 1, pcs: 2 },
+    { id: 1, pcs: 3 },
     { id: 2, pcs: null },
   ];
 
   it('every open damage must be answered', () => {
-    const r = validateQcDecisions(open, [{ takaDamageId: 1, resolved: true }], 12);
+    const r = validateQcDecisions(open, [{ takaDamageId: 1, resolvedPcs: 3 }], 12);
     expect(r.unanswered).toEqual([2]);
     expect(r.ok).toBe(false);
   });
 
   it('a damage without pcs needs a pcs count when answered', () => {
-    const r = validateQcDecisions(open, [{ takaDamageId: 1, resolved: true }, { takaDamageId: 2, resolved: false }], 12);
+    const r = validateQcDecisions(open, [{ takaDamageId: 1, resolvedPcs: 3 }, { takaDamageId: 2, resolvedPcs: 0 }], 12);
     expect(r.pcsMissing).toEqual([2]);
     expect(r.ok).toBe(false);
-    const fixed = validateQcDecisions(open, [{ takaDamageId: 1, resolved: true }, { takaDamageId: 2, resolved: false, pcs: 3 }], 12);
+    const fixed = validateQcDecisions(open, [{ takaDamageId: 1, resolvedPcs: 3 }, { takaDamageId: 2, resolvedPcs: 0, pcs: 3 }], 12);
     expect(fixed.ok).toBe(true);
   });
 
   it('damaged pcs may not exceed the taka pcs (after the QC edit)', () => {
-    const r = validateQcDecisions([{ id: 1, pcs: 5 }], [{ takaDamageId: 1, resolved: false }], 4);
+    const r = validateQcDecisions([{ id: 1, pcs: 5 }], [{ takaDamageId: 1, resolvedPcs: 0 }], 4);
     expect(r.pcsTooBig).toEqual([1]);
     expect(r.ok).toBe(false);
   });
 
+  it('resolved pcs: 0 (not resolved) up to the pcs still open, not more', () => {
+    expect(validateQcDecisions([{ id: 1, pcs: 3 }], [{ takaDamageId: 1, resolvedPcs: 0 }], 12).ok).toBe(true);
+    expect(validateQcDecisions([{ id: 1, pcs: 3 }], [{ takaDamageId: 1, resolvedPcs: 2 }], 12).ok).toBe(true);
+    expect(validateQcDecisions([{ id: 1, pcs: 3 }], [{ takaDamageId: 1, resolvedPcs: 4 }], 12).resolvedTooBig).toEqual([1]);
+    // 1 of 3 were already resolved → only 2 are open
+    expect(validateQcDecisions([{ id: 1, pcs: 3, resolvedPcs: 1 }], [{ takaDamageId: 1, resolvedPcs: 3 }], 12).resolvedTooBig).toEqual([1]);
+    // a legacy damage with the pcs typed now
+    expect(validateQcDecisions([{ id: 2, pcs: null }], [{ takaDamageId: 2, resolvedPcs: 5, pcs: 4 }], 12).resolvedTooBig).toEqual([2]);
+  });
+
+  it('applyResolve: partial keeps the damage open with fewer open pcs; the damage resolves only when all pcs are', () => {
+    expect(applyResolve({ pcs: 3 }, 3)).toEqual({ resolvedPcs: 3, openPcs: 0, status: 'resolved' });
+    expect(applyResolve({ pcs: 3 }, 2)).toEqual({ resolvedPcs: 2, openPcs: 1, status: 'open' });
+    expect(applyResolve({ pcs: 3 }, 0)).toEqual({ resolvedPcs: 0, openPcs: 3, status: 'open' });
+    expect(applyResolve({ pcs: 3, resolvedPcs: 2 }, 1)).toEqual({ resolvedPcs: 3, openPcs: 0, status: 'resolved' });
+  });
+
   it('decisions for unknown damages are flagged; a taka without damages is fine', () => {
-    expect(validateQcDecisions([], [{ takaDamageId: 9, resolved: true }], 5).unknown).toEqual([9]);
+    expect(validateQcDecisions([], [{ takaDamageId: 9, resolvedPcs: 1 }], 5).unknown).toEqual([9]);
     expect(validateQcDecisions([], [], 5).ok).toBe(true);
   });
 
@@ -130,10 +195,20 @@ describe('QC decision validation', () => {
     const ok = qcSubmitSchema.parse({
       meters: 60.5,
       pcs: 12,
-      damageDecisions: [{ takaDamageId: 1, resolved: true }],
-      newDamages: [{ otherName: 'Cut', pcs: 1 }],
+      damageDecisions: [{ takaDamageId: 1, resolvedPcs: 2 }],
+      newDamages: [{ otherName: 'Cut', pcs: 1, images: [{ url: '/u/a.webp', thumbUrl: '/u/a-t.webp' }] }],
     });
     expect(ok.damageDecisions[0].pcs).toBeNull();
+    expect(ok.newDamages[0].images).toHaveLength(1);
+    expect(qcSubmitSchema.parse({ pcs: 3, newDamages: [{ damageId: 2, pcs: 1 }] }).newDamages[0].images).toEqual([]);
+    expect(qcSubmitSchema.safeParse({ pcs: 3, damageDecisions: [{ takaDamageId: 1, resolvedPcs: -1 }] }).success).toBe(false);
+    expect(qcSubmitSchema.safeParse({ pcs: 3, damageDecisions: [{ takaDamageId: 1, resolved: true }] }).success).toBe(false);
+    expect(
+      qcSubmitSchema.safeParse({
+        pcs: 3,
+        newDamages: [{ damageId: 2, pcs: 1, images: Array.from({ length: 11 }, (_, i) => ({ url: 'u' + i, thumbUrl: 't' + i })) }],
+      }).success,
+    ).toBe(false);
     expect(qcSubmitSchema.safeParse({ meters: 60, damageDecisions: [], newDamages: [] }).success).toBe(false);
     expect(qcSubmitSchema.safeParse({ pcs: 3, newDamages: [{ damageId: 2 }] }).success).toBe(false);
     expect(qcSubmitSchema.parse({ pcs: 3 }).newDamages).toEqual([]);
@@ -246,6 +321,60 @@ describe('sprint 7 roles', () => {
     for (const r of ['supervisor', 'taka_entry'] as const) {
       expect(can(r, 'canUseButtaModule')).toBe(false);
       expect(can(r, 'canButtaQc')).toBe(false);
+    }
+  });
+});
+
+describe('order status: mill', () => {
+  const done = [{ status: 'completed', takaCount: 3 }, { status: 'completed', takaCount: 2 }];
+
+  it('In mill: nothing before the mill is left and at least one taka is at the mill (some may still wait)', () => {
+    expect(orderStatusForJobsheets(done, ['at_mill', 'at_mill', 'at_mill'])).toBe('in_mill');
+    expect(orderStatusForJobsheets(done, ['at_mill', 'waiting_mill', 'waiting_mill'])).toBe('in_mill');
+    expect(orderStatusForJobsheets(done, ['at_mill', 'mill_qc', 'waiting_mill'])).toBe('in_mill');
+  });
+
+  it('butta and mill at the same time: the earliest unfinished stage wins', () => {
+    expect(orderStatusForJobsheets(done, ['at_mill', 'at_butta'])).toBe('in_butta_cutting');
+    expect(orderStatusForJobsheets(done, ['at_mill', 'butta_qc', 'waiting_mill'])).toBe('in_butta_cutting');
+    // a taka that has not been sent to butta cutting yet holds the order back from In mill
+    expect(orderStatusForJobsheets(done, ['at_mill', 'entered'])).toBe('taka_entry_done');
+  });
+
+  it('Received from mill: every active taka is back (QC pending)', () => {
+    expect(orderStatusForJobsheets(done, ['mill_qc', 'mill_qc'])).toBe('received_from_mill');
+    expect(orderStatusForJobsheets(done, ['mill_qc', 'at_mill'])).toBe('in_mill');
+    expect(orderStatusForJobsheets(done, ['mill_qc', 'waiting_mill'])).toBe('in_mill');
+  });
+
+  it('Ready for mill and the mill statuses only apply once taka entry is done', () => {
+    expect(orderStatusForJobsheets([{ status: 'completed', takaCount: 3 }, { status: 'ongoing', takaCount: 0 }], ['at_mill'])).toBe('in_production');
+    expect(orderStatusForJobsheets([{ status: 'completed', takaCount: 3 }, { status: 'completed', takaCount: 0 }], ['at_mill'])).toBe('production_completed');
+  });
+
+  it('new statuses: own order and colours, visible to Jemish and Gaurang only', () => {
+    expect(getStatus('in_mill')).toMatchObject({ label: 'In mill', sequence: 90 });
+    expect(getStatus('received_from_mill')).toMatchObject({ label: 'Received from mill', sequence: 100 });
+    const dots = ['ready_for_mill', 'in_mill', 'received_from_mill', 'in_butta_cutting'].map((k) => getStatus(k).badge.dot);
+    expect(new Set(dots).size).toBe(dots.length);
+    for (const role of ['jemish', 'gaurang'] as const) {
+      expect(canRoleSeeStatus(role, 'in_mill')).toBe(true);
+      expect(canRoleSeeStatus(role, 'received_from_mill')).toBe(true);
+    }
+    for (const role of ['supervisor', 'taka_entry', 'godown_supervisor', 'butta_qc'] as const) {
+      expect(canRoleSeeStatus(role, 'in_mill')).toBe(false);
+    }
+  });
+});
+
+describe('sprint 8 roles', () => {
+  it('Jemish, Gaurang and the Godown supervisor use the mill module; only Jemish and Gaurang manage mill parties', () => {
+    for (const r of ['jemish', 'gaurang', 'godown_supervisor'] as const) expect(can(r, 'canUseMillModule'), r).toBe(true);
+    for (const r of ['jemish', 'gaurang'] as const) expect(can(r, 'canManageMillParties'), r).toBe(true);
+    expect(can('godown_supervisor', 'canManageMillParties')).toBe(false);
+    for (const r of ['supervisor', 'taka_entry', 'butta_qc'] as const) {
+      expect(can(r, 'canUseMillModule'), r).toBe(false);
+      expect(can(r, 'canManageMillParties'), r).toBe(false);
     }
   });
 });

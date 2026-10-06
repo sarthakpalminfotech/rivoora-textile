@@ -7,6 +7,9 @@ import {
   cleanTakaNo,
   compareTakaNo,
   damageLabel,
+  damageLabelOf,
+  damageOpenPcs,
+  damageResolveSummary,
   damagePcsErrorText,
   damageResolvedText,
   formatPcs,
@@ -368,5 +371,39 @@ describe('sprint 6 role + status labels', () => {
     expect(jobsheetStatusLabel('ongoing', 'supervisor')).toBe('On-loom');
     expect(jobsheetStatusLabel('ongoing', 'jemish')).toBe('Ongoing');
     expect(jobsheetStatusLabel('sent', 'supervisor')).toBe('Pending');
+  });
+});
+
+describe('partial resolve: open pcs everywhere', () => {
+  const open = { foundAt: 'butta', damageName: 'Hole', pcs: 3, resolvedPcs: 0, status: 'open' };
+
+  it('an untouched open damage shows all its pcs', () => {
+    expect(damageLabelOf(open)).toBe('Butta cutting damage · Hole · 3 pcs');
+    expect(damageOpenPcs(open)).toBe(3);
+    expect(damageResolveSummary(open)).toBeNull();
+  });
+
+  it('a partly resolved damage stays open and shows the OPEN pcs with "(n resolved)"', () => {
+    const part = { ...open, resolvedPcs: 2 };
+    expect(damageOpenPcs(part)).toBe(1);
+    expect(damageLabelOf(part)).toBe('Butta cutting damage · Hole · 1 pcs (2 resolved)');
+    expect(damageResolveSummary(part)).toBe('Resolved 2 of 3 · 1 pcs still damaged');
+    expect(hasOpenDamage([part])).toBe(true);
+    expect(isFreshAfterDamage([part])).toBe(false);
+  });
+
+  it('a fully resolved damage has no open pcs; the taka is Fresh only when no damage has open pcs', () => {
+    const done = { ...open, resolvedPcs: 3, status: 'resolved', resolvedStage: 'butta_qc' };
+    expect(damageOpenPcs(done)).toBe(0);
+    expect(damageResolveSummary(done)).toBe('Resolved 3 of 3 pcs');
+    expect(damageLabelOf(done)).toBe('Butta cutting damage · Hole · 3 pcs');
+    expect(isFreshAfterDamage([done])).toBe(true);
+    const stillOpen = { ...open, resolvedPcs: 1 };
+    expect(isFreshAfterDamage([done, stillOpen])).toBe(false);
+  });
+
+  it('older damage without pcs keeps its plain label', () => {
+    expect(damageLabelOf({ foundAt: 'machine', pcs: null })).toBe('Machine damage');
+    expect(damageOpenPcs({ pcs: null, status: 'open' })).toBeNull();
   });
 });

@@ -12,6 +12,7 @@ import {
   updateOrder,
 } from '../services/orders';
 import { addSingleJobsheet, generateJobsheets, listOrderJobsheets, sendJobsheets } from '../services/jobsheets';
+import { listOrderChallans } from '../services/challans';
 import { listOrderTakas } from '../services/takas';
 import { getDashboardItems, getOrderDamages, getOrderDashboard } from '../services/dashboard';
 
@@ -123,6 +124,16 @@ ordersRouter.get(
   '/:id/dashboard/items',
   ah(async (req, res) => {
     res.json(await getDashboardItems(req.role, parseId(req.params.id), req.query));
+  }),
+);
+
+/** Docs → Challans: every butta / mill challan that holds a taka of this order (cancelled ones included). */
+ordersRouter.get(
+  '/:id/challans',
+  requirePermission('canViewTakas'),
+  ah(async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    res.json(await listOrderChallans(req.role, parseId(req.params.id)));
   }),
 );
 

@@ -3,9 +3,10 @@
  * rules. Config-driven so later sprints only CONNECT data instead of redesigning the page.
  *
  * ┌──────────────────────────────────────────────────────────────────────────────────────────────────────────┐
- * │ CONNECTED (Sprint 7): taka entry → butta cutting (send / receive / QC) → waiting for mill.                │
- * │ TO CONNECT LATER: the mill (at_mill, mill_qc) and ready flows — move takas to the matching `TakaStage`,   │
- * │ set `connected: true` on their sub-stages and the mill damage type, and map the data here.               │
+ * │ CONNECTED (Sprint 8): taka entry → butta cutting (send / receive / QC) → waiting for mill → at mill →     │
+ * │ received back from the mill (QC pending).                                                                 │
+ * │ TO CONNECT LATER: the mill QC and ready flows — move takas to the matching `TakaStage`, set              │
+ * │ `connected: true` on the ready sub-stage / main stage and the mill damage type, and map the data here.   │
  * │ `buildOrderDashboard` and the dashboard page must not need changes.                                       │
  * └──────────────────────────────────────────────────────────────────────────────────────────────────────────┘
  *
@@ -101,10 +102,10 @@ export const SUB_STAGES: readonly SubStageConfig[] = [
   // Butta cutting — connected in Sprint 7.
   { key: 'at_butta', label: 'At butta cutting', shortLabel: 'At butta cutting', mainStage: 'butta', unit: 'takas', colour: '#F59E0B', connected: true, takaStages: ['at_butta'] },
   { key: 'butta_qc', label: 'Received · QC pending', shortLabel: 'QC pending', mainStage: 'butta', unit: 'takas', colour: '#EAB308', connected: true, takaStages: ['butta_qc'] },
-  // Mill — "Waiting for mill" is connected; the mill itself comes later.
+  // Mill — connected in Sprint 8 (send / receive on mill challans). The Mill QC comes in a later sprint.
   { key: 'waiting_mill', label: 'Waiting for mill', shortLabel: 'Waiting for mill', mainStage: 'mill', unit: 'takas', colour: '#D97706', connected: true, takaStages: ['waiting_mill'] },
-  { key: 'at_mill', label: 'At mill (dyeing)', shortLabel: 'At mill', mainStage: 'mill', unit: 'takas', colour: '#8B5CF6', connected: false, takaStages: ['at_mill'] },
-  { key: 'mill_qc', label: 'Back, checking (QC)', shortLabel: 'Checking (QC)', mainStage: 'mill', unit: 'takas', colour: '#A78BFA', connected: false, takaStages: ['mill_qc'] },
+  { key: 'at_mill', label: 'At mill (dyeing)', shortLabel: 'At mill', mainStage: 'mill', unit: 'takas', colour: '#8B5CF6', connected: true, takaStages: ['at_mill'] },
+  { key: 'mill_qc', label: 'Received · QC pending', shortLabel: 'QC pending', mainStage: 'mill', unit: 'takas', colour: '#A78BFA', connected: true, takaStages: ['mill_qc'] },
   // Ready — to connect later.
   { key: 'ready', label: 'Ready', shortLabel: 'Ready', mainStage: 'ready', unit: 'takas', colour: '#10B981', connected: false, takaStages: ['ready'] },
 ];
@@ -226,4 +227,22 @@ export function formatHours(hours: number): string {
   if (h < 48) return `${h}h`;
   const d = Math.floor(h / 24);
   return h % 24 ? `${d}d ${h % 24}h` : `${d}d`;
+}
+
+/**
+ * Plain-words status of a taka at its current stage — what to say about a taka that is NOT ready to send
+ * ("6251 (At butta cutting)", "6252 (Butta QC pending)").
+ */
+export const TAKA_STAGE_STATUS_TEXT: Record<TakaStage, string> = {
+  entered: 'Taka entry done',
+  at_butta: 'At butta cutting',
+  butta_qc: 'Butta QC pending',
+  waiting_mill: 'Waiting for mill',
+  at_mill: 'At mill',
+  mill_qc: 'Mill QC pending',
+  ready: 'Ready',
+};
+
+export function takaStageStatusText(stage: string): string {
+  return isTakaStage(stage) ? TAKA_STAGE_STATUS_TEXT[stage] : stage;
 }

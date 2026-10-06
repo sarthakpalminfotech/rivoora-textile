@@ -10,6 +10,7 @@ import {
   type AnySQLiteColumn,
 } from 'drizzle-orm/sqlite-core';
 import type {
+  ChallanKind,
   ChallanStatus,
   DamageStatus,
   DamageType,
@@ -375,6 +376,8 @@ export const takaDamages = sqliteTable(
     foundAt: text('found_at').$type<DamageType>().notNull().default('machine'),
     /** Damaged pcs (1 to the taka's pcs). Null only on migrated rows. */
     pcs: integer('pcs'),
+    /** Pcs resolved so far (a partial resolve keeps the damage open). Open pcs = pcs − resolved_pcs. */
+    resolvedPcs: integer('resolved_pcs').notNull().default(0),
     status: text('status').$type<DamageStatus>().notNull().default('open'),
     resolvedAt: text('resolved_at'),
     resolvedBy: text('resolved_by').$type<RoleKey>(),
@@ -388,6 +391,22 @@ export const takaDamages = sqliteTable(
   (t) => [index('taka_damages_taka_idx').on(t.takaId), index('taka_damages_status_idx').on(t.status, t.foundAt)],
 );
 
+/** Photos of a damage (added at the Butta QC, shown in the taka details drawer and the damage details screen only). */
+export const takaDamageImages = sqliteTable(
+  'taka_damage_images',
+  {
+    id: id(),
+    takaDamageId: integer('taka_damage_id')
+      .notNull()
+      .references(() => takaDamages.id),
+    imageUrl: text('image_url').notNull(),
+    thumbUrl: text('thumb_url').notNull(),
+    createdBy: text('created_by').$type<RoleKey>().notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [index('taka_damage_images_damage_idx').on(t.takaDamageId)],
+);
+
 /** History of a taka: one row per taka action. */
 export const takaEvents = sqliteTable(
   'taka_events',
@@ -397,7 +416,9 @@ export const takaEvents = sqliteTable(
       .notNull()
       .references(() => takas.id),
     event: text('event').$type<TakaEventKind>().notNull(),
-    challanId: integer('challan_id').references((): AnySQLiteColumn => buttaChallans.id),
+    challanId: integer('challan_id').references((): AnySQLiteColumn => challans.id),
+    /** The damage a damage event is about (the damage details timeline). */
+    takaDamageId: integer('taka_damage_id').references((): AnySQLiteColumn => takaDamages.id),
     note: text('note'),
     role: text('role').$type<RoleKey>().notNull(),
     createdAt: createdAt(),
@@ -423,15 +444,34 @@ export const buttaParties = sqliteTable(
   (t) => [uniqueIndex('butta_parties_name_active_unique').on(sql`lower(${t.name})`).where(sql`${t.isDeleted} = 0`)],
 );
 
-/** Delivery challans sent to a butta party. `challan_no` comes from the `butta_challan_no` counter (never reused). */
-export const buttaChallans = sqliteTable(
-  'butta_challans',
+/** Mill parties (dyeing / finishing). Same fields and rules as the butta parties. */
+export const millParties = sqliteTable(
+  'mill_parties',
   {
     id: id(),
+    name: text('name').notNull(),
+    address: text('address'),
+    mobile: text('mobile'),
+    gstin: text('gstin'),
+    notes: text('notes'),
+    isDeleted: isDeleted(),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [uniqueIndex('mill_parties_name_active_unique').on(sql`lower(${t.name})`).where(sql`${t.isDeleted} = 0`)],
+);
+
+/**
+ * Delivery challans — butta cutting (`GSM-n`) and mill (`MIL-n`) share this table (`kind`). `challan_no` comes from the
+ * counter of its kind (never reused). `party_id` points to `butta_parties` or `mill_parties` by kind (no FK).
+ */
+export const challans = sqliteTable(
+  'challans',
+  {
+    id: id(),
+    kind: text('kind').$type<ChallanKind>().notNull().default('butta'),
     challanNo: integer('challan_no').notNull(),
-    partyId: integer('party_id')
-      .notNull()
-      .references(() => buttaParties.id),
+    partyId: integer('party_id').notNull(),
     /** yyyy-MM-dd */
     challanDate: text('challan_date').notNull(),
     ewayNo: text('eway_no'),
@@ -443,23 +483,25 @@ export const buttaChallans = sqliteTable(
     updatedAt: updatedAt(),
   },
   (t) => [
-    uniqueIndex('butta_challans_challan_no_unique').on(t.challanNo),
-    index('butta_challans_party_idx').on(t.partyId),
-    index('butta_challans_status_idx').on(t.status),
+    uniqueIndex('challans_kind_challan_no_unique').on(t.kind, t.challanNo),
+    index('challans_party_idx').on(t.kind, t.partyId),
+    index('challans_status_idx').on(t.status),
   ],
 );
 
 /**
  * The takas of a challan with their meters / pcs AT THE TIME OF SENDING (the print never changes after QC edits).
- * `is_active` = the row counts (false once the challan is cancelled): one active challan per taka.
+ * `is_active` = the row counts (false once the challan is cancelled): one active challan per taka PER KIND.
  */
-export const buttaChallanTakas = sqliteTable(
-  'butta_challan_takas',
+export const challanTakas = sqliteTable(
+  'challan_takas',
   {
     id: id(),
     challanId: integer('challan_id')
       .notNull()
-      .references(() => buttaChallans.id),
+      .references(() => challans.id),
+    /** Denormalized from the challan (the unique index below needs it). */
+    kind: text('kind').$type<ChallanKind>().notNull().default('butta'),
     takaId: integer('taka_id')
       .notNull()
       .references(() => takas.id),
@@ -478,9 +520,10 @@ export const buttaChallanTakas = sqliteTable(
     updatedAt: updatedAt(),
   },
   (t) => [
-    index('butta_challan_takas_challan_idx').on(t.challanId),
-    index('butta_challan_takas_order_idx').on(t.orderId),
-    uniqueIndex('butta_challan_takas_taka_active_unique').on(t.takaId).where(sql`${t.isActive} = 1`),
+    index('challan_takas_challan_idx').on(t.challanId),
+    index('challan_takas_order_idx').on(t.orderId),
+    index('challan_takas_taka_idx').on(t.takaId),
+    uniqueIndex('challan_takas_taka_kind_active_unique').on(t.takaId, t.kind).where(sql`${t.isActive} = 1`),
   ],
 );
 

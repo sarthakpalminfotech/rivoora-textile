@@ -412,42 +412,47 @@ export const takaListQuerySchema = z.object({
 });
 export type TakaListQuery = z.infer<typeof takaListQuerySchema>;
 
-/* ---------- butta cutting (Sprint 7) ---------- */
+/* ---------- butta cutting (Sprint 7) + mill (Sprint 8) ---------- */
 
 export const BUTTA_PARTY_NAME_MAX_LENGTH = 120;
+export const PARTY_NAME_MAX_LENGTH = BUTTA_PARTY_NAME_MAX_LENGTH;
 
-/** Butta party master: the name is printed as "M/s. …" on the challan. */
-export const buttaPartyInputSchema = z.object({
+/** Butta / mill party master (same fields): the name is printed as "M/s. …" on the challan. */
+export const partyInputSchema = z.object({
   name: z.string().trim().min(1, 'Name is required').max(BUTTA_PARTY_NAME_MAX_LENGTH, 'Name is too long'),
   address: optText(500),
   mobile: optText(20),
   gstin: optText(20).transform((v) => (v ? v.toUpperCase() : null)),
   notes: optText(1000),
 });
-export type ButtaPartyInput = z.input<typeof buttaPartyInputSchema>;
+export const buttaPartyInputSchema = partyInputSchema;
+export type PartyInput = z.input<typeof partyInputSchema>;
+export type ButtaPartyInput = PartyInput;
 
-/** POST /butta/challans */
+/** POST /butta/challans and POST /mill/challans */
 export const challanCreateSchema = z.object({
   takaIds: z
     .array(z.number().int().positive(), { required_error: 'Select at least one taka' })
     .min(1, 'Select at least one taka')
     .max(2000, 'At most 2000 takas on one challan')
     .transform((ids) => [...new Set(ids)]),
-  partyId: z.number({ required_error: 'Select the butta party', invalid_type_error: 'Select the butta party' }).int().positive('Select the butta party'),
+  partyId: z.number({ required_error: 'Select the party', invalid_type_error: 'Select the party' }).int().positive('Select the party'),
   challanDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date'),
   ewayNo: optText(40),
 });
 export type ChallanCreateInput = z.input<typeof challanCreateSchema>;
 
-/** POST /butta/receive — one taka number (the Taka number screen) or taka ids (ticked rows on a challan). */
-export const buttaReceiveSchema = z
+/** POST /butta/receive and /mill/receive — one taka number (the Taka number screen) or taka ids (ticked rows on a challan). */
+export const challanReceiveSchema = z
   .object({
     takaNo,
     takaIds: z.array(z.number().int().positive()).min(1).max(2000).optional(),
   })
   .partial()
   .refine((v) => (v.takaNo !== undefined) !== (v.takaIds !== undefined), { message: 'Send either takaNo or takaIds' });
-export type ButtaReceiveInput = z.input<typeof buttaReceiveSchema>;
+export const buttaReceiveSchema = challanReceiveSchema;
+export type ChallanReceiveInput = z.input<typeof challanReceiveSchema>;
+export type ButtaReceiveInput = ChallanReceiveInput;
 
 export const CHALLAN_FILTERS = ['open', 'received', 'all'] as const;
 export type ChallanFilter = (typeof CHALLAN_FILTERS)[number];
@@ -469,19 +474,41 @@ export type ChallanListQuery = z.infer<typeof challanListQuerySchema>;
 /** GET /takas/check?no= */
 export const takaCheckQuerySchema = z.object({ no: z.string().trim().max(40).default('') });
 
-/** Butta QC: the decision for each damage that was open when the taka was received. */
+/**
+ * Butta QC: the decision for each damage that was open when the taka was received — how many pcs were resolved
+ * (0 = not resolved; the server checks it against the pcs still open).
+ */
 export const qcDecisionSchema = z.object({
   takaDamageId: z.number().int().positive(),
-  resolved: z.boolean(),
+  resolvedPcs: z
+    .number({ required_error: 'Enter how many pcs were resolved', invalid_type_error: 'Enter how many pcs were resolved' })
+    .int('Use a whole number')
+    .min(0, 'Pcs cannot be negative')
+    .max(TAKA_PCS_MAX, `At most ${TAKA_PCS_MAX} pcs`),
   /** Needed only for an older damage that has no pcs yet. */
   pcs: damagePcs.nullish().transform((v) => v ?? null),
 });
+
+export const MAX_DAMAGE_IMAGES = 10;
+
+/** A photo of a damage (already uploaded to `/uploads?folder=damages`). */
+export const damageImageSchema = z.object({ url: z.string().trim().min(1).max(500), thumbUrl: z.string().trim().min(1).max(500) });
+export type DamageImageInput = z.input<typeof damageImageSchema>;
+
+const damageImages = z.array(damageImageSchema).max(MAX_DAMAGE_IMAGES, `At most ${MAX_DAMAGE_IMAGES} images per damage`).default([]);
+
+/** A NEW damage found at the Butta QC: like a taka damage + optional images. */
+export const qcNewDamageSchema = z.union([
+  z.object({ damageId: z.number().int().positive(), pcs: damagePcs, images: damageImages }).strict(),
+  z.object({ otherName: otherDamageName, pcs: damagePcs, images: damageImages }).strict(),
+]);
+export type QcNewDamageInput = z.input<typeof qcNewDamageSchema>;
 
 /** POST /butta-qc/:takaId */
 export const qcSubmitSchema = z.object({
   meters: takaMeters,
   pcs: takaPcs,
   damageDecisions: z.array(qcDecisionSchema).max(50).default([]),
-  newDamages: z.array(takaDamageSchema).max(MAX_DAMAGES_PER_TAKA, `At most ${MAX_DAMAGES_PER_TAKA} new damages`).default([]),
+  newDamages: z.array(qcNewDamageSchema).max(MAX_DAMAGES_PER_TAKA, `At most ${MAX_DAMAGES_PER_TAKA} new damages`).default([]),
 });
 export type QcSubmitInput = z.input<typeof qcSubmitSchema>;

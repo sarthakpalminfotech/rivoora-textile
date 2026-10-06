@@ -1,4 +1,4 @@
-export type UploadFolder = 'designs' | 'notes' | 'demo';
+export type UploadFolder = 'designs' | 'notes' | 'damages' | 'demo';
 
 export interface SaveImageOptions {
   folder: UploadFolder;

@@ -1,6 +1,6 @@
 import { AlertTriangle, Pencil, ShieldCheck } from 'lucide-react';
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   damageLabelOf,
   DAMAGE_TYPE_CONFIG,
@@ -37,7 +37,12 @@ const FILTERS: { key: DamageType | null; label: string }[] = [
 /** Order details → Damages tab: counts per damage type, filter pills (in the URL) and the damaged takas. */
 export function DamagesTab({ order, view }: { order: OrderDetail; view: OrderView }) {
   const { can } = useRole();
+  const navigate = useNavigate();
+  const location = useLocation();
   const type = view.damageType;
+  /** The damage details screen of a taka; its back link returns here (filter kept). */
+  const openDetails = (takaId: number) =>
+    navigate(`/orders/${order.id}/takas/${takaId}/damages`, { state: { from: `${location.pathname}${location.search}` } });
   // "Show resolved" is off by default: only open damages are listed and counted.
   const [showResolved, setShowResolved] = useState(false);
   const query = useOrderDamages(order.id, type, showResolved);
@@ -130,7 +135,21 @@ export function DamagesTab({ order, view }: { order: OrderDetail; view: OrderVie
               return (
               <li
                 key={t.id}
-                className={cn('flex min-w-0 flex-col gap-2 rounded-xl border p-3.5', open ? 'border-red-200 bg-red-50/40' : 'border-slate-200 bg-slate-50/60')}
+                role="link"
+                tabIndex={0}
+                aria-label={`Damage details of taka ${t.takaNo}`}
+                onClick={(e) => {
+                  // The links and buttons inside keep their own action.
+                  if ((e.target as HTMLElement).closest('a, button')) return;
+                  openDetails(t.id);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && e.target === e.currentTarget) openDetails(t.id);
+                }}
+                className={cn(
+                  'flex min-w-0 cursor-pointer flex-col gap-2 rounded-xl border p-3.5 outline-none transition duration-150 hover:shadow-pop focus-visible:ring-2 focus-visible:ring-primary/40',
+                  open ? 'border-red-200 bg-red-50/40 hover:border-red-300' : 'border-slate-200 bg-slate-50/60 hover:border-slate-300',
+                )}
               >
                 <div className="flex items-start justify-between gap-2">
                   <p className="min-w-0 text-2xl font-bold leading-tight tabular-nums text-slate-900">

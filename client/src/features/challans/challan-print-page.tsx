@@ -12,6 +12,7 @@ import {
   formatChallanRowMeters,
   formatChallanTotalMeters,
   paginateChallanTakas,
+  type ChallanKind,
   type ChallanPrintData,
   type ChallanPrintPage,
 } from '@rivoora/shared';
@@ -21,6 +22,7 @@ import { Button } from '@/components/ui/button';
 import { useRole } from '@/hooks/useRole';
 import { ApiError } from '@/lib/api';
 import { useChallanPrint } from './api';
+import { sentListPath } from './kind';
 
 /*
  * Challan print layout — A4 landscape (paper size + orientation: CHALLAN_PAPER in shared/butta.ts).
@@ -139,7 +141,7 @@ function ChallanSheet({ data, page, total }: { data: ChallanPrintData; page: Cha
         <div className="chp-pr">
           <div className="chp-prr">
             <span>Ch. No</span>
-            <span className="chp-chno">{challanLabel(data.challanNo)}</span>
+            <span className="chp-chno">{challanLabel(data.challanNo, data.kind)}</span>
           </div>
           <div className="chp-prr">
             <span>Date</span>
@@ -260,20 +262,20 @@ function usePageScale() {
 }
 
 /**
- * `/print/challan/:id` — screen preview + sticky Back / Print toolbar (hidden when printing). A4 landscape, 48 takas
+ * `/print/challan/:id` (butta) and `/print/mill-challan/:id` (mill) — the SAME layout, only the number and party differ. Screen preview + sticky Back / Print toolbar (hidden when printing). A4 landscape, 48 takas
  * per page (4 groups × 12 rows, filled column by column); more takas continue on further pages. The meters are the
  * ones at the time of sending, so the print never changes after QC edits. `?preview=1` = right after creating it.
  */
-export default function ChallanPrintPage() {
+export default function ChallanPrintPage({ kind }: { kind: ChallanKind }) {
   const id = Number(useParams().id);
   const [params] = useSearchParams();
   const preview = params.get('preview') === '1';
   const navigate = useNavigate();
   const location = useLocation();
   const { config } = useRole();
-  const { data, isPending, isError, error, refetch } = useChallanPrint(id);
+  const { data, isPending, isError, error, refetch } = useChallanPrint(kind, id);
   const { ref, scale } = usePageScale();
-  usePageTitle(data ? `Print challan ${challanLabel(data.challanNo)}` : 'Print challan');
+  usePageTitle(data ? `Print challan ${challanLabel(data.challanNo, kind)}` : 'Print challan');
 
   const pages = useMemo(() => (data ? paginateChallanTakas(data.takas) : []), [data]);
   const totals = useMemo(() => (data ? challanTotals(data.takas) : { count: 0, meters: 0 }), [data]);
@@ -281,7 +283,7 @@ export default function ChallanPrintPage() {
   const pagePxH = PAGE_H_MM * MM_TO_PX;
 
   const goBack = () => {
-    if (preview) navigate('/butta?tab=send&sub=in-butta', { replace: true });
+    if (preview) navigate(sentListPath(kind), { replace: true });
     else if (location.key !== 'default') navigate(-1);
     else navigate(config.landing);
   };
@@ -296,7 +298,7 @@ export default function ChallanPrintPage() {
           </Button>
           <p className="min-w-0 flex-1 truncate text-sm font-medium text-slate-600">
             {data
-              ? `${challanLabel(data.challanNo)} · ${totals.count} ${totals.count === 1 ? 'taka' : 'takas'} · ${pages.length} A4 page${pages.length === 1 ? '' : 's'}`
+              ? `${challanLabel(data.challanNo, kind)} · ${totals.count} ${totals.count === 1 ? 'taka' : 'takas'} · ${pages.length} A4 page${pages.length === 1 ? '' : 's'}`
               : 'Challan'}
             {data?.status === 'cancelled' && (
               <span className="ml-2 inline-flex items-center gap-1 rounded-full bg-slate-200 px-2 py-0.5 text-xs font-bold text-slate-600">

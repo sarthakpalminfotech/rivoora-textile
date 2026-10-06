@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 import { z } from 'zod';
-import { BUTTA_PARTY_NAME_MAX_LENGTH, type ButtaParty } from '@rivoora/shared';
+import { CHALLAN_KIND_CONFIG, PARTY_NAME_MAX_LENGTH, type ChallanKind, type ChallanParty } from '@rivoora/shared';
 import { usePageTitle } from '@/components/layout/page-title';
 import { Button } from '@/components/ui/button';
 import { Field } from '@/components/ui/field';
@@ -14,12 +14,12 @@ import { useDebounce } from '@/hooks/useDebounce';
 import { useRole } from '@/hooks/useRole';
 import { errorMessage } from '@/lib/api';
 import { applyServerFieldError } from '@/lib/form';
-import { useButtaParties, useDeleteButtaParty, useSaveButtaParty } from '../api';
+import { useDeleteParty, useParties, useSaveParty } from '../api';
 import { MasterList, MasterToolbar, type Column } from '../master-list';
 import { useDeleteFlow } from '../use-delete-flow';
 
 const schema = z.object({
-  name: z.string().trim().min(1, 'Name is required').max(BUTTA_PARTY_NAME_MAX_LENGTH, 'Name is too long'),
+  name: z.string().trim().min(1, 'Name is required').max(PARTY_NAME_MAX_LENGTH, 'Name is too long'),
   address: z.string().max(500, 'Address is too long'),
   mobile: z.string().max(20, 'Mobile is too long'),
   gstin: z.string().max(20, 'GSTIN is too long'),
@@ -28,17 +28,20 @@ const schema = z.object({
 type FormValues = z.infer<typeof schema>;
 
 function PartyFormDialog({
+  kind,
   open,
   onOpenChange,
   party,
   readOnly,
 }: {
+  kind: ChallanKind;
   open: boolean;
   onOpenChange: (o: boolean) => void;
-  party: ButtaParty | null;
+  party: ChallanParty | null;
   readOnly: boolean;
 }) {
-  const save = useSaveButtaParty();
+  const save = useSaveParty(kind);
+  const noun = CHALLAN_KIND_CONFIG[kind].partyLabel;
   const {
     register,
     handleSubmit,
@@ -64,7 +67,7 @@ function PartyFormDialog({
       { id: party?.id, data },
       {
         onSuccess: (p) => {
-          toast.success(party ? 'Butta party updated' : `Butta party "${p.name}" added`);
+          toast.success(party ? `${noun} updated` : `${noun} "${p.name}" added`);
           onOpenChange(false);
         },
         onError: (err) => {
@@ -78,7 +81,7 @@ function PartyFormDialog({
     <ResponsiveModal
       open={open}
       onOpenChange={(o) => !save.isPending && onOpenChange(o)}
-      title={readOnly ? 'Butta party details' : party ? 'Edit butta party' : 'Add butta party'}
+      title={readOnly ? `${noun} details` : party ? `Edit ${noun.toLowerCase()}` : `Add ${noun.toLowerCase()}`}
       mobileVariant="fullscreen"
       dismissible={!isDirty}
       footer={
@@ -91,14 +94,14 @@ function PartyFormDialog({
             <Button variant="secondary" onClick={() => onOpenChange(false)} disabled={save.isPending}>
               Cancel
             </Button>
-            <Button type="submit" form="butta-party-form" loading={save.isPending}>
+            <Button type="submit" form="party-form" loading={save.isPending}>
               {party ? 'Save changes' : 'Save party'}
             </Button>
           </div>
         )
       }
     >
-      <form id="butta-party-form" onSubmit={onSubmit} noValidate>
+      <form id="party-form" onSubmit={onSubmit} noValidate>
         <fieldset disabled={readOnly} className="grid gap-4">
           <Field label="Name" htmlFor="bp-name" required error={errors.name?.message} hint='Printed as "M/s. …" on the challan'>
             <Input id="bp-name" autoFocus={!readOnly} autoComplete="off" invalid={!!errors.name} {...register('name')} />
@@ -123,42 +126,44 @@ function PartyFormDialog({
   );
 }
 
-const columns: Column<ButtaParty>[] = [
+const columns: Column<ChallanParty>[] = [
   { header: 'Name', cell: (p) => <span className="font-semibold text-slate-900">{p.name}</span>, className: 'w-[28%]' },
   { header: 'Mobile', cell: (p) => <span className="text-slate-600">{p.mobile ?? '—'}</span>, className: 'w-[16%]' },
   { header: 'GSTIN', cell: (p) => <span className="text-slate-600">{p.gstin ?? '—'}</span>, className: 'w-[20%]' },
   { header: 'Address', cell: (p) => <span className="text-slate-500">{p.address?.replace(/\s*\n\s*/g, ', ') ?? '—'}</span> },
 ];
 
-/** Butta parties master: who the takas are sent to for butta cutting (printed on the challan). */
-export default function ButtaPartiesPage() {
-  usePageTitle('Butta parties');
+/** Butta parties / Mill parties master (one screen, `kind` picks the master): who the takas are sent to (printed on the challan). */
+export default function PartiesPage({ kind }: { kind: ChallanKind }) {
+  const cfg = CHALLAN_KIND_CONFIG[kind];
+  const noun = cfg.partyLabel;
+  usePageTitle(`${noun}s`);
   const { can } = useRole();
-  const canManage = can('canManageButtaParties');
+  const canManage = can(kind === 'butta' ? 'canManageButtaParties' : 'canManageMillParties');
   const [search, setSearch] = useState('');
   const debounced = useDebounce(search.trim(), 300);
-  const query = useButtaParties(debounced);
-  const del = useDeleteButtaParty();
-  const { askDelete, dialog } = useDeleteFlow<ButtaParty>(del, (p) => p.name, undefined, {
+  const query = useParties(kind, debounced);
+  const del = useDeleteParty(kind);
+  const { askDelete, dialog } = useDeleteFlow<ChallanParty>(del, (p) => p.name, undefined, {
     description: "This will remove it from the list. Parties used on a challan can't be deleted.",
   });
-  const [form, setForm] = useState<{ open: boolean; party: ButtaParty | null }>({ open: false, party: null });
-  const openForm = (party: ButtaParty | null) => setForm({ open: true, party });
+  const [form, setForm] = useState<{ open: boolean; party: ChallanParty | null }>({ open: false, party: null });
+  const openForm = (party: ChallanParty | null) => setForm({ open: true, party });
 
   return (
     <div className="page-container space-y-4 pb-24 pt-5 md:pb-5">
       <MasterToolbar
         search={search}
         onSearch={setSearch}
-        placeholder="Search butta parties…"
-        addLabel="Add Butta party"
+        placeholder={`Search ${noun.toLowerCase()}s…`}
+        addLabel={`Add ${noun}`}
         onAdd={canManage ? () => openForm(null) : undefined}
         fetching={query.isFetching && !query.isPending && !query.isFetchingNextPage}
       />
       <MasterList
         query={query}
         columns={columns}
-        noun="butta parties"
+        noun={`${noun.toLowerCase()}s`}
         searching={!!debounced}
         onClearSearch={() => setSearch('')}
         onOpen={openForm}
@@ -166,11 +171,11 @@ export default function ButtaPartiesPage() {
         onDelete={canManage ? askDelete : undefined}
         empty={{
           icon: Store,
-          title: 'No butta parties yet',
-          description: 'Add the parties your takas go to for butta cutting. Pick one when you create a challan.',
+          title: `No ${noun.toLowerCase()}s yet`,
+          description: `Add the parties your takas go to ${kind === 'butta' ? 'for butta cutting' : 'at the mill'}. Pick one when you create a challan.`,
           action: canManage ? (
             <Button onClick={() => openForm(null)}>
-              <Plus /> Add Butta party
+              <Plus /> Add {noun}
             </Button>
           ) : undefined,
         }}
@@ -182,7 +187,7 @@ export default function ButtaPartiesPage() {
           </>
         )}
       />
-      <PartyFormDialog open={form.open} onOpenChange={(open) => setForm((f) => ({ ...f, open }))} party={form.party} readOnly={!canManage} />
+      <PartyFormDialog kind={kind} open={form.open} onOpenChange={(open) => setForm((f) => ({ ...f, open }))} party={form.party} readOnly={!canManage} />
       {dialog}
     </div>
   );

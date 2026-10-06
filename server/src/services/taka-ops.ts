@@ -110,6 +110,8 @@ export interface TakaEventInput {
   takaId: number;
   event: TakaEventKind;
   challanId?: number | null;
+  /** The damage a damage event is about (the damage details timeline). */
+  takaDamageId?: number | null;
   note?: string | null;
 }
 
@@ -123,6 +125,7 @@ export async function writeTakaEvents(tx: Tx, role: RoleKey, events: TakaEventIn
         takaId: e.takaId,
         event: e.event,
         challanId: e.challanId ?? null,
+        takaDamageId: e.takaDamageId ?? null,
         note: e.note ?? null,
         role,
         createdAt: at,

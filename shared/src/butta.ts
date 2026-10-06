@@ -1,31 +1,9 @@
 /**
- * Butta cutting: challan numbering, the challan print paging, and the Butta QC decision rules.
+ * Challan print paging (butta and mill share one print) and the Butta QC decision rules.
  * Pure helpers shared by the server (validation) and the client (print layout, QC form).
  */
 
 import { formatMeters } from './takas';
-
-/* ------------------------------------------------------------------ */
-/* Challan numbering                                                    */
-/* ------------------------------------------------------------------ */
-
-/** Prefix of the challan number (one constant). Numbers start at 1 and are never reused. */
-export const CHALLAN_PREFIX = 'GSM';
-/** The `counters` row the challan numbers come from. */
-export const CHALLAN_COUNTER = 'butta_challan_no';
-
-/** `GSM-173` */
-export const challanLabel = (challanNo: number) => `${CHALLAN_PREFIX}-${challanNo}`;
-
-/**
- * The challan number typed in a search box: "173", "GSM-173", "gsm 173" → 173 (else null).
- */
-export function parseChallanNo(text: string): number | null {
-  const m = new RegExp(`^(?:${CHALLAN_PREFIX}[\\s-]*)?(\\d{1,9})$`, 'i').exec(text.trim());
-  if (!m) return null;
-  const n = Number(m[1]);
-  return n > 0 ? n : null;
-}
 
 /* ------------------------------------------------------------------ */
 /* Challan print (A4 landscape)                                         */
@@ -116,11 +94,17 @@ export interface QcOpenDamage {
   id: number;
   /** Null on an older (migrated) damage that never had a pcs count. */
   pcs: number | null;
+  /** Pcs resolved before this QC (a damage stays open while part of it is resolved). */
+  resolvedPcs?: number | null;
 }
 
+/**
+ * The decision for one open damage: how many pcs were resolved NOW (0 = not resolved). `pcs` is needed only for an
+ * older damage that has no pcs yet (the damaged pcs).
+ */
 export interface QcDecision {
   takaDamageId: number;
-  resolved: boolean;
+  resolvedPcs: number;
   pcs?: number | null;
 }
 
@@ -131,13 +115,23 @@ export interface QcDecisionIssues {
   pcsMissing: number[];
   /** Pcs larger than the taka's pcs. */
   pcsTooBig: number[];
+  /** Resolved pcs larger than the pcs still open on the damage. */
+  resolvedTooBig: number[];
   /** Decisions that don't belong to an open damage of this taka. */
   unknown: number[];
 }
 
+/** The state of a damage after `resolveNow` more pcs were resolved. Fully resolved only when no pcs are left open. */
+export function applyResolve(damage: { pcs: number; resolvedPcs?: number | null }, resolveNow: number) {
+  const resolvedPcs = Math.min(damage.pcs, (damage.resolvedPcs ?? 0) + Math.max(0, resolveNow));
+  const openPcs = damage.pcs - resolvedPcs;
+  return { resolvedPcs, openPcs, status: openPcs === 0 ? ('resolved' as const) : ('open' as const) };
+}
+
 /**
- * Every open damage must get an answer (resolved / not resolved); a damage without pcs needs a pcs count, and no
- * damaged pcs may exceed the taka's pcs. `takaPcs` = the pcs after the QC edit.
+ * Every open damage must get an answer (0 = not resolved, or 1…open pcs); a damage without pcs needs a pcs count, no
+ * damaged pcs may exceed the taka's pcs and no more pcs can be resolved than are open. `takaPcs` = the pcs after the
+ * QC edit.
  */
 export function validateQcDecisions(
   open: readonly QcOpenDamage[],
@@ -149,6 +143,7 @@ export function validateQcDecisions(
     unanswered: [],
     pcsMissing: [],
     pcsTooBig: [],
+    resolvedTooBig: [],
     unknown: decisions.filter((d) => !open.some((o) => o.id === d.takaDamageId)).map((d) => d.takaDamageId),
   };
   for (const o of open) {
@@ -160,6 +155,7 @@ export function validateQcDecisions(
     const pcs = o.pcs ?? d.pcs ?? null;
     if (pcs === null) issues.pcsMissing.push(o.id);
     else if (pcs > takaPcs) issues.pcsTooBig.push(o.id);
+    else if (d.resolvedPcs > pcs - (o.resolvedPcs ?? 0)) issues.resolvedTooBig.push(o.id);
   }
   return { ...issues, ok: Object.values(issues).every((l) => l.length === 0) };
 }

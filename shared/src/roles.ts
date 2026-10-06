@@ -50,6 +50,10 @@ export interface RolePermissions {
   canManageButtaParties: boolean;
   /** Butta QC screens (`/butta-qc`): check the takas received back from butta cutting. */
   canButtaQc: boolean;
+  /** Mill module (`/mill`): send takas to the mill on a challan + receive them back. */
+  canUseMillModule: boolean;
+  /** Mill parties master. */
+  canManageMillParties: boolean;
 }
 
 export interface RoleConfig {
@@ -68,6 +72,7 @@ export interface RoleConfig {
 
 const NO_TAKAS = { canUseTakaModules: false, canEnterTakas: false, canEditTakas: false, canViewTakas: false };
 const NO_BUTTA = { canUseButtaModule: false, canCancelChallan: false, canManageButtaParties: false, canButtaQc: false };
+const NO_MILL = { canUseMillModule: false, canManageMillParties: false };
 /** Everything off — the base of the two Sprint 7 roles, which only get what they need. */
 const NOTHING = {
   canViewOrders: false,
@@ -87,6 +92,7 @@ const NOTHING = {
   canViewMachineView: false,
   ...NO_TAKAS,
   ...NO_BUTTA,
+  ...NO_MILL,
 };
 
 export const ROLES: Record<RoleKey, RoleConfig> = {
@@ -119,6 +125,8 @@ export const ROLES: Record<RoleKey, RoleConfig> = {
       canCancelChallan: true,
       canManageButtaParties: true,
       canButtaQc: false,
+      canUseMillModule: true,
+      canManageMillParties: true,
     },
   },
   gaurang: {
@@ -151,6 +159,8 @@ export const ROLES: Record<RoleKey, RoleConfig> = {
       canCancelChallan: true,
       canManageButtaParties: true,
       canButtaQc: false,
+      canUseMillModule: true,
+      canManageMillParties: true,
     },
   },
   supervisor: {
@@ -177,6 +187,7 @@ export const ROLES: Record<RoleKey, RoleConfig> = {
       canViewMachineView: true,
       ...NO_TAKAS,
       ...NO_BUTTA,
+      ...NO_MILL,
     },
   },
   taka_entry: {
@@ -207,6 +218,7 @@ export const ROLES: Record<RoleKey, RoleConfig> = {
       canEditTakas: false,
       canViewTakas: true,
       ...NO_BUTTA,
+      ...NO_MILL,
     },
   },
   godown_supervisor: {
@@ -216,7 +228,7 @@ export const ROLES: Record<RoleKey, RoleConfig> = {
     initials: 'GS',
     landing: '/butta',
     // Restricted view: order numbers, design and quality only (no client, rate or other order details).
-    permissions: { ...NOTHING, canUseButtaModule: true },
+    permissions: { ...NOTHING, canUseButtaModule: true, canUseMillModule: true },
   },
   butta_qc: {
     key: 'butta_qc',

@@ -11,8 +11,7 @@ import { Bi, bi } from '@/lib/bilingual';
 import { useDebounce } from '@/hooks/useDebounce';
 import { formatOrderNo, formatTime } from '@/lib/format';
 import { cn } from '@/lib/utils';
-import { fetchTakaByNo, useQcPending } from '../butta/api';
-import { TakaNoKeys } from '../takas/taka-no-keys';
+import { fetchTakaByNo, useQcPending } from './api';
 
 export const qcTakaPath = (takaNo: string) => `/butta-qc/taka/${encodeURIComponent(takaNo)}`;
 
@@ -47,7 +46,6 @@ export default function QcHomePage() {
   usePageTitle(bi('Butta QC', 'बुट्टा QC'));
   const navigate = useNavigate();
   const [value, setValue] = useState('');
-  const [focused, setFocused] = useState(false);
   const [opening, setOpening] = useState(false);
   const [alert, setAlert] = useState<{ en: string; hi: string } | null>(null);
   const [search, setSearch] = useState('');
@@ -97,15 +95,13 @@ export default function QcHomePage() {
               setValue(cleanTakaNo(e.target.value));
               if (alert) setAlert(null);
             }}
-            onFocus={() => setFocused(true)}
-            onBlur={() => setFocused(false)}
             onKeyDown={(e) => {
               if (e.key === 'Enter') {
                 e.preventDefault();
                 void open();
               }
             }}
-            inputMode="numeric"
+            inputMode="tel"
             autoComplete="off"
             enterKeyHint="go"
             maxLength={TAKA_NO_MAX_LENGTH}
@@ -121,7 +117,6 @@ export default function QcHomePage() {
             <Bi en="Open" hi="खोलें" className="items-start" />
           </Button>
         </div>
-        {focused && <TakaNoKeys className="mt-2" input={() => inputRef.current} onValue={setValue} />}
         {alert && (
           <p role="alert" className="mt-3 flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-base font-semibold text-red-700">
             <AlertTriangle className="mt-0.5 size-5 shrink-0" aria-hidden />

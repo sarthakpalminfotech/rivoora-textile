@@ -32,10 +32,11 @@ const ScanPage = lazy(() => import('@/features/takas/scan-page'));
 const JobsheetQrPage = lazy(() => import('@/features/takas/jobsheet-qr-page'));
 const TakaJobsheetsPage = lazy(() => import('@/features/takas/taka-jobsheets-page'));
 const TakaEntryPage = lazy(() => import('@/features/takas/taka-entry-page'));
-const ButtaPage = lazy(() => import('@/features/butta/butta-page'));
-const ChallanDetailsPage = lazy(() => import('@/features/butta/challan-details-page'));
-const ChallanPrintPage = lazy(() => import('@/features/butta/challan-print-page'));
-const ButtaPartiesPage = lazy(() => import('@/features/masters/butta-parties/butta-parties-page'));
+const ChallanModulePage = lazy(() => import('@/features/challans/challan-module-page'));
+const ChallanDetailsPage = lazy(() => import('@/features/challans/challan-details-page'));
+const ChallanPrintPage = lazy(() => import('@/features/challans/challan-print-page'));
+const PartiesPage = lazy(() => import('@/features/masters/parties/parties-page'));
+const DamageDetailsPage = lazy(() => import('@/features/takas/damage-details-page'));
 const QcHomePage = lazy(() => import('@/features/butta-qc/qc-home-page'));
 const QcTakaPage = lazy(() => import('@/features/butta-qc/qc-taka-page'));
 const NotFoundPage = lazy(() => import('@/pages/not-found-page'));
@@ -97,7 +98,17 @@ const router = createBrowserRouter([
         element: (
           <Suspense fallback={<PageSkeleton />}>
             <RequirePermission permission="canUseButtaModule">
-              <ChallanPrintPage />
+              <ChallanPrintPage kind="butta" />
+            </RequirePermission>
+          </Suspense>
+        ),
+      },
+      {
+        path: '/print/mill-challan/:id',
+        element: (
+          <Suspense fallback={<PageSkeleton />}>
+            <RequirePermission permission="canUseMillModule">
+              <ChallanPrintPage kind="mill" />
             </RequirePermission>
           </Suspense>
         ),
@@ -114,10 +125,14 @@ const router = createBrowserRouter([
           { path: 'designs/:id', element: guard('canViewMasters', <DesignDetailPage />) },
           { path: 'machines', element: guard('canViewMasters', <MachinesPage />) },
           { path: 'damages', element: guard('canViewMasters', <DamagesPage />) },
-          { path: 'butta-parties', element: guard('canManageButtaParties', <ButtaPartiesPage />) },
-          // Butta cutting module (Jemish, Gaurang, Godown supervisor) and the Butta QC role.
-          { path: 'butta', element: guard('canUseButtaModule', <ButtaPage />) },
-          { path: 'butta/challans/:id', element: guard('canUseButtaModule', <ChallanDetailsPage />) },
+          { path: 'orders/:orderId/takas/:takaId/damages', element: guard('canEditTakas', <DamageDetailsPage />) },
+          { path: 'butta-parties', element: guard('canManageButtaParties', <PartiesPage kind="butta" />) },
+          { path: 'mill-parties', element: guard('canManageMillParties', <PartiesPage kind="mill" />) },
+          // Butta cutting + Mill modules (Jemish, Gaurang, Godown supervisor) and the Butta QC role.
+          { path: 'butta', element: guard('canUseButtaModule', <ChallanModulePage kind="butta" />) },
+          { path: 'butta/challans/:id', element: guard('canUseButtaModule', <ChallanDetailsPage kind="butta" />) },
+          { path: 'mill', element: guard('canUseMillModule', <ChallanModulePage kind="mill" />) },
+          { path: 'mill/challans/:id', element: guard('canUseMillModule', <ChallanDetailsPage kind="mill" />) },
           { path: 'butta-qc', element: guard('canButtaQc', <QcHomePage />) },
           { path: 'butta-qc/taka/:takaNo', element: guard('canButtaQc', <QcTakaPage />) },
           { path: 'jobsheets', element: <JobsheetsRoute /> },

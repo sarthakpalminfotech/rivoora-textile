@@ -2,7 +2,17 @@ import { AlertTriangle, ArrowLeft, Ban, CheckCircle2, Printer, SearchX } from 'l
 import { useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
-import { challanLabel, formatMeters, formatPcs, ROLES, type ChallanDetail, type ChallanOrderGroup, type ChallanTakaRow } from '@rivoora/shared';
+import {
+  CHALLAN_KIND_CONFIG,
+  challanLabel,
+  formatMeters,
+  formatPcs,
+  ROLES,
+  type ChallanDetail,
+  type ChallanKind,
+  type ChallanOrderGroup,
+  type ChallanTakaRow,
+} from '@rivoora/shared';
 import { usePageTitle } from '@/components/layout/page-title';
 import { ErrorState } from '@/components/list-parts';
 import { Button } from '@/components/ui/button';
@@ -17,14 +27,17 @@ import { formatDate, formatDateTime, formatOrderNo } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { StatTile } from '../jobsheets/parts';
 import { useCancelChallan, useChallan, useReceive } from './api';
+import { challanPrintPath, kindPermission, sentListPath } from './kind';
 
 function OrderSection({
+  kind,
   group,
   ticked,
   canReceive,
   onToggle,
   onToggleAll,
 }: {
+  kind: ChallanKind;
   group: ChallanOrderGroup;
   ticked: Set<number>;
   canReceive: boolean;
@@ -61,21 +74,33 @@ function OrderSection({
             checked={allTicked}
             partial={someTicked && !allTicked}
             onCheckedChange={(on) => onToggleAll(pendingRows.map((t) => t.id), on)}
-            aria-label={`Tick all takas of order ${formatOrderNo(group.orderNo)} that are in butta cutting`}
+            aria-label={`Tick all takas of order ${formatOrderNo(group.orderNo)} that are ${CHALLAN_KIND_CONFIG[kind].inLabel.toLowerCase()}`}
           />
-          Tick all in butta cutting ({pendingRows.length})
+          Tick all {CHALLAN_KIND_CONFIG[kind].inLabel.toLowerCase()} ({pendingRows.length})
         </label>
       )}
       <ul className="divide-y divide-border rounded-lg border border-border">
         {group.takas.map((t) => (
-          <TakaRowItem key={t.id} taka={t} ticked={ticked.has(t.id)} canReceive={canReceive} onToggle={(on) => onToggle(t.id, on)} />
+          <TakaRowItem key={t.id} kind={kind} taka={t} ticked={ticked.has(t.id)} canReceive={canReceive} onToggle={(on) => onToggle(t.id, on)} />
         ))}
       </ul>
     </section>
   );
 }
 
-function TakaRowItem({ taka, ticked, canReceive, onToggle }: { taka: ChallanTakaRow; ticked: boolean; canReceive: boolean; onToggle: (on: boolean) => void }) {
+function TakaRowItem({
+  kind,
+  taka,
+  ticked,
+  canReceive,
+  onToggle,
+}: {
+  kind: ChallanKind;
+  taka: ChallanTakaRow;
+  ticked: boolean;
+  canReceive: boolean;
+  onToggle: (on: boolean) => void;
+}) {
   const received = taka.receivedAt !== null;
   return (
     <li className={cn('flex min-h-14 flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2', received ? 'bg-green-50/50' : ticked ? 'bg-primary-soft/40' : '')}>
@@ -103,7 +128,7 @@ function TakaRowItem({ taka, ticked, canReceive, onToggle }: { taka: ChallanTaka
             {taka.qcDone && <span className="rounded-full bg-sky-100 px-2.5 py-1 text-xs font-bold text-sky-800">QC done</span>}
           </>
         ) : (
-          <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-bold text-amber-800">In butta cutting</span>
+          <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-bold text-amber-800">{CHALLAN_KIND_CONFIG[kind].inLabel}</span>
         )}
       </span>
     </li>
@@ -111,15 +136,17 @@ function TakaRowItem({ taka, ticked, canReceive, onToggle }: { taka: ChallanTaka
 }
 
 function Body({ challan }: { challan: ChallanDetail }) {
+  const kind = challan.kind;
+  const cfg = CHALLAN_KIND_CONFIG[kind];
   const { can } = useRole();
   const navigate = useNavigate();
-  const receive = useReceive();
-  const cancel = useCancelChallan();
+  const receive = useReceive(kind);
+  const cancel = useCancelChallan(kind);
   const [ticked, setTicked] = useState<Set<number>>(new Set());
   const [confirmCancel, setConfirmCancel] = useState(false);
   const cancelled = challan.status === 'cancelled';
-  const canReceive = can('canUseButtaModule') && !cancelled;
-  // Only rows that are still in butta cutting can be ticked (a refetch may have received some meanwhile).
+  const canReceive = can(kindPermission(kind)) && !cancelled;
+  // Only rows that are still with the party can be ticked (a refetch may have received some meanwhile).
   const pendingIds = useMemo(() => new Set(challan.orders.flatMap((o) => o.takas.filter((t) => t.receivedAt === null).map((t) => t.id))), [challan]);
   const tickedNow = [...ticked].filter((id) => pendingIds.has(id));
 
@@ -161,7 +188,11 @@ function Body({ challan }: { challan: ChallanDetail }) {
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
             <h1 className="flex flex-wrap items-center gap-2 text-3xl font-extrabold tracking-tight text-slate-900">
-              <span className={cn(cancelled && 'text-slate-400 line-through')}>{challanLabel(challan.challanNo)}</span>
+              <span className={cn(cancelled && 'text-slate-400 line-through')}>{challanLabel(challan.challanNo, kind)}</span>
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-white px-2.5 py-1 text-xs font-semibold text-slate-600">
+                <span className="size-2 rounded-full" style={{ backgroundColor: cfg.colour }} aria-hidden />
+                {cfg.label}
+              </span>
               {cancelled && (
                 <span className="inline-flex items-center gap-1 rounded-full bg-slate-200 px-2.5 py-1 text-xs font-bold text-slate-600">
                   <Ban className="size-3.5" aria-hidden /> Cancelled
@@ -177,7 +208,7 @@ function Body({ challan }: { challan: ChallanDetail }) {
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <Button asChild variant="secondary" size="lg" className="h-12">
-              <Link to={`/print/challan/${challan.id}`}>
+              <Link to={challanPrintPath(kind, challan.id)}>
                 <Printer /> Print
               </Link>
             </Button>
@@ -244,7 +275,7 @@ function Body({ challan }: { challan: ChallanDetail }) {
       {/* Order-wise taka lists */}
       <div className="space-y-4">
         {challan.orders.map((g) => (
-          <OrderSection key={g.orderId} group={g} ticked={ticked} canReceive={canReceive} onToggle={setOne} onToggleAll={setMany} />
+          <OrderSection key={g.orderId} kind={kind} group={g} ticked={ticked} canReceive={canReceive} onToggle={setOne} onToggleAll={setMany} />
         ))}
       </div>
 
@@ -265,8 +296,8 @@ function Body({ challan }: { challan: ChallanDetail }) {
       <ConfirmDialog
         open={confirmCancel}
         onOpenChange={setConfirmCancel}
-        title={`Cancel challan ${challanLabel(challan.challanNo)}?`}
-        description="All its takas go back to waiting for butta cutting. The challan stays in the list as Cancelled and its number is never reused."
+        title={`Cancel challan ${challanLabel(challan.challanNo, kind)}?`}
+        description={`All its takas go back to waiting to be sent to ${kind === 'butta' ? 'butta cutting' : 'the mill'}. The challan stays in the list as Cancelled and its number is never reused.`}
         confirmLabel="Cancel challan"
         cancelLabel="Keep it"
         destructive
@@ -274,9 +305,9 @@ function Body({ challan }: { challan: ChallanDetail }) {
         onConfirm={() =>
           cancel.mutate(challan.id, {
             onSuccess: () => {
-              toast.success(`Challan ${challanLabel(challan.challanNo)} cancelled`);
+              toast.success(`Challan ${challanLabel(challan.challanNo, kind)} cancelled`);
               setConfirmCancel(false);
-              navigate('/butta?tab=send&sub=in-butta&filter=all', { replace: true });
+              navigate(sentListPath(kind, 'all'), { replace: true });
             },
             onError: (err) => {
               toast.error(errorMessage(err));
@@ -289,14 +320,14 @@ function Body({ challan }: { challan: ChallanDetail }) {
   );
 }
 
-/** `/butta/challans/:id` — header, summary tiles, order chips, order-wise taka lists, Print / Cancel / Mark received. */
-export default function ChallanDetailsPage() {
+/** `/butta/challans/:id` and `/mill/challans/:id` — header, summary tiles, order chips, order-wise taka lists, Print / Cancel / Mark received. */
+export default function ChallanDetailsPage({ kind }: { kind: ChallanKind }) {
   const id = Number(useParams().id);
   const navigate = useNavigate();
   const location = useLocation();
-  const query = useChallan(id);
-  usePageTitle(query.data ? `Challan ${challanLabel(query.data.challanNo)}` : 'Challan');
-  const from = (location.state as { from?: string } | null)?.from ?? '/butta';
+  const query = useChallan(kind, id);
+  usePageTitle(query.data ? `Challan ${challanLabel(query.data.challanNo, kind)}` : 'Challan');
+  const from = (location.state as { from?: string } | null)?.from ?? CHALLAN_KIND_CONFIG[kind].route;
 
   const back = (
     <button
@@ -304,7 +335,7 @@ export default function ChallanDetailsPage() {
       onClick={() => navigate(from)}
       className="inline-flex min-h-11 items-center gap-1.5 text-sm font-medium text-slate-500 hover:text-primary"
     >
-      <ArrowLeft className="size-4" /> Butta cutting
+      <ArrowLeft className="size-4" /> {CHALLAN_KIND_CONFIG[kind].label}
     </button>
   );
 

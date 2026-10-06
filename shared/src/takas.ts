@@ -191,15 +191,25 @@ export const DAMAGE_STATUSES = ['open', 'resolved'] as const;
 export type DamageStatus = (typeof DAMAGE_STATUSES)[number];
 
 /** Where a damage was resolved (`taka_damages.resolved_stage`). */
-export const RESOLVED_STAGE_LABEL: Record<string, string> = { butta_qc: 'butta QC' };
+export const RESOLVED_STAGE_LABEL: Record<string, string> = { butta_qc: 'butta QC', mill_qc: 'mill QC' };
 
 /** The fields of one damage row that the labels need. */
 export interface DamageLike {
   foundAt: string;
   damageName?: string | null;
+  /** Damaged pcs when the damage was recorded. */
   pcs?: number | null;
+  /** How many of those pcs were resolved (a partial resolve keeps the damage open with fewer open pcs). */
+  resolvedPcs?: number | null;
   status?: string;
   resolvedStage?: string | null;
+}
+
+/** Pcs of a damage that are still damaged: `pcs − resolvedPcs` (0 once resolved; null when the damage has no pcs). */
+export function damageOpenPcs(d: Pick<DamageLike, 'pcs' | 'resolvedPcs' | 'status'>): number | null {
+  if (d.pcs == null) return null;
+  if (d.status === 'resolved') return 0;
+  return Math.max(0, d.pcs - (d.resolvedPcs ?? 0));
 }
 
 /**
@@ -211,7 +221,25 @@ export function damageLabel(foundAt: string | null | undefined, damageName?: str
   return [where, damageName, pcs != null ? `${pcs} pcs` : null].filter(Boolean).join(' · ');
 }
 
-export const damageLabelOf = (d: DamageLike) => damageLabel(d.foundAt, d.damageName, d.pcs);
+/**
+ * The label of a damage row: an OPEN damage shows its open pcs, with "(2 resolved)" when partly resolved; a resolved
+ * damage shows its original pcs.
+ */
+export function damageLabelOf(d: DamageLike): string {
+  const resolved = d.resolvedPcs ?? 0;
+  if (d.status === 'resolved' || d.pcs == null) return damageLabel(d.foundAt, d.damageName, d.pcs);
+  const label = damageLabel(d.foundAt, d.damageName, damageOpenPcs(d));
+  return resolved > 0 ? `${label} (${resolved} resolved)` : label;
+}
+
+/** "Resolved 3 of 3 pcs" / "Resolved 2 of 3 · 1 pcs still damaged" / null when nothing was resolved. */
+export function damageResolveSummary(d: Pick<DamageLike, 'pcs' | 'resolvedPcs' | 'status'>): string | null {
+  const total = d.pcs;
+  const resolved = d.status === 'resolved' && total != null ? total : (d.resolvedPcs ?? 0);
+  if (total == null) return d.status === 'resolved' ? 'Resolved' : null;
+  if (resolved <= 0) return null;
+  return resolved >= total ? `Resolved ${total} of ${total} pcs` : `Resolved ${resolved} of ${total} · ${total - resolved} pcs still damaged`;
+}
 
 /** "Resolved at butta QC" (grey) for a resolved damage, `null` for an open one. */
 export function damageResolvedText(d: Pick<DamageLike, 'status' | 'resolvedStage'>): string | null {

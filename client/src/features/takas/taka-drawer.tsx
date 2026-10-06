@@ -1,8 +1,10 @@
 import { AlertTriangle, ExternalLink } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import {
+  CHALLAN_KIND_CONFIG,
   challanLabel,
   damageLabelOf,
+  damageResolveSummary,
   damageResolvedText,
   formatMeters,
   formatPcs,
@@ -17,16 +19,21 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { useRole } from '@/hooks/useRole';
 import { formatDateTime } from '@/lib/format';
 import { cn } from '@/lib/utils';
+import { challanDetailsPath, kindPermission } from '../challans/kind';
 import { useTakaDetail } from './api';
+import { DamageGallery } from './damage-gallery';
 import { FreshTag, StageDot } from './taka-chip';
 
 const EVENT_LABEL: Record<TakaEventKind, string> = {
   entered: 'Entered',
   sent_butta: 'Sent to butta cutting',
   received_butta: 'Received from butta cutting',
+  sent_mill: 'Sent to mill',
+  received_mill: 'Received from mill',
   receive_undone: 'Receive undone',
   butta_qc_done: 'Butta QC done',
   damage_added: 'Damage added',
+  damage_partly_resolved: 'Damage partly resolved',
   damage_resolved: 'Damage resolved',
   damage_kept: 'Damage kept (not resolved)',
   edited: 'Edited',
@@ -74,21 +81,22 @@ function Body({ takaId }: { takaId: number }) {
             {takaStageLabel(t.stage)}
           </span>
         </Row>
-        <Row label="Challan">
-          {t.challan ? (
-            can('canUseButtaModule') ? (
-              <Link to={`/butta/challans/${t.challan.id}`} className="inline-flex items-center gap-1 text-primary hover:underline">
-                {challanLabel(t.challan.challanNo)} <ExternalLink className="size-3.5" aria-hidden />
+        {t.challans.length === 0 && <Row label="Challan">—</Row>}
+        {t.challans.map((c) => (
+          <Row key={c.id} label={`${CHALLAN_KIND_CONFIG[c.kind].label} challan`}>
+            {can(kindPermission(c.kind)) ? (
+              <Link to={challanDetailsPath(c.kind, c.id)} className="inline-flex items-center gap-1 text-primary hover:underline">
+                {challanLabel(c.challanNo, c.kind)} <ExternalLink className="size-3.5" aria-hidden />
               </Link>
             ) : (
-              challanLabel(t.challan.challanNo)
-            )
-          ) : (
-            '—'
-          )}
-        </Row>
-        {t.challan?.receivedAt && <Row label="Received">{formatDateTime(t.challan.receivedAt)}</Row>}
-        {t.challan?.receivedAt && <Row label="Butta QC">{t.challan.qcDone ? 'Done' : 'Pending'}</Row>}
+              challanLabel(c.challanNo, c.kind)
+            )}
+            <span className="block text-[13px] font-medium text-slate-500">
+              {c.receivedAt ? `Received ${formatDateTime(c.receivedAt)}` : 'Not received yet'}
+              {c.kind === 'butta' && c.receivedAt ? ` · QC ${c.qcDone ? 'done' : 'pending'}` : ''}
+            </span>
+          </Row>
+        ))}
       </dl>
 
       <section>
@@ -114,6 +122,12 @@ function Body({ takaId }: { takaId: number }) {
                     {!r && <AlertTriangle className="size-4 shrink-0" aria-hidden />}
                     <span className={cn(r && 'line-through')}>{damageLabelOf(d)}</span>
                   </span>
+                  {!r && damageResolveSummary(d) && <span className="block text-xs font-semibold text-amber-700">{damageResolveSummary(d)}</span>}
+                  {!!d.images?.length && (
+                    <div className="mt-2">
+                      <DamageGallery images={d.images} alt={damageLabelOf(d)} />
+                    </div>
+                  )}
                   {r && (
                     <span className="block text-xs font-medium">
                       {r}
@@ -138,7 +152,7 @@ function Body({ takaId }: { takaId: number }) {
                 <span className="absolute -left-[1.45rem] top-1.5 size-2.5 rounded-full bg-primary ring-2 ring-white" aria-hidden />
                 <p className="text-sm font-semibold text-slate-800">
                   {EVENT_LABEL[e.event] ?? e.event}
-                  {e.challanNo != null && <span className="ml-1.5 font-medium text-amber-700">{challanLabel(e.challanNo)}</span>}
+                  {e.challanNo != null && <span className="ml-1.5 font-medium text-amber-700">{challanLabel(e.challanNo, e.challanKind ?? 'butta')}</span>}
                 </p>
                 {e.note && <p className="text-[13px] text-slate-600">{e.note}</p>}
                 <p className="text-xs text-muted-foreground">

@@ -40,10 +40,51 @@ async function assertNoDuplicateTakaNumbers() {
   process.exit(1);
 }
 
+/** Row counts of the butta challan tables BEFORE migration 0009 turns them into the generic `challans` tables. */
+async function buttaChallanCounts(): Promise<{ challans: number; takas: number } | null> {
+  const old = await libsql.execute(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'butta_challans'`);
+  if (old.rows.length === 0) return null;
+  const challans = await libsql.execute('SELECT COUNT(*) AS n FROM butta_challans');
+  const takas = await libsql.execute('SELECT COUNT(*) AS n FROM butta_challan_takas');
+  return { challans: Number(challans.rows[0]?.n ?? 0), takas: Number(takas.rows[0]?.n ?? 0) };
+}
+
+/**
+ * Sprint 8 (migration 0009) moves the butta challans into the generic `challans` / `challan_takas` tables. The SQL
+ * itself compares the counts and fails (rolling everything back) if anything is off; this wrapper counts before and
+ * after as well and explains a failure in plain words.
+ */
 async function main() {
   console.log('Applying migrations…');
   await assertNoDuplicateTakaNumbers();
-  await migrate(db, { migrationsFolder: resolve(SERVER_ROOT, 'drizzle') });
+  const before = await buttaChallanCounts();
+  try {
+    await migrate(db, { migrationsFolder: resolve(SERVER_ROOT, 'drizzle') });
+  } catch (err) {
+    if (String(err).includes('__s8_check')) {
+      console.error(
+        '\nMigration stopped: the butta challans could not be moved to the new challan tables without losing something\n' +
+          `(before: ${before?.challans ?? 0} challans / ${before?.takas ?? 0} challan takas). Nothing was changed.\n`,
+      );
+      libsql.close();
+      process.exit(1);
+    }
+    throw err;
+  }
+  if (before) {
+    const after = {
+      challans: Number((await libsql.execute(`SELECT COUNT(*) AS n FROM challans WHERE kind = 'butta'`)).rows[0]?.n ?? 0),
+      takas: Number((await libsql.execute(`SELECT COUNT(*) AS n FROM challan_takas WHERE kind = 'butta'`)).rows[0]?.n ?? 0),
+    };
+    if (after.challans !== before.challans || after.takas !== before.takas) {
+      console.error(
+        `\nCheck failed: ${before.challans} butta challans / ${before.takas} challan takas before, ${after.challans} / ${after.takas} after.\n`,
+      );
+      libsql.close();
+      process.exit(1);
+    }
+    console.log(`Butta challans moved to the generic challan tables: ${after.challans} challans, ${after.takas} taka rows (counts match).`);
+  }
   console.log('Migrations applied.');
   libsql.close();
 }

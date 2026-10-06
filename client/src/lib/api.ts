@@ -64,7 +64,7 @@ export const api = {
   post: <T>(path: string, body?: unknown) => request<T>('POST', path, { body }),
   put: <T>(path: string, body?: unknown) => request<T>('PUT', path, { body }),
   delete: <T = void>(path: string) => request<T>('DELETE', path),
-  async upload(file: File, folder: 'designs' | 'notes'): Promise<UploadResult> {
+  async upload(file: File, folder: 'designs' | 'notes' | 'damages'): Promise<UploadResult> {
     const form = new FormData();
     form.append('file', await shrinkImage(file));
     return request<UploadResult>('POST', `/uploads${buildQuery({ folder })}`, { body: form });

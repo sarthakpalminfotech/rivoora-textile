@@ -167,8 +167,12 @@ function BottomNav() {
   const { pathname } = useLocation();
   const [moreOpen, setMoreOpen] = useState(false);
   const items = navItemsFor(can);
-  const main = items.filter((i) => i.group === 'main');
-  const more = items.filter((i) => i.group === 'masters');
+  // At most 4 tabs: when the bar is full, the last main items (e.g. Mill) move into the More sheet.
+  const allMain = items.filter((i) => i.group === 'main');
+  const masters = items.filter((i) => i.group === 'masters');
+  const maxMain = masters.length ? 3 : 4;
+  const main = allMain.slice(0, maxMain);
+  const more = [...allMain.slice(maxMain), ...masters];
   const moreActive = more.some((i) => pathname === i.to || pathname.startsWith(`${i.to}/`));
   const columns = main.length + (more.length ? 1 : 0);
 

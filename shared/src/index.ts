@@ -12,3 +12,4 @@ export * from './pipeline';
 export * from './orderDashboard';
 export * from './company';
 export * from './butta';
+export * from './challans';

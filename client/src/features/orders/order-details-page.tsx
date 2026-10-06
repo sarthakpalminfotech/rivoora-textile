@@ -22,6 +22,7 @@ import { cn } from '@/lib/utils';
 import { useOrder, useUndoProduction } from './api';
 import { useOrderDashboard } from './dashboard/api';
 import { DamagesTab } from './dashboard/damages-tab';
+import { DocsTab } from './dashboard/docs-tab';
 import { DashboardSkeleton, DashboardTab } from './dashboard/dashboard-tab';
 import { OrderHeader } from './dashboard/order-header';
 import { useOrderView, type OrderTab } from './dashboard/view-state';
@@ -250,6 +251,7 @@ export default function OrderDetailsPage() {
       : []),
     { key: 'details', label: 'Order details' },
     { key: 'history', label: 'History' },
+    ...(canTakas ? [{ key: 'docs' as const, label: 'Docs' }] : []),
   ];
   // Roles with `jobsheetsTabWhenPending` (Gaurang) land on Jobsheets while the order is Jobsheet pending.
   const defaultTab: OrderTab = config.jobsheetsTabWhenPending && order.status === STATUS.READY_PRODUCTION ? 'jobsheets' : 'dashboard';
@@ -320,6 +322,11 @@ export default function OrderDetailsPage() {
             <History order={order} />
           </Card>
         </TabsContent>
+        {canTakas && (
+          <TabsContent value="docs" className="mt-4">
+            <DocsTab orderId={order.id} />
+          </TabsContent>
+        )}
       </Tabs>
 
       <ConfirmDialog

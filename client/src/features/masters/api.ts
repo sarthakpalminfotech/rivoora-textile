@@ -1,8 +1,9 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type {
   Broker,
-  ButtaParty,
-  ButtaPartyInput,
+  ChallanKind,
+  ChallanParty,
+  PartyInput,
   Customer,
   CustomerInput,
   Damage,
@@ -275,49 +276,51 @@ export function useDeleteMachine() {
   });
 }
 
-/* ---------- butta parties ---------- */
+/* ---------- butta / mill parties (one master, `kind` picks the endpoint) ---------- */
 
-export const buttaPartyKeys = {
-  all: ['butta-parties'] as const,
-  lookup: ['lookup', 'butta-parties'] as const,
+const partyBase = (kind: ChallanKind) => (kind === 'butta' ? '/butta-parties' : '/mill-parties');
+
+export const partyKeys = {
+  all: (kind: ChallanKind) => [`${kind}-parties`] as const,
+  lookup: (kind: ChallanKind) => ['lookup', `${kind}-parties`] as const,
 };
 
-export const useButtaParties = (search: string) =>
-  useInfiniteList<ButtaParty>([...buttaPartyKeys.all, 'list'], '/butta-parties', { search });
+export const useParties = (kind: ChallanKind, search: string) =>
+  useInfiniteList<ChallanParty>([...partyKeys.all(kind), 'list'], partyBase(kind), { search });
 
-/** Active butta parties for the Send dialog. */
-export function useButtaPartyLookup(search = '', enabled = true) {
+/** Active parties of a kind for the Send dialog. */
+export function usePartyLookup(kind: ChallanKind, search = '', enabled = true) {
   return useQuery({
-    queryKey: [...buttaPartyKeys.lookup, search],
-    queryFn: ({ signal }) => api.get<LookupItem[]>('/lookup/butta-parties', { search }, signal),
+    queryKey: [...partyKeys.lookup(kind), search],
+    queryFn: ({ signal }) => api.get<LookupItem[]>(`/lookup/${kind}-parties`, { search }, signal),
     placeholderData: keepPreviousData,
     staleTime: 30_000,
     enabled,
   });
 }
 
-export function useSaveButtaParty() {
+export function useSaveParty(kind: ChallanKind) {
   const qc = useQueryClient();
   return useMutation({
     meta: { silentFieldErrors: true },
-    mutationFn: ({ id, data }: { id?: number; data: ButtaPartyInput }) =>
-      id ? api.put<ButtaParty>(`/butta-parties/${id}`, data) : api.post<ButtaParty>('/butta-parties', data),
+    mutationFn: ({ id, data }: { id?: number; data: PartyInput }) =>
+      id ? api.put<ChallanParty>(`${partyBase(kind)}/${id}`, data) : api.post<ChallanParty>(partyBase(kind), data),
     onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: buttaPartyKeys.all });
-      void qc.invalidateQueries({ queryKey: buttaPartyKeys.lookup });
+      void qc.invalidateQueries({ queryKey: partyKeys.all(kind) });
+      void qc.invalidateQueries({ queryKey: partyKeys.lookup(kind) });
       // The party name is on the challans.
-      void qc.invalidateQueries({ queryKey: ['butta'] });
+      void qc.invalidateQueries({ queryKey: ['challans'] });
     },
   });
 }
 
-export function useDeleteButtaParty() {
+export function useDeleteParty(kind: ChallanKind) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id: number) => api.delete(`/butta-parties/${id}`),
+    mutationFn: (id: number) => api.delete(`${partyBase(kind)}/${id}`),
     onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: buttaPartyKeys.all });
-      void qc.invalidateQueries({ queryKey: buttaPartyKeys.lookup });
+      void qc.invalidateQueries({ queryKey: partyKeys.all(kind) });
+      void qc.invalidateQueries({ queryKey: partyKeys.lookup(kind) });
     },
   });
 }

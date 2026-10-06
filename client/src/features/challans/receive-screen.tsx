@@ -1,12 +1,20 @@
 import { AlertTriangle, CheckCircle2, Undo2 } from 'lucide-react';
 import { useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { challanLabel, cleanTakaNo, formatMeters, takaNoError, TAKA_NO_MAX_LENGTH, type ReceiveResult } from '@rivoora/shared';
+import {
+  CHALLAN_KIND_CONFIG,
+  challanLabel,
+  cleanTakaNo,
+  formatMeters,
+  takaNoError,
+  TAKA_NO_MAX_LENGTH,
+  type ChallanKind,
+  type ReceiveResult,
+} from '@rivoora/shared';
 import { Button } from '@/components/ui/button';
 import { errorMessage } from '@/lib/api';
 import { formatOrderNo, formatTime } from '@/lib/format';
 import { cn } from '@/lib/utils';
-import { TakaNoKeys } from '../takas/taka-no-keys';
 import { useReceive, useUndoReceive } from './api';
 
 interface ReceivedRow {
@@ -21,11 +29,11 @@ let rowKey = 0;
  * Receive → Taka number: one big input and a big Received button. Keep typing numbers and pressing Enter — the focus
  * stays in the input. Alerts are red; every received taka lands at the top of "Received now" (with Undo).
  */
-export function ReceiveTakaNumber() {
-  const receive = useReceive();
-  const undo = useUndoReceive();
+export function ReceiveTakaNumber({ kind }: { kind: ChallanKind }) {
+  const cfg = CHALLAN_KIND_CONFIG[kind];
+  const receive = useReceive(kind);
+  const undo = useUndoReceive(kind);
   const [value, setValue] = useState('');
-  const [focused, setFocused] = useState(false);
   const [alert, setAlert] = useState<string | null>(null);
   const [rows, setRows] = useState<ReceivedRow[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -62,7 +70,7 @@ export function ReceiveTakaNumber() {
     try {
       await undo.mutateAsync(row.result.takaId);
       setRows((prev) => prev.filter((r) => r.key !== row.key));
-      toast.success(`Taka ${row.result.takaNo} is back at butta cutting`);
+      toast.success(`Taka ${row.result.takaNo} is back at ${cfg.place}`);
     } catch (err) {
       setRows((prev) => prev.map((r) => (r.key === row.key ? { ...r, undoing: false } : r)));
       toast.error(errorMessage(err));
@@ -85,15 +93,13 @@ export function ReceiveTakaNumber() {
               setValue(cleanTakaNo(e.target.value));
               if (alert) setAlert(null);
             }}
-            onFocus={() => setFocused(true)}
-            onBlur={() => setFocused(false)}
             onKeyDown={(e) => {
               if (e.key === 'Enter') {
                 e.preventDefault();
                 void submit();
               }
             }}
-            inputMode="numeric"
+            inputMode="tel"
             autoComplete="off"
             enterKeyHint="done"
             maxLength={TAKA_NO_MAX_LENGTH}
@@ -113,7 +119,6 @@ export function ReceiveTakaNumber() {
             <CheckCircle2 className="!size-6" /> Received
           </Button>
         </div>
-        {focused && <TakaNoKeys className="mt-2" input={() => inputRef.current} onValue={setValue} />}
         {alert && (
           <p role="alert" className="mt-3 flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-base font-semibold text-red-700">
             <AlertTriangle className="mt-0.5 size-5 shrink-0" aria-hidden />
@@ -144,7 +149,7 @@ export function ReceiveTakaNumber() {
                   <span className="text-2xl font-bold tabular-nums text-slate-900">{r.takaNo}</span>
                   <span className="text-[15px] font-semibold text-slate-700">
                     {r.orderNo != null && `Order ${formatOrderNo(r.orderNo)}`}
-                    {r.challanNo != null && <span className="ml-2 text-amber-700">{challanLabel(r.challanNo)}</span>}
+                    {r.challanNo != null && <span className="ml-2 text-amber-700">{challanLabel(r.challanNo, kind)}</span>}
                   </span>
                   <span className="text-[15px] font-semibold tabular-nums text-slate-600">{r.meters != null ? formatMeters(r.meters) : ''}</span>
                   <span className="ml-auto text-sm text-slate-500">{formatTime(r.receivedAt)}</span>

@@ -16,11 +16,15 @@ import {
   totalPcs,
   validateTakaNumbers,
   TAKA_ERROR_TEXT,
+  type DamageImage,
   type JobsheetTakaGroup,
   type OrderTakas,
   type RoleKey,
   type Taka,
   type TakaAvailability,
+  type TakaChallanRef,
+  type TakaDamageFull,
+  type TakaDamagesDetail,
   type TakaDetail,
   type TakaEditResult,
   type TakaEntryResult,
@@ -32,14 +36,15 @@ import {
 } from '@rivoora/shared';
 import { db, type Tx } from '../db/client';
 import {
-  buttaChallanTakas,
-  buttaChallans,
+  challanTakas,
+  challans,
   damages as damageMaster,
   designVariations,
   designs,
   jobsheets,
   materials,
   orders,
+  takaDamageImages,
   takaDamages,
   takaEvents,
   takas,
@@ -314,6 +319,9 @@ export async function editTakas(role: RoleKey, id: number, input: unknown): Prom
           throw badRequest(`Taka ${t.takaNo}: enter the damaged pcs`, `${field}.pcs`);
         }
         assertDamagePcs(t.takaNo, t.pcs ?? old?.pcs ?? null, d.pcs, `${field}.pcs`);
+        if (before && d.pcs !== null && d.pcs < (before.resolvedPcs ?? 0)) {
+          throw badRequest(`Taka ${t.takaNo}: ${before.resolvedPcs} pcs of this damage are already resolved — the damaged pcs can't be less.`, `${field}.pcs`);
+        }
         if (before) {
           keptIds.add(before.id);
           if (before.damageId !== damageId || before.pcs !== d.pcs) {
@@ -352,9 +360,14 @@ export async function editTakas(role: RoleKey, id: number, input: unknown): Prom
       throw conflict('Takas can only be added once the jobsheet is completed.');
     }
     const removed = existing.filter((t) => !seenIds.has(t.id));
-    const stuck = removed.find((t) => t.stage === 'at_butta' || t.stage === 'butta_qc');
+    // A taka that is out on a challan (or already past the butta QC step it is in) can't just be removed.
+    const stuck = removed.find((t) => t.stage === 'at_butta' || t.stage === 'butta_qc' || t.stage === 'at_mill' || t.stage === 'mill_qc');
     if (stuck) {
-      throw conflict(`Taka ${stuck.takaNo} is at butta cutting and can't be removed. Cancel its challan or finish its butta QC first.`);
+      throw conflict(
+        stuck.stage === 'at_mill' || stuck.stage === 'mill_qc'
+          ? `Taka ${stuck.takaNo} is at the mill and can't be removed.`
+          : `Taka ${stuck.takaNo} is at butta cutting and can't be removed. Cancel its challan or finish its butta QC first.`,
+      );
     }
     const changed = rows.filter((t) => t.id !== undefined && isChanged(t, byId.get(t.id)!));
     const note = data.note;
@@ -551,6 +564,19 @@ const designCodeSql = sql<string | null>`COALESCE(${designVariations.code}, ${de
 const designThumbSql = sql<string | null>`CASE WHEN ${designVariations.id} IS NOT NULL THEN ${designVariations.thumbUrl} ELSE ${designs.thumbUrl} END`;
 const designImageSql = sql<string | null>`CASE WHEN ${designVariations.id} IS NOT NULL THEN ${designVariations.imageUrl} ELSE ${designs.imageUrl} END`;
 
+/** Photos of damages, grouped by damage id (oldest first). */
+async function damageImagesOf(damageIds: readonly number[]): Promise<Map<number, DamageImage[]>> {
+  const out = new Map<number, DamageImage[]>();
+  if (!damageIds.length) return out;
+  const rows = await db
+    .select({ id: takaDamageImages.id, takaDamageId: takaDamageImages.takaDamageId, url: takaDamageImages.imageUrl, thumbUrl: takaDamageImages.thumbUrl, createdAt: takaDamageImages.createdAt })
+    .from(takaDamageImages)
+    .where(inArray(takaDamageImages.takaDamageId, [...damageIds]))
+    .orderBy(asc(takaDamageImages.id));
+  for (const { takaDamageId, ...img } of rows) out.set(takaDamageId, [...(out.get(takaDamageId) ?? []), img]);
+  return out;
+}
+
 async function loadTakaDetail(role: RoleKey, where: SQL): Promise<TakaDetail> {
   const [row] = await db
     .select({
@@ -571,11 +597,6 @@ async function loadTakaDetail(role: RoleKey, where: SQL): Promise<TakaDetail> {
       designCode: designCodeSql,
       thumbUrl: designThumbSql,
       imageUrl: designImageSql,
-      challanId: buttaChallanTakas.challanId,
-      challanNo: buttaChallans.challanNo,
-      sentAt: buttaChallanTakas.createdAt,
-      receivedAt: buttaChallanTakas.receivedAt,
-      qcDoneAt: buttaChallanTakas.qcDoneAt,
     })
     .from(takas)
     .innerJoin(jobsheets, eq(jobsheets.id, takas.jobsheetId))
@@ -583,32 +604,61 @@ async function loadTakaDetail(role: RoleKey, where: SQL): Promise<TakaDetail> {
     .innerJoin(materials, eq(materials.id, orders.materialId))
     .leftJoin(designs, eq(designs.id, orders.designId))
     .leftJoin(designVariations, eq(designVariations.id, orders.variationId))
-    .leftJoin(buttaChallanTakas, and(eq(buttaChallanTakas.takaId, takas.id), eq(buttaChallanTakas.isActive, true)))
-    .leftJoin(buttaChallans, eq(buttaChallans.id, buttaChallanTakas.challanId))
     .where(and(eq(takas.isDeleted, false), where))
     .limit(1);
   if (!row) throw notFound('Taka');
   // Jemish / Gaurang follow the order visibility rule; the godown / QC roles only ever get the restricted fields.
   if (!isRestricted(role) && !canRoleSeeStatus(role, row.orderStatus)) throw notFound('Taka');
 
+  // The challans of the taka: the active row of each kind (butta cutting, then the mill), also after it came back.
+  const challanRows = await db
+    .select({
+      id: challans.id,
+      kind: challans.kind,
+      challanNo: challans.challanNo,
+      sentAt: challanTakas.createdAt,
+      receivedAt: challanTakas.receivedAt,
+      qcDoneAt: challanTakas.qcDoneAt,
+    })
+    .from(challanTakas)
+    .innerJoin(challans, eq(challans.id, challanTakas.challanId))
+    .where(and(eq(challanTakas.takaId, row.id), eq(challanTakas.isActive, true)))
+    .orderBy(asc(challanTakas.id));
+  const challanRefs: TakaChallanRef[] = challanRows.map((c) => ({
+    id: c.id,
+    kind: c.kind,
+    challanNo: c.challanNo,
+    sentAt: c.sentAt,
+    receivedAt: c.receivedAt,
+    qcDone: c.qcDoneAt !== null,
+  }));
+
+  const canSeeHistory = can(role, 'canEditTakas');
   let events: TakaEvent[] = [];
-  if (can(role, 'canEditTakas')) {
+  if (canSeeHistory) {
     events = await db
       .select({
         id: takaEvents.id,
         event: takaEvents.event,
         challanId: takaEvents.challanId,
-        challanNo: buttaChallans.challanNo,
+        challanNo: challans.challanNo,
+        challanKind: challans.kind,
+        takaDamageId: takaEvents.takaDamageId,
         note: takaEvents.note,
         role: takaEvents.role,
         createdAt: takaEvents.createdAt,
       })
       .from(takaEvents)
-      .leftJoin(buttaChallans, eq(buttaChallans.id, takaEvents.challanId))
+      .leftJoin(challans, eq(challans.id, takaEvents.challanId))
       .where(eq(takaEvents.takaId, row.id))
       .orderBy(asc(takaEvents.createdAt), asc(takaEvents.id));
   }
   const damages = parseDamagesJson(row.damagesJson);
+  // Photos of the damages: only for the roles that can open the taka details drawer.
+  if (canSeeHistory) {
+    const images = await damageImagesOf(damages.map((d) => d.id));
+    for (const d of damages) d.images = images.get(d.id) ?? [];
+  }
   return {
     id: row.id,
     takaNo: row.takaNo,
@@ -623,12 +673,75 @@ async function loadTakaDetail(role: RoleKey, where: SQL): Promise<TakaDetail> {
     jobsheetNo: row.jobsheetNo,
     quality: row.quality,
     design: { code: row.designCode, thumbUrl: row.thumbUrl, imageUrl: row.imageUrl },
-    challan:
-      row.challanId !== null && row.challanNo !== null
-        ? { id: row.challanId, challanNo: row.challanNo, sentAt: row.sentAt!, receivedAt: row.receivedAt, qcDone: row.qcDoneAt !== null }
-        : null,
+    challans: challanRefs,
     events,
     createdAt: row.createdAt,
+  };
+}
+
+/**
+ * GET /takas/:id/damages — the damage details screen: the taka header, then one block per damage (open first, then
+ * resolved) with its pcs (damaged / resolved / open), who added it, its photos and its own timeline. The timeline is
+ * the taka's events about THIS damage; an older damage without an "added" event gets one made from the damage row.
+ */
+export async function getTakaDamagesDetail(role: RoleKey, id: number): Promise<TakaDamagesDetail> {
+  const detail = await loadTakaDetail(role, eq(takas.id, id));
+  const rows = await db
+    .select({ id: takaDamages.id, createdBy: takaDamages.createdBy })
+    .from(takaDamages)
+    .where(and(eq(takaDamages.takaId, id), eq(takaDamages.isDeleted, false)));
+  const createdBy = new Map(rows.map((r) => [r.id, r.createdBy]));
+  const images = await damageImagesOf(detail.damages.map((d) => d.id));
+  const full = detail.damages.map((d): TakaDamageFull => {
+    const own = detail.events.filter((e) => e.takaDamageId === d.id);
+    const events = [...own];
+    if (!own.some((e) => e.event === 'damage_added')) {
+      events.unshift({
+        id: -d.id,
+        event: 'damage_added',
+        challanId: null,
+        challanNo: null,
+        challanKind: null,
+        takaDamageId: d.id,
+        note: damageLabel(d.foundAt, d.damageName, d.pcs),
+        role: createdBy.get(d.id) ?? 'jemish',
+        createdAt: d.createdAt,
+      });
+    }
+    if (d.status === 'resolved' && !own.some((e) => e.event === 'damage_resolved') && d.resolvedAt) {
+      events.push({
+        id: -d.id - 1_000_000,
+        event: 'damage_resolved',
+        challanId: null,
+        challanNo: null,
+        challanKind: null,
+        takaDamageId: d.id,
+        note: d.pcs != null ? `resolved ${d.pcs} of ${d.pcs} pcs` : null,
+        role: d.resolvedBy ?? 'jemish',
+        createdAt: d.resolvedAt,
+      });
+    }
+    events.sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id - b.id);
+    return { ...d, createdBy: createdBy.get(d.id) ?? 'jemish', images: images.get(d.id) ?? [], events };
+  });
+  full.sort((a, b) => Number(a.status === 'resolved') - Number(b.status === 'resolved') || a.id - b.id);
+  return {
+    taka: {
+      id: detail.id,
+      takaNo: detail.takaNo,
+      meters: detail.meters,
+      pcs: detail.pcs,
+      stage: detail.stage,
+      isDamaged: detail.isDamaged,
+      orderId: detail.orderId,
+      orderNo: detail.orderNo,
+      jobsheetId: detail.jobsheetId,
+      jobsheetNo: detail.jobsheetNo,
+      quality: detail.quality,
+      design: detail.design,
+      challans: detail.challans,
+    },
+    damages: full,
   };
 }
 

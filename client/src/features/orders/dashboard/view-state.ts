@@ -10,7 +10,7 @@ import {
   type SubStageKey,
 } from '@rivoora/shared';
 
-export const ORDER_TABS = ['dashboard', 'jobsheets', 'takas', 'damages', 'details', 'history'] as const;
+export const ORDER_TABS = ['dashboard', 'jobsheets', 'takas', 'damages', 'details', 'history', 'docs'] as const;
 export type OrderTab = (typeof ORDER_TABS)[number];
 
 const isTab = (v: string | null): v is OrderTab => v !== null && (ORDER_TABS as readonly string[]).includes(v);

@@ -7,6 +7,7 @@ import type {
   TakaEditResult,
   TakaEntryInput,
   TakaEntryResult,
+  TakaDamagesDetail,
   TakaJobsheetItem,
   TakaJobsheetPage,
   TakaTab,
@@ -83,5 +84,15 @@ export function useEditTakas(jobsheetId: number) {
       void qc.invalidateQueries({ queryKey: ['lookup', 'damages'] });
       void qc.invalidateQueries({ queryKey: ['damages'] });
     },
+  });
+}
+
+/** The damage details screen: every damage of a taka with pcs, photos and its own timeline. */
+export function useTakaDamages(takaId: number) {
+  return useQuery({
+    queryKey: [...takaKeys.detail(takaId), 'damages'] as const,
+    queryFn: ({ signal }) => api.get<TakaDamagesDetail>(`/takas/${takaId}/damages`, undefined, signal),
+    enabled: takaId > 0,
+    refetchOnWindowFocus: true,
   });
 }

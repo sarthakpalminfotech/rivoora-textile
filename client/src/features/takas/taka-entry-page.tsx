@@ -41,7 +41,6 @@ import { useEnterTakas } from './api';
 import { entryLabel, entryPayload, TakaDamageControl, type DamageEntry } from './damage-dialog';
 import { takaErrorText, useUsedTakaNumbers } from './taka-check';
 import { TakaChip } from './taka-chip';
-import { TakaNoKeys } from './taka-no-keys';
 
 const DEFAULT_ROWS = 6;
 
@@ -225,7 +224,6 @@ export default function TakaEntryPage() {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [saved, setSaved] = useState<{ takas: Taka[]; autoCompleted: boolean } | null>(null);
   /** The taka number field that has focus (its – / helper keys are shown). */
-  const [focusedKey, setFocusedKey] = useState<number | null>(null);
   const [showAllErrors, setShowAllErrors] = useState(false);
   const inputs = useRef(new Map<number, HTMLInputElement>());
   const meterInputs = useRef(new Map<number, HTMLInputElement>());
@@ -453,8 +451,6 @@ export default function TakaEntryPage() {
                         const value = cleanTakaNo(e.target.value);
                         setRow(r.key, value ? { value } : { value, meters: '', pcs: '', pcsTouched: false, damages: [] });
                       }}
-                      onFocus={() => setFocusedKey(r.key)}
-                      onBlur={() => setFocusedKey((k) => (k === r.key ? null : k))}
                       onKeyDown={(e) => {
                         if (e.key === 'Enter') {
                           e.preventDefault();
@@ -463,8 +459,8 @@ export default function TakaEntryPage() {
                           else focusNext(i);
                         }
                       }}
-                      // Numeric keypad; the – and / keys below insert separators (phone keypads have none).
-                      inputMode="numeric"
+                      // "tel" keypad: most phones offer a dash there (taka numbers can contain - and /).
+                      inputMode="tel"
                       autoComplete="off"
                       enterKeyHint="next"
                       maxLength={TAKA_NO_MAX_LENGTH}
@@ -473,13 +469,6 @@ export default function TakaEntryPage() {
                       className={cn(fieldBox(invalid), 'px-4 text-[24px] font-bold tracking-wide')}
                       placeholder="—"
                     />
-                    {focusedKey === r.key && (
-                      <TakaNoKeys
-                        className="mt-1.5"
-                        input={() => inputs.current.get(r.key)}
-                        onValue={(value) => setRow(r.key, { value })}
-                      />
-                    )}
                   </div>
                   <label htmlFor={metersId} className="mt-1 text-sm font-semibold text-slate-600 md:row-start-1 md:mt-0">
                     Meters / <span lang="hi">मीटर</span>

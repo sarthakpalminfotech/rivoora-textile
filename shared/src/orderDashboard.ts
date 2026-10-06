@@ -60,6 +60,8 @@ export interface DashboardTakaInput {
   count?: number;
   /** Pcs of the taka (aggregated rows: the sum; null when none of them has pcs). */
   pcs?: number | null;
+  /** Aggregated rows: how many of the takas have no pcs (default: all of them when `pcs` is null, else none). */
+  withoutPcs?: number;
 }
 
 /** OPEN damages of the order, aggregated by where they were found (`taka_damages.found_at`). */
@@ -76,6 +78,8 @@ export interface DashboardInput {
   takas: readonly DashboardTakaInput[];
   /** Open damages by `found_at` (the damage tiles). Taka rows only say WHICH takas are damaged. */
   damages?: readonly DashboardDamageInput[];
+  /** How many active takas went through butta cutting (have a butta challan). 0 = the order skipped it. Default: unknown (counts as gone through). */
+  buttaTakas?: number;
 }
 
 /* ------------------------------------------------------------------ */
@@ -112,12 +116,15 @@ export interface MainStageCount {
   count: number;
   takas: number;
   damaged: number;
-  /** The stage's share of the frames (see `bar`), and that share in pieces. */
-  frames: number;
+  /** The stage's share of the pcs (see `bar`). */
   pcs: number;
   /** Anything in this stage right now. */
   hasWork: boolean;
+  /** Fully finished for this order ("✓ Completed"), or passed over ("Skipped": no taka went to butta cutting). */
+  state: StageState;
 }
+
+export type StageState = 'completed' | 'skipped' | null;
 
 export interface ProductionTotals {
   jobsheets: number;
@@ -143,8 +150,8 @@ export interface DashboardProgress {
 
 export interface BarShare {
   stage: MainStageKey;
-  frames: number;
-  /** 0–1 of `barTotalFrames`. */
+  pcs: number;
+  /** 0–1 of `barTotalPcs`. */
   share: number;
 }
 
@@ -170,7 +177,7 @@ export interface OrderDashboardData {
   hasJobsheets: boolean;
   progress: DashboardProgress;
   bar: BarShare[];
-  barTotalFrames: number;
+  barTotalPcs: number;
   mainStages: MainStageCount[];
   subStages: SubStageCount[];
   production: ProductionTotals;
@@ -195,7 +202,6 @@ export interface OrderDashboard extends OrderDashboardData {
 /* ------------------------------------------------------------------ */
 
 const HOUR_MS = 3_600_000;
-const round2 = (n: number) => Math.round(n * 100) / 100;
 
 function hoursSince(iso: string | null, now: Date): number | null {
   if (!iso) return null;
@@ -232,6 +238,8 @@ export function buildOrderDashboard(input: DashboardInput, now: Date = new Date(
 
   // Takas per jobsheet and per main stage (for the jobsheet rules and the bar shares).
   const takasByJobsheet = new Map<number, Map<MainStageKey, number>>();
+  // Own pcs of the takas per jobsheet and main stage, and how many of them have none (they get a share of the frames).
+  const pcsByJobsheet = new Map<number, Map<MainStageKey, { pcs: number; without: number }>>();
   const subJobsheets = new Map<SubStageKey, Set<number>>();
   let takaCount = 0;
   let takaPcs: number | null = null;
@@ -251,11 +259,18 @@ export function buildOrderDashboard(input: DashboardInput, now: Date = new Date(
     const main = takaStageMain(t.stage);
     perMain.set(main, (perMain.get(main) ?? 0) + n);
     takasByJobsheet.set(t.jobsheetId, perMain);
+    const perPcs = pcsByJobsheet.get(t.jobsheetId) ?? new Map<MainStageKey, { pcs: number; without: number }>();
+    const cur = perPcs.get(main) ?? { pcs: 0, without: 0 };
+    cur.pcs += t.pcs ?? 0;
+    cur.without += Math.min(n, t.withoutPcs ?? (t.pcs == null ? n : 0));
+    perPcs.set(main, cur);
+    pcsByJobsheet.set(t.jobsheetId, perPcs);
   }
   for (const [key, set] of subJobsheets) subs.get(key)!.jobsheetCount = set.size;
 
   // Jobsheet sub-stages, production totals and the bar shares.
-  const barFrames = new Map<MainStageKey, number>(MAIN_STAGES.map((m) => [m.key, 0]));
+  const barPcs = new Map<MainStageKey, number>(MAIN_STAGES.map((m) => [m.key, 0]));
+  const addPcs = (stage: MainStageKey, n: number) => barPcs.set(stage, barPcs.get(stage)! + n);
   const loomMachines = new Set<number>();
   let wovenFrames = 0;
   let onLoomFrames = 0;
@@ -297,11 +312,13 @@ export function buildOrderDashboard(input: DashboardInput, now: Date = new Date(
       }
     }
 
-    // Bar: no takas → all of it is still Production; otherwise spread over the stages of its takas.
+    // Bar (in pcs): no takas → the jobsheet's frames × sections per beam, still Production; otherwise every taka counts
+    // its own pcs, and a taka without pcs gets its share of the jobsheet's frames × sections.
     if (!perMain || jsTakas === 0) {
-      barFrames.set('production', barFrames.get('production')! + frames);
+      addPcs('production', frames * SECTIONS_PER_BEAM);
     } else {
-      for (const [main, n] of perMain) barFrames.set(main, barFrames.get(main)! + (frames * n) / jsTakas);
+      const perTaka = (frames * SECTIONS_PER_BEAM) / jsTakas;
+      for (const [main, p] of pcsByJobsheet.get(j.id) ?? []) addPcs(main, p.pcs + p.without * perTaka);
     }
   }
   subs.get('on_loom')!.machines = loomMachines.size;
@@ -321,17 +338,33 @@ export function buildOrderDashboard(input: DashboardInput, now: Date = new Date(
     for (const w of warnings) alerts.push({ rule: 'coverage', kind: w.kind, message: w.message });
   }
 
-  const totalFrames = [...barFrames.values()].reduce((s, n) => s + n, 0);
+  const totalPcs = [...barPcs.values()].reduce((s, n) => s + n, 0);
   const bar: BarShare[] = MAIN_STAGES.map((m) => {
-    const f = barFrames.get(m.key)!;
-    return { stage: m.key, frames: round2(f), share: totalFrames > 0 ? f / totalFrames : 0 };
+    const p = barPcs.get(m.key)!;
+    return { stage: m.key, pcs: Math.round(p), share: totalPcs > 0 ? p / totalPcs : 0 };
   });
+
+  // Completed / skipped main stages (visual state only).
+  const stageCount = (...stages: string[]) => takas.reduce((n, t) => n + (stages.includes(t.stage) ? t.count ?? 1 : 0), 0);
+  const productionDone =
+    jobsheets.length > 0 &&
+    jobsheets.every((j) => j.status === 'completed' && (takasByJobsheet.get(j.id)?.size ?? 0) > 0) &&
+    stageCount('entered') === 0;
+  const buttaDone = productionDone && stageCount('entered', 'at_butta', 'butta_qc') === 0 && takaCount > 0;
+  const buttaSkipped = buttaDone && input.buttaTakas === 0;
+  const millDone = buttaDone && takaCount > 0 && stageCount('ready') === takaCount;
+  const stateOf = (key: MainStageKey, connected: boolean): StageState => {
+    if (!connected) return null;
+    if (key === 'production') return productionDone ? 'completed' : null;
+    if (key === 'butta') return buttaSkipped ? 'skipped' : buttaDone ? 'completed' : null;
+    if (key === 'mill') return millDone ? 'completed' : null;
+    return null;
+  };
 
   const subList = SUB_STAGES.map((s) => subs.get(s.key)!);
   const mainStages: MainStageCount[] = MAIN_STAGES.map((m) => {
     const own = subList.filter((s) => s.mainStage === m.key);
     const takasHere = own.filter((s) => s.unit === 'takas').reduce((n, s) => n + s.count, 0);
-    const frames = barFrames.get(m.key)!;
     return {
       key: m.key,
       unit: m.unit,
@@ -339,9 +372,9 @@ export function buildOrderDashboard(input: DashboardInput, now: Date = new Date(
       count: m.key === 'production' ? jobsheets.length : takasHere,
       takas: m.key === 'production' ? takaCount : takasHere,
       damaged: own.reduce((n, s) => n + s.damaged, 0),
-      frames: round2(frames),
-      pcs: Math.round(frames * SECTIONS_PER_BEAM),
+      pcs: bar.find((b) => b.stage === m.key)!.pcs,
       hasWork: own.some((s) => s.count > 0),
+      state: stateOf(m.key, m.connected),
     };
   });
 
@@ -374,7 +407,7 @@ export function buildOrderDashboard(input: DashboardInput, now: Date = new Date(
       percent: targetPcs > 0 ? Math.round((wovenPcs / targetPcs) * 1000) / 10 : 0,
     },
     bar,
-    barTotalFrames: round2(totalFrames),
+    barTotalPcs: Math.round(totalPcs),
     mainStages,
     subStages: subList,
     production: {

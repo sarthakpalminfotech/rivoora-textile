@@ -77,6 +77,20 @@ export const ORDER_STATUSES = [
     badge: { bg: '#FAE8FF', text: '#86198F', dot: '#D946EF' },
     visibleTo: FROM_READY,
   },
+  {
+    key: 'in_mill',
+    label: 'In mill',
+    sequence: 90,
+    badge: { bg: '#EDE9FE', text: '#5B21B6', dot: '#8B5CF6' },
+    visibleTo: FROM_READY,
+  },
+  {
+    key: 'received_from_mill',
+    label: 'Received from mill',
+    sequence: 100,
+    badge: { bg: '#CFFAFE', text: '#155E75', dot: '#06B6D4' },
+    visibleTo: FROM_READY,
+  },
 ] as const satisfies readonly StatusConfig[];
 
 export type OrderStatusKey = (typeof ORDER_STATUSES)[number]['key'];
@@ -90,6 +104,8 @@ export const STATUS = {
   TAKA_ENTRY_DONE: 'taka_entry_done',
   IN_BUTTA_CUTTING: 'in_butta_cutting',
   READY_FOR_MILL: 'ready_for_mill',
+  IN_MILL: 'in_mill',
+  RECEIVED_FROM_MILL: 'received_from_mill',
 } as const satisfies Record<string, OrderStatusKey>;
 
 export const STATUS_KEYS = ORDER_STATUSES.map((s) => s.key) as [OrderStatusKey, ...OrderStatusKey[]];
@@ -224,8 +240,10 @@ export interface JobsheetStatusInput {
 /**
  * The order status that follows from its active jobsheets and takas (for orders that are Jobsheet pending or later):
  * none → Jobsheet pending · all Completed and every one has a taka ("taka entry done" conditions) → Taka entry done,
- * or — by where the takas are — In butta cutting (at least one taka at butta cutting / in butta QC) or Ready for mill
- * (every active taka waits for the mill) · all Completed → Production completed · any Ongoing / Completed → In
+ * or — by where the takas are, the EARLIEST unfinished stage wins — In butta cutting (a taka at butta cutting / in
+ * butta QC) · Ready for mill (every taka waits for the mill) · In mill (nothing before the mill is left and a taka is
+ * at / back from the mill, but not all of them are back) · Received from mill (every taka is back from the mill) ·
+ * all Completed → Production completed · any Ongoing / Completed → In
  * production · otherwise (all Pending / Sent) → Jobsheet created.
  * Plain status strings are accepted too (no takas). `takaStages` = the stage of every active taka of the order.
  */
@@ -239,6 +257,11 @@ export function orderStatusForJobsheets(
     if (!list.every((j) => (j.takaCount ?? 0) > 0)) return STATUS.PRODUCTION_COMPLETED;
     if (takaStages.some((s) => s === 'at_butta' || s === 'butta_qc')) return STATUS.IN_BUTTA_CUTTING;
     if (takaStages.length > 0 && takaStages.every((s) => s === 'waiting_mill')) return STATUS.READY_FOR_MILL;
+    // Nothing is in butta cutting any more. Takas still `entered` have not been through it yet (earliest stage wins).
+    if (!takaStages.includes('entered')) {
+      if (takaStages.length > 0 && takaStages.every((s) => s === 'mill_qc' || s === 'ready')) return STATUS.RECEIVED_FROM_MILL;
+      if (takaStages.some((s) => s === 'at_mill' || s === 'mill_qc' || s === 'ready')) return STATUS.IN_MILL;
+    }
     return STATUS.TAKA_ENTRY_DONE;
   }
   if (list.some((j) => j.status === JOBSHEET_STATUS.ONGOING || j.status === JOBSHEET_STATUS.COMPLETED)) {

@@ -7,6 +7,7 @@ import {
   damageLabel,
   damagePcsErrorText,
   parseDamagePcs,
+  type DamageImageInput,
   type DamageType,
   type TakaDamage,
 } from '@rivoora/shared';
@@ -19,6 +20,7 @@ import { useDebounce } from '@/hooks/useDebounce';
 import { Bi, useBilingual } from '@/lib/bilingual';
 import { cn } from '@/lib/utils';
 import { useDamageLookup } from '../masters/api';
+import { DamageImagePicker } from './damage-images';
 
 /**
  * One damage name in a form: a Damage master name, a typed "Other" name (found or added to the master by the
@@ -37,6 +39,8 @@ export interface DamageEntry {
   choice: DamageChoice;
   /** Damaged pcs; null only on an older damage that never had a count. */
   pcs: number | null;
+  /** Photos (Butta QC new damages only). */
+  images?: DamageImageInput[];
 }
 
 let entryKey = 0;
@@ -72,6 +76,11 @@ export function entryPayload(e: DamageEntry): { damageId: number; pcs: number } 
   return { otherName: e.choice.kind === 'other' ? e.choice.name.trim() : '', pcs };
 }
 
+/** What Butta QC sends for a NEW damage: like Taka entry + its photos. */
+export function qcEntryPayload(e: DamageEntry) {
+  return { ...entryPayload(e), images: e.images ?? [] };
+}
+
 /** What Edit takas sends: existing open damages keep their `id`; an older nameless / pcs-less one stays as it is. */
 export function editEntryPayload(
   e: DamageEntry,
@@ -95,8 +104,10 @@ interface DamageDialogProps {
   takaPcs: number | null;
   /** The damage being changed (opening an existing damage offers Change / Remove). */
   value: DamageEntry | null;
-  onConfirm: (value: { choice: DamageChoice; pcs: number }) => void;
+  onConfirm: (value: { choice: DamageChoice; pcs: number; images: DamageImageInput[] }) => void;
   onRemove?: () => void;
+  /** Butta QC: a new damage can carry photos (Camera / Attach image). */
+  allowImages?: boolean;
 }
 
 /**
@@ -104,7 +115,9 @@ interface DamageDialogProps {
  * type it, and give the damaged pcs. A centred modal on md+, a bottom sheet on phones; bilingual for the Taka entry
  * and Butta QC roles.
  */
-export function DamageDialog({ open, onOpenChange, takaLabel, foundAt, takaPcs, value, onConfirm, onRemove }: DamageDialogProps) {
+export function DamageDialog({ open, onOpenChange, takaLabel, foundAt, takaPcs, value, onConfirm, onRemove, allowImages }: DamageDialogProps) {
+  const [images, setImages] = useState<DamageImageInput[]>([]);
+  const [uploading, setUploading] = useState(false);
   const where = DAMAGE_TYPE_LABEL[foundAt];
   const bilingual = useBilingual();
   const t = (en: string, hi: string) => (bilingual ? `${en} / ${hi}` : en);
@@ -120,6 +133,8 @@ export function DamageDialog({ open, onOpenChange, takaLabel, foundAt, takaPcs, 
     if (!open) return;
     setError(null);
     setSearch('');
+    setImages(value?.images ?? []);
+    setUploading(false);
     setPcsText(value?.pcs != null ? String(value.pcs) : '');
     const choice = value?.choice;
     if (choice?.kind === 'master') {
@@ -163,7 +178,7 @@ export function DamageDialog({ open, onOpenChange, takaLabel, foundAt, takaPcs, 
       selected === OTHER
         ? { kind: 'other', name }
         : { kind: 'master', damageId: selected, name: selectedName ?? options.find((o) => o.value === selected)?.label ?? '' };
-    onConfirm({ choice, pcs: parsed.pcs! });
+    onConfirm({ choice, pcs: parsed.pcs!, images });
     onOpenChange(false);
   };
 
@@ -199,7 +214,7 @@ export function DamageDialog({ open, onOpenChange, takaLabel, foundAt, takaPcs, 
           <Button variant="secondary" size="lg" className="h-12" onClick={() => onOpenChange(false)}>
             {label('Cancel', 'रद्द करें')}
           </Button>
-          <Button size="lg" className="h-12 bg-red-600 hover:bg-red-700" onClick={confirm}>
+          <Button size="lg" className="h-12 bg-red-600 hover:bg-red-700" onClick={confirm} disabled={uploading}>
             <AlertTriangle /> {existing ? label('Save damage', 'खराबी सेव करें') : label('Mark damaged', 'खराबी लगाएं')}
           </Button>
         </div>
@@ -285,6 +300,11 @@ export function DamageDialog({ open, onOpenChange, takaLabel, foundAt, takaPcs, 
             }}
           />
         </Field>
+        {allowImages && (
+          <Field label={t('Images', 'फोटो')} hint={t('Optional · up to 10', 'वैकल्पिक · 10 तक')}>
+            <DamageImagePicker key={String(open)} value={images} onChange={setImages} onBusyChange={setUploading} />
+          </Field>
+        )}
       </div>
     </ResponsiveModal>
   );

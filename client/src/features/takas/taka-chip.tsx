@@ -14,7 +14,7 @@ import {
 import { Tooltip } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 
-type ChipTaka = Pick<Taka, 'takaNo' | 'meters' | 'pcs' | 'damages'> & Partial<Pick<Taka, 'stage' | 'challanNo'>>;
+type ChipTaka = Pick<Taka, 'takaNo' | 'meters' | 'pcs' | 'damages'> & Partial<Pick<Taka, 'stage' | 'challanNo' | 'challanKind'>>;
 
 /** A small colour dot for a taka's stage (colour from the pipeline config) with the stage label as its tooltip. */
 export function StageDot({ stage, className }: { stage: string; className?: string }) {
@@ -102,7 +102,7 @@ export function TakaChip({ taka, size = 'md', showStage, showChallan, bilingual,
         <span className={sub}>· {taka.pcs != null ? formatPcs(taka.pcs) : '— pcs'}</span>
         {fresh && <FreshTag bilingual={bilingual} />}
         {showChallan && taka.challanNo != null && (
-          <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[12px] font-bold text-amber-800">{challanLabel(taka.challanNo)}</span>
+          <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[12px] font-bold text-amber-800">{challanLabel(taka.challanNo, taka.challanKind ?? 'butta')}</span>
         )}
       </span>
       <TakaDamageLines damages={taka.damages} />

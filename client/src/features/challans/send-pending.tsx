@@ -1,9 +1,19 @@
 import { useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, Loader2, PackageOpen, Scissors, SearchX, X } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Loader2, PackageOpen, Scissors, SearchX, Send, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
-import { formatMeters, formatPcs, type ButtaPendingOrder, type ButtaPendingTaka } from '@rivoora/shared';
+import {
+  CHALLAN_KIND_CONFIG,
+  challanLabel,
+  formatMeters,
+  formatPcs,
+  splitReadyTakas,
+  takaStageStatusText,
+  type ChallanKind,
+  type ChallanPendingOrder,
+  type ChallanPendingTaka,
+} from '@rivoora/shared';
 import { ErrorState, LoadMore } from '@/components/list-parts';
 import { Button } from '@/components/ui/button';
 import { TickBox as Checkbox } from '@/components/ui/tick-box';
@@ -12,18 +22,18 @@ import { EmptyState } from '@/components/ui/empty-state';
 import { Field } from '@/components/ui/field';
 import { ImageThumb } from '@/components/ui/image-thumb';
 import { Input } from '@/components/ui/input';
-import { Modal } from '@/components/ui/modal';
-import { ResponsiveModal } from '@/components/ui/modal';
+import { Modal, ResponsiveModal } from '@/components/ui/modal';
 import { Select } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useDebounce } from '@/hooks/useDebounce';
 import { ApiError, errorMessage } from '@/lib/api';
 import { formatOrderNo, toApiDate } from '@/lib/format';
 import { cn } from '@/lib/utils';
-import { useButtaPartyLookup } from '../masters/api';
+import { usePartyLookup } from '../masters/api';
 import { fetchPendingOrderTakas, useCreateChallan, usePendingOrders, usePendingOrderTakas } from './api';
+import { challanPrintPath } from './kind';
 
-/** orderId → the ids of its pending takas that are ticked (the takas themselves are cached in `known`). */
+/** orderId → the ids of its READY takas that are ticked (the takas themselves are cached in `known`). */
 type Selection = Map<number, Set<number>>;
 
 interface SelectedTotals {
@@ -32,18 +42,54 @@ interface SelectedTotals {
   orders: number;
 }
 
+const readyIds = (takas: readonly ChallanPendingTaka[]) => new Set(takas.filter((t) => t.ready).map((t) => t.id));
+
 /* ------------------------------------------------------------------ */
 /* order card                                                           */
 /* ------------------------------------------------------------------ */
 
+/** "18 / 20 ready to send" + a thin progress bar, or a calm "All 20 ready" (the mill). */
+function Readiness({ order }: { order: ChallanPendingOrder }) {
+  const all = order.takaCount >= order.notSentCount;
+  const share = order.notSentCount > 0 ? order.takaCount / order.notSentCount : 0;
+  return (
+    <div className="mt-auto space-y-1.5 pt-2">
+      <div
+        className="h-1.5 overflow-hidden rounded-full bg-slate-100"
+        role="progressbar"
+        aria-valuemin={0}
+        aria-valuemax={order.notSentCount}
+        aria-valuenow={order.takaCount}
+        aria-label={`${order.takaCount} of ${order.notSentCount} ready to send`}
+      >
+        <div className={cn('h-full rounded-full transition-all duration-200', all ? 'bg-green-500' : 'bg-amber-500')} style={{ width: `${share * 100}%` }} />
+      </div>
+      <div className="flex items-baseline justify-between gap-2">
+        {all ? (
+          <p className="inline-flex items-center gap-1 text-[15px] font-semibold text-green-700">
+            <CheckCircle2 className="size-4" aria-hidden /> All {order.notSentCount} ready
+          </p>
+        ) : (
+          <p className="text-[15px] font-semibold tabular-nums text-slate-800">
+            {order.takaCount} <span className="font-medium text-slate-500">/ {order.notSentCount} ready to send</span>
+          </p>
+        )}
+        <p className="shrink-0 text-sm font-medium tabular-nums text-slate-500">{formatMeters(order.totalMeters)}</p>
+      </div>
+    </div>
+  );
+}
+
 function OrderCard({
+  kind,
   order,
   selectedCount,
   busy,
   onOpen,
   onToggle,
 }: {
-  order: ButtaPendingOrder;
+  kind: ChallanKind;
+  order: ChallanPendingOrder;
   selectedCount: number;
   busy: boolean;
   onOpen: () => void;
@@ -64,7 +110,7 @@ function OrderCard({
       }}
       aria-label={`Open the takas of order ${formatOrderNo(order.orderNo)}`}
       className={cn(
-        'relative flex h-full cursor-pointer flex-col overflow-hidden rounded-xl border bg-white shadow-soft outline-none transition hover:shadow-pop focus-visible:ring-2 focus-visible:ring-primary/40',
+        'relative flex h-full cursor-pointer flex-col overflow-hidden rounded-xl border bg-white shadow-soft outline-none transition duration-200 hover:shadow-pop focus-visible:ring-2 focus-visible:ring-primary/40',
         selectedCount > 0 ? 'border-primary ring-1 ring-primary/30' : 'border-border hover:border-primary/30',
       )}
     >
@@ -85,11 +131,15 @@ function OrderCard({
               checked={all}
               partial={partial}
               onCheckedChange={(c) => onToggle(c)}
-              aria-label={`Select all pending takas of order ${formatOrderNo(order.orderNo)}`}
+              aria-label={`Select all ready takas of order ${formatOrderNo(order.orderNo)}`}
               className="before:absolute before:-inset-2 before:content-['']"
             />
           )}
-          {partial && <span className="pr-1 text-xs font-bold text-primary">{selectedCount} of {order.takaCount}</span>}
+          {partial && (
+            <span className="pr-1 text-xs font-bold text-primary">
+              {selectedCount} of {order.takaCount}
+            </span>
+          )}
         </div>
       </div>
       <div className="flex flex-1 flex-col gap-1 p-4">
@@ -98,10 +148,14 @@ function OrderCard({
           {order.designCode ? `Design ${order.designCode}` : 'No design'}
           {order.quality && ` · ${order.quality}`}
         </p>
-        <p className="mt-auto pt-2 text-[15px] font-semibold text-slate-800">
-          {order.takaCount} pending {order.takaCount === 1 ? 'taka' : 'takas'}
-          <span className="font-medium text-slate-500"> · {formatMeters(order.totalMeters)}</span>
-        </p>
+        {kind === 'mill' ? (
+          <Readiness order={order} />
+        ) : (
+          <p className="mt-auto pt-2 text-[15px] font-semibold text-slate-800">
+            {order.takaCount} pending {order.takaCount === 1 ? 'taka' : 'takas'}
+            <span className="font-medium text-slate-500"> · {formatMeters(order.totalMeters)}</span>
+          </p>
+        )}
       </div>
     </article>
   );
@@ -112,29 +166,31 @@ function OrderCard({
 /* ------------------------------------------------------------------ */
 
 function TakasDrawer({
+  kind,
   order,
   selected,
   onSelected,
   onLoaded,
   onClose,
 }: {
-  order: ButtaPendingOrder | null;
+  kind: ChallanKind;
+  order: ChallanPendingOrder | null;
   selected: Set<number> | undefined;
   onSelected: (orderId: number, ids: Set<number>) => void;
-  onLoaded: (orderId: number, takas: ButtaPendingTaka[]) => void;
+  onLoaded: (orderId: number, takas: ChallanPendingTaka[]) => void;
   onClose: () => void;
 }) {
-  const query = usePendingOrderTakas(order?.orderId ?? null);
+  const query = usePendingOrderTakas(kind, order?.orderId ?? null);
   const takas = query.data?.takas;
   const initialised = useRef<number | null>(null);
 
-  // Opening an order selects all of its pending takas (the user can untick any); a selection made earlier is kept.
+  // Opening an order selects all of its READY takas (the user can untick any); a selection made earlier is kept.
   useEffect(() => {
     if (!order || !takas) return;
     onLoaded(order.orderId, takas);
     if (initialised.current !== order.orderId) {
       initialised.current = order.orderId;
-      if (!selected || selected.size === 0) onSelected(order.orderId, new Set(takas.map((t) => t.id)));
+      if (!selected || selected.size === 0) onSelected(order.orderId, readyIds(takas));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [order?.orderId, takas]);
@@ -143,9 +199,17 @@ function TakasDrawer({
   }, [order]);
 
   const ids = selected ?? new Set<number>();
-  const all = !!takas && takas.length > 0 && takas.every((t) => ids.has(t.id));
+  const ready = takas?.filter((t) => t.ready) ?? [];
+  const notReady = takas?.filter((t) => !t.ready) ?? [];
+  const all = ready.length > 0 && ready.every((t) => ids.has(t.id));
   const some = ids.size > 0;
   const meters = takas?.filter((t) => ids.has(t.id)).reduce((s, t) => s + (t.meters ?? 0), 0) ?? 0;
+  const toggle = (id: number, on: boolean) => {
+    const next = new Set(ids);
+    if (on) next.add(id);
+    else next.delete(id);
+    onSelected(order!.orderId, next);
+  };
 
   return (
     <Modal
@@ -175,15 +239,26 @@ function TakasDrawer({
         <ErrorState error={query.error} onRetry={() => void query.refetch()} />
       ) : (
         <div>
-          <label className="mb-2 flex min-h-12 cursor-pointer items-center gap-3 rounded-lg bg-slate-50 px-3 text-[15px] font-semibold text-slate-800">
+          {notReady.length > 0 && (
+            <p className="mb-3 rounded-lg bg-amber-50 px-3 py-2 text-sm font-medium text-amber-800">
+              {ready.length} of {takas.length} ready to send. The greyed takas can't be selected yet.
+            </p>
+          )}
+          <label
+            className={cn(
+              'mb-2 flex min-h-12 items-center gap-3 rounded-lg bg-slate-50 px-3 text-[15px] font-semibold text-slate-800',
+              ready.length > 0 ? 'cursor-pointer' : 'opacity-60',
+            )}
+          >
             <Checkbox
               size="lg"
               checked={all}
               partial={some && !all}
-              onCheckedChange={(c) => onSelected(order!.orderId, c ? new Set(takas.map((t) => t.id)) : new Set())}
-              aria-label="Select all takas"
+              disabled={ready.length === 0}
+              onCheckedChange={(c) => onSelected(order!.orderId, c ? readyIds(takas) : new Set())}
+              aria-label="Select all ready takas"
             />
-            Select all ({takas.length})
+            Select all ({ready.length})
           </label>
           <ul className="divide-y divide-border rounded-lg border border-border">
             {takas.map((t) => {
@@ -191,41 +266,40 @@ function TakasDrawer({
               return (
                 <li key={t.id}>
                   <div
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => {
-                      const next = new Set(ids);
-                      if (on) next.delete(t.id);
-                      else next.add(t.id);
-                      onSelected(order!.orderId, next);
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === ' ' || e.key === 'Enter') {
-                        e.preventDefault();
-                        const next = new Set(ids);
-                        if (on) next.delete(t.id);
-                        else next.add(t.id);
-                        onSelected(order!.orderId, next);
-                      }
-                    }}
-                    className={cn('flex min-h-14 cursor-pointer items-center gap-3 px-3 py-2 transition-colors', on ? 'bg-primary-soft/40' : 'hover:bg-slate-50')}
+                    role={t.ready ? 'button' : undefined}
+                    tabIndex={t.ready ? 0 : undefined}
+                    aria-disabled={!t.ready || undefined}
+                    onClick={t.ready ? () => toggle(t.id, !on) : undefined}
+                    onKeyDown={
+                      t.ready
+                        ? (e) => {
+                            if (e.key === ' ' || e.key === 'Enter') {
+                              e.preventDefault();
+                              toggle(t.id, !on);
+                            }
+                          }
+                        : undefined
+                    }
+                    className={cn(
+                      'flex min-h-14 items-center gap-3 px-3 py-2 transition-colors duration-150',
+                      t.ready ? cn('cursor-pointer', on ? 'bg-primary-soft/40' : 'hover:bg-slate-50') : 'bg-slate-50/70 text-slate-400',
+                    )}
                   >
-                    <Checkbox
-                      size="lg"
-                      checked={on}
-                      onCheckedChange={(c) => {
-                        const next = new Set(ids);
-                        if (c) next.add(t.id);
-                        else next.delete(t.id);
-                        onSelected(order!.orderId, next);
-                      }}
-                      aria-label={`Select taka ${t.takaNo}`}
-                    />
-                    <span className="text-xl font-bold tabular-nums text-slate-900">{t.takaNo}</span>
-                    <span className="ml-auto text-right text-[15px] font-semibold tabular-nums text-slate-600">
-                      {t.meters != null ? formatMeters(t.meters) : '—'}
+                    {t.ready ? (
+                      <Checkbox size="lg" checked={on} onCheckedChange={(c) => toggle(t.id, c)} aria-label={`Select taka ${t.takaNo}`} />
+                    ) : (
+                      <span className="size-7 shrink-0" aria-hidden />
+                    )}
+                    <span className={cn('text-xl font-bold tabular-nums', t.ready ? 'text-slate-900' : 'text-slate-400')}>{t.takaNo}</span>
+                    <span className="ml-auto text-right text-[15px] font-semibold tabular-nums">
+                      <span className={t.ready ? 'text-slate-600' : 'text-slate-400'}>{t.meters != null ? formatMeters(t.meters) : '—'}</span>
                       <span className="ml-2 text-slate-400">{t.pcs != null ? formatPcs(t.pcs) : '—'}</span>
                     </span>
+                    {!t.ready && (
+                      <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-slate-200/70 px-2.5 py-0.5 text-[11px] font-semibold text-slate-600">
+                        {takaStageStatusText(t.stage)}
+                      </span>
+                    )}
                     {t.isDamaged && (
                       <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-red-100 px-2 py-0.5 text-[11px] font-bold text-red-700">
                         <AlertTriangle className="size-3" aria-hidden /> Damage
@@ -243,30 +317,102 @@ function TakasDrawer({
 }
 
 /* ------------------------------------------------------------------ */
+/* not-ready warning                                                    */
+/* ------------------------------------------------------------------ */
+
+interface NotReadyGroup {
+  orderId: number;
+  orderNo: number;
+  takas: { id: number; takaNo: string; stage: string }[];
+}
+
+/** "Order #26: 2 takas not ready — 6251 (At butta cutting), 6252 (Butta QC pending)" for each selected order. */
+function NotReadyDialog({
+  open,
+  groups,
+  readyCount,
+  kind,
+  onCancel,
+  onContinue,
+}: {
+  open: boolean;
+  groups: NotReadyGroup[];
+  readyCount: number;
+  kind: ChallanKind;
+  onCancel: () => void;
+  onContinue: () => void;
+}) {
+  const place = CHALLAN_KIND_CONFIG[kind].place;
+  return (
+    <ResponsiveModal
+      open={open}
+      onOpenChange={(o) => !o && onCancel()}
+      title="Some takas are not ready"
+      description={`These takas can't go to ${place} yet. They stay behind and go on a later challan.`}
+      desktopVariant="center"
+      mobileVariant="bottom"
+      size="md"
+      footer={
+        <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto">
+          <Button variant="secondary" size="lg" className="h-12" onClick={onCancel}>
+            Cancel
+          </Button>
+          <Button size="lg" className="h-12" onClick={onContinue} disabled={readyCount === 0}>
+            Send ready takas only ({readyCount})
+          </Button>
+        </div>
+      }
+    >
+      <ul className="space-y-3 pb-1" role="alert">
+        {groups.map((g) => (
+          <li key={g.orderId} className="rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-3">
+            <p className="flex items-center gap-2 text-[15px] font-bold text-amber-900">
+              <AlertTriangle className="size-4 shrink-0" aria-hidden />
+              Order {formatOrderNo(g.orderNo)}: {g.takas.length} {g.takas.length === 1 ? 'taka' : 'takas'} not ready
+            </p>
+            <p className="mt-1 text-sm leading-relaxed text-amber-900/90">
+              {g.takas.map((t, i) => (
+                <span key={t.id}>
+                  {i > 0 && ', '}
+                  <b className="tabular-nums">{t.takaNo}</b> ({takaStageStatusText(t.stage)})
+                </span>
+              ))}
+            </p>
+          </li>
+        ))}
+      </ul>
+    </ResponsiveModal>
+  );
+}
+
+/* ------------------------------------------------------------------ */
 /* send confirmation                                                    */
 /* ------------------------------------------------------------------ */
 
 function SendDialog({
+  kind,
   open,
   onOpenChange,
   totals,
   takaIds,
   onSent,
 }: {
+  kind: ChallanKind;
   open: boolean;
   onOpenChange: (o: boolean) => void;
   totals: SelectedTotals;
   takaIds: number[];
   onSent: (challanId: number, challanNo: number) => void;
 }) {
-  const create = useCreateChallan();
+  const cfg = CHALLAN_KIND_CONFIG[kind];
+  const create = useCreateChallan(kind);
   const [partyId, setPartyId] = useState<number | null>(null);
   const [partyLabel, setPartyLabel] = useState<string>();
   const [partySearch, setPartySearch] = useState('');
   const [date, setDate] = useState(() => toApiDate(new Date()));
   const [eway, setEway] = useState('');
   const [partyError, setPartyError] = useState<string | null>(null);
-  const parties = useButtaPartyLookup(useDebounce(partySearch.trim(), 250), open);
+  const parties = usePartyLookup(kind, useDebounce(partySearch.trim(), 250), open);
   const options = useMemo(() => (parties.data ?? []).map((p) => ({ value: p.id, label: p.name })), [parties.data]);
 
   useEffect(() => {
@@ -281,14 +427,14 @@ function SendDialog({
 
   const submit = () => {
     if (!partyId) {
-      setPartyError('Select the butta party');
+      setPartyError(`Select the ${cfg.partyLabel.toLowerCase()}`);
       return;
     }
     create.mutate(
       { takaIds, partyId, challanDate: date, ewayNo: eway.trim() || null },
       {
         onSuccess: (res) => {
-          toast.success(`Challan GSM-${res.challanNo} created`);
+          toast.success(`Challan ${challanLabel(res.challanNo, kind)} created`);
           onSent(res.challanId, res.challanNo);
         },
         onError: (err) => {
@@ -302,7 +448,7 @@ function SendDialog({
     <ResponsiveModal
       open={open}
       onOpenChange={(o) => !create.isPending && onOpenChange(o)}
-      title="Send to butta cutting"
+      title={`Send to ${kind === 'butta' ? 'butta cutting' : 'mill'}`}
       desktopVariant="center"
       mobileVariant="bottom"
       size="md"
@@ -333,7 +479,7 @@ function SendDialog({
             <dd className="text-2xl font-bold tabular-nums text-slate-900">{totals.orders}</dd>
           </div>
         </dl>
-        <Field label="Butta party" htmlFor="send-party" required error={partyError ?? undefined}>
+        <Field label={cfg.partyLabel} htmlFor="send-party" required error={partyError ?? undefined}>
           <Select
             id="send-party"
             value={partyId}
@@ -349,7 +495,7 @@ function SendDialog({
             searchPlaceholder="Search parties…"
             onSearchChange={setPartySearch}
             loading={parties.isFetching}
-            emptyText="No butta parties yet — add one in the Butta parties master"
+            emptyText={`No ${cfg.partyLabel.toLowerCase()}s yet — add one in the ${cfg.partyLabel}s master`}
             invalid={!!partyError}
             triggerClassName="h-12 text-base"
           />
@@ -386,20 +532,25 @@ function GridSkeleton() {
   );
 }
 
-/** Orders with takas waiting for butta cutting: select orders / takas, then send them on one challan. */
-export function SendPending({ search }: { search: string }) {
+/**
+ * Orders with takas ready to send (butta cutting: waiting for it · mill: waiting for the mill): select orders / takas,
+ * then send them on one challan. Takas that are not ready yet are shown (greyed) in the drawer; sending with some of
+ * them left over asks first ("Send ready takas only").
+ */
+export function SendPending({ kind, search }: { kind: ChallanKind; search: string }) {
   const qc = useQueryClient();
   const navigate = useNavigate();
-  const query = usePendingOrders(search);
+  const query = usePendingOrders(kind, search);
   const [selection, setSelection] = useState<Selection>(new Map());
-  /** Meters of every taka we have seen (to total the selection). */
-  const [known, setKnown] = useState<Map<number, ButtaPendingTaka[]>>(new Map());
+  /** Every taka we have seen per order (to total the selection and to find the not-ready ones). */
+  const [known, setKnown] = useState<Map<number, ChallanPendingTaka[]>>(new Map());
   const [busy, setBusy] = useState<Set<number>>(new Set());
   const [openOrderId, setOpenOrderId] = useState<number | null>(null);
   const [sendOpen, setSendOpen] = useState(false);
+  const [warnOpen, setWarnOpen] = useState(false);
   const orders = query.items;
   const ordersById = useMemo(() => new Map(orders.map((o) => [o.orderId, o])), [orders]);
-  const openOrder = openOrderId !== null ? ordersById.get(openOrderId) ?? null : null;
+  const openOrder = openOrderId !== null ? (ordersById.get(openOrderId) ?? null) : null;
 
   // Drop selections of orders that are no longer pending (they were sent meanwhile).
   useEffect(() => {
@@ -417,18 +568,18 @@ export function SendPending({ search }: { search: string }) {
       else next.set(orderId, ids);
       return next;
     });
-  const rememberTakas = (orderId: number, takas: ButtaPendingTaka[]) => setKnown((prev) => new Map(prev).set(orderId, takas));
+  const rememberTakas = (orderId: number, takas: ChallanPendingTaka[]) => setKnown((prev) => new Map(prev).set(orderId, takas));
 
-  const toggleOrder = async (order: ButtaPendingOrder, checked: boolean) => {
+  const toggleOrder = async (order: ChallanPendingOrder, checked: boolean) => {
     if (!checked) {
       setOrderSelection(order.orderId, new Set());
       return;
     }
     setBusy((b) => new Set(b).add(order.orderId));
     try {
-      const res = await fetchPendingOrderTakas(qc, order.orderId);
+      const res = await fetchPendingOrderTakas(qc, kind, order.orderId);
       rememberTakas(order.orderId, res.takas);
-      setOrderSelection(order.orderId, new Set(res.takas.map((t) => t.id)));
+      setOrderSelection(order.orderId, readyIds(res.takas));
     } catch (err) {
       toast.error(errorMessage(err));
     } finally {
@@ -451,6 +602,22 @@ export function SendPending({ search }: { search: string }) {
   }, [selection, known]);
   const takaIds = useMemo(() => [...selection.values()].flatMap((s) => [...s]), [selection]);
 
+  /** The takas of the selected orders that are not ready (grouped by order, in the order list's order). */
+  const notReadyGroups = useMemo<NotReadyGroup[]>(() => {
+    const groups: NotReadyGroup[] = [];
+    for (const [orderId] of selection) {
+      const order = ordersById.get(orderId);
+      const { notReady } = splitReadyTakas(known.get(orderId) ?? [], kind);
+      if (order && notReady.length) groups.push({ orderId, orderNo: order.orderNo, takas: notReady.map((t) => ({ id: t.id, takaNo: t.takaNo, stage: t.stage })) });
+    }
+    return groups.sort((a, b) => a.orderNo - b.orderNo);
+  }, [selection, known, ordersById, kind]);
+
+  const trySend = () => {
+    if (notReadyGroups.length > 0) setWarnOpen(true);
+    else setSendOpen(true);
+  };
+
   if (query.isPending) return <GridSkeleton />;
   if (query.isError) return <ErrorState error={query.error} onRetry={() => void query.refetch()} />;
 
@@ -460,8 +627,14 @@ export function SendPending({ search }: { search: string }) {
         <div className="rounded-xl border border-border bg-white shadow-soft">
           <EmptyState
             icon={search ? SearchX : PackageOpen}
-            title={search ? 'No orders match your search' : 'Nothing waiting for butta cutting'}
-            description={search ? undefined : 'Takas appear here once the taka entry is done for orders that go for butta cutting.'}
+            title={search ? 'No orders match your search' : kind === 'butta' ? 'Nothing waiting for butta cutting' : 'Nothing ready for the mill'}
+            description={
+              search
+                ? undefined
+                : kind === 'butta'
+                  ? 'Takas appear here once the taka entry is done for orders that go for butta cutting.'
+                  : 'Takas appear here once their butta QC is done (or when the design skips butta cutting).'
+            }
           />
         </div>
       ) : (
@@ -470,6 +643,7 @@ export function SendPending({ search }: { search: string }) {
             {orders.map((o) => (
               <OrderCard
                 key={o.orderId}
+                kind={kind}
                 order={o}
                 selectedCount={selection.get(o.orderId)?.size ?? 0}
                 busy={busy.has(o.orderId)}
@@ -495,26 +669,42 @@ export function SendPending({ search }: { search: string }) {
           <div className="mx-auto flex flex-wrap items-center gap-2">
             <p className="mr-auto text-sm font-semibold text-slate-800">
               {totals.takas} {totals.takas === 1 ? 'taka' : 'takas'} · {formatMeters(totals.meters)} selected
-              <span className="hidden font-medium text-slate-500 sm:inline"> · {totals.orders} {totals.orders === 1 ? 'order' : 'orders'}</span>
+              <span className="hidden font-medium text-slate-500 sm:inline">
+                {' '}
+                · {totals.orders} {totals.orders === 1 ? 'order' : 'orders'}
+              </span>
             </p>
             <Button variant="secondary" size="lg" className="h-12" onClick={() => setSelection(new Map())}>
               <X /> Clear
             </Button>
-            <Button size="lg" className="h-12 flex-1 sm:flex-none" onClick={() => setSendOpen(true)}>
-              <Scissors /> Send to butta cutting
+            <Button size="lg" className="h-12 flex-1 sm:flex-none" onClick={trySend}>
+              {kind === 'butta' ? <Scissors /> : <Send />} Send to {kind === 'butta' ? 'butta cutting' : 'mill'}
             </Button>
           </div>
         </div>
       )}
 
       <TakasDrawer
+        kind={kind}
         order={openOrder}
         selected={openOrder ? selection.get(openOrder.orderId) : undefined}
         onSelected={setOrderSelection}
         onLoaded={rememberTakas}
         onClose={() => setOpenOrderId(null)}
       />
+      <NotReadyDialog
+        open={warnOpen}
+        groups={notReadyGroups}
+        readyCount={totals.takas}
+        kind={kind}
+        onCancel={() => setWarnOpen(false)}
+        onContinue={() => {
+          setWarnOpen(false);
+          setSendOpen(true);
+        }}
+      />
       <SendDialog
+        kind={kind}
         open={sendOpen}
         onOpenChange={setSendOpen}
         totals={totals}
@@ -523,7 +713,7 @@ export function SendPending({ search }: { search: string }) {
           setSendOpen(false);
           setSelection(new Map());
           // The challan preview with Print and Close.
-          navigate(`/print/challan/${challanId}?preview=1`);
+          navigate(`${challanPrintPath(kind, challanId)}?preview=1`);
         }}
       />
     </>

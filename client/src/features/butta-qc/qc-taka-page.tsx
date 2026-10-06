@@ -1,5 +1,5 @@
 import { AlertTriangle, ArrowLeft, CheckCircle2, Plus, SearchX, Trash2 } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import {
@@ -7,7 +7,9 @@ import {
   cleanMeters,
   cleanPcs,
   damageLabelOf,
+  damageOpenPcs,
   damageResolvedText,
+  damageResolveSummary,
   formatMeters,
   METERS_ERROR_TEXT,
   parseMeters,
@@ -22,16 +24,18 @@ import { Button } from '@/components/ui/button';
 import { ImageThumb } from '@/components/ui/image-thumb';
 import { JobsheetRef } from '@/components/ui/jobsheet-ref';
 import { ResponsiveModal } from '@/components/ui/modal';
+import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ApiError } from '@/lib/api';
 import { Bi, bi } from '@/lib/bilingual';
 import { formatDateTime } from '@/lib/format';
 import { cn } from '@/lib/utils';
-import { useSubmitQc, useTakaByNo } from '../butta/api';
-import { DamageDialog, entryLabel, entryPayload, nextEntryKey, type DamageEntry } from '../takas/damage-dialog';
+import { DamageDialog, entryLabel, nextEntryKey, qcEntryPayload, type DamageEntry } from '../takas/damage-dialog';
+import { useSubmitQc, useTakaByNo } from './api';
 import { FreshTag } from '../takas/taka-chip';
 
-type Decision = 'resolved' | 'kept';
+/** The pcs a taka damage still has open (older damages without pcs: unknown until typed). */
+const openOf = (d: { pcs: number | null; resolvedPcs: number; status: string }) => damageOpenPcs(d);
 
 const fieldBox = (invalid: boolean) =>
   cn(
@@ -73,7 +77,11 @@ function IdentityCard({ taka }: { taka: TakaDetail }) {
       <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-border pt-3 text-sm text-slate-600">
         <span className="font-semibold text-slate-800">{taka.design.code ?? 'No design'}</span>
         {taka.quality && <span>{taka.quality}</span>}
-        {taka.challan && <span className="font-semibold text-amber-700">{challanLabel(taka.challan.challanNo)}</span>}
+        {taka.challans.map((c) => (
+          <span key={c.id} className="font-semibold text-amber-700">
+            {challanLabel(c.challanNo, c.kind)}
+          </span>
+        ))}
       </div>
     </section>
   );
@@ -83,7 +91,8 @@ function IdentityCard({ taka }: { taka: TakaDetail }) {
 
 /** Read-only summary of a taka that is already checked (or never went for butta cutting). */
 function ReadOnlySummary({ taka }: { taka: TakaDetail }) {
-  const checked = !!taka.challan;
+  const buttaChallan = taka.challans.find((c) => c.kind === 'butta');
+  const checked = !!buttaChallan;
   return (
     <div className="page-container max-w-2xl space-y-4 pt-3 md:pt-5">
       <IdentityCard taka={taka} />
@@ -106,10 +115,10 @@ function ReadOnlySummary({ taka }: { taka: TakaDetail }) {
             <dt className="text-[13px] text-muted-foreground">Pcs / पीस</dt>
             <dd className="font-bold text-slate-900">{taka.pcs ?? '—'}</dd>
           </div>
-          {taka.challan?.receivedAt && (
+          {buttaChallan?.receivedAt && (
             <div className="col-span-2">
               <dt className="text-[13px] text-muted-foreground">Received / वापस आया</dt>
-              <dd className="font-semibold text-slate-900">{formatDateTime(taka.challan.receivedAt)}</dd>
+              <dd className="font-semibold text-slate-900">{formatDateTime(buttaChallan.receivedAt)}</dd>
             </div>
           )}
         </dl>
@@ -146,13 +155,95 @@ function ReadOnlySummary({ taka }: { taka: TakaDetail }) {
   );
 }
 
+/** "How many pcs resolved?" — prefilled with all the pcs still damaged, editable from 1 to that number. */
+function ResolveDialog({
+  damage,
+  openPcs,
+  current,
+  onCancel,
+  onSave,
+}: {
+  damage: { id: number; damageName: string | null } | null;
+  openPcs: number;
+  current: number | undefined;
+  onCancel: () => void;
+  onSave: (pcs: number) => void;
+}) {
+  const [text, setText] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    if (damage) {
+      setText(String(current && current > 0 ? current : openPcs));
+      setError(null);
+    }
+  }, [damage?.id, openPcs, current]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const save = () => {
+    const n = /^\d+$/.test(text) ? Number(text) : NaN;
+    if (!Number.isFinite(n) || n < 1 || n > openPcs) {
+      setError(`Enter 1 to ${openPcs} / 1 से ${openPcs} लिखें`);
+      return;
+    }
+    onSave(n);
+  };
+
+  return (
+    <ResponsiveModal
+      open={!!damage}
+      onOpenChange={(o) => !o && onCancel()}
+      title={bi('How many pcs resolved?', 'कितने पीस ठीक हुए?')}
+      description={damage?.damageName ?? undefined}
+      desktopVariant="center"
+      mobileVariant="bottom"
+      size="sm"
+      footer={
+        <div className="grid w-full grid-cols-2 gap-2">
+          <Button variant="secondary" size="lg" className="h-14" onClick={onCancel}>
+            <Bi en="Cancel" hi="रद्द करें" className="items-center" />
+          </Button>
+          <Button size="lg" className="h-14 bg-green-600 hover:bg-green-700" onClick={save}>
+            <Bi en="Save" hi="सेव करें" className="items-center" />
+          </Button>
+        </div>
+      }
+    >
+      <div className="space-y-2 pb-1">
+        <Input
+          autoFocus
+          inputMode="numeric"
+          autoComplete="off"
+          value={text}
+          invalid={!!error}
+          onChange={(e) => {
+            setText(cleanPcs(e.target.value));
+            setError(null);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              save();
+            }
+          }}
+          className="h-14 text-2xl font-bold tabular-nums"
+          aria-label={bi('Pcs resolved', 'ठीक हुए पीस')}
+        />
+        <p className={cn('text-sm', error ? 'font-semibold text-destructive' : 'text-slate-500')}>
+          {error ?? `${openPcs} pcs are damaged / ${openPcs} पीस खराब हैं`}
+        </p>
+      </div>
+    </ResponsiveModal>
+  );
+}
+
 function QcForm({ taka }: { taka: TakaDetail }) {
   const navigate = useNavigate();
   const submitQc = useSubmitQc(taka.id);
   const open = useMemo(() => taka.damages.filter((d) => d.status === 'open'), [taka]);
   const [meters, setMeters] = useState(taka.meters != null ? String(taka.meters) : '');
   const [pcs, setPcs] = useState(taka.pcs != null ? String(taka.pcs) : '');
-  const [decisions, setDecisions] = useState<Map<number, Decision>>(new Map());
+  /** damage id → pcs resolved now (0 = not resolved). No entry = not answered yet. */
+  const [decisions, setDecisions] = useState<Map<number, number>>(new Map());
+  const [resolving, setResolving] = useState<number | null>(null);
   const [damagePcs, setDamagePcs] = useState<Map<number, string>>(new Map());
   const [added, setAdded] = useState<DamageEntry[]>([]);
   const [addOpen, setAddOpen] = useState(false);
@@ -169,8 +260,8 @@ function QcForm({ taka }: { taka: TakaDetail }) {
     return /^\d+$/.test(raw) && Number(raw) >= 1 ? Number(raw) : null;
   };
   const issues = validateQcDecisions(
-    open.map((d) => ({ id: d.id, pcs: d.pcs })),
-    open.flatMap((d) => (decisions.has(d.id) ? [{ takaDamageId: d.id, resolved: decisions.get(d.id) === 'resolved', pcs: typedPcs(d.id) }] : [])),
+    open.map((d) => ({ id: d.id, pcs: d.pcs, resolvedPcs: d.resolvedPcs })),
+    open.flatMap((d) => (decisions.has(d.id) ? [{ takaDamageId: d.id, resolvedPcs: decisions.get(d.id)!, pcs: typedPcs(d.id) }] : [])),
     takaPcs ?? 9999,
   );
   const newTooBig = added.some((e) => takaPcs !== null && (e.pcs ?? 0) > takaPcs);
@@ -187,8 +278,8 @@ function QcForm({ taka }: { taka: TakaDetail }) {
       {
         meters: metersParsed.meters,
         pcs: pcsParsed.pcs!,
-        damageDecisions: open.map((d) => ({ takaDamageId: d.id, resolved: decisions.get(d.id) === 'resolved', pcs: d.pcs === null ? typedPcs(d.id) : null })),
-        newDamages: added.map(entryPayload),
+        damageDecisions: open.map((d) => ({ takaDamageId: d.id, resolvedPcs: decisions.get(d.id) ?? 0, pcs: d.pcs === null ? typedPcs(d.id) : null })),
+        newDamages: added.map(qcEntryPayload),
       },
       {
         onSuccess: () => {
@@ -204,8 +295,10 @@ function QcForm({ taka }: { taka: TakaDetail }) {
     );
   };
 
-  const resolvedN = open.filter((d) => decisions.get(d.id) === 'resolved').length;
-  const keptN = open.filter((d) => decisions.get(d.id) === 'kept').length;
+  const pcsOpen = (d: (typeof open)[number]) => (openOf(d) ?? typedPcs(d.id) ?? 0);
+  const resolvedN = open.filter((d) => (decisions.get(d.id) ?? 0) > 0 && decisions.get(d.id) === pcsOpen(d)).length;
+  const partialN = open.filter((d) => (decisions.get(d.id) ?? 0) > 0 && decisions.get(d.id)! < pcsOpen(d)).length;
+  const keptN = open.filter((d) => decisions.has(d.id) && decisions.get(d.id) === 0).length;
   const metersChanged = (metersParsed.meters ?? null) !== taka.meters;
   const pcsChanged = pcsParsed.pcs !== null && pcsParsed.pcs !== taka.pcs;
 
@@ -281,18 +374,24 @@ function QcForm({ taka }: { taka: TakaDetail }) {
           </h2>
           <ul className="space-y-3">
             {open.map((d) => {
-              const decision = decisions.get(d.id);
+              const answer = decisions.get(d.id);
               const needsPcs = d.pcs === null;
-              const shownPcs = d.pcs ?? typedPcs(d.id);
+              const open0 = pcsOpen(d);
               const unanswered = showErrors && issues.unanswered.includes(d.id);
               const pcsMissing = showErrors && issues.pcsMissing.includes(d.id);
               const tooBig = issues.pcsTooBig.includes(d.id);
+              const total = d.pcs ?? typedPcs(d.id);
+              const summary =
+                answer !== undefined && answer > 0 && total !== null
+                  ? damageResolveSummary({ pcs: total, resolvedPcs: d.resolvedPcs + answer, status: 'open' })
+                  : null;
+              const full = answer !== undefined && answer > 0 && answer >= open0;
               return (
                 <li key={d.id} className={cn('rounded-xl border bg-white p-3.5', unanswered || pcsMissing || tooBig ? 'border-destructive' : 'border-red-200')}>
                   <p className="text-lg font-bold text-red-700">{d.damageName ?? 'No damage name'}</p>
                   <p className="text-sm font-semibold text-slate-600">
                     {damageLabelOf({ foundAt: d.foundAt })}
-                    {d.pcs != null && <span className="ml-2 text-red-600">· {d.pcs} pcs</span>}
+                    {d.pcs != null && <span className="ml-2 text-red-600">· {open0} pcs{d.resolvedPcs > 0 && ` (${d.resolvedPcs} resolved)`}</span>}
                   </p>
                   {needsPcs && (
                     <div className="mt-2">
@@ -303,7 +402,15 @@ function QcForm({ taka }: { taka: TakaDetail }) {
                       <input
                         id={`qc-dpcs-${d.id}`}
                         value={damagePcs.get(d.id) ?? ''}
-                        onChange={(e) => setDamagePcs((prev) => new Map(prev).set(d.id, cleanPcs(e.target.value)))}
+                        onChange={(e) => {
+                          setDamagePcs((prev) => new Map(prev).set(d.id, cleanPcs(e.target.value)));
+                          // The answer depended on the old count: ask again.
+                          setDecisions((prev) => {
+                            const next = new Map(prev);
+                            next.delete(d.id);
+                            return next;
+                          });
+                        }}
                         inputMode="numeric"
                         autoComplete="off"
                         aria-invalid={pcsMissing || tooBig || undefined}
@@ -317,42 +424,49 @@ function QcForm({ taka }: { taka: TakaDetail }) {
                       )}
                     </div>
                   )}
-                  <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
-                    <button
-                      type="button"
-                      onClick={() => setDecisions((prev) => new Map(prev).set(d.id, 'resolved'))}
-                      aria-pressed={decision === 'resolved'}
+                  {answer === undefined ? (
+                    <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                      <button
+                        type="button"
+                        disabled={open0 <= 0}
+                        onClick={() => setResolving(d.id)}
+                        className="flex min-h-14 items-center justify-center gap-2 rounded-xl border-2 border-green-300 bg-white px-3 text-base font-bold text-green-700 transition-colors hover:bg-green-50 disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        <CheckCircle2 className="size-5 shrink-0" aria-hidden />
+                        <Bi en="Resolve" hi="ठीक करें" layout="inline" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setDecisions((prev) => new Map(prev).set(d.id, 0))}
+                        className="flex min-h-14 items-center justify-center gap-2 rounded-xl border-2 border-red-300 bg-white px-3 text-base font-bold text-red-700 transition-colors hover:bg-red-50"
+                      >
+                        <AlertTriangle className="size-5 shrink-0" aria-hidden />
+                        <Bi en="Not resolved" hi="ठीक नहीं" layout="inline" />
+                      </button>
+                    </div>
+                  ) : (
+                    <div
                       className={cn(
-                        'flex min-h-14 items-center justify-center gap-2 rounded-xl border-2 px-3 text-base font-bold transition-colors',
-                        decision === 'resolved' ? 'border-green-600 bg-green-600 text-white' : 'border-green-300 bg-white text-green-700 hover:bg-green-50',
+                        'mt-3 flex items-center gap-2 rounded-xl border px-3 py-2.5',
+                        answer === 0 ? 'border-red-200 bg-red-50' : full ? 'border-green-200 bg-green-50' : 'border-amber-200 bg-amber-50',
                       )}
                     >
-                      <CheckCircle2 className="size-5 shrink-0" aria-hidden />
-                      <span className="flex flex-col text-left leading-tight">
-                        <span>Resolved — all {shownPcs ?? 'N'} pcs</span>
-                        <span lang="hi" className="text-[13px]">
-                          सब ठीक
-                        </span>
-                      </span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setDecisions((prev) => new Map(prev).set(d.id, 'kept'))}
-                      aria-pressed={decision === 'kept'}
-                      className={cn(
-                        'flex min-h-14 items-center justify-center gap-2 rounded-xl border-2 px-3 text-base font-bold transition-colors',
-                        decision === 'kept' ? 'border-red-600 bg-red-600 text-white' : 'border-red-300 bg-white text-red-700 hover:bg-red-50',
-                      )}
-                    >
-                      <AlertTriangle className="size-5 shrink-0" aria-hidden />
-                      <span className="flex flex-col text-left leading-tight">
-                        <span>Not resolved</span>
-                        <span lang="hi" className="text-[13px]">
-                          ठीक नहीं
-                        </span>
-                      </span>
-                    </button>
-                  </div>
+                      <p className={cn('min-w-0 flex-1 text-[15px] font-bold', answer === 0 ? 'text-red-700' : full ? 'text-green-700' : 'text-amber-700')}>
+                        {answer === 0 ? (
+                          <Bi en="Not resolved" hi="ठीक नहीं" layout="inline" />
+                        ) : (
+                          (summary ?? `Resolved ${answer} pcs`)
+                        )}
+                      </p>
+                      <Button variant="secondary" size="sm" className="h-10" onClick={() => setDecisions((prev) => {
+                        const next = new Map(prev);
+                        next.delete(d.id);
+                        return next;
+                      })}>
+                        <Bi en="Change" hi="बदलें" layout="inline" />
+                      </Button>
+                    </div>
+                  )}
                   {unanswered && (
                     <p role="alert" className="mt-2 text-sm font-semibold text-destructive">
                       Choose one / <span lang="hi">एक चुनें</span>
@@ -372,7 +486,10 @@ function QcForm({ taka }: { taka: TakaDetail }) {
             {added.map((e) => (
               <li key={e.key} className="flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2">
                 <AlertTriangle className="size-5 shrink-0 text-red-600" aria-hidden />
-                <span className="min-w-0 flex-1 text-[15px] font-bold text-red-700">{entryLabel(e)}</span>
+                <span className="min-w-0 flex-1 text-[15px] font-bold text-red-700">
+                  {entryLabel(e)}
+                  {!!e.images?.length && <span className="ml-2 text-xs font-semibold text-slate-500">· {e.images.length} {e.images.length === 1 ? 'photo' : 'photos'}</span>}
+                </span>
                 <Button
                   variant="ghost"
                   size="sm"
@@ -417,7 +534,22 @@ function QcForm({ taka }: { taka: TakaDetail }) {
         foundAt="butta"
         takaPcs={takaPcs}
         value={null}
-        onConfirm={(v) => setAdded((prev) => [...prev, { key: nextEntryKey(), foundAt: 'butta', choice: v.choice, pcs: v.pcs }])}
+        allowImages
+        onConfirm={(v) => setAdded((prev) => [...prev, { key: nextEntryKey(), foundAt: 'butta', choice: v.choice, pcs: v.pcs, images: v.images }])}
+      />
+
+      <ResolveDialog
+        damage={open.find((d) => d.id === resolving) ?? null}
+        openPcs={(() => {
+          const d = open.find((x) => x.id === resolving);
+          return d ? pcsOpen(d) : 0;
+        })()}
+        current={resolving !== null ? decisions.get(resolving) : undefined}
+        onCancel={() => setResolving(null)}
+        onSave={(n) => {
+          setDecisions((prev) => new Map(prev).set(resolving!, n));
+          setResolving(null);
+        }}
       />
 
       <ResponsiveModal
@@ -467,6 +599,11 @@ function QcForm({ taka }: { taka: TakaDetail }) {
             {resolvedN > 0 && (
               <li className="text-green-700">
                 Resolved / <span lang="hi">ठीक हुई</span>: {resolvedN}
+              </li>
+            )}
+            {partialN > 0 && (
+              <li className="text-amber-700">
+                Partly resolved / <span lang="hi">कुछ ठीक हुई</span>: {partialN}
               </li>
             )}
             {keptN > 0 && (

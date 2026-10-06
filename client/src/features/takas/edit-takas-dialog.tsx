@@ -32,7 +32,6 @@ import { useEditTakas } from './api';
 import { editEntryPayload, entriesOfTaka, entryLabel as entryLabelText, entrySignature, TakaDamageControl, type DamageEntry } from './damage-dialog';
 import { takaErrorText, useUsedTakaNumbers } from './taka-check';
 import { TakaDamageLines } from './taka-chip';
-import { TakaNoKeys } from './taka-no-keys';
 
 export interface EditTakasTarget {
   jobsheetId: number;
@@ -97,7 +96,6 @@ export function EditTakasDialog({ target, onClose }: { target: EditTakasTarget |
   const [note, setNote] = useState('');
   const [serverError, setServerError] = useState<{ key: number; message: string } | null>(null);
   const [showErrors, setShowErrors] = useState(false);
-  const [focusedKey, setFocusedKey] = useState<number | null>(null);
   const inputs = useRef(new Map<number, HTMLInputElement>());
 
   useEffect(() => {
@@ -254,9 +252,7 @@ export function EditTakasDialog({ target, onClose }: { target: EditTakasTarget |
                               const value = cleanTakaNo(e.target.value);
                               setRow(r.key, value ? { value } : { value, meters: '', pcs: '', damages: [] });
                             }}
-                            onFocus={() => setFocusedKey(r.key)}
-                            onBlur={() => setFocusedKey((k) => (k === r.key ? null : k))}
-                            inputMode="numeric"
+                            inputMode="tel"
                             autoComplete="off"
                             maxLength={TAKA_NO_MAX_LENGTH}
                             aria-label={`Taka ${i + 1} number`}
@@ -312,9 +308,6 @@ export function EditTakasDialog({ target, onClose }: { target: EditTakasTarget |
                           {removeButton('hidden md:flex')}
                         </div>
                       </div>
-                      {focusedKey === r.key && (
-                        <TakaNoKeys className="ml-8 mt-1.5" size="md" input={() => inputs.current.get(r.key)} onValue={(value) => setRow(r.key, { value })} />
-                      )}
                       {(r.damages.length > 0 || r.resolved.length > 0) && (
                         <div className="ml-8 mt-1.5">
                           <ul className="space-y-0.5">
