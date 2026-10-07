@@ -1,6 +1,7 @@
 import { and, desc, eq, inArray, sql, type SQL } from 'drizzle-orm';
 import {
   compareTakaNo,
+  DAMAGE_TYPES,
   godownKpis,
   godownListQuerySchema,
   godownRefinishSchema,
@@ -16,10 +17,11 @@ import {
   validateSplit,
   type GodownListQuery,
   type GodownOrder,
+  type GodownDamages,
   type GodownOrderPage,
+  type GodownPcsKpis,
   type GodownSplitResult,
   type GodownTaka,
-  type OrderDamages,
   type ReadyDispatchResult,
   type RoleKey,
 } from '@rivoora/shared';
@@ -113,7 +115,7 @@ export async function listGodownOrders(q: GodownListQuery): Promise<GodownOrderP
 
 /** GET /godown/orders/:orderId — header, KPIs, the final takas (+ the ones already ready to dispatch). */
 export async function getGodownOrder(orderId: number): Promise<GodownOrder> {
-  const [orderRows, takaRows] = await db.batch([
+  const [orderRows, takaRows, damagedRows] = await db.batch([
     db
       .select({
         orderId: orders.id,
@@ -146,10 +148,34 @@ export async function getGodownOrder(orderId: number): Promise<GodownOrder> {
       .from(takas)
       .innerJoin(jobsheets, eq(jobsheets.id, takas.jobsheetId))
       .where(and(eq(takas.orderId, orderId), eq(takas.isDeleted, false), eq(jobsheets.isDeleted, false))),
+    // Open damaged pcs (pcs − resolved_pcs) on the godown stock — same definition as the Inventory.
+    db
+      .select({ pcs: sql<number | null>`SUM(MAX(${takaDamages.pcs} - ${takaDamages.resolvedPcs}, 0))` })
+      .from(takaDamages)
+      .innerJoin(takas, eq(takas.id, takaDamages.takaId))
+      .innerJoin(jobsheets, eq(jobsheets.id, takas.jobsheetId))
+      .where(
+        and(
+          eq(takas.orderId, orderId),
+          eq(takas.isDeleted, false),
+          eq(jobsheets.isDeleted, false),
+          inArray(takas.stage, ['final', 'ready_dispatch']),
+          eq(takaDamages.status, 'open'),
+          eq(takaDamages.isDeleted, false),
+        ),
+      ),
   ]);
   const order = orderRows[0];
   if (!order) throw notFound('Order');
   const kpis = godownKpis(takaRows.map((t) => ({ stage: t.stage, pcs: t.pcs, actualPcs: t.actualPcs, checked: t.godownCheckedAt !== null })));
+  const stagePcs = (stage: string) => takaRows.filter((t) => t.stage === stage).reduce((n, t) => n + (takaActualPcs(t) ?? 0), 0);
+  const pcsKpis: GodownPcsKpis = {
+    readyDispatchPcs: stagePcs('ready_dispatch'),
+    readyDispatchTakas: takaRows.filter((t) => t.stage === 'ready_dispatch').length,
+    refinishPcs: stagePcs('refinish'),
+    refinishTakas: kpis.refinish,
+    damagedPcs: Number(damagedRows[0]?.pcs ?? 0),
+  };
   const list: GodownTaka[] = takaRows
     .filter((t) => t.stage === 'final' || t.stage === 'ready_dispatch')
     .map(({ godownCheckedAt, ...t }) => ({ ...t, checked: godownCheckedAt !== null, checkedAt: godownCheckedAt }))
@@ -157,6 +183,7 @@ export async function getGodownOrder(orderId: number): Promise<GodownOrder> {
   return {
     ...order,
     kpis,
+    pcsKpis,
     takas: list,
     orderTakaNos: takaRows.map((t) => t.takaNo),
   };
@@ -472,11 +499,16 @@ export async function confirmReadyDispatch(role: RoleKey, orderId: number, input
 /* ------------------------------------------------------------------ */
 
 /** GET /godown/orders/:orderId/damages — the order's takas with OPEN damage, with photos (read-only). */
-export async function getGodownDamages(role: RoleKey, orderId: number): Promise<OrderDamages> {
+export async function getGodownDamages(role: RoleKey, orderId: number): Promise<GodownDamages> {
   const data = await getOrderDamages(role, orderId, {});
   const ids = data.items.flatMap((t) => t.damages.map((d) => d.id));
   const images = await damageImagesOf(ids);
   for (const t of data.items) for (const d of t.damages) d.images = images.get(d.id) ?? [];
-  return data;
+  const states = ['final', 'ready_dispatch', 'refinish'] as const;
+  return {
+    ...data,
+    stateCounts: states.map((state) => ({ state, count: data.items.filter((t) => t.stage === state).length })),
+    typeCounts: DAMAGE_TYPES.map((type) => ({ type, count: data.items.filter((t) => t.damages.some((d) => d.foundAt === type)).length })),
+  };
 }
 

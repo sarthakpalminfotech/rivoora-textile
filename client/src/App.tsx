@@ -44,6 +44,9 @@ const MillQcTakaPage = lazy(() => import('@/features/mill-qc/qc-taka-page'));
 const GodownOrdersPage = lazy(() => import('@/features/godown/godown-orders-page'));
 const GodownOrderPage = lazy(() => import('@/features/godown/godown-order-page'));
 const SplitPage = lazy(() => import('@/features/godown/split-page'));
+const InventoryPage = lazy(() => import('@/features/inventory/inventory-page'));
+const InventoryItemDetailsPage = lazy(() => import('@/features/inventory/item-details-page'));
+const DamagedDetailsPage = lazy(() => import('@/features/inventory/damaged-details-page'));
 const NotFoundPage = lazy(() => import('@/pages/not-found-page'));
 
 const guard = (permission: keyof RolePermissions, element: ReactNode) => (
@@ -147,6 +150,10 @@ const router = createBrowserRouter([
           { path: 'godown/orders/:orderId', element: guard('canUseGodownOrders', <GodownOrderPage />) },
           { path: 'godown/orders/:orderId/split/:takaId', element: guard('canUseGodownOrders', <SplitPage />) },
           { path: 'godown/orders/:orderId/takas/:takaId/damages', element: guard('canUseGodownOrders', <DamageDetailsPage />) },
+          // Inventory (Jemish / Gaurang): design-wise pcs, damaged stock.
+          { path: 'inventory', element: guard('canViewInventory', <InventoryPage />) },
+          { path: 'inventory/items/:key', element: guard('canViewInventory', <InventoryItemDetailsPage />) },
+          { path: 'inventory/damaged/:key', element: guard('canViewInventory', <DamagedDetailsPage />) },
           { path: 'jobsheets', element: <JobsheetsRoute /> },
           // The supervisor's Order view: one order's jobsheets.
           { path: 'jobsheets/order/:orderId', element: guard('canViewJobsheetsModule', <SupervisorOrderJobsheetsPage />) },

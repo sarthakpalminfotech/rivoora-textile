@@ -1095,6 +1095,8 @@ export interface GodownOrder {
   quality: string | null;
   orderedPcs: number;
   kpis: import('./godown').GodownKpis;
+  /** Sprint 10: pcs tiles (ready for dispatch / refinish / damaged). */
+  pcsKpis: GodownPcsKpis;
   /** Final takas (in the godown) and the ones already ready to dispatch, by taka number. */
   takas: GodownTaka[];
   /** Every active taka number of the order (the split screen suggests the next free letter from these). */
@@ -1115,3 +1117,112 @@ export interface ReadyDispatchResult {
   pcs: number;
 }
 
+
+/* ---------- Inventory (Sprint 10) ---------- */
+
+/** The pcs figures of one item / of everything (see `orderInventoryPcs` in inventory.ts). */
+export type InventoryFigures = import('./inventory').InventoryPcs;
+
+/** GET /inventory/summary — the top KPIs. */
+export interface InventorySummary {
+  totals: InventoryFigures;
+  /** Ready for dispatch + in godown. */
+  totalInGodown: number;
+  /** Orders in meters / kg / g that are left out. */
+  excludedOrders: number;
+}
+
+/** The header of an inventory item (a design or a variation, or "Without design"). */
+export interface InventoryItemHeader {
+  /** `d-<designId>` | `v-<variationId>` | `none` */
+  key: string;
+  /** Null for "Without design". */
+  code: string | null;
+  name: string | null;
+  /** The base design's code when the item is a variation. */
+  variationOf: string | null;
+  /** The design's default quality (material), if any. */
+  quality: string | null;
+  thumbUrl: string | null;
+  imageUrl: string | null;
+}
+
+/** One card of the All designs grid. */
+export interface InventoryItemCard extends InventoryItemHeader {
+  pcs: InventoryFigures;
+}
+
+/** GET /inventory/items/:key */
+export interface InventoryItemDetail extends InventoryItemHeader {
+  pcs: InventoryFigures;
+}
+
+/** One order of an item (GET /inventory/items/:key/orders). */
+export interface InventoryOrderRow {
+  orderId: number;
+  orderNo: number;
+  customerName: string;
+  status: OrderStatusKey;
+  orderedPcs: number;
+  /** Ready for dispatch pcs. */
+  readyPcs: number;
+  orderDate: string;
+}
+
+/** One card of the Damaged grid. */
+export interface DamagedItemCard extends InventoryItemHeader {
+  damaged: number;
+  inRefinish: number;
+  /** Null until the stock wipe-out flow exists (a later sprint). */
+  lastClearedAt: string | null;
+}
+
+/** GET /inventory/damaged/:key */
+export interface DamagedItemDetail extends InventoryItemHeader {
+  damaged: number;
+  inRefinish: number;
+  lastClearedAt: string | null;
+  /** Damaged takas with an OPEN damage of this type (types with 0 included; the client hides them). */
+  typeCounts: { type: DamageType; count: number }[];
+  /** All listed takas (damaged stock + refinish). */
+  totalTakas: number;
+  refinishTakas: number;
+}
+
+/** One row of the damaged item's taka list. */
+export interface DamagedTakaRow {
+  id: number;
+  takaNo: string;
+  orderId: number;
+  orderNo: number;
+  stage: TakaStage;
+  /** When the latest open damage was recorded (the taka's date when it has none). */
+  recordedAt: string;
+  /** Types of the open damages, e.g. ['machine', 'mill']. */
+  types: DamageType[];
+  /** Open damage names (for the search and a tooltip). */
+  names: string[];
+  isRefinish: boolean;
+}
+
+/* Godown order screen (Sprint 10): pcs KPIs + the Damage tab's state per taka. */
+
+export interface GodownPcsKpis {
+  readyDispatchPcs: number;
+  readyDispatchTakas: number;
+  refinishPcs: number;
+  refinishTakas: number;
+  /** Open damaged pcs on the order's final / ready-for-dispatch takas. */
+  damagedPcs: number;
+}
+
+/** The state shown on a damaged taka card of the godown Damage tab. */
+export type GodownDamageState = 'final' | 'ready_dispatch' | 'refinish';
+
+/** GET /godown/orders/:orderId/damages — the order's damages + the numbers behind the filter chips. */
+export interface GodownDamages extends OrderDamages {
+  /** Damaged takas per state (final / ready for dispatch / refinish). */
+  stateCounts: { state: GodownDamageState; count: number }[];
+  /** Damaged takas per damage type (takas with an OPEN damage of that type). */
+  typeCounts: { type: DamageType; count: number }[];
+}

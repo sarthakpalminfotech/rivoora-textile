@@ -58,6 +58,8 @@ export interface RolePermissions {
   canMillQc: boolean;
   /** Godown Orders module (/godown/orders): final takas, split, ready to dispatch. */
   canUseGodownOrders: boolean;
+  /** Inventory module (/inventory): design-wise pcs, damaged stock. Jemish + Gaurang only (order lists show client names). */
+  canViewInventory: boolean;
 }
 
 export interface RoleConfig {
@@ -76,7 +78,7 @@ export interface RoleConfig {
 
 const NO_TAKAS = { canUseTakaModules: false, canEnterTakas: false, canEditTakas: false, canViewTakas: false };
 const NO_BUTTA = { canUseButtaModule: false, canCancelChallan: false, canManageButtaParties: false, canButtaQc: false };
-const NO_MILL = { canUseMillModule: false, canManageMillParties: false, canMillQc: false, canUseGodownOrders: false };
+const NO_MILL = { canUseMillModule: false, canManageMillParties: false, canMillQc: false, canUseGodownOrders: false, canViewInventory: false };
 /** Everything off — the base of the two Sprint 7 roles, which only get what they need. */
 const NOTHING = {
   canViewOrders: false,
@@ -133,6 +135,7 @@ export const ROLES: Record<RoleKey, RoleConfig> = {
       canManageMillParties: true,
       canMillQc: false,
       canUseGodownOrders: true,
+      canViewInventory: true,
     },
   },
   gaurang: {
@@ -169,6 +172,7 @@ export const ROLES: Record<RoleKey, RoleConfig> = {
       canManageMillParties: true,
       canMillQc: false,
       canUseGodownOrders: true,
+      canViewInventory: true,
     },
   },
   supervisor: {

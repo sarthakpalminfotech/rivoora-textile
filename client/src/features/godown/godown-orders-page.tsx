@@ -38,15 +38,15 @@ function OrderCard({ order }: { order: GodownOrderCard }) {
           rounded="rounded-xl"
         />
         <div className="min-w-0 flex-1">
-          <p className="text-2xl font-extrabold leading-tight tracking-tight text-slate-900">Order {formatOrderNo(order.orderNo)}</p>
+          <p className="whitespace-nowrap text-2xl font-extrabold leading-tight tracking-tight text-slate-900">Order {formatOrderNo(order.orderNo)}</p>
           <p className="truncate text-[15px] font-semibold text-slate-600">{order.designCode ? `Design ${order.designCode}` : 'No design'}</p>
-          <p className="mt-0.5 text-sm font-medium tabular-nums text-slate-500">{order.orderedPcs.toLocaleString('en-IN')} pcs ordered</p>
+          <p className="mt-0.5 whitespace-nowrap text-sm font-medium tabular-nums text-slate-500">{order.orderedPcs.toLocaleString('en-IN')} pcs ordered</p>
+          {order.uncheckedCount > 0 && (
+            <span className="mt-2 inline-block rounded-full bg-amber-100 px-2.5 py-1 text-xs font-bold tabular-nums text-amber-800" title="Final takas not checked yet">
+              {order.uncheckedCount} to check
+            </span>
+          )}
         </div>
-        {order.uncheckedCount > 0 && (
-          <span className="shrink-0 rounded-full bg-amber-100 px-2.5 py-1 text-xs font-bold tabular-nums text-amber-800" title="Final takas not checked yet">
-            {order.uncheckedCount} to check
-          </span>
-        )}
       </article>
     </li>
   );
@@ -63,7 +63,7 @@ export default function GodownOrdersPage() {
     <div className="page-container space-y-4 pb-28 pt-4 md:py-5">
       <SearchBar value={search} onChange={setSearch} placeholder="Search by order no or taka no…" />
       {query.isPending ? (
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
+        <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(19rem,1fr))]">
           {Array.from({ length: 6 }, (_, i) => (
             <Skeleton key={i} className="h-28 rounded-xl" />
           ))}
@@ -80,7 +80,7 @@ export default function GodownOrdersPage() {
         </div>
       ) : (
         <>
-          <ul className={cn('grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3', query.isPlaceholderData && 'opacity-60')}>
+          <ul className={cn('grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(19rem,1fr))]', query.isPlaceholderData && 'opacity-60')}>
             {query.items.map((o) => (
               <OrderCard key={o.orderId} order={o} />
             ))}

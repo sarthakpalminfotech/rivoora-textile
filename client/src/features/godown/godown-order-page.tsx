@@ -63,9 +63,9 @@ function Header({ order }: { order: GodownOrder }) {
 /* KPIs + pcs bar                                                       */
 /* ------------------------------------------------------------------ */
 
-function Kpi({ label, children }: { label: string; children: React.ReactNode }) {
+function Kpi({ label, children, className }: { label: string; children: React.ReactNode; className?: string }) {
   return (
-    <li className="min-w-0 rounded-xl border border-border bg-white px-3.5 py-3 shadow-soft">
+    <li className={cn('min-w-0 rounded-xl border border-border bg-white px-3.5 py-3 shadow-soft', className)}>
       <p className="text-[12px] font-medium text-slate-500">{label}</p>
       <p className="mt-0.5 text-lg font-bold tabular-nums leading-tight text-slate-900">{children}</p>
     </li>
@@ -74,22 +74,27 @@ function Kpi({ label, children }: { label: string; children: React.ReactNode }) 
 
 function Summary({ order }: { order: GodownOrder }) {
   const k = order.kpis;
+  const p = order.pcsKpis;
   const bar = checkedPcsBar(k.checkedPcs, order.orderedPcs);
   const line = actualVsExpectedLine(k.actualPcs, k.expectedPcs);
   return (
     <div className="space-y-3">
-      <ul className={cn('grid gap-2.5', k.refinish > 0 ? 'grid-cols-1 sm:grid-cols-3' : 'grid-cols-1 sm:grid-cols-2')}>
+      <ul className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-5">
         <Kpi label="Cleared by Mill QC">
           {k.cleared} <span className="text-slate-400">/ {k.total}</span> <span className="text-sm font-semibold text-slate-500">takas</span>
         </Kpi>
         <Kpi label="Checked">
           {k.checkedTakas} <span className="text-sm font-semibold text-slate-500">{k.checkedTakas === 1 ? 'taka' : 'takas'} · {k.checkedPcs.toLocaleString('en-IN')} pcs</span>
         </Kpi>
-        {k.refinish > 0 && (
-          <Kpi label="Refinish">
-            {k.refinish} <span className="text-sm font-semibold text-slate-500">{k.refinish === 1 ? 'taka' : 'takas'}</span>
-          </Kpi>
-        )}
+        <Kpi label="Ready for dispatch">
+          {p.readyDispatchPcs.toLocaleString('en-IN')} <span className="text-sm font-semibold text-slate-500">pcs</span>
+        </Kpi>
+        <Kpi label="In refinish">
+          {p.refinishPcs.toLocaleString('en-IN')} <span className="text-sm font-semibold text-slate-500">pcs · {p.refinishTakas} {p.refinishTakas === 1 ? 'taka' : 'takas'}</span>
+        </Kpi>
+        <Kpi label="Damaged" className="col-span-2 sm:col-span-1">
+          <span className={p.damagedPcs > 0 ? 'text-red-600' : undefined}>{p.damagedPcs.toLocaleString('en-IN')}</span> <span className="text-sm font-semibold text-slate-500">pcs</span>
+        </Kpi>
       </ul>
       <div className="rounded-xl border border-border bg-white px-4 py-3 shadow-soft">
         <div className="flex items-baseline justify-between gap-2">
@@ -175,11 +180,6 @@ function TakaRow({
                 D
               </span>
             )}
-            {disabled && (
-              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-bold text-emerald-800">
-                <CheckCircle2 className="size-3" aria-hidden /> Ready for dispatch
-              </span>
-            )}
           </p>
           {(taka.parentTakaNo || taka.refinishCount > 0 || taka.meters != null) && (
             <p className="text-xs font-medium text-slate-400">
@@ -251,7 +251,9 @@ function TakaRow({
             </DropdownMenuContent>
           </DropdownMenu>
         ) : (
-          <span className="size-12 shrink-0" aria-hidden />
+          <span className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full bg-emerald-100 px-3 py-1.5 text-xs font-bold text-emerald-800">
+            <CheckCircle2 className="size-3.5" aria-hidden /> Ready for dispatch
+          </span>
         )}
       </div>
     </li>

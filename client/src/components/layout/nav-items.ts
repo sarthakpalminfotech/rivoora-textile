@@ -1,5 +1,6 @@
 import {
   Bandage,
+  Boxes,
   ClipboardCheck,
   ClipboardList,
   Factory,
@@ -44,6 +45,8 @@ export const NAV_ITEMS: NavItem[] = [
   { to: '/mill', label: 'Mill', icon: FlaskConical, permission: 'canUseMillModule', group: 'main' },
   { to: '/butta-qc', label: 'Butta QC', hi: 'बुट्टा QC', icon: BadgeCheck, permission: 'canButtaQc', group: 'main' },
   { to: '/mill-qc', label: 'Mill QC', hi: 'मिल QC', icon: ShieldCheck, permission: 'canMillQc', group: 'main' },
+  // Inventory: design-wise pcs and damaged stock (Jemish, Gaurang).
+  { to: '/inventory', label: 'Inventory', icon: Boxes, permission: 'canViewInventory', group: 'main' },
   // Godown supervisor: final takas, split, ready to dispatch.
   { to: '/godown/orders', label: 'Orders', icon: Warehouse, permission: 'canUseGodownOrders', group: 'main', hideWith: 'canViewOrders' },
   { to: '/customers', label: 'Customers', icon: Users, permission: 'canViewMasters', group: 'masters' },

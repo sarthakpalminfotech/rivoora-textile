@@ -58,6 +58,7 @@ export function useCreateOrder() {
     onSuccess: (_res, vars) => {
       void qc.invalidateQueries({ queryKey: orderKeys.lists });
       void qc.invalidateQueries({ queryKey: orderKeys.previousDesigns(vars.customerId) });
+      void qc.invalidateQueries({ queryKey: ['inventory'] });
       if (vars.newDesign) void qc.invalidateQueries({ queryKey: masterKeys.designs });
     },
   });
@@ -75,6 +76,7 @@ export function useUpdateOrder(id: number) {
       // Jobsheet details / print and the dashboard show the order's design, quantity and client.
       void qc.invalidateQueries({ queryKey: ['jobsheets'] });
       void qc.invalidateQueries({ queryKey: ['order-dashboard'] });
+      void qc.invalidateQueries({ queryKey: ['inventory'] });
       if (vars.newDesign) void qc.invalidateQueries({ queryKey: masterKeys.designs });
     },
   });
@@ -103,6 +105,7 @@ export function useSendToProduction() {
       );
       res.orderIds.forEach((id) => void qc.invalidateQueries({ queryKey: orderKeys.detail(id) }));
       void qc.invalidateQueries({ queryKey: ['order-dashboard'] });
+      void qc.invalidateQueries({ queryKey: ['inventory'] });
       void qc.invalidateQueries({ queryKey: orderKeys.lists });
     },
   });
@@ -115,6 +118,7 @@ export function useUndoProduction(id: number) {
     onSuccess: (order) => {
       qc.setQueryData(orderKeys.detail(id), order);
       void qc.invalidateQueries({ queryKey: ['order-dashboard'] });
+      void qc.invalidateQueries({ queryKey: ['inventory'] });
       void qc.invalidateQueries({ queryKey: orderKeys.lists });
     },
   });

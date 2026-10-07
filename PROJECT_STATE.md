@@ -1033,3 +1033,6 @@ there first (it prints the before/after challan counts).
 
 ## Sprint 9 (done)
 Mill QC role, refinish loop back to the mill, godown Orders module (final takas, tick, actual pcs, split, Ready to dispatch, Damage tab), new stages/statuses/damage type, dashboard + Takas tab additions. See the Sprint 9 section of CLAUDE.md. Run `npm run db:migrate` on Turso to apply 0010. Not done: dispatch itself, a full Inventory module, real-device check of the new phone screens.
+
+## Sprint 10 (done) — Inventory
+Inventory module (All designs / Damaged, item + damaged-item details, demo stock-clearance card) and the godown order pcs KPIs + Damage tab state badges and filters. See the Sprint 10 section of CLAUDE.md. `npm test`: 173 shared tests; typecheck clean. Verified on a local file DB with hand-seeded takas (numbers hand-checked) and desktop browser screenshots. Not done: 360 / 768 px screenshot pass (the browser window could not be narrowed), real-phone check, stock wipe-out flow (`lastClearedAt` is null).

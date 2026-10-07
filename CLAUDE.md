@@ -423,3 +423,14 @@ Spec: `rivoora-sprint9-mill-qc-godown-prompt.md`. Migration `0010_sprint9_mill_q
 - Godown damage popup has no photos (only Mill QC uploads damage photos).
 - Dispatch itself, a full Inventory module (refinish takas only live in Mill → Refinish and on order details), and login/auth are still later work.
 - Nothing from Sprint 9 is committed to git yet.
+
+## Sprint 10 — Inventory (design-wise pcs), Damaged inventory, godown order screen (read this)
+
+Spec: `rivoora-sprint10-inventory-prompt.md`. No migration (reads existing tables only).
+
+- **Pcs definitions** live once in `shared/src/inventory.ts`: `orderInventoryPcs(order, jobsheets, takas)` → `{ordered, inMaking, inGodown, readyDispatch, inRefinish, damaged}` (null for non-pcs orders). In making = takas in `entered…mill_qc` + jobsheet pcs not yet takas (frames × `SECTIONS_PER_BEAM`; same rule as the dashboard bar — a test checks the sum equals `barTotalPcs`). Damaged = OPEN pcs (`pcs − resolved_pcs`) on `final` / `ready_dispatch` takas. Item key helpers `inventoryKey` (`d-<id>` | `v-<id>` | `none`; a variation wins), `parseInventoryKey`, `compareInventoryItems`, `inventoryBarShares`. `DEMO_STOCK_CLEARANCE` = the one demo entry (shown with a grey "Demo" tag). Tests: `shared/src/inventory.test.ts`.
+- **Permission** `canViewInventory` (Jemish + Gaurang). Nav item `/inventory` (Boxes icon). Gaurang only sees orders whose status he may see (`visibleStatusKeys`).
+- **API** `/inventory/*` (`routes/inventory.ts`, `services/inventory.ts`): `summary`, `items`, `items/:key`, `items/:key/orders`, `damaged`, `damaged/:key`, `damaged/:key/takas?type=&refinish=1&search=`. `loadOrderPcs` runs 3 aggregate queries (orders, jobsheets, takas grouped by order/jobsheet/stage with a correlated open-damage sum) and folds them with the shared function; item lists are grouped/paginated in memory (`lastClearedAt` is always null for now).
+- **Client** `features/inventory/*`: `inventory-page` (KPI row, underline tabs `?section=damaged`, search `?q=`, card grids), `item-details-page` (`/inventory/items/:key`), `damaged-details-page` (`/inventory/damaged/:key`, `?type=&refinish=1&q=`), `parts.tsx` (KpiTile, ExpandingSearch, ItemHeader, BackLink). Query keys `['inventory', …]`; invalidated in `invalidateAfterWrite`, godown patch, and order writes.
+- **Godown**: `GodownOrder.pcsKpis` (ready pcs, refinish pcs/takas, damaged pcs) — five-tile KPI row; `GET /godown/orders/:id/damages` now returns `stateCounts` + `typeCounts`; Damage tab has a state badge per taka and chip filters (`?state=final|ready_dispatch|refinish&dtype=…`).
+- Gotcha: a horizontally scrolling chip row (`overflow-x-auto scrollbar-none`) inside a bordered `overflow-hidden` card froze the renderer; chips use `flex-wrap` instead.

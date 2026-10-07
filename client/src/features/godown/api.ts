@@ -6,7 +6,7 @@ import {
   type GodownSplitInput,
   type GodownSplitResult,
   type GodownTaka,
-  type OrderDamages,
+  type GodownDamages,
   type QcNewDamageInput,
   type ReadyDispatchResult,
 } from '@rivoora/shared';
@@ -37,7 +37,7 @@ export function useGodownOrder(orderId: number) {
 export function useGodownDamages(orderId: number, enabled = true) {
   return useQuery({
     queryKey: godownKeys.damages(orderId),
-    queryFn: ({ signal }) => api.get<OrderDamages>(`/godown/orders/${orderId}/damages`, undefined, signal),
+    queryFn: ({ signal }) => api.get<GodownDamages>(`/godown/orders/${orderId}/damages`, undefined, signal),
     enabled: enabled && orderId > 0,
     refetchOnWindowFocus: true,
   });
@@ -80,6 +80,8 @@ export function usePatchGodownTaka(orderId: number) {
     },
     onSettled: () => {
       void qc.invalidateQueries({ queryKey: godownKeys.all });
+      // Actual pcs feed the Inventory numbers.
+      void qc.invalidateQueries({ queryKey: ['inventory'] });
     },
   });
 }

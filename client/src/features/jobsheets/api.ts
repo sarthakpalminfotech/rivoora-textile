@@ -47,6 +47,7 @@ export function invalidateAfterWrite(qc: QueryClient, orderId?: number) {
   void qc.invalidateQueries({ queryKey: ['takas'] });
   // Order dashboard: counts, sub-stage items and damages.
   void qc.invalidateQueries({ queryKey: ['order-dashboard'] });
+  void qc.invalidateQueries({ queryKey: ['inventory'] });
   if (orderId) void qc.invalidateQueries({ queryKey: orderKeys.detail(orderId) });
   else void qc.invalidateQueries({ queryKey: ['orders', 'detail'] });
   void qc.invalidateQueries({ queryKey: orderKeys.lists });
