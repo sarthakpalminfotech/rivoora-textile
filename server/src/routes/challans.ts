@@ -46,6 +46,24 @@ export function challansRouter(kind: ChallanKind): Router {
     }),
   );
 
+  if (kind === 'mill') {
+    // The Refinish sub-tab: takas marked for refinish by Mill QC / the godown, going back to the mill.
+    router.get(
+      '/refinish-orders',
+      ah(async (req, res) => {
+        res.set('Cache-Control', 'no-store');
+        res.json(await listPendingOrders(kind, buttaListQuerySchema.parse(req.query), 'refinish'));
+      }),
+    );
+    router.get(
+      '/refinish-orders/:orderId/takas',
+      ah(async (req, res) => {
+        res.set('Cache-Control', 'no-store');
+        res.json(await listPendingOrderTakas(kind, parseId(req.params.orderId, 'order id'), 'refinish'));
+      }),
+    );
+  }
+
   router.post(
     '/challans',
     ah(async (req, res) => {

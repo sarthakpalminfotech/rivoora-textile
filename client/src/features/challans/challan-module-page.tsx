@@ -12,7 +12,7 @@ import { ReceiveTakaNumber } from './receive-screen';
 import { SendPending } from './send-pending';
 
 type Tab = 'send' | 'receive';
-type SendSub = 'pending' | 'sent';
+type SendSub = 'pending' | 'sent' | 'refinish';
 type ReceiveSub = 'taka' | 'challans';
 
 const FILTERS: { key: ChallanFilter; label: string }[] = [
@@ -37,7 +37,8 @@ export default function ChallanModulePage({ kind }: { kind: ChallanKind }) {
   usePageTitle(cfg.label);
   const [params, setParams] = useSearchParams();
   const tab: Tab = params.get('tab') === 'receive' ? 'receive' : 'send';
-  const sendSub: SendSub = params.get('sub') === 'sent' ? 'sent' : 'pending';
+  const subParam = params.get('sub');
+  const sendSub: SendSub = subParam === 'sent' ? 'sent' : subParam === 'refinish' && kind === 'mill' ? 'refinish' : 'pending';
   const receiveSub: ReceiveSub = params.get('sub') === 'challans' ? 'challans' : 'taka';
   const sub = tab === 'send' ? sendSub : receiveSub;
   const filterParam = params.get('filter');
@@ -62,10 +63,10 @@ export default function ChallanModulePage({ kind }: { kind: ChallanKind }) {
   // Each list has its own search.
   useEffect(() => setSearchText(''), [tab, sub]);
 
-  const showSearch = tab === 'send' || (tab === 'receive' && receiveSub === 'challans');
+  const showSearch = tab === 'send' || receiveSub === 'challans';
   const from = `${cfg.route}?${params.toString()}`;
 
-  const sendOptions = [
+  const sendOptions: { value: string; label: React.ReactNode }[] = [
     {
       value: 'pending',
       label: (
@@ -84,7 +85,21 @@ export default function ChallanModulePage({ kind }: { kind: ChallanKind }) {
         </>
       ),
     },
-  ] as const;
+    // The mill: takas Mill QC / the godown marked for refinish go back to the mill from here.
+    ...(kind === 'mill'
+      ? [
+          {
+            value: 'refinish',
+            label: (
+              <>
+                Refinish
+                <CountPill n={counts.data?.refinish} />
+              </>
+            ),
+          },
+        ]
+      : []),
+  ];
 
   return (
     <div className="page-container space-y-4 pb-28 pt-4 md:py-5">
@@ -140,12 +155,13 @@ export default function ChallanModulePage({ kind }: { kind: ChallanKind }) {
           value={searchText}
           onChange={setSearchText}
           placeholder={
-            tab === 'send' && sendSub === 'pending' ? 'Search by order no, design code or taka no…' : 'Search by challan no, party, order no or taka no…'
+            tab === 'send' && sendSub !== 'sent' ? 'Search by order no, design code or taka no…' : 'Search by challan no, party, order no or taka no…'
           }
         />
       )}
 
       {tab === 'send' && sendSub === 'pending' && <SendPending key={`${kind}-pending`} kind={kind} search={search} />}
+      {tab === 'send' && sendSub === 'refinish' && <SendPending key={`${kind}-refinish`} kind={kind} search={search} mode="refinish" />}
       {tab === 'send' && sendSub === 'sent' && <ChallanList key={`${kind}-sent-${filter}`} kind={kind} filter={filter} search={search} from={from} />}
       {tab === 'receive' && receiveSub === 'taka' && <ReceiveTakaNumber key={`${kind}-receive`} kind={kind} />}
       {tab === 'receive' && receiveSub === 'challans' && <ChallanList key={`${kind}-receive-list`} kind={kind} filter="open" search={search} live from={from} />}

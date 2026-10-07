@@ -6,11 +6,13 @@
 import { DAMAGE_TYPE_LABEL, isDamageType, type TakaStage } from './pipeline';
 
 /**
- * Taka numbers: digits with single `-` or `/` separators between them (`6245`, `6245-1`, `62/45`), no letters.
+ * Taka numbers: digits with single `-` or `/` separators between them (`6245`, `6245-1`, `62/45`), no letters —
+ * except the one capital letter a split part gets (`1101A`, see `splitBase`).
  * Stored as text so leading zeros are kept.
  */
 export const TAKA_NO_MAX_LENGTH = 15;
-export const TAKA_NO_REGEX = /^\d+([-/]\d+)*$/;
+/** An optional single capital letter at the end marks a part made by a split (1101A). Entry never produces it. */
+export const TAKA_NO_REGEX = /^\d+([-/]\d+)*[A-Z]?$/;
 
 /*
  * Damage types live in `pipeline.ts` (DAMAGE_TYPES / DAMAGE_TYPE_LABEL / DAMAGE_TYPE_CONFIG) = WHERE the damage was
@@ -29,11 +31,14 @@ export type TakaNoError = 'required' | 'format' | 'too_long' | 'duplicate' | 'al
  * separators (the first one typed wins) and caps the length. A trailing separator stays (the next digit follows).
  */
 export function cleanTakaNo(value: string): string {
-  return value
-    .replace(/[^\d/-]/g, '')
+  const kept = value.replace(/[^\dA-Z/-]/g, '');
+  // A capital letter survives only as the last character right after a digit (the split-part suffix).
+  const suffix = /\d[A-Z]$/.test(kept) ? kept.slice(-1) : '';
+  const base = kept
+    .replace(/[A-Z]/g, '')
     .replace(/^[-/]+/, '')
-    .replace(/([-/])[-/]+/g, '$1')
-    .slice(0, TAKA_NO_MAX_LENGTH);
+    .replace(/([-/])[-/]+/g, '$1');
+  return (base + suffix).slice(0, TAKA_NO_MAX_LENGTH);
 }
 
 export function takaNoError(value: string): Exclude<TakaNoError, 'duplicate' | 'already_entered' | 'already_used'> | null {
@@ -191,7 +196,7 @@ export const DAMAGE_STATUSES = ['open', 'resolved'] as const;
 export type DamageStatus = (typeof DAMAGE_STATUSES)[number];
 
 /** Where a damage was resolved (`taka_damages.resolved_stage`). */
-export const RESOLVED_STAGE_LABEL: Record<string, string> = { butta_qc: 'butta QC', mill_qc: 'mill QC' };
+export const RESOLVED_STAGE_LABEL: Record<string, string> = { butta_qc: 'butta QC', mill_qc: 'mill QC', godown: 'the godown', split: 'a split' };
 
 /** The fields of one damage row that the labels need. */
 export interface DamageLike {
@@ -313,8 +318,9 @@ export function takaSummary(takas: readonly { isDamaged: boolean; meters?: numbe
  * stable order.
  */
 export function compareTakaNo(a: string, b: string): number {
-  const pa = a.split(/[-/]/).map(Number);
-  const pb = b.split(/[-/]/).map(Number);
+  // The split-part letter ("1101A") sorts right after its parent ("1101").
+  const pa = a.replace(/[A-Z]$/, '').split(/[-/]/).map(Number);
+  const pb = b.replace(/[A-Z]$/, '').split(/[-/]/).map(Number);
   for (let i = 0; i < Math.min(pa.length, pb.length); i++) {
     const d = (pa[i] || 0) - (pb[i] || 0);
     if (d) return d;
@@ -349,3 +355,115 @@ export function parseJobsheetQr(text: string): number | null {
   const n = Number(m[1]);
   return Number.isSafeInteger(n) && n > 0 ? n : null;
 }
+
+/* ------------------------------------------------------------------ */
+/* Actual pcs (godown) + splitting a taka (Sprint 9)                    */
+/* ------------------------------------------------------------------ */
+
+/** Expected pcs = `pcs`; actual pcs = what the godown supervisor counted (`actualPcs`), else the expected pcs. */
+export function takaActualPcs(t: { pcs?: number | null; actualPcs?: number | null }): number | null {
+  return t.actualPcs ?? t.pcs ?? null;
+}
+
+/** Sum of the actual pcs of the takas (null when none has any pcs). */
+export function totalActualPcs(takas: readonly { pcs?: number | null; actualPcs?: number | null }[]): number | null {
+  const withPcs = takas.map(takaActualPcs).filter((n): n is number => n !== null);
+  return withPcs.length ? withPcs.reduce((sum, n) => sum + n, 0) : null;
+}
+
+/** "+2" / "−4" / "0" — a pcs difference (actual − expected) for the row and the summary line. */
+export function formatPcsDiff(diff: number): string {
+  if (diff === 0) return '0';
+  return diff > 0 ? `+${diff}` : `−${Math.abs(diff)}`;
+}
+
+const SPLIT_LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+export const MAX_SPLIT_PARTS = SPLIT_LETTERS.length + 1;
+
+/** The number a split part is built on: "1101A" → "1101" (a split of a split keeps the same base). */
+export const splitBase = (takaNo: string) => takaNo.trim().replace(/[A-Z]$/, '');
+
+/**
+ * The next free letter number for a split: 1101 → 1101A, then 1101B … `taken` = every number already in use (the
+ * other parts in the form and the order's takas). Null when A–Z are all used or the number would be too long.
+ */
+export function nextSplitNumber(parent: string, taken: Iterable<string>): string | null {
+  const used = new Set([...taken].map((n) => n.trim()));
+  const base = splitBase(parent);
+  for (const letter of SPLIT_LETTERS) {
+    const candidate = `${base}${letter}`;
+    if (candidate.length > TAKA_NO_MAX_LENGTH) return null;
+    if (!used.has(candidate)) return candidate;
+  }
+  return null;
+}
+
+/**
+ * Meters of each split part: parent meters × part pcs ÷ total pcs, rounded to 2 decimals; the LAST part takes the
+ * remainder so the parts always add up to the parent's meters. Null meters stay null.
+ */
+export function splitMeters(parentMeters: number | null, partPcs: readonly number[]): (number | null)[] {
+  if (parentMeters === null) return partPcs.map(() => null);
+  const total = partPcs.reduce((s, n) => s + n, 0);
+  if (total <= 0) return partPcs.map(() => null);
+  const out: number[] = [];
+  let given = 0;
+  partPcs.forEach((pcs, i) => {
+    if (i === partPcs.length - 1) {
+      out.push(Math.round((parentMeters - given) * 100) / 100);
+    } else {
+      const m = Math.round(((parentMeters * pcs) / total) * 100) / 100;
+      out.push(m);
+      given = Math.round((given + m) * 100) / 100;
+    }
+  });
+  return out;
+}
+
+export interface SplitPartDraft {
+  takaNo: string;
+  /** The pcs typed for the part; null while empty. */
+  pcs: number | null;
+}
+
+export type SplitRowError = 'pcs_required' | 'number_required' | 'number_format' | 'duplicate' | 'already_used';
+
+export interface SplitValidation {
+  /** One entry per part (null = fine). */
+  rows: (SplitRowError | null)[];
+  total: number;
+  /** actual − total (0 when the parts add up). */
+  diff: number;
+  /** At least two parts, every part valid, the total equals the actual pcs. */
+  ok: boolean;
+}
+
+/**
+ * Validates a split: every part needs a number (valid + unique in the form + not used anywhere else) and pcs ≥ 1,
+ * and the pcs must add up to the taka's actual pcs. `used` = numbers in use in the system; the first part keeps the
+ * parent's own number, so it is never checked against `used`.
+ */
+export function validateSplit(parts: readonly SplitPartDraft[], actualPcs: number, used?: ReadonlySet<string> | null): SplitValidation {
+  const seen = new Set<string>();
+  const rows = parts.map((p, i): SplitRowError | null => {
+    const no = p.takaNo.trim();
+    if (!no) return 'number_required';
+    if (takaNoError(no) !== null) return 'number_format';
+    if (seen.has(no)) return 'duplicate';
+    seen.add(no);
+    if (i > 0 && used?.has(no)) return 'already_used';
+    if (p.pcs === null || p.pcs < 1) return 'pcs_required';
+    return null;
+  });
+  const total = parts.reduce((s, p) => s + (p.pcs ?? 0), 0);
+  const diff = actualPcs - total;
+  return { rows, total, diff, ok: parts.length >= 2 && rows.every((r) => r === null) && diff === 0 };
+}
+
+export const SPLIT_ERROR_TEXT: Record<SplitRowError, string> = {
+  pcs_required: 'Enter the pcs (at least 1)',
+  number_required: 'Enter the taka number',
+  number_format: 'Use digits, - or / (and a capital letter at the end)',
+  duplicate: 'Typed twice',
+  already_used: 'Already used',
+};

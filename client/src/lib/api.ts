@@ -63,6 +63,7 @@ export const api = {
   get: <T>(path: string, query?: Query, signal?: AbortSignal) => request<T>('GET', path, { query, signal }),
   post: <T>(path: string, body?: unknown) => request<T>('POST', path, { body }),
   put: <T>(path: string, body?: unknown) => request<T>('PUT', path, { body }),
+  patch: <T>(path: string, body?: unknown) => request<T>('PATCH', path, { body }),
   delete: <T = void>(path: string) => request<T>('DELETE', path),
   async upload(file: File, folder: 'designs' | 'notes' | 'damages'): Promise<UploadResult> {
     const form = new FormData();

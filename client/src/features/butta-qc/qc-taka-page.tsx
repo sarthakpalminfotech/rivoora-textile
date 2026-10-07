@@ -16,6 +16,7 @@ import {
   parsePcs,
   PCS_ERROR_TEXT,
   validateQcDecisions,
+  type ChallanKind,
   type TakaDetail,
 } from '@rivoora/shared';
 import { usePageTitle } from '@/components/layout/page-title';
@@ -37,13 +38,13 @@ import { FreshTag } from '../takas/taka-chip';
 /** The pcs a taka damage still has open (older damages without pcs: unknown until typed). */
 const openOf = (d: { pcs: number | null; resolvedPcs: number; status: string }) => damageOpenPcs(d);
 
-const fieldBox = (invalid: boolean) =>
+export const fieldBox = (invalid: boolean) =>
   cn(
     'h-14 w-full rounded-xl border bg-white tabular-nums text-slate-900 transition-colors placeholder:text-slate-300 focus:outline-none focus:ring-2',
     invalid ? 'border-destructive focus:ring-destructive/20' : 'border-input focus:border-primary focus:ring-primary/15',
   );
 
-function Section({ title, children, className }: { title?: React.ReactNode; children: React.ReactNode; className?: string }) {
+export function Section({ title, children, className }: { title?: React.ReactNode; children: React.ReactNode; className?: string }) {
   return (
     <section className={cn('rounded-2xl border border-border bg-white p-4 shadow-soft md:p-5', className)}>
       {title && <h2 className="mb-3 text-[15px] font-bold text-slate-800">{title}</h2>}
@@ -53,7 +54,7 @@ function Section({ title, children, className }: { title?: React.ReactNode; chil
 }
 
 /** 1 — the taka at a glance (the QC action comes right after it). */
-function IdentityCard({ taka }: { taka: TakaDetail }) {
+export function IdentityCard({ taka, kind }: { taka: TakaDetail; kind?: ChallanKind }) {
   return (
     <section className="rounded-2xl border border-border bg-white p-4 shadow-soft">
       <div className="flex items-start gap-4">
@@ -77,7 +78,7 @@ function IdentityCard({ taka }: { taka: TakaDetail }) {
       <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-border pt-3 text-sm text-slate-600">
         <span className="font-semibold text-slate-800">{taka.design.code ?? 'No design'}</span>
         {taka.quality && <span>{taka.quality}</span>}
-        {taka.challans.map((c) => (
+        {taka.challans.filter((c) => !kind || c.kind === kind).map((c) => (
           <span key={c.id} className="font-semibold text-amber-700">
             {challanLabel(c.challanNo, c.kind)}
           </span>
@@ -156,7 +157,7 @@ function ReadOnlySummary({ taka }: { taka: TakaDetail }) {
 }
 
 /** "How many pcs resolved?" — prefilled with all the pcs still damaged, editable from 1 to that number. */
-function ResolveDialog({
+export function ResolveDialog({
   damage,
   openPcs,
   current,

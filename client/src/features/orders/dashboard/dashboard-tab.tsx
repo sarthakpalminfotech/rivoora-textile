@@ -86,9 +86,9 @@ function ProgressCard({ data }: { data: OrderDashboard }) {
     <section className="rounded-xl border border-border bg-white p-4 shadow-soft md:p-5" aria-label="Progress">
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:gap-6">
         <p className="shrink-0 text-slate-900">
-          <span className="text-2xl font-bold tabular-nums">{progress.wovenPcs.toLocaleString('en-IN')}</span>
+          <span className="text-2xl font-bold tabular-nums">{barTotalPcs.toLocaleString('en-IN')}</span>
           <span className="text-lg font-semibold text-slate-400"> / {progress.targetPcs.toLocaleString('en-IN')}</span>
-          <span className="ml-1.5 text-sm font-medium text-slate-500">pcs woven</span>
+          <span className="ml-1.5 text-sm font-medium text-slate-500">pcs</span>
         </p>
         <div className="min-w-0 flex-1">
           <div
@@ -109,7 +109,7 @@ function ProgressCard({ data }: { data: OrderDashboard }) {
                 ))}
           </div>
           <p className="mt-2 text-[12px] font-medium tabular-nums text-slate-600">
-            {fmt(barTotalPcs)} pcs
+            Pcs by stage
             {bar
               .filter((b) => b.share > 0)
               .map((b) => (
@@ -122,9 +122,9 @@ function ProgressCard({ data }: { data: OrderDashboard }) {
         </div>
         <div className="flex shrink-0 items-center gap-3">
           <p className="text-2xl font-bold tabular-nums text-slate-900">
-            {fmt(progress.percent)}
+            {fmt(progress.targetPcs > 0 ? Math.round((barTotalPcs / progress.targetPcs) * 1000) / 10 : 0)}
             <span className="text-base font-semibold text-slate-400">%</span>
-            <span className="ml-1 text-sm font-medium text-slate-500">woven</span>
+            <span className="ml-1 text-sm font-medium text-slate-500">of order</span>
           </p>
           {alerts.length > 0 && (
             <button
@@ -487,7 +487,7 @@ function DetailBody({ orderId, sub }: { orderId: number; sub: SubStageKey }) {
                   <FramesValue status={g.status} frames={g.frames} completedFrames={g.completedFrames} withUnit />
                 </span>
               </Link>
-              <TakaChips takas={g.takas} showChallan={sub === 'at_butta' || sub === 'butta_qc'} />
+              <TakaChips takas={g.takas} showChallan={['at_butta', 'butta_qc', 'at_mill', 'mill_qc', 'refinish'].includes(sub)} />
             </div>
           ))}
         </div>

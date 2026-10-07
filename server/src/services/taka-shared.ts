@@ -13,6 +13,9 @@ export const takaChallanId = sql<number | null>`(SELECT ct.challan_id FROM chall
 export const takaChallanNo = sql<number | null>`(SELECT c.challan_no FROM challan_takas ct JOIN challans c ON c.id = ct.challan_id WHERE ct.taka_id = "takas"."id" AND ct.is_active = 1 ORDER BY ct.id DESC LIMIT 1)`;
 export const takaChallanKind = sql<ChallanKind | null>`(SELECT ct.kind FROM challan_takas ct WHERE ct.taka_id = "takas"."id" AND ct.is_active = 1 ORDER BY ct.id DESC LIMIT 1)`;
 
+/** The number of the taka this one was split from (outer column written explicitly — see the Drizzle gotcha). */
+export const takaParentNo = sql<string | null>`(SELECT p.taka_no FROM takas p WHERE p.id = "takas"."parent_taka_id")`;
+
 /** Columns of a `Taka` DTO (select from `takas`; run the rows through `mapTaka`). */
 export const takaColumns = {
   id: takas.id,
@@ -25,6 +28,12 @@ export const takaColumns = {
   challanId: takaChallanId,
   challanNo: takaChallanNo,
   challanKind: takaChallanKind,
+  actualPcs: takas.actualPcs,
+  refinishCount: takas.refinishCount,
+  parentTakaId: takas.parentTakaId,
+  parentTakaNo: takaParentNo,
+  godownCheckedAt: takas.godownCheckedAt,
+  godownCheckedBy: takas.godownCheckedBy,
   enteredBy: takas.enteredBy,
   createdAt: takas.createdAt,
 };

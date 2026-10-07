@@ -393,3 +393,33 @@ Spec: `rivoora-sprint8-mill-prompt.md`. Migration `0009_sprint8_mill.sql` (hand-
 - Client: `features/challans/*` (was `features/butta`) — every component takes `kind` (`ChallanModulePage`, `SendPending`, `ChallanList`, `ChallanDetailsPage`, `ChallanPrintPage`, `ReceiveTakaNumber`, `kind.ts` for routes/permissions); `features/masters/parties/parties-page.tsx` (kind prop); `features/butta-qc/api.ts` holds the QC hooks. The – / helper keys are gone (taka number fields use `inputMode="tel"`). Query keys: `['challans', kind, …]`; every write invalidates `['challans']`.
 - Phone nav: at most 4 tabs; extra main items (e.g. Mill) move into the More sheet.
 - Local testing without Turso as before; a throwaway API flow script (taka entry → butta → QC partial resolve → mill → docs) passed against a local file DB.
+
+## Sprint 9 — Mill QC, refinish, godown final takas, split, ready for dispatch (read this; it supersedes older mill/ready notes)
+
+Spec: `rivoora-sprint9-mill-qc-godown-prompt.md`. Migration `0010_sprint9_mill_qc_godown.sql` (additive columns only).
+
+- **Stages** (`shared/pipeline.ts`): `final` (Mill QC done, with the godown) · `refinish` (waits in inventory to go back to the mill) · `ready_dispatch`. The old placeholder stage `ready` is gone. Sub-stages `refinish` (Mill), `final` + `ready_dispatch` (Ready, now connected). Damage type `godown` = "Supervisor marked"; `mill` is connected.
+- **Order statuses** `mill_qc_done` (110) / `ready_for_dispatch` (120) in `orderStatusForJobsheets`; `final`/`refinish`/`ready_dispatch` count as "past the mill"; the earliest unfinished stage still wins (a refinish taka sent back pulls the order to In mill).
+- **Columns**: `takas.refinish_count`, `parent_taka_id`, `actual_pcs` (null = same as `pcs`; every pcs total from the godown stage on uses `takaActualPcs`), `godown_checked_at/by`; `challan_takas.is_refinish`. New taka events: `mill_qc_done, sent_refinish, split, godown_checked, godown_unchecked, actual_pcs_changed, ready_dispatch`.
+- **Taka numbers** may end in ONE capital letter (`1101A`, split parts): `TAKA_NO_REGEX`, `cleanTakaNo`, `compareTakaNo`. Split helpers (`nextSplitNumber`, `splitMeters`, `validateSplit`, actual-pcs helpers) are in `shared/takas.ts`; Mill QC open rules + godown KPIs / pcs bar / dispatch rules in `shared/godown.ts`. Tests: `shared/src/sprint9.test.ts`.
+- **Mill QC role** (`mill_qc`, bilingual, `/mill-qc`, `canMillQc`): `GET /mill-qc/pending`, `GET /mill-qc/taka/:no` (state `qc | qc_not_received | checked | never_sent`), `POST /mill-qc/:takaId` (`result: final | refinish`; a taka still `at_mill` is marked received in the same transaction). Damage logic shared with Butta QC in `services/qc-shared.ts` (`applyQcChanges`). Client: `features/mill-qc/*`; the damage popup got `onRefinish`.
+- **Refinish**: Mill → Send has a third sub-tab (`/mill/refinish-orders[/:orderId/takas]`, `counts.refinish`); sending uses the normal `POST /mill/challans` (`sendableStages`, old active mill row closed, `is_refinish`; cancelling puts them back to `refinish`).
+- **Godown Orders** (`canUseGodownOrders`: godown supervisor, Jemish, Gaurang; nav hidden for roles that have Orders): `/godown/orders`, `/godown/orders/:orderId` (tabs Final takas | Damage via `?tab=damage`), `/godown/orders/:orderId/split/:takaId`. API under `/godown` (`services/godown.ts`): list, order, `PATCH /takas/:id` (tick / actual pcs, optimistic on the client), split, damage, refinish, `ready-dispatch`, `damages`. Never returns a client or rate. Dashboard queries use `COALESCE(actual_pcs, pcs)`.
+- Local test flow without Turso: `TURSO_DATABASE_URL=file:<path>.db TURSO_AUTH_TOKEN=x`, `npm run db:migrate && db:seed`, `PORT=4100 npm run dev -w server`, `API_URL=http://localhost:4100 npm run dev -w client`.
+
+### Sprint 9 follow-up changes (after the first build)
+
+- **Split clears damage**: `splitTaka` resolves ALL open damages of the original taka (`resolved_stage = 'split'`, event note "cleared by split"). Only damages marked on the parts in the split (`found_at = godown`) are open afterwards. The old rule "existing damages stay on the original taka" no longer applies. The split screen shows an amber note when the taka was damaged.
+- **Godown resolve**: `POST /godown/takas/:id/resolve` `{ takaDamageId? }` (`resolveGodownDamage`; one damage, or all open damages of a `final` taka; 409 if none open; `resolved_stage = 'godown'`). Client `useResolveGodownDamage`. Row ⋯ menu on Final takas: **Split** (actual pcs ≥ 2), **Mark resolved** (damaged takas), Mark damage, Send to refinish.
+- **Godown Damage tab** (`godown-damages-tab.tsx`) rebuilt: summary line, one card per damaged taka (header + Details button), one row per open damage (name, "where found" tag, open pcs, photos, **Mark resolved** — only for `final` takas). Reads `GET /godown/orders/:orderId/damages`.
+- **Owner/partner dashboard bar** (`ProgressCard` in `dashboard-tab.tsx`): the big number is now `barTotalPcs / targetPcs` (real-time pcs across all stages, e.g. 198 / 201 or 203 / 198); the % uses the same figures; labels are "pcs" and "of order". `progress.wovenPcs` is still returned by the API but no longer shown there.
+- `RESOLVED_STAGE_LABEL` also knows `godown` and `split`.
+
+### Left / not done (as of Sprint 9)
+
+- Apply migration `0010_sprint9_mill_qc_godown.sql` to Turso with `npm run db:migrate` (only tested on a local file DB).
+- Not verified in the browser: 360px / 768px layouts, Refinish sub-tab, godown Damage tab after the rebuild, Mill QC popups, dashboard additions. No real-phone check of Mill QC / godown screens.
+- The `/godown/orders/:orderId` list `?tab=damage` count badge uses the same damages query; no pagination on the Damage tab.
+- Godown damage popup has no photos (only Mill QC uploads damage photos).
+- Dispatch itself, a full Inventory module (refinish takas only live in Mill → Refinish and on order details), and login/auth are still later work.
+- Nothing from Sprint 9 is committed to git yet.

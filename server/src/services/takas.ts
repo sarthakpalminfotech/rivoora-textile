@@ -63,7 +63,7 @@ import {
   toMachineRef,
   writeEvents,
 } from './jobsheets';
-import { mapTaka, parseDamagesJson, sortTakas, takaColumns, takaDamagesJson } from './taka-shared';
+import { mapTaka, parseDamagesJson, sortTakas, takaColumns, takaDamagesJson, takaParentNo } from './taka-shared';
 import {
   initialStageForOrder,
   insertTakaDamages,
@@ -361,12 +361,14 @@ export async function editTakas(role: RoleKey, id: number, input: unknown): Prom
     }
     const removed = existing.filter((t) => !seenIds.has(t.id));
     // A taka that is out on a challan (or already past the butta QC step it is in) can't just be removed.
-    const stuck = removed.find((t) => t.stage === 'at_butta' || t.stage === 'butta_qc' || t.stage === 'at_mill' || t.stage === 'mill_qc');
+    const stuck = removed.find((t) => ['at_butta', 'butta_qc', 'at_mill', 'mill_qc', 'final', 'refinish', 'ready_dispatch'].includes(t.stage));
     if (stuck) {
       throw conflict(
-        stuck.stage === 'at_mill' || stuck.stage === 'mill_qc'
-          ? `Taka ${stuck.takaNo} is at the mill and can't be removed.`
-          : `Taka ${stuck.takaNo} is at butta cutting and can't be removed. Cancel its challan or finish its butta QC first.`,
+        ['final', 'refinish', 'ready_dispatch'].includes(stuck.stage)
+          ? `Taka ${stuck.takaNo} has passed the mill and can't be removed.`
+          : stuck.stage === 'at_mill' || stuck.stage === 'mill_qc'
+            ? `Taka ${stuck.takaNo} is at the mill and can't be removed.`
+            : `Taka ${stuck.takaNo} is at butta cutting and can't be removed. Cancel its challan or finish its butta QC first.`,
       );
     }
     const changed = rows.filter((t) => t.id !== undefined && isChanged(t, byId.get(t.id)!));
@@ -565,7 +567,7 @@ const designThumbSql = sql<string | null>`CASE WHEN ${designVariations.id} IS NO
 const designImageSql = sql<string | null>`CASE WHEN ${designVariations.id} IS NOT NULL THEN ${designVariations.imageUrl} ELSE ${designs.imageUrl} END`;
 
 /** Photos of damages, grouped by damage id (oldest first). */
-async function damageImagesOf(damageIds: readonly number[]): Promise<Map<number, DamageImage[]>> {
+export async function damageImagesOf(damageIds: readonly number[]): Promise<Map<number, DamageImage[]>> {
   const out = new Map<number, DamageImage[]>();
   if (!damageIds.length) return out;
   const rows = await db
@@ -584,6 +586,10 @@ async function loadTakaDetail(role: RoleKey, where: SQL): Promise<TakaDetail> {
       takaNo: takas.takaNo,
       meters: takas.meters,
       pcs: takas.pcs,
+      actualPcs: takas.actualPcs,
+      refinishCount: takas.refinishCount,
+      parentTakaNo: takaParentNo,
+      godownCheckedAt: takas.godownCheckedAt,
       isDamaged: takas.isDamaged,
       damagesJson: takaDamagesJson,
       stage: takas.stage,
@@ -633,7 +639,7 @@ async function loadTakaDetail(role: RoleKey, where: SQL): Promise<TakaDetail> {
     qcDone: c.qcDoneAt !== null,
   }));
 
-  const canSeeHistory = can(role, 'canEditTakas');
+  const canSeeHistory = can(role, 'canEditTakas') || can(role, 'canUseGodownOrders');
   let events: TakaEvent[] = [];
   if (canSeeHistory) {
     events = await db
@@ -664,6 +670,10 @@ async function loadTakaDetail(role: RoleKey, where: SQL): Promise<TakaDetail> {
     takaNo: row.takaNo,
     meters: row.meters,
     pcs: row.pcs,
+    actualPcs: row.actualPcs,
+    refinishCount: row.refinishCount,
+    parentTakaNo: row.parentTakaNo,
+    godownCheckedAt: row.godownCheckedAt,
     isDamaged: row.isDamaged,
     damages,
     stage: row.stage,

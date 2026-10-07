@@ -32,6 +32,8 @@ export interface ChallanKindConfig {
   readyStage: TakaStage;
   /** Stages a taka that is NOT yet sent of this kind can be in (the "total" of "18 / 20 ready"). */
   notSentStages: readonly TakaStage[];
+  /** A second stage a taka can be sent from (the mill: takas marked for refinish go back on a normal challan). */
+  refinishStage?: TakaStage;
   /** Stage after sending / after receiving back. */
   sentStage: TakaStage;
   receivedStage: TakaStage;
@@ -69,6 +71,7 @@ export const CHALLAN_KIND_CONFIG: Record<ChallanKind, ChallanKindConfig> = {
     route: '/mill',
     readyStage: 'waiting_mill',
     notSentStages: ['entered', 'at_butta', 'butta_qc', 'waiting_mill'],
+    refinishStage: 'refinish',
     sentStage: 'at_mill',
     receivedStage: 'mill_qc',
     inLabel: 'In mill',
@@ -97,8 +100,14 @@ export interface SendableTaka {
   stage: string;
 }
 
-/** A taka can be sent when it is in the kind's ready stage. */
+/** A taka is "ready" in the Pending list when it is in the kind's ready stage. */
 export const isTakaReady = (stage: string, kind: ChallanKind) => stage === CHALLAN_KIND_CONFIG[kind].readyStage;
+
+/** Every stage a taka can be put on a challan from: the ready stage, and (the mill) the refinish stage. */
+export const sendableStages = (kind: ChallanKind): TakaStage[] => {
+  const cfg = CHALLAN_KIND_CONFIG[kind];
+  return cfg.refinishStage ? [cfg.readyStage, cfg.refinishStage] : [cfg.readyStage];
+};
 
 /**
  * Splits a selection into the takas that can go now and the ones that are not ready yet ("Send ready takas only (N)").

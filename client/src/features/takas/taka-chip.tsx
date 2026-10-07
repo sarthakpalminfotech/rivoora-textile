@@ -8,13 +8,15 @@ import {
   hasOpenDamage,
   isFreshAfterDamage,
   takaStageColour,
+  takaActualPcs,
   takaStageLabel,
   type Taka,
 } from '@rivoora/shared';
 import { Tooltip } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 
-type ChipTaka = Pick<Taka, 'takaNo' | 'meters' | 'pcs' | 'damages'> & Partial<Pick<Taka, 'stage' | 'challanNo' | 'challanKind'>>;
+type ChipTaka = Pick<Taka, 'takaNo' | 'meters' | 'pcs' | 'damages'> &
+  Partial<Pick<Taka, 'stage' | 'challanNo' | 'challanKind' | 'actualPcs' | 'refinishCount' | 'parentTakaNo' | 'godownCheckedAt'>>;
 
 /** A small colour dot for a taka's stage (colour from the pipeline config) with the stage label as its tooltip. */
 export function StageDot({ stage, className }: { stage: string; className?: string }) {
@@ -27,6 +29,20 @@ export function StageDot({ stage, className }: { stage: string; className?: stri
         style={{ backgroundColor: takaStageColour(stage) }}
       />
     </Tooltip>
+  );
+}
+
+/** Pink "Refinish ×2" tag: the taka is marked for refinish (stage `refinish`) or went through refinishing before. */
+export function RefinishTag({ count, active }: { count: number; active?: boolean }) {
+  return (
+    <span
+      className={cn(
+        'inline-flex items-center rounded-full px-2 py-0.5 text-[12px] font-bold',
+        active ? 'bg-pink-100 text-pink-700' : 'bg-slate-100 text-slate-500',
+      )}
+    >
+      Refinish{count > 1 ? ` ×${count}` : ''}
+    </span>
   );
 }
 
@@ -98,9 +114,23 @@ export function TakaChip({ taka, size = 'md', showStage, showChallan, bilingual,
         {showStage && taka.stage && <StageDot stage={taka.stage} />}
         {damaged && <AlertTriangle className={cn('shrink-0', lg ? 'size-4' : 'size-3.5')} aria-hidden />}
         {taka.takaNo}
+        {taka.parentTakaNo && <span className="text-[12px] font-medium text-slate-400">from {taka.parentTakaNo}</span>}
         {taka.meters != null && <span className={sub}>· {formatMeters(taka.meters)}</span>}
-        <span className={sub}>· {taka.pcs != null ? formatPcs(taka.pcs) : '— pcs'}</span>
+        <span className={sub}>
+          · {takaActualPcs(taka) != null ? formatPcs(takaActualPcs(taka)!) : '— pcs'}
+        </span>
         {fresh && <FreshTag bilingual={bilingual} />}
+        {(taka.refinishCount ?? 0) > 0 && <RefinishTag count={taka.refinishCount!} active={taka.stage === 'refinish'} />}
+        {taka.godownCheckedAt && taka.stage !== 'ready_dispatch' && (
+          <span className="inline-flex items-center gap-0.5 rounded-full bg-green-50 px-1.5 py-0.5 text-[11px] font-bold text-green-700" title="Checked by the godown">
+            <CheckCircle2 className="size-3" aria-hidden /> Checked
+          </span>
+        )}
+        {taka.stage === 'ready_dispatch' && (
+          <span className="inline-flex items-center gap-0.5 rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-bold text-emerald-800">
+            <CheckCircle2 className="size-3" aria-hidden /> Ready to dispatch
+          </span>
+        )}
         {showChallan && taka.challanNo != null && (
           <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[12px] font-bold text-amber-800">{challanLabel(taka.challanNo, taka.challanKind ?? 'butta')}</span>
         )}

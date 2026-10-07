@@ -20,7 +20,7 @@ takasRouter.get(
 /** The one active taka with this number (Receive and Butta QC). Restricted view for the godown / QC roles. */
 takasRouter.get(
   '/by-no/:no',
-  requirePermission('canUseButtaModule', 'canButtaQc', 'canEditTakas'),
+  requirePermission('canUseButtaModule', 'canButtaQc', 'canEditTakas', 'canMillQc', 'canUseGodownOrders'),
   ah(async (req, res) => {
     res.set('Cache-Control', 'no-store');
     res.json(await takaByNo(req.role, req.params.no ?? ''));
@@ -30,7 +30,7 @@ takasRouter.get(
 /** The damage details screen: every damage of the taka with pcs, photos and its own timeline (Jemish / Gaurang). */
 takasRouter.get(
   '/:id/damages',
-  requirePermission('canEditTakas'),
+  requirePermission('canEditTakas', 'canUseGodownOrders'),
   ah(async (req, res) => {
     res.set('Cache-Control', 'no-store');
     res.json(await getTakaDamagesDetail(req.role, parseId(req.params.id)));

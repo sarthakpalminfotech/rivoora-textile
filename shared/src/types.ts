@@ -537,6 +537,16 @@ export interface Taka {
   challanId: number | null;
   challanNo: number | null;
   challanKind: ChallanKind | null;
+  /** Pcs counted by the godown supervisor; null = same as pcs. */
+  actualPcs: number | null;
+  /** How many times the taka was sent to refinish. */
+  refinishCount: number;
+  /** The taka this one was split from ("1101A" → "1101"). */
+  parentTakaId: number | null;
+  parentTakaNo: string | null;
+  /** Ticked by the godown supervisor. */
+  godownCheckedAt: string | null;
+  godownCheckedBy: RoleKey | null;
   enteredBy: RoleKey;
   createdAt: string;
 }
@@ -705,6 +715,14 @@ export const TAKA_EVENT_KINDS = [
   'damage_kept',
   'edited',
   'challan_cancelled',
+  // Sprint 9
+  'mill_qc_done',
+  'sent_refinish',
+  'split',
+  'godown_checked',
+  'godown_unchecked',
+  'actual_pcs_changed',
+  'ready_dispatch',
 ] as const;
 export type TakaEventKind = (typeof TAKA_EVENT_KINDS)[number];
 
@@ -734,6 +752,10 @@ export interface TakaDetail {
   takaNo: string;
   meters: number | null;
   pcs: number | null;
+  actualPcs: number | null;
+  refinishCount: number;
+  parentTakaNo: string | null;
+  godownCheckedAt: string | null;
   isDamaged: boolean;
   damages: TakaDamage[];
   stage: TakaStage;
@@ -843,6 +865,8 @@ export interface ChallanPendingTaka {
   stage: TakaStage;
   /** Can go on a challan of this kind now. */
   ready: boolean;
+  /** Refinish takas: how many times it was sent to refinish (the "x2" tag). */
+  refinishCount?: number;
 }
 
 /** GET /butta|mill/pending-orders/:orderId/takas — every not-yet-sent taka of the order, ready ones flagged. */
@@ -986,6 +1010,8 @@ export type QcPendingPage = Paginated<QcPendingTaka>;
 export interface QcResult {
   takaId: number;
   takaNo: string;
+  /** Mill QC: where the taka went (final = the godown, refinish = back to the mill). Butta QC: always final. */
+  result?: 'final' | 'refinish';
   /** No open damage left = Fresh. */
   fresh: boolean;
   resolved: number;
@@ -1014,3 +1040,78 @@ export interface OrderChallans {
   orderId: number;
   items: OrderChallan[];
 }
+
+/* ---------- Mill QC (Sprint 9) ---------- */
+
+/** GET /mill-qc/taka/:no — the taka (restricted view) plus what the Mill QC may do with it. */
+export interface MillQcTaka {
+  taka: TakaDetail;
+  /** See `millQcOpenState` in godown.ts. */
+  state: 'qc' | 'qc_not_received' | 'checked' | 'never_sent';
+}
+
+/* ---------- Godown Orders (Sprint 9) ---------- */
+
+/** One card of the godown Orders list: design, order number, ordered pcs (never the client or the rate). */
+export interface GodownOrderCard {
+  orderId: number;
+  orderNo: number;
+  designCode: string | null;
+  thumbUrl: string | null;
+  imageUrl: string | null;
+  orderedPcs: number;
+  /** Final takas not ticked yet (orders with some come first). */
+  uncheckedCount: number;
+}
+
+export type GodownOrderPage = Paginated<GodownOrderCard>;
+
+/** One final taka (or one ready to dispatch) on the godown order screen. */
+export interface GodownTaka {
+  id: number;
+  takaNo: string;
+  meters: number | null;
+  /** Expected pcs. */
+  pcs: number | null;
+  /** Counted pcs; null = same as the expected pcs. */
+  actualPcs: number | null;
+  stage: TakaStage;
+  checked: boolean;
+  checkedAt: string | null;
+  parentTakaNo: string | null;
+  refinishCount: number;
+  /** Open damages (name · where · open pcs) — the red D badge. */
+  isDamaged: boolean;
+  jobsheetId: number;
+}
+
+/** GET /godown/orders/:orderId */
+export interface GodownOrder {
+  orderId: number;
+  orderNo: number;
+  designCode: string | null;
+  thumbUrl: string | null;
+  imageUrl: string | null;
+  quality: string | null;
+  orderedPcs: number;
+  kpis: import('./godown').GodownKpis;
+  /** Final takas (in the godown) and the ones already ready to dispatch, by taka number. */
+  takas: GodownTaka[];
+  /** Every active taka number of the order (the split screen suggests the next free letter from these). */
+  orderTakaNos: string[];
+}
+
+/** POST /godown/takas/:id/split */
+export interface GodownSplitResult {
+  parentId: number;
+  orderId: number;
+  parts: { id: number; takaNo: string; pcs: number; meters: number | null; stage: TakaStage }[];
+}
+
+/** POST /godown/orders/:orderId/ready-dispatch */
+export interface ReadyDispatchResult {
+  orderId: number;
+  confirmed: number;
+  pcs: number;
+}
+

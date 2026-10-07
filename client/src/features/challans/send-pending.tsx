@@ -8,7 +8,6 @@ import {
   challanLabel,
   formatMeters,
   formatPcs,
-  splitReadyTakas,
   takaStageStatusText,
   type ChallanKind,
   type ChallanPendingOrder,
@@ -30,7 +29,7 @@ import { ApiError, errorMessage } from '@/lib/api';
 import { formatOrderNo, toApiDate } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { usePartyLookup } from '../masters/api';
-import { fetchPendingOrderTakas, useCreateChallan, usePendingOrders, usePendingOrderTakas } from './api';
+import { fetchPendingOrderTakas, useCreateChallan, usePendingOrders, usePendingOrderTakas, type SendMode } from './api';
 import { challanPrintPath } from './kind';
 
 /** orderId → the ids of its READY takas that are ticked (the takas themselves are cached in `known`). */
@@ -82,6 +81,7 @@ function Readiness({ order }: { order: ChallanPendingOrder }) {
 
 function OrderCard({
   kind,
+  mode,
   order,
   selectedCount,
   busy,
@@ -89,6 +89,7 @@ function OrderCard({
   onToggle,
 }: {
   kind: ChallanKind;
+  mode: SendMode;
   order: ChallanPendingOrder;
   selectedCount: number;
   busy: boolean;
@@ -148,7 +149,13 @@ function OrderCard({
           {order.designCode ? `Design ${order.designCode}` : 'No design'}
           {order.quality && ` · ${order.quality}`}
         </p>
-        {kind === 'mill' ? (
+        {mode === 'refinish' ? (
+          <p className="mt-auto flex items-center gap-2 pt-2 text-[15px] font-semibold text-slate-800">
+            <span className="rounded-full bg-pink-100 px-2 py-0.5 text-[11px] font-bold text-pink-700">Refinish</span>
+            {order.takaCount} {order.takaCount === 1 ? 'taka' : 'takas'}
+            <span className="font-medium text-slate-500"> · {formatMeters(order.totalMeters)}</span>
+          </p>
+        ) : kind === 'mill' ? (
           <Readiness order={order} />
         ) : (
           <p className="mt-auto pt-2 text-[15px] font-semibold text-slate-800">
@@ -167,6 +174,7 @@ function OrderCard({
 
 function TakasDrawer({
   kind,
+  mode,
   order,
   selected,
   onSelected,
@@ -174,13 +182,14 @@ function TakasDrawer({
   onClose,
 }: {
   kind: ChallanKind;
+  mode: SendMode;
   order: ChallanPendingOrder | null;
   selected: Set<number> | undefined;
   onSelected: (orderId: number, ids: Set<number>) => void;
   onLoaded: (orderId: number, takas: ChallanPendingTaka[]) => void;
   onClose: () => void;
 }) {
-  const query = usePendingOrderTakas(kind, order?.orderId ?? null);
+  const query = usePendingOrderTakas(kind, order?.orderId ?? null, mode);
   const takas = query.data?.takas;
   const initialised = useRef<number | null>(null);
 
@@ -295,6 +304,11 @@ function TakasDrawer({
                       <span className={t.ready ? 'text-slate-600' : 'text-slate-400'}>{t.meters != null ? formatMeters(t.meters) : '—'}</span>
                       <span className="ml-2 text-slate-400">{t.pcs != null ? formatPcs(t.pcs) : '—'}</span>
                     </span>
+                    {mode === 'refinish' && (
+                      <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-pink-100 px-2 py-0.5 text-[11px] font-bold text-pink-700">
+                        Refinish{(t.refinishCount ?? 0) > 1 ? ` ×${t.refinishCount}` : ''}
+                      </span>
+                    )}
                     {!t.ready && (
                       <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-slate-200/70 px-2.5 py-0.5 text-[11px] font-semibold text-slate-600">
                         {takaStageStatusText(t.stage)}
@@ -391,6 +405,7 @@ function NotReadyDialog({
 
 function SendDialog({
   kind,
+  refinish,
   open,
   onOpenChange,
   totals,
@@ -398,6 +413,7 @@ function SendDialog({
   onSent,
 }: {
   kind: ChallanKind;
+  refinish?: boolean;
   open: boolean;
   onOpenChange: (o: boolean) => void;
   totals: SelectedTotals;
@@ -448,7 +464,7 @@ function SendDialog({
     <ResponsiveModal
       open={open}
       onOpenChange={(o) => !create.isPending && onOpenChange(o)}
-      title={`Send to ${kind === 'butta' ? 'butta cutting' : 'mill'}`}
+      title={`Send to ${kind === 'butta' ? 'butta cutting' : refinish ? 'mill for refinishing' : 'mill'}`}
       desktopVariant="center"
       mobileVariant="bottom"
       size="md"
@@ -537,10 +553,10 @@ function GridSkeleton() {
  * then send them on one challan. Takas that are not ready yet are shown (greyed) in the drawer; sending with some of
  * them left over asks first ("Send ready takas only").
  */
-export function SendPending({ kind, search }: { kind: ChallanKind; search: string }) {
+export function SendPending({ kind, search, mode = 'send' }: { kind: ChallanKind; search: string; mode?: SendMode }) {
   const qc = useQueryClient();
   const navigate = useNavigate();
-  const query = usePendingOrders(kind, search);
+  const query = usePendingOrders(kind, search, mode);
   const [selection, setSelection] = useState<Selection>(new Map());
   /** Every taka we have seen per order (to total the selection and to find the not-ready ones). */
   const [known, setKnown] = useState<Map<number, ChallanPendingTaka[]>>(new Map());
@@ -577,7 +593,7 @@ export function SendPending({ kind, search }: { kind: ChallanKind; search: strin
     }
     setBusy((b) => new Set(b).add(order.orderId));
     try {
-      const res = await fetchPendingOrderTakas(qc, kind, order.orderId);
+      const res = await fetchPendingOrderTakas(qc, kind, order.orderId, mode);
       rememberTakas(order.orderId, res.takas);
       setOrderSelection(order.orderId, readyIds(res.takas));
     } catch (err) {
@@ -607,11 +623,11 @@ export function SendPending({ kind, search }: { kind: ChallanKind; search: strin
     const groups: NotReadyGroup[] = [];
     for (const [orderId] of selection) {
       const order = ordersById.get(orderId);
-      const { notReady } = splitReadyTakas(known.get(orderId) ?? [], kind);
+      const notReady = (known.get(orderId) ?? []).filter((t) => !t.ready);
       if (order && notReady.length) groups.push({ orderId, orderNo: order.orderNo, takas: notReady.map((t) => ({ id: t.id, takaNo: t.takaNo, stage: t.stage })) });
     }
     return groups.sort((a, b) => a.orderNo - b.orderNo);
-  }, [selection, known, ordersById, kind]);
+  }, [selection, known, ordersById]);
 
   const trySend = () => {
     if (notReadyGroups.length > 0) setWarnOpen(true);
@@ -627,11 +643,13 @@ export function SendPending({ kind, search }: { kind: ChallanKind; search: strin
         <div className="rounded-xl border border-border bg-white shadow-soft">
           <EmptyState
             icon={search ? SearchX : PackageOpen}
-            title={search ? 'No orders match your search' : kind === 'butta' ? 'Nothing waiting for butta cutting' : 'Nothing ready for the mill'}
+            title={search ? 'No orders match your search' : mode === 'refinish' ? 'No takas to refinish' : kind === 'butta' ? 'Nothing waiting for butta cutting' : 'Nothing ready for the mill'}
             description={
               search
                 ? undefined
-                : kind === 'butta'
+                : mode === 'refinish'
+                  ? 'Takas that Mill QC or the godown marks for refinish wait here to go back to the mill.'
+                  : kind === 'butta'
                   ? 'Takas appear here once the taka entry is done for orders that go for butta cutting.'
                   : 'Takas appear here once their butta QC is done (or when the design skips butta cutting).'
             }
@@ -644,6 +662,7 @@ export function SendPending({ kind, search }: { kind: ChallanKind; search: strin
               <OrderCard
                 key={o.orderId}
                 kind={kind}
+                mode={mode}
                 order={o}
                 selectedCount={selection.get(o.orderId)?.size ?? 0}
                 busy={busy.has(o.orderId)}
@@ -686,6 +705,7 @@ export function SendPending({ kind, search }: { kind: ChallanKind; search: strin
 
       <TakasDrawer
         kind={kind}
+        mode={mode}
         order={openOrder}
         selected={openOrder ? selection.get(openOrder.orderId) : undefined}
         onSelected={setOrderSelection}
@@ -705,6 +725,7 @@ export function SendPending({ kind, search }: { kind: ChallanKind; search: strin
       />
       <SendDialog
         kind={kind}
+        refinish={mode === 'refinish'}
         open={sendOpen}
         onOpenChange={setSendOpen}
         totals={totals}

@@ -42,7 +42,7 @@ lookupRouter.get(
 /** Damage names for the damage popup: Jemish, Gaurang (edit takas), the Taka entry role and Butta QC. */
 lookupRouter.get(
   '/damages',
-  requirePermission('canViewMasters', 'canEnterTakas', 'canEditTakas', 'canButtaQc'),
+  requirePermission('canViewMasters', 'canEnterTakas', 'canEditTakas', 'canButtaQc', 'canMillQc', 'canUseGodownOrders'),
   ah(async (req, res) => {
     res.set('Cache-Control', 'private, max-age=10');
     res.json(await lookupDamages(querySchema.parse(req.query).search));

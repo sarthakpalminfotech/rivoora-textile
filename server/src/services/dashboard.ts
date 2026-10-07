@@ -23,7 +23,7 @@ import {
 import { db } from '../db/client';
 import { challanTakas, jobsheets, orders, takaDamages, takas } from '../db/schema';
 import { notFound } from '../lib/errors';
-import { activeTakaCount, machinesJson, parseMachinesJson, runningMachine, runningMachineColumns, toMachineRef } from './jobsheets';
+import { activeTakaCount, isRestricted, machinesJson, parseMachinesJson, runningMachine, runningMachineColumns, toMachineRef } from './jobsheets';
 import { mapTaka, parseDamagesJson, sortTakas, takaColumns, takaDamagesJson } from './taka-shared';
 
 /**
@@ -46,7 +46,8 @@ const activeJobsheetOf = (orderId: number) => and(eq(jobsheets.orderId, orderId)
 const activeTakasOf = (orderId: number) => and(eq(takas.orderId, orderId), eq(takas.isDeleted, false), eq(jobsheets.isDeleted, false));
 
 function assertVisible<T extends { status: string }>(role: RoleKey, order: T | undefined): T {
-  if (!order || !canRoleSeeStatus(role, order.status)) throw notFound('Order');
+  // The godown / QC roles have a restricted view of every order (no client, no rate) and see no order statuses.
+  if (!order || (!isRestricted(role) && !canRoleSeeStatus(role, order.status))) throw notFound('Order');
   return order;
 }
 
@@ -74,8 +75,9 @@ export async function getOrderDashboard(role: RoleKey, orderId: number): Promise
         stage: takas.stage,
         isDamaged: takas.isDamaged,
         count: sql<number>`COUNT(*)`,
-        pcs: sql<number | null>`SUM(${takas.pcs})`,
-        withoutPcs: sql<number>`SUM(CASE WHEN ${takas.pcs} IS NULL THEN 1 ELSE 0 END)`,
+        // Actual pcs (counted by the godown supervisor) when set, else the taka's pcs.
+        pcs: sql<number | null>`SUM(COALESCE(${takas.actualPcs}, ${takas.pcs}))`,
+        withoutPcs: sql<number>`SUM(CASE WHEN COALESCE(${takas.actualPcs}, ${takas.pcs}) IS NULL THEN 1 ELSE 0 END)`,
       })
       .from(takas)
       .innerJoin(jobsheets, eq(jobsheets.id, takas.jobsheetId))

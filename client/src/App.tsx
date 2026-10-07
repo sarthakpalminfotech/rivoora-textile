@@ -39,6 +39,11 @@ const PartiesPage = lazy(() => import('@/features/masters/parties/parties-page')
 const DamageDetailsPage = lazy(() => import('@/features/takas/damage-details-page'));
 const QcHomePage = lazy(() => import('@/features/butta-qc/qc-home-page'));
 const QcTakaPage = lazy(() => import('@/features/butta-qc/qc-taka-page'));
+const MillQcHomePage = lazy(() => import('@/features/mill-qc/qc-home-page'));
+const MillQcTakaPage = lazy(() => import('@/features/mill-qc/qc-taka-page'));
+const GodownOrdersPage = lazy(() => import('@/features/godown/godown-orders-page'));
+const GodownOrderPage = lazy(() => import('@/features/godown/godown-order-page'));
+const SplitPage = lazy(() => import('@/features/godown/split-page'));
 const NotFoundPage = lazy(() => import('@/pages/not-found-page'));
 
 const guard = (permission: keyof RolePermissions, element: ReactNode) => (
@@ -135,6 +140,13 @@ const router = createBrowserRouter([
           { path: 'mill/challans/:id', element: guard('canUseMillModule', <ChallanDetailsPage kind="mill" />) },
           { path: 'butta-qc', element: guard('canButtaQc', <QcHomePage />) },
           { path: 'butta-qc/taka/:takaNo', element: guard('canButtaQc', <QcTakaPage />) },
+          { path: 'mill-qc', element: guard('canMillQc', <MillQcHomePage />) },
+          { path: 'mill-qc/taka/:takaNo', element: guard('canMillQc', <MillQcTakaPage />) },
+          // Godown Orders: final takas, split, ready to dispatch (Godown supervisor; Jemish / Gaurang may open it too).
+          { path: 'godown/orders', element: guard('canUseGodownOrders', <GodownOrdersPage />) },
+          { path: 'godown/orders/:orderId', element: guard('canUseGodownOrders', <GodownOrderPage />) },
+          { path: 'godown/orders/:orderId/split/:takaId', element: guard('canUseGodownOrders', <SplitPage />) },
+          { path: 'godown/orders/:orderId/takas/:takaId/damages', element: guard('canUseGodownOrders', <DamageDetailsPage />) },
           { path: 'jobsheets', element: <JobsheetsRoute /> },
           // The supervisor's Order view: one order's jobsheets.
           { path: 'jobsheets/order/:orderId', element: guard('canViewJobsheetsModule', <SupervisorOrderJobsheetsPage />) },

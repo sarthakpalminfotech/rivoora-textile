@@ -512,3 +512,74 @@ export const qcSubmitSchema = z.object({
   newDamages: z.array(qcNewDamageSchema).max(MAX_DAMAGES_PER_TAKA, `At most ${MAX_DAMAGES_PER_TAKA} new damages`).default([]),
 });
 export type QcSubmitInput = z.input<typeof qcSubmitSchema>;
+
+/* ---------- Mill QC, refinish, godown (Sprint 9) ---------- */
+
+export const MILL_QC_RESULTS = ['final', 'refinish'] as const;
+export type MillQcResultKind = (typeof MILL_QC_RESULTS)[number];
+
+/**
+ * POST /mill-qc/:takaId — like Butta QC (meters / pcs, a decision per open damage, new damages with photos), plus the
+ * result: `final` (Fresh or Done → the godown's final takas) or `refinish` (back to the mill, with an optional note).
+ * With `refinish` the open damages need no answer.
+ */
+export const millQcSubmitSchema = qcSubmitSchema.extend({
+  result: z.enum(MILL_QC_RESULTS).default('final'),
+  refinishNote: optText(300),
+});
+export type MillQcSubmitInput = z.input<typeof millQcSubmitSchema>;
+
+/** GET /godown/orders */
+export const godownListQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(30),
+  search: listSearch,
+});
+export type GodownListQuery = z.infer<typeof godownListQuerySchema>;
+
+/** PATCH /godown/takas/:id — tick / untick, and/or the actual pcs counted. */
+export const godownTakaPatchSchema = z
+  .object({
+    checked: z.boolean().optional(),
+    actualPcs: z
+      .number({ invalid_type_error: 'Enter the pcs' })
+      .int('Use a whole number')
+      .min(1, 'Pcs must be at least 1')
+      .max(TAKA_PCS_MAX, `At most ${TAKA_PCS_MAX} pcs`)
+      .optional(),
+  })
+  .refine((v) => v.checked !== undefined || v.actualPcs !== undefined, { message: 'Nothing to change' });
+export type GodownTakaPatchInput = z.input<typeof godownTakaPatchSchema>;
+
+/** POST /godown/takas/:id/refinish */
+export const godownRefinishSchema = z.object({ note: optText(300) });
+
+/** POST /godown/takas/:id/resolve — resolve one damage (`takaDamageId`) or, without it, every open damage of the taka. */
+export const godownResolveSchema = z.object({ takaDamageId: z.number().int().positive().optional() });
+
+/** One part of a split: the first part keeps the original number. `damages` are new "Supervisor marked" damages. */
+export const splitPartSchema = z.object({
+  takaNo,
+  pcs: z
+    .number({ required_error: 'Enter the pcs', invalid_type_error: 'Enter the pcs' })
+    .int('Use a whole number')
+    .min(1, 'Pcs must be at least 1')
+    .max(TAKA_PCS_MAX, `At most ${TAKA_PCS_MAX} pcs`),
+  damages: z.array(qcNewDamageSchema).max(MAX_DAMAGES_PER_TAKA).default([]),
+  refinish: z.boolean().default(false),
+});
+
+/** POST /godown/takas/:id/split */
+export const godownSplitSchema = z.object({
+  parts: z.array(splitPartSchema).min(2, 'A split needs at least 2 parts').max(27, 'At most 27 parts'),
+});
+export type GodownSplitInput = z.input<typeof godownSplitSchema>;
+
+/** POST /godown/orders/:orderId/ready-dispatch */
+export const readyDispatchSchema = z.object({
+  takaIds: z
+    .array(z.number().int().positive(), { required_error: 'Select at least one taka' })
+    .min(1, 'Select at least one taka')
+    .max(2000)
+    .transform((ids) => [...new Set(ids)]),
+});

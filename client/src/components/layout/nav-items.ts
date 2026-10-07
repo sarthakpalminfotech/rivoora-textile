@@ -10,8 +10,10 @@ import {
   Palette,
   ScanLine,
   Scissors,
+  ShieldCheck,
   Store,
   Users,
+  Warehouse,
   type LucideIcon,
 } from 'lucide-react';
 import type { RolePermissions } from '@/config/roles';
@@ -26,6 +28,8 @@ export interface NavItem {
   permission: keyof RolePermissions;
   /** Masters go under "More" in the phone bottom nav. */
   group: 'main' | 'masters';
+  /** Hidden for roles that have this permission (the godown Orders item is not shown next to Jemish's own Orders). */
+  hideWith?: keyof RolePermissions;
 }
 
 export const NAV_ITEMS: NavItem[] = [
@@ -39,6 +43,9 @@ export const NAV_ITEMS: NavItem[] = [
   { to: '/butta', label: 'Butta cutting', icon: Scissors, permission: 'canUseButtaModule', group: 'main' },
   { to: '/mill', label: 'Mill', icon: FlaskConical, permission: 'canUseMillModule', group: 'main' },
   { to: '/butta-qc', label: 'Butta QC', hi: 'बुट्टा QC', icon: BadgeCheck, permission: 'canButtaQc', group: 'main' },
+  { to: '/mill-qc', label: 'Mill QC', hi: 'मिल QC', icon: ShieldCheck, permission: 'canMillQc', group: 'main' },
+  // Godown supervisor: final takas, split, ready to dispatch.
+  { to: '/godown/orders', label: 'Orders', icon: Warehouse, permission: 'canUseGodownOrders', group: 'main', hideWith: 'canViewOrders' },
   { to: '/customers', label: 'Customers', icon: Users, permission: 'canViewMasters', group: 'masters' },
   { to: '/materials', label: 'Materials', icon: Layers, permission: 'canViewMasters', group: 'masters' },
   { to: '/designs', label: 'Designs', icon: Palette, permission: 'canViewMasters', group: 'masters' },
@@ -51,7 +58,7 @@ export const NAV_ITEMS: NavItem[] = [
 export function navItemsFor(can: (p: keyof RolePermissions) => boolean): NavItem[] {
   const seen = new Set<string>();
   return NAV_ITEMS.filter((item) => {
-    if (!can(item.permission) || seen.has(item.to)) return false;
+    if (!can(item.permission) || (item.hideWith && can(item.hideWith)) || seen.has(item.to)) return false;
     seen.add(item.to);
     return true;
   });

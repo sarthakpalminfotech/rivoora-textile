@@ -35,7 +35,7 @@ const bar = (d: ReturnType<typeof buildOrderDashboard>, key: string) => d.bar.fi
 
 describe('pipeline config', () => {
   it('maps every taka stage to a main stage', () => {
-    expect(TAKA_STAGES.map(takaStageMain)).toEqual(['production', 'butta', 'butta', 'mill', 'mill', 'mill', 'ready']);
+    expect(TAKA_STAGES.map(takaStageMain)).toEqual(['production', 'butta', 'butta', 'mill', 'mill', 'mill', 'ready', 'mill', 'ready']);
   });
 
   it('jobsheet sub-stage rules', () => {
@@ -113,7 +113,7 @@ describe('buildOrderDashboard — bar shares (pcs)', () => {
         order,
         jobsheets: [a, b],
         // 4 takas without pcs: 1 entered, 2 at butta, 1 ready → 24 pcs split 6 / 12 / 0 / 6.
-        takas: [taka(a.id), taka(a.id, { stage: 'at_butta', count: 2 }), taka(a.id, { stage: 'ready' })],
+        takas: [taka(a.id), taka(a.id, { stage: 'at_butta', count: 2 }), taka(a.id, { stage: 'final' })],
       },
       NOW,
     );
@@ -203,7 +203,8 @@ describe('buildOrderDashboard — damages (open damages by where they were found
     expect(d.damages).toEqual([
       { type: 'machine', count: 3, pcs: 5, connected: true },
       { type: 'butta', count: 2, pcs: 3, connected: true },
-      { type: 'mill', count: 0, pcs: null, connected: false },
+      { type: 'mill', count: 0, pcs: null, connected: true },
+      { type: 'godown', count: 0, pcs: null, connected: true },
     ]);
     expect(d.damageTotal).toBe(5);
     expect(d.takaCount).toBe(8);
@@ -235,7 +236,9 @@ describe('buildOrderDashboard — butta cutting is connected (Sprint 7)', () => 
     expect(sub(d, 'waiting_mill')).toMatchObject({ count: 5, connected: true, mainStage: 'mill' });
     expect(sub(d, 'at_mill').connected).toBe(true);
     expect(sub(d, 'mill_qc').connected).toBe(true);
-    expect(sub(d, 'ready').connected).toBe(false);
+    expect(sub(d, 'final').connected).toBe(true);
+    expect(sub(d, 'ready_dispatch').connected).toBe(true);
+    expect(sub(d, 'refinish')).toMatchObject({ connected: true, mainStage: 'mill' });
     expect(d.subStages.some((s) => (s.key as string) === 'butta_done')).toBe(false);
     expect(main(d, 'butta')).toMatchObject({ count: 6, connected: true });
     expect(main(d, 'mill')).toMatchObject({ count: 5 });
@@ -318,11 +321,15 @@ describe('buildOrderDashboard — completed / skipped main stages', () => {
     expect(states(open).butta).toBeNull();
   });
 
-  it('Mill is completed only when every taka is past the mill (Ready is not connected yet); Ready never is', () => {
+  it('Mill is completed only when every taka is final / ready to dispatch; Ready only when all are ready to dispatch', () => {
     const a = js({ status: 'completed' });
     const back = buildOrderDashboard({ order, jobsheets: [a], takas: [taka(a.id, { stage: 'mill_qc', count: 2 })], buttaTakas: 2 }, NOW);
     expect(states(back).mill).toBeNull();
-    const ready = buildOrderDashboard({ order, jobsheets: [a], takas: [taka(a.id, { stage: 'ready', count: 2 })], buttaTakas: 2 }, NOW);
-    expect(states(ready)).toEqual({ production: 'completed', butta: 'completed', mill: 'completed', ready: null });
+    const final = buildOrderDashboard({ order, jobsheets: [a], takas: [taka(a.id, { stage: 'final', count: 2 })], buttaTakas: 2 }, NOW);
+    expect(states(final)).toEqual({ production: 'completed', butta: 'completed', mill: 'completed', ready: null });
+    const refinish = buildOrderDashboard({ order, jobsheets: [a], takas: [taka(a.id, { stage: 'final' }), taka(a.id, { stage: 'refinish' })], buttaTakas: 2 }, NOW);
+    expect(states(refinish).mill).toBeNull();
+    const ready = buildOrderDashboard({ order, jobsheets: [a], takas: [taka(a.id, { stage: 'ready_dispatch', count: 2 })], buttaTakas: 2 }, NOW);
+    expect(states(ready)).toEqual({ production: 'completed', butta: 'completed', mill: 'completed', ready: 'completed' });
   });
 });

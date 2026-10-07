@@ -1,36 +1,15 @@
-import { and, desc, eq, inArray, sql, type SQL } from 'drizzle-orm';
-import {
-  applyResolve,
-  buttaListQuerySchema,
-  damageLabel,
-  MAX_DAMAGE_IMAGES,
-  qcSubmitSchema,
-  takaEditNote,
-  validateQcDecisions,
-  type ButtaListQuery,
-  type QcPendingPage,
-  type QcResult,
-  type RoleKey,
-} from '@rivoora/shared';
+import { and, desc, eq, sql, type SQL } from 'drizzle-orm';
+import { buttaListQuerySchema, qcSubmitSchema, type ButtaListQuery, type QcPendingPage, type QcResult, type RoleKey } from '@rivoora/shared';
 import { db } from '../db/client';
-import { challanTakas, challans, damages as damageMaster, orders, takaDamageImages, takaDamages, takas } from '../db/schema';
-import { badRequest, conflict, notFound } from '../lib/errors';
+import { challanTakas, challans, orders, takas } from '../db/schema';
+import { conflict, notFound } from '../lib/errors';
 import { likePattern } from '../lib/http';
-import {
-  insertTakaDamages,
-  recomputeOrdersStatus,
-  refreshIsDamaged,
-  resolveDamageNames,
-  writeTakaEvents,
-  type TakaEventInput,
-} from './taka-ops';
+import { recomputeOrdersStatus, refreshIsDamaged, writeTakaEvents } from './taka-ops';
+import { applyQcChanges } from './qc-shared';
 
 /** Butta QC (bilingual role): the takas received back from butta cutting are checked here. */
 
 const now = () => new Date().toISOString();
-
-/** Photos come from our own upload endpoint: a local `/uploads/…` path or an https (Cloudinary) URL. */
-const isOurImageUrl = (url: string) => url.startsWith('/uploads/') || /^https:\/\//i.test(url);
 
 /** GET /butta-qc/pending — takas in `butta_qc`, newest received first. */
 export async function listQcPending(q: ButtaListQuery): Promise<QcPendingPage> {
@@ -80,10 +59,6 @@ export async function listQcPending(q: ButtaListQuery): Promise<QcPendingPage> {
  */
 export async function submitQc(role: RoleKey, takaId: number, input: unknown): Promise<QcResult> {
   const data = qcSubmitSchema.parse(input);
-  data.newDamages.forEach((d, j) => {
-    if (d.images.length > MAX_DAMAGE_IMAGES) throw badRequest(`At most ${MAX_DAMAGE_IMAGES} images per damage.`, `newDamages.${j}.images`);
-    if (d.images.some((i) => !isOurImageUrl(i.url) || !isOurImageUrl(i.thumbUrl))) throw badRequest('Upload the photos again.', `newDamages.${j}.images`);
-  });
   return db.transaction(async (tx) => {
     const [taka] = await tx
       .select({
@@ -105,102 +80,16 @@ export async function submitQc(role: RoleKey, takaId: number, input: unknown): P
       );
     }
 
-    const open = await tx
-      .select({
-        id: takaDamages.id,
-        damageId: takaDamages.damageId,
-        foundAt: takaDamages.foundAt,
-        pcs: takaDamages.pcs,
-        resolvedPcs: takaDamages.resolvedPcs,
-        name: damageMaster.name,
-      })
-      .from(takaDamages)
-      .leftJoin(damageMaster, eq(damageMaster.id, takaDamages.damageId))
-      .where(and(eq(takaDamages.takaId, takaId), eq(takaDamages.status, 'open'), eq(takaDamages.isDeleted, false)));
-
-    const issues = validateQcDecisions(open, data.damageDecisions, data.pcs);
-    if (issues.unknown.length) throw conflict('This taka was just changed by someone else. Go back and open it again.');
-    if (issues.unanswered.length) throw badRequest('Answer every damage: resolved or not resolved.', 'damageDecisions');
-    if (issues.pcsMissing.length) throw badRequest('Enter how many pcs are damaged.', 'damageDecisions');
-    if (issues.pcsTooBig.length) throw badRequest(`A damage can't have more pcs than the taka (${data.pcs}).`, 'damageDecisions');
-    if (issues.resolvedTooBig.length) throw badRequest("You can't resolve more pcs than are still damaged.", 'damageDecisions');
-    data.newDamages.forEach((d, j) => {
-      if (d.pcs > data.pcs) throw badRequest(`A damage can't have more pcs than the taka (${data.pcs}).`, `newDamages.${j}.pcs`);
-    });
-
     const at = now();
-    const events: TakaEventInput[] = [];
-
-    // Meters / pcs.
-    const editNote = takaEditNote({ meters: taka.meters, pcs: taka.pcs }, { meters: data.meters, pcs: data.pcs });
-    if (editNote) {
-      await tx.update(takas).set({ meters: data.meters, pcs: data.pcs }).where(eq(takas.id, takaId));
-      events.push({ takaId, event: 'edited', note: `Butta QC · ${editNote}` });
-    }
-
-    // Decisions on the open damages (pcs resolved now; 0 = not resolved).
-    const byId = new Map(data.damageDecisions.map((d) => [d.takaDamageId, d]));
-    let resolved = 0;
-    let kept = 0;
-    for (const d of open) {
-      const decision = byId.get(d.id)!;
-      const pcs = d.pcs ?? decision.pcs ?? 0;
-      if (decision.resolvedPcs <= 0) {
-        if (d.pcs === null) await tx.update(takaDamages).set({ pcs }).where(eq(takaDamages.id, d.id));
-        events.push({ takaId, event: 'damage_kept', takaDamageId: d.id, note: damageLabel(d.foundAt, d.name, pcs - (d.resolvedPcs ?? 0)) });
-        kept += 1;
-        continue;
-      }
-      const next = applyResolve({ pcs, resolvedPcs: d.resolvedPcs }, decision.resolvedPcs);
-      await tx
-        .update(takaDamages)
-        .set(
-          next.status === 'resolved'
-            ? { status: 'resolved', resolvedPcs: next.resolvedPcs, resolvedAt: at, resolvedBy: role, resolvedStage: 'butta_qc', pcs }
-            : { resolvedPcs: next.resolvedPcs, pcs },
-        )
-        .where(eq(takaDamages.id, d.id));
-      const what = damageLabel(d.foundAt, d.name);
-      events.push({
-        takaId,
-        event: next.status === 'resolved' ? 'damage_resolved' : 'damage_partly_resolved',
-        takaDamageId: d.id,
-        note: `${what} · resolved ${next.resolvedPcs} of ${pcs} pcs`,
-      });
-      if (next.status === 'resolved') resolved += 1;
-      else kept += 1;
-    }
-
-    // New butta damages (+ photos).
-    const damageIds = await resolveDamageNames(
-      tx,
-      data.newDamages.map((d) => ('damageId' in d ? { damageId: d.damageId } : { otherName: d.otherName })),
-      (n) => `newDamages.${n}`,
-    );
-    const newIds = await insertTakaDamages(
+    // Meters / pcs, the decision on every open damage and the new butta damages (+ photos).
+    const { events, resolved, kept, added } = await applyQcChanges(
       tx,
       role,
-      data.newDamages.map((d, n) => ({ takaId, damageId: damageIds[n], pcs: d.pcs, foundAt: 'butta' as const })),
+      taka,
+      data,
+      { foundAt: 'butta', resolvedStage: 'butta_qc', label: 'Butta QC', requireAnswers: true },
+      at,
     );
-    for (const [n, d] of data.newDamages.entries()) {
-      if (!d.images.length) continue;
-      await tx
-        .insert(takaDamageImages)
-        .values(d.images.map((i) => ({ takaDamageId: newIds[n], imageUrl: i.url, thumbUrl: i.thumbUrl, createdBy: role, createdAt: at })));
-    }
-    if (damageIds.length) {
-      const names = new Map(
-        (await tx.select({ id: damageMaster.id, name: damageMaster.name }).from(damageMaster).where(inArray(damageMaster.id, damageIds))).map((r) => [r.id, r.name]),
-      );
-      data.newDamages.forEach((d, n) =>
-        events.push({
-          takaId,
-          event: 'damage_added',
-          takaDamageId: newIds[n],
-          note: `${damageLabel('butta', names.get(damageIds[n]), d.pcs)}${d.images.length ? ` · ${d.images.length} photo${d.images.length === 1 ? '' : 's'}` : ''}`,
-        }),
-      );
-    }
     await refreshIsDamaged(tx, [takaId]);
 
     // Done: waiting for the mill.
@@ -217,6 +106,6 @@ export async function submitQc(role: RoleKey, takaId: number, input: unknown): P
     events.push({ takaId, event: 'butta_qc_done', note: moved[0].isDamaged ? 'Damaged' : 'Fresh' });
     await writeTakaEvents(tx, role, events);
     await recomputeOrdersStatus(tx, role, [taka.orderId]);
-    return { takaId, takaNo: taka.takaNo, fresh: !moved[0].isDamaged, resolved, kept, added: data.newDamages.length };
+    return { takaId, takaNo: taka.takaNo, result: 'final', fresh: !moved[0].isDamaged, resolved, kept, added };
   });
 }

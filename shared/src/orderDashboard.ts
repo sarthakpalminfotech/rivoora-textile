@@ -352,12 +352,14 @@ export function buildOrderDashboard(input: DashboardInput, now: Date = new Date(
     stageCount('entered') === 0;
   const buttaDone = productionDone && stageCount('entered', 'at_butta', 'butta_qc') === 0 && takaCount > 0;
   const buttaSkipped = buttaDone && input.buttaTakas === 0;
-  const millDone = buttaDone && takaCount > 0 && stageCount('ready') === takaCount;
+  const millDone = buttaDone && takaCount > 0 && stageCount('final', 'ready_dispatch') === takaCount;
+  const readyDone = takaCount > 0 && stageCount('ready_dispatch') === takaCount;
   const stateOf = (key: MainStageKey, connected: boolean): StageState => {
     if (!connected) return null;
     if (key === 'production') return productionDone ? 'completed' : null;
     if (key === 'butta') return buttaSkipped ? 'skipped' : buttaDone ? 'completed' : null;
     if (key === 'mill') return millDone ? 'completed' : null;
+    if (key === 'ready') return readyDone ? 'completed' : null;
     return null;
   };
 

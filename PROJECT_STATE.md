@@ -1030,3 +1030,6 @@ parties master built from the butta components with a `kind` prop; order statuse
 dashboard bar in pcs and Completed / Skipped stage cards; Butta QC Resolve popup with pcs + damage photos; order Docs
 tab; damage details screen. `npm test` (shared): 144 tests. NOT yet run against live Turso — run `npm run db:migrate`
 there first (it prints the before/after challan counts).
+
+## Sprint 9 (done)
+Mill QC role, refinish loop back to the mill, godown Orders module (final takas, tick, actual pcs, split, Ready to dispatch, Damage tab), new stages/statuses/damage type, dashboard + Takas tab additions. See the Sprint 9 section of CLAUDE.md. Run `npm run db:migrate` on Turso to apply 0010. Not done: dispatch itself, a full Inventory module, real-device check of the new phone screens.

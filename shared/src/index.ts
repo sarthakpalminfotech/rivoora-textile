@@ -13,3 +13,4 @@ export * from './orderDashboard';
 export * from './company';
 export * from './butta';
 export * from './challans';
+export * from './godown';

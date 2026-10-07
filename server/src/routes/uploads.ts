@@ -26,11 +26,11 @@ export const uploadsRouter = Router();
 
 uploadsRouter.post(
   '/',
-  requirePermission('canManageMasters', 'canAddOrder', 'canEditOrder', 'canButtaQc'),
+  requirePermission('canManageMasters', 'canAddOrder', 'canEditOrder', 'canButtaQc', 'canMillQc'),
   upload.single('file'),
   ah(async (req, res) => {
     const { folder } = z.object({ folder: z.enum(['designs', 'notes', 'damages']).default('designs') }).parse(req.query);
-    // Butta QC may only upload damage photos.
+    // Butta QC and Mill QC may only upload damage photos.
     if (folder !== 'damages' && !can(req.role, 'canManageMasters') && !can(req.role, 'canAddOrder') && !can(req.role, 'canEditOrder')) {
       throw forbidden('This role can only upload damage photos.');
     }

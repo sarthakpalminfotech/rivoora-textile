@@ -60,7 +60,7 @@ export function DamagesTab({ order, view }: { order: OrderDetail; view: OrderVie
   return (
     <div className="space-y-4">
       {/* Summary tiles */}
-      <ul className="grid grid-cols-2 gap-2.5 md:grid-cols-4 md:gap-3" aria-label="Damage counts">
+      <ul className="grid grid-cols-2 gap-2.5 md:grid-cols-3 md:gap-3 xl:grid-cols-5" aria-label="Damage counts">
         {DAMAGE_TYPE_CONFIG.map((d) => {
           const count = data?.counts.find((c) => c.type === d.key);
           const n = count?.count ?? 0;

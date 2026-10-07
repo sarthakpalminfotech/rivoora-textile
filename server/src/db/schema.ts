@@ -344,12 +344,22 @@ export const takas = sqliteTable(
     damageId: integer('damage_id').references(() => damages.id),
     /** Where the taka is: `entered` today; later sprints move it on (TAKA_STAGES in shared/pipeline.ts). */
     stage: text('stage').$type<TakaStage>().notNull().default('entered'),
+    /** How many times the taka was sent to refinish (Mill QC / godown). */
+    refinishCount: integer('refinish_count').notNull().default(0),
+    /** The taka this one was split from (godown split). */
+    parentTakaId: integer('parent_taka_id').references((): AnySQLiteColumn => takas.id),
+    /** Pcs counted by the godown supervisor; null = same as `pcs`. */
+    actualPcs: integer('actual_pcs'),
+    /** Ticked by the godown supervisor ("I have checked this taka"). */
+    godownCheckedAt: text('godown_checked_at'),
+    godownCheckedBy: text('godown_checked_by').$type<RoleKey>(),
     enteredBy: text('entered_by').$type<RoleKey>().notNull(),
     isDeleted: isDeleted(),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
   (t) => [
+    index('takas_parent_idx').on(t.parentTakaId),
     index('takas_jobsheet_idx').on(t.jobsheetId),
     index('takas_order_idx').on(t.orderId),
     index('takas_taka_no_idx').on(t.takaNo),
@@ -512,6 +522,8 @@ export const challanTakas = sqliteTable(
     meters: real('meters'),
     pcs: integer('pcs'),
     isActive: integer('is_active', { mode: 'boolean' }).notNull().default(true),
+    /** Mill: this trip is a refinish (the taka came from the refinish stage). */
+    isRefinish: integer('is_refinish', { mode: 'boolean' }).notNull().default(false),
     receivedAt: text('received_at'),
     receivedBy: text('received_by').$type<RoleKey>(),
     /** Butta QC completed. */

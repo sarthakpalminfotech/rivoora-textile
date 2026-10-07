@@ -3,11 +3,9 @@
  * rules. Config-driven so later sprints only CONNECT data instead of redesigning the page.
  *
  * ┌──────────────────────────────────────────────────────────────────────────────────────────────────────────┐
- * │ CONNECTED (Sprint 8): taka entry → butta cutting (send / receive / QC) → waiting for mill → at mill →     │
- * │ received back from the mill (QC pending).                                                                 │
- * │ TO CONNECT LATER: the mill QC and ready flows — move takas to the matching `TakaStage`, set              │
- * │ `connected: true` on the ready sub-stage / main stage and the mill damage type, and map the data here.   │
- * │ `buildOrderDashboard` and the dashboard page must not need changes.                                       │
+ * │ CONNECTED (Sprint 9): taka entry → butta cutting (send / receive / QC) → waiting for mill → at mill →     │
+ * │ received back (Mill QC) → final takas in the godown → ready for dispatch; refinish takas go back to the   │
+ * │ mill. Dispatch itself comes in a later sprint.                                                            │
  * └──────────────────────────────────────────────────────────────────────────────────────────────────────────┘
  *
  * Production sub-stages are measured in jobsheets (by jobsheet status); every later sub-stage is measured in takas
@@ -39,7 +37,8 @@ export const MAIN_STAGES: readonly MainStageConfig[] = [
   { key: 'butta', label: 'Butta cutting', unit: 'takas', colour: '#F59E0B', connected: true },
   // The whole order goes to the mill together for dyeing. Only "Waiting for mill" is connected so far.
   { key: 'mill', label: 'Mill', unit: 'takas', colour: '#8B5CF6', connected: true },
-  { key: 'ready', label: 'Ready', unit: 'takas', colour: '#10B981', connected: false },
+  // Connected in Sprint 9: final takas in the godown → ready for dispatch.
+  { key: 'ready', label: 'Ready', unit: 'takas', colour: '#10B981', connected: true },
 ];
 
 /* ------------------------------------------------------------------ */
@@ -51,7 +50,17 @@ export const MAIN_STAGES: readonly MainStageConfig[] = [
  * `butta_qc` = received back, Butta QC pending · `waiting_mill` = Butta QC done (or the design skips butta
  * cutting) · the rest comes with the mill / ready sprints. Stored in `takas.stage` (NOT NULL, default `entered`).
  */
-export const TAKA_STAGES = ['entered', 'at_butta', 'butta_qc', 'waiting_mill', 'at_mill', 'mill_qc', 'ready'] as const;
+export const TAKA_STAGES = [
+  'entered',
+  'at_butta',
+  'butta_qc',
+  'waiting_mill',
+  'at_mill',
+  'mill_qc',
+  'final',
+  'refinish',
+  'ready_dispatch',
+] as const;
 export type TakaStage = (typeof TAKA_STAGES)[number];
 export const DEFAULT_TAKA_STAGE: TakaStage = 'entered';
 
@@ -74,7 +83,9 @@ export const SUB_STAGE_KEYS = [
   'waiting_mill',
   'at_mill',
   'mill_qc',
-  'ready',
+  'refinish',
+  'final',
+  'ready_dispatch',
 ] as const;
 export type SubStageKey = (typeof SUB_STAGE_KEYS)[number];
 
@@ -106,8 +117,11 @@ export const SUB_STAGES: readonly SubStageConfig[] = [
   { key: 'waiting_mill', label: 'Waiting for mill', shortLabel: 'Waiting for mill', mainStage: 'mill', unit: 'takas', colour: '#D97706', connected: true, takaStages: ['waiting_mill'] },
   { key: 'at_mill', label: 'At mill (dyeing)', shortLabel: 'At mill', mainStage: 'mill', unit: 'takas', colour: '#8B5CF6', connected: true, takaStages: ['at_mill'] },
   { key: 'mill_qc', label: 'Received · QC pending', shortLabel: 'QC pending', mainStage: 'mill', unit: 'takas', colour: '#A78BFA', connected: true, takaStages: ['mill_qc'] },
-  // Ready — to connect later.
-  { key: 'ready', label: 'Ready', shortLabel: 'Ready', mainStage: 'ready', unit: 'takas', colour: '#10B981', connected: false, takaStages: ['ready'] },
+  // Refinish — Mill QC marked it; waits in inventory to go back to the mill (Sprint 9).
+  { key: 'refinish', label: 'Refinish (in inventory)', shortLabel: 'Refinish', mainStage: 'mill', unit: 'takas', colour: '#EC4899', connected: true, takaStages: ['refinish'] },
+  // Ready — Sprint 9: Mill QC done (final takas with the godown supervisor), then confirmed ready to dispatch.
+  { key: 'final', label: 'Final takas (godown)', shortLabel: 'Final takas', mainStage: 'ready', unit: 'takas', colour: '#10B981', connected: true, takaStages: ['final'] },
+  { key: 'ready_dispatch', label: 'Ready for dispatch', shortLabel: 'Ready for dispatch', mainStage: 'ready', unit: 'takas', colour: '#059669', connected: true, takaStages: ['ready_dispatch'] },
 ];
 
 const subByKey = new Map<string, SubStageConfig>(SUB_STAGES.map((s) => [s.key, s]));
@@ -182,7 +196,7 @@ export function jobsheetSubStage(status: string, takaCount: number): JobsheetSub
 /* Damage types                                                         */
 /* ------------------------------------------------------------------ */
 
-export const DAMAGE_TYPES = ['machine', 'butta', 'mill'] as const;
+export const DAMAGE_TYPES = ['machine', 'butta', 'mill', 'godown'] as const;
 export type DamageType = (typeof DAMAGE_TYPES)[number];
 
 export interface DamageTypeConfig {
@@ -197,7 +211,8 @@ export const DAMAGE_TYPE_CONFIG: readonly DamageTypeConfig[] = [
   { key: 'machine', label: 'Machine damage', recordedWhen: 'At taka entry', connected: true },
   // To connect later: a NEW damage found at the QC after butta cutting / after the mill.
   { key: 'butta', label: 'Butta cutting damage', recordedWhen: 'At the QC after butta cutting', connected: true },
-  { key: 'mill', label: 'Mill damage', recordedWhen: 'At the QC after the mill', connected: false },
+  { key: 'mill', label: 'Mill damage', recordedWhen: 'At the QC after the mill', connected: true },
+  { key: 'godown', label: 'Supervisor marked', recordedWhen: 'By the godown supervisor', connected: true },
 ];
 
 export const DAMAGE_TYPE_LABEL = Object.fromEntries(DAMAGE_TYPE_CONFIG.map((d) => [d.key, d.label])) as Record<DamageType, string>;
@@ -240,7 +255,9 @@ export const TAKA_STAGE_STATUS_TEXT: Record<TakaStage, string> = {
   waiting_mill: 'Waiting for mill',
   at_mill: 'At mill',
   mill_qc: 'Mill QC pending',
-  ready: 'Ready',
+  final: 'Final takas (godown)',
+  refinish: 'Refinish',
+  ready_dispatch: 'Ready for dispatch',
 };
 
 export function takaStageStatusText(stage: string): string {

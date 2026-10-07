@@ -18,6 +18,10 @@ import { useInfiniteList } from '@/hooks/useInfiniteList';
 import { api } from '@/lib/api';
 import { invalidateAfterWrite } from '../jobsheets/api';
 
+/** The Send tab lists: `send` = Pending, `refinish` = the mill's Refinish sub-tab (takas marked for refinish). */
+export type SendMode = 'send' | 'refinish';
+const listPath = (mode: SendMode) => (mode === 'refinish' ? 'refinish-orders' : 'pending-orders');
+
 /** `/butta` or `/mill` — the API base of a kind. */
 const base = (kind: ChallanKind) => CHALLAN_KIND_CONFIG[kind].route;
 
@@ -25,8 +29,8 @@ export const challanKeys = {
   all: ['challans'] as const,
   kind: (kind: ChallanKind) => ['challans', kind] as const,
   counts: (kind: ChallanKind) => ['challans', kind, 'counts'] as const,
-  pending: (kind: ChallanKind) => ['challans', kind, 'pending-orders'] as const,
-  pendingTakas: (kind: ChallanKind, orderId: number) => ['challans', kind, 'pending-takas', orderId] as const,
+  pending: (kind: ChallanKind, mode: SendMode = 'send') => ['challans', kind, mode === 'refinish' ? 'refinish-orders' : 'pending-orders'] as const,
+  pendingTakas: (kind: ChallanKind, orderId: number, mode: SendMode = 'send') => ['challans', kind, mode === 'refinish' ? 'refinish-takas' : 'pending-takas', orderId] as const,
   list: (kind: ChallanKind) => ['challans', kind, 'list'] as const,
   challan: (kind: ChallanKind, id: number) => ['challans', kind, 'challan', id] as const,
   print: (kind: ChallanKind, id: number) => ['challans', kind, 'print', id] as const,
@@ -42,38 +46,40 @@ export const challanKeys = {
 export function invalidateAfterChallanWrite(qc: QueryClient) {
   void qc.invalidateQueries({ queryKey: challanKeys.all });
   void qc.invalidateQueries({ queryKey: challanKeys.qc });
+  void qc.invalidateQueries({ queryKey: ['mill-qc'] });
+  void qc.invalidateQueries({ queryKey: ['godown'] });
   invalidateAfterWrite(qc);
 }
 
 /* ---------- Send ---------- */
 
-export const usePendingOrders = (kind: ChallanKind, search: string) =>
-  useInfiniteList<ChallanPendingOrder>(challanKeys.pending(kind), `${base(kind)}/pending-orders`, { search });
+export const usePendingOrders = (kind: ChallanKind, search: string, mode: SendMode = 'send') =>
+  useInfiniteList<ChallanPendingOrder>(challanKeys.pending(kind, mode), `${base(kind)}/${listPath(mode)}`, { search });
 
 /** The Send tab counts: takas ready to send · takas currently with the party (the pills on the sub-tabs). */
 export function useKindCounts(kind: ChallanKind) {
   return useQuery({
     queryKey: challanKeys.counts(kind),
-    queryFn: ({ signal }) => api.get<{ pending: number; inKind: number }>(`${base(kind)}/counts`, undefined, signal),
+    queryFn: ({ signal }) => api.get<{ pending: number; inKind: number; refinish: number }>(`${base(kind)}/counts`, undefined, signal),
     refetchOnWindowFocus: true,
     refetchInterval: 30_000,
   });
 }
 
-export function usePendingOrderTakas(kind: ChallanKind, orderId: number | null) {
+export function usePendingOrderTakas(kind: ChallanKind, orderId: number | null, mode: SendMode = 'send') {
   return useQuery({
-    queryKey: challanKeys.pendingTakas(kind, orderId ?? 0),
-    queryFn: ({ signal }) => api.get<ChallanPendingOrderTakas>(`${base(kind)}/pending-orders/${orderId}/takas`, undefined, signal),
+    queryKey: challanKeys.pendingTakas(kind, orderId ?? 0, mode),
+    queryFn: ({ signal }) => api.get<ChallanPendingOrderTakas>(`${base(kind)}/${listPath(mode)}/${orderId}/takas`, undefined, signal),
     enabled: orderId !== null && orderId > 0,
     staleTime: 0,
   });
 }
 
 /** Fetches an order's not-yet-sent takas on demand (ticking an order's checkbox selects all its READY ones). */
-export const fetchPendingOrderTakas = (qc: QueryClient, kind: ChallanKind, orderId: number) =>
+export const fetchPendingOrderTakas = (qc: QueryClient, kind: ChallanKind, orderId: number, mode: SendMode = 'send') =>
   qc.fetchQuery({
-    queryKey: challanKeys.pendingTakas(kind, orderId),
-    queryFn: ({ signal }) => api.get<ChallanPendingOrderTakas>(`${base(kind)}/pending-orders/${orderId}/takas`, undefined, signal),
+    queryKey: challanKeys.pendingTakas(kind, orderId, mode),
+    queryFn: ({ signal }) => api.get<ChallanPendingOrderTakas>(`${base(kind)}/${listPath(mode)}/${orderId}/takas`, undefined, signal),
     staleTime: 0,
   });
 

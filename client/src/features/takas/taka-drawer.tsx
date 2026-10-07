@@ -38,6 +38,13 @@ const EVENT_LABEL: Record<TakaEventKind, string> = {
   damage_kept: 'Damage kept (not resolved)',
   edited: 'Edited',
   challan_cancelled: 'Challan cancelled',
+  mill_qc_done: 'Mill QC done',
+  sent_refinish: 'Sent to refinish',
+  split: 'Split',
+  godown_checked: 'Checked by godown',
+  godown_unchecked: 'Check removed (godown)',
+  actual_pcs_changed: 'Actual pcs changed',
+  ready_dispatch: 'Ready to dispatch',
 };
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
@@ -74,7 +81,13 @@ function Body({ takaId }: { takaId: number }) {
         </Row>
         <Row label="Quality">{t.quality ?? '—'}</Row>
         <Row label="Meters">{t.meters != null ? formatMeters(t.meters) : '—'}</Row>
-        <Row label="Pcs">{t.pcs != null ? formatPcs(t.pcs) : '—'}</Row>
+        <Row label="Pcs">
+          {t.pcs != null ? formatPcs(t.pcs) : '—'}
+          {t.actualPcs != null && t.actualPcs !== t.pcs && <span className="block text-[13px] font-medium text-amber-700">Actual {formatPcs(t.actualPcs)} (godown)</span>}
+        </Row>
+        {t.parentTakaNo && <Row label="Split from">{t.parentTakaNo}</Row>}
+        {t.refinishCount > 0 && <Row label="Refinish">Sent {t.refinishCount === 1 ? 'once' : `${t.refinishCount} times`}</Row>}
+        {t.godownCheckedAt && <Row label="Checked by godown">{formatDateTime(t.godownCheckedAt)}</Row>}
         <Row label="Stage">
           <span className="inline-flex items-center gap-1.5">
             <StageDot stage={t.stage} />
@@ -93,7 +106,7 @@ function Body({ takaId }: { takaId: number }) {
             )}
             <span className="block text-[13px] font-medium text-slate-500">
               {c.receivedAt ? `Received ${formatDateTime(c.receivedAt)}` : 'Not received yet'}
-              {c.kind === 'butta' && c.receivedAt ? ` · QC ${c.qcDone ? 'done' : 'pending'}` : ''}
+              {c.receivedAt ? ` · QC ${c.qcDone ? 'done' : 'pending'}` : ''}
             </span>
           </Row>
         ))}

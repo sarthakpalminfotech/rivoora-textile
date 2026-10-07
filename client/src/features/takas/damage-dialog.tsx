@@ -106,8 +106,10 @@ interface DamageDialogProps {
   value: DamageEntry | null;
   onConfirm: (value: { choice: DamageChoice; pcs: number; images: DamageImageInput[] }) => void;
   onRemove?: () => void;
-  /** Butta QC: a new damage can carry photos (Camera / Attach image). */
+  /** Butta QC / Mill QC: a new damage can carry photos (Camera / Attach image). */
   allowImages?: boolean;
+  /** Mill QC / godown: a secondary "Send to refinish" button at the bottom (the parent opens its own confirmation). */
+  onRefinish?: () => void;
 }
 
 /**
@@ -115,7 +117,7 @@ interface DamageDialogProps {
  * type it, and give the damaged pcs. A centred modal on md+, a bottom sheet on phones; bilingual for the Taka entry
  * and Butta QC roles.
  */
-export function DamageDialog({ open, onOpenChange, takaLabel, foundAt, takaPcs, value, onConfirm, onRemove, allowImages }: DamageDialogProps) {
+export function DamageDialog({ open, onOpenChange, takaLabel, foundAt, takaPcs, value, onConfirm, onRemove, allowImages, onRefinish }: DamageDialogProps) {
   const [images, setImages] = useState<DamageImageInput[]>([]);
   const [uploading, setUploading] = useState(false);
   const where = DAMAGE_TYPE_LABEL[foundAt];
@@ -222,7 +224,7 @@ export function DamageDialog({ open, onOpenChange, takaLabel, foundAt, takaPcs, 
     >
       <div className="space-y-4 pb-1">
         <p className="inline-flex items-center rounded-full bg-red-50 px-3 py-1 text-[13px] font-semibold text-red-700">
-          {bilingual && foundAt === 'butta' ? 'Butta cutting damage / बुट्टा कटिंग की खराबी' : where}
+          {bilingual && foundAt === 'butta' ? 'Butta cutting damage / बुट्टा कटिंग की खराबी' : bilingual && foundAt === 'mill' ? 'Mill damage / मिल की खराबी' : where}
         </p>
         {value?.choice.kind === 'legacy' && (
           <p className="rounded-xl bg-slate-50 px-3.5 py-2.5 text-sm text-slate-600">
@@ -304,6 +306,22 @@ export function DamageDialog({ open, onOpenChange, takaLabel, foundAt, takaPcs, 
           <Field label={t('Images', 'फोटो')} hint={t('Optional · up to 10', 'वैकल्पिक · 10 तक')}>
             <DamageImagePicker key={String(open)} value={images} onChange={setImages} onBusyChange={setUploading} />
           </Field>
+        )}
+        {onRefinish && !existing && (
+          <div className="border-t border-border pt-4">
+            <Button
+              variant="secondary"
+              size="lg"
+              className="h-12 w-full border-pink-200 text-pink-700 hover:bg-pink-50"
+              onClick={() => {
+                onOpenChange(false);
+                onRefinish();
+              }}
+              disabled={uploading}
+            >
+              {label('Send to refinish', 'रीफिनिश भेजें')}
+            </Button>
+          </div>
         )}
       </div>
     </ResponsiveModal>
