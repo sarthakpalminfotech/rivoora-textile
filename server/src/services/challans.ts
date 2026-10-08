@@ -1,6 +1,7 @@
 import { and, asc, desc, eq, inArray, sql, type SQL } from 'drizzle-orm';
 import {
   CHALLAN_KIND_CONFIG,
+  SECTIONS_PER_BEAM,
   canRoleSeeStatus,
   challanCreateSchema,
   challanLabel,
@@ -139,6 +140,37 @@ function toPendingOrder(r: {
   return { ...r, takaCount: Number(r.takaCount), totalMeters: round2(Number(r.totalMeters)), notSentCount: Number(r.notSentCount) };
 }
 
+/**
+ * Mill (Send tab only): takas still to come from jobsheets that have NO takas entered yet — approx frames × 3 each
+ * (`SECTIONS_PER_BEAM`; the actual frames once completed). Once taka entry is done the approximation drops out and the
+ * real taka count takes over. Butta cutting and the Refinish list don't use it (always 0).
+ */
+async function expectedMoreByOrder(kind: ChallanKind, mode: SendMode, orderIds: number[]): Promise<Map<number, number>> {
+  const map = new Map<number, number>();
+  if (kind !== 'mill' || mode !== 'send' || orderIds.length === 0) return map;
+  const rows = await db
+    .select({
+      orderId: jobsheets.orderId,
+      expected: sql<number>`COALESCE(SUM(COALESCE(${jobsheets.completedFrames}, ${jobsheets.frames}) * ${SECTIONS_PER_BEAM}), 0)`,
+    })
+    .from(jobsheets)
+    .where(
+      and(
+        eq(jobsheets.isDeleted, false),
+        inArray(jobsheets.orderId, orderIds),
+        sql`NOT EXISTS (SELECT 1 FROM takas t WHERE t.jobsheet_id = "jobsheets"."id" AND t.is_deleted = 0)`,
+      ),
+    )
+    .groupBy(jobsheets.orderId);
+  for (const r of rows) map.set(r.orderId, Number(r.expected));
+  return map;
+}
+
+const withExpected = (o: ChallanPendingOrder, more: Map<number, number>): ChallanPendingOrder => {
+  const expectedMore = more.get(o.orderId) ?? 0;
+  return { ...o, expectedMore, notSentCount: o.notSentCount + expectedMore };
+};
+
 /** GET /<kind>/pending-orders — orders with at least one ready taka, with ready / not-yet-sent counts (one aggregate query). */
 export async function listPendingOrders(kind: ChallanKind, q: ButtaListQuery, mode: SendMode = 'send'): Promise<ChallanPendingOrderPage> {
   let search: SQL | undefined;
@@ -175,7 +207,8 @@ export async function listPendingOrders(kind: ChallanKind, q: ButtaListQuery, mo
       .where(and(notSentWhere(kind, mode), isReadySql(kind, mode), search)),
   ]);
   const count = Number(total);
-  return { items: items.map(toPendingOrder), page: q.page, limit: q.limit, total: count, hasMore: q.page * q.limit < count };
+  const more = await expectedMoreByOrder(kind, mode, items.map((i) => i.orderId));
+  return { items: items.map((i) => withExpected(toPendingOrder(i), more)), page: q.page, limit: q.limit, total: count, hasMore: q.page * q.limit < count };
 }
 
 /**
@@ -202,8 +235,9 @@ export async function listPendingOrderTakas(kind: ChallanKind, orderId: number, 
   ]);
   if (!orderRows[0]) throw notFound(`Order with takas waiting for ${CHALLAN_KIND_CONFIG[kind].place}`);
   const ready = modeStages(kind, mode).ready;
+  const more = await expectedMoreByOrder(kind, mode, [orderId]);
   return {
-    order: toPendingOrder(orderRows[0]),
+    order: withExpected(toPendingOrder(orderRows[0]), more),
     takas: takaRows.map((t) => ({ ...t, ready: t.stage === ready })).sort((a, b) => compareTakaNo(a.takaNo, b.takaNo)),
   };
 }

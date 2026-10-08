@@ -110,6 +110,11 @@ interface DamageDialogProps {
   allowImages?: boolean;
   /** Mill QC / godown: a secondary "Send to refinish" button at the bottom (the parent opens its own confirmation). */
   onRefinish?: () => void;
+  /**
+   * Damage names already on the taka (the godown split: the original taka's open damages). They head the name
+   * dropdown; exactly one is pre-selected when a NEW damage is opened.
+   */
+  suggestedNames?: { damageId: number; name: string }[];
 }
 
 /**
@@ -117,7 +122,7 @@ interface DamageDialogProps {
  * type it, and give the damaged pcs. A centred modal on md+, a bottom sheet on phones; bilingual for the Taka entry
  * and Butta QC roles.
  */
-export function DamageDialog({ open, onOpenChange, takaLabel, foundAt, takaPcs, value, onConfirm, onRemove, allowImages, onRefinish }: DamageDialogProps) {
+export function DamageDialog({ open, onOpenChange, takaLabel, foundAt, takaPcs, value, onConfirm, onRemove, allowImages, onRefinish, suggestedNames }: DamageDialogProps) {
   const [images, setImages] = useState<DamageImageInput[]>([]);
   const [uploading, setUploading] = useState(false);
   const where = DAMAGE_TYPE_LABEL[foundAt];
@@ -147,18 +152,27 @@ export function DamageDialog({ open, onOpenChange, takaLabel, foundAt, takaPcs, 
       setSelected(OTHER);
       setSelectedName(undefined);
       setOtherName(choice.name);
+    } else if (suggestedNames?.length === 1) {
+      setSelected(suggestedNames[0].damageId);
+      setSelectedName(suggestedNames[0].name);
+      setOtherName('');
     } else {
       setSelected(null);
       setSelectedName(undefined);
       setOtherName('');
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, value]);
 
-  const options = useMemo(
-    () => [...(lookup.data ?? []).map((d) => ({ value: d.id, label: d.name })), { value: OTHER, label: t('Other', 'अन्य') }],
+  const options = useMemo(() => {
+    const suggested = (suggestedNames ?? []).map((d) => ({ value: d.damageId, label: d.name, description: 'On this taka' as string | null }));
+    const ids = new Set(suggested.map((d) => d.value));
+    const q = search.trim().toLowerCase();
+    const head = q ? suggested.filter((d) => d.label.toLowerCase().includes(q)) : suggested;
+    const rest = (lookup.data ?? []).filter((d) => !ids.has(d.id)).map((d) => ({ value: d.id, label: d.name, description: null as string | null }));
+    return [...head, ...rest, { value: OTHER, label: t('Other', 'अन्य'), description: null as string | null }];
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [lookup.data, bilingual],
-  );
+  }, [lookup.data, bilingual, suggestedNames, search]);
 
   const confirm = () => {
     if (selected === null) {

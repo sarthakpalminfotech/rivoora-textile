@@ -59,6 +59,36 @@ interface CoreProps<V extends string | number> extends BaseProps<V> {
   multiple: boolean;
 }
 
+/** Touch screens (tablet / phone): opening a dropdown must not pop the on-screen keyboard; the user taps Search for that. */
+const isTouchDevice = () => typeof window !== 'undefined' && window.matchMedia?.('(pointer: coarse)').matches;
+
+/**
+ * Height of the on-screen keyboard while it covers the page (0 otherwise). Browsers that keep the layout viewport
+ * fixed (iPad Safari, newer Chrome) only shrink the *visual* viewport, so the popover has to be told about it.
+ */
+function useKeyboardHeight(active: boolean) {
+  const [height, setHeight] = useState(0);
+  useEffect(() => {
+    const vv = typeof window !== 'undefined' ? window.visualViewport : null;
+    if (!active || !vv) {
+      setHeight(0);
+      return;
+    }
+    const update = () => {
+      const covered = window.innerHeight - vv.height - vv.offsetTop;
+      setHeight(covered > 120 ? Math.round(covered) : 0);
+    };
+    update();
+    vv.addEventListener('resize', update);
+    vv.addEventListener('scroll', update);
+    return () => {
+      vv.removeEventListener('resize', update);
+      vv.removeEventListener('scroll', update);
+    };
+  }, [active]);
+  return height;
+}
+
 function DropdownCore<V extends string | number>({
   options,
   placeholder = 'Select',
@@ -88,6 +118,7 @@ function DropdownCore<V extends string | number>({
   const [active, setActive] = useState(-1);
   const searchRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
+  const keyboardHeight = useKeyboardHeight(open && !!searchable);
 
   const visible = useMemo(() => {
     if (!searchable || onSearchChange || !query.trim()) return options;
@@ -211,10 +242,12 @@ function DropdownCore<V extends string | number>({
           <PopoverPrimitive.Content
             align="start"
             sideOffset={6}
-            collisionPadding={12}
+            // With the keyboard up, keep the whole panel above it (also shrinks its max height).
+            collisionPadding={{ top: 12, left: 12, right: 12, bottom: 12 + keyboardHeight }}
             onOpenAutoFocus={(e) => {
               e.preventDefault();
-              (searchable ? searchRef.current : listRef.current)?.focus({ preventScroll: true });
+              // Touch: focus the list, not the search box, so no keyboard opens until Search is tapped.
+              (searchable && !isTouchDevice() ? searchRef.current : listRef.current)?.focus({ preventScroll: true });
             }}
             onKeyDown={onKeyDown}
             className="z-[60] flex w-[var(--radix-popover-trigger-width)] min-w-[200px] max-w-[calc(100vw-24px)] flex-col overflow-hidden rounded-[10px] border border-slate-200 bg-white shadow-pop outline-none animate-in fade-in-0 zoom-in-[0.98]"

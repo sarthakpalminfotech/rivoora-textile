@@ -59,7 +59,7 @@ function Readiness({ order }: { order: ChallanPendingOrder }) {
         aria-valuemin={0}
         aria-valuemax={order.notSentCount}
         aria-valuenow={order.takaCount}
-        aria-label={`${order.takaCount} of ${order.notSentCount} ready to send`}
+        aria-label={`${order.takaCount} of ${order.notSentCount}${order.expectedMore ? ' expected' : ''} ready to send`}
       >
         <div className={cn('h-full rounded-full transition-all duration-200', all ? 'bg-green-500' : 'bg-amber-500')} style={{ width: `${share * 100}%` }} />
       </div>
@@ -70,7 +70,10 @@ function Readiness({ order }: { order: ChallanPendingOrder }) {
           </p>
         ) : (
           <p className="text-[15px] font-semibold tabular-nums text-slate-800">
-            {order.takaCount} <span className="font-medium text-slate-500">/ {order.notSentCount} ready to send</span>
+            {order.takaCount}{' '}
+            <span className="font-medium text-slate-500">
+              / {order.expectedMore ? '~' : ''}{order.notSentCount}{order.expectedMore ? ' expected' : ''} ready to send
+            </span>
           </p>
         )}
         <p className="shrink-0 text-sm font-medium tabular-nums text-slate-500">{formatMeters(order.totalMeters)}</p>
@@ -248,9 +251,12 @@ function TakasDrawer({
         <ErrorState error={query.error} onRetry={() => void query.refetch()} />
       ) : (
         <div>
-          {notReady.length > 0 && (
+          {(notReady.length > 0 || !!order?.expectedMore) && (
             <p className="mb-3 rounded-lg bg-amber-50 px-3 py-2 text-sm font-medium text-amber-800">
-              {ready.length} of {takas.length} ready to send. The greyed takas can't be selected yet.
+              {order?.expectedMore
+                ? `${ready.length} of ~${order.notSentCount} expected takas are ready to send. ~${order.expectedMore} more are still in making (jobsheets without taka entry).`
+                : `${ready.length} of ${takas.length} ready to send.`}{' '}
+              {notReady.length > 0 && "The greyed takas can't be selected yet."}
             </p>
           )}
           <label
@@ -338,6 +344,10 @@ interface NotReadyGroup {
   orderId: number;
   orderNo: number;
   takas: { id: number; takaNo: string; stage: string }[];
+  /** Takas of the order that can go now, and how many are expected in all (approx while jobsheets lack taka entry). */
+  readyCount: number;
+  expectedTotal: number;
+  approx: boolean;
 }
 
 /** "Order #26: 2 takas not ready — 6251 (At butta cutting), 6252 (Butta QC pending)" for each selected order. */
@@ -361,8 +371,8 @@ function NotReadyDialog({
     <ResponsiveModal
       open={open}
       onOpenChange={(o) => !o && onCancel()}
-      title="Some takas are not ready"
-      description={`These takas can't go to ${place} yet. They stay behind and go on a later challan.`}
+      title="Not all takas are ready"
+      description={`Takas that aren't ready for ${place} yet stay behind and go on a later challan.`}
       desktopVariant="center"
       mobileVariant="bottom"
       size="md"
@@ -382,8 +392,13 @@ function NotReadyDialog({
           <li key={g.orderId} className="rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-3">
             <p className="flex items-center gap-2 text-[15px] font-bold text-amber-900">
               <AlertTriangle className="size-4 shrink-0" aria-hidden />
-              Order {formatOrderNo(g.orderNo)}: {g.takas.length} {g.takas.length === 1 ? 'taka' : 'takas'} not ready
+              Order {formatOrderNo(g.orderNo)}: {g.readyCount} of {g.approx ? '~' : ''}{g.expectedTotal} {g.approx ? 'expected ' : ''}takas ready
             </p>
+            {g.approx && (
+              <p className="mt-1 text-sm text-amber-900/90">
+                The rest are still in making — the number is approximate until taka entry is done.
+              </p>
+            )}
             <p className="mt-1 text-sm leading-relaxed text-amber-900/90">
               {g.takas.map((t, i) => (
                 <span key={t.id}>
@@ -624,7 +639,16 @@ export function SendPending({ kind, search, mode = 'send' }: { kind: ChallanKind
     for (const [orderId] of selection) {
       const order = ordersById.get(orderId);
       const notReady = (known.get(orderId) ?? []).filter((t) => !t.ready);
-      if (order && notReady.length) groups.push({ orderId, orderNo: order.orderNo, takas: notReady.map((t) => ({ id: t.id, takaNo: t.takaNo, stage: t.stage })) });
+      if (order && (notReady.length || order.notSentCount > order.takaCount)) {
+        groups.push({
+          orderId,
+          orderNo: order.orderNo,
+          takas: notReady.map((t) => ({ id: t.id, takaNo: t.takaNo, stage: t.stage })),
+          readyCount: order.takaCount,
+          expectedTotal: order.notSentCount,
+          approx: !!order.expectedMore,
+        });
+      }
     }
     return groups.sort((a, b) => a.orderNo - b.orderNo);
   }, [selection, known, ordersById]);

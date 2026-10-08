@@ -26,7 +26,7 @@ import { errorMessage } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { DamageDialog, entryLabel, entryPayload, nextEntryKey, type DamageEntry } from '../takas/damage-dialog';
 import { useUsedTakaNumbers } from '../takas/taka-check';
-import { useGodownOrder, useSplitTaka } from './api';
+import { useGodownDamages, useGodownOrder, useSplitTaka } from './api';
 
 interface Part {
   key: number;
@@ -51,6 +51,19 @@ function SplitForm({ order, taka }: { order: GodownOrder; taka: GodownTaka }) {
   const actual = takaActualPcs(taka) ?? 0;
   const [parts, setParts] = useState<Part[]>(() => [newPart(taka.takaNo), newPart(nextSplitNumber(taka.takaNo, order.orderTakaNos) ?? '')]);
   const [damageFor, setDamageFor] = useState<number | null>(null);
+  // The original taka's open damage names: pre-selected in the Damage popup (one) or listed first (several).
+  const originalDamages = useGodownDamages(order.orderId, taka.isDamaged);
+  const suggestedNames = useMemo(() => {
+    const seen = new Set<number>();
+    const names: { damageId: number; name: string }[] = [];
+    const row = originalDamages.data?.items.find((t) => t.id === taka.id);
+    for (const d of row?.damages ?? []) {
+      if (d.status !== 'open' || d.damageId === null || d.damageName === null || seen.has(d.damageId)) continue;
+      seen.add(d.damageId);
+      names.push({ damageId: d.damageId, name: d.damageName });
+    }
+    return names;
+  }, [originalDamages.data, taka.id]);
   const [showErrors, setShowErrors] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
 
@@ -256,6 +269,7 @@ function SplitForm({ order, taka }: { order: GodownOrder; taka: GodownTaka }) {
         onOpenChange={(o) => !o && setDamageFor(null)}
         takaLabel={damagePart ? `Taka ${damagePart.takaNo || '—'}` : ''}
         foundAt="godown"
+        suggestedNames={suggestedNames}
         takaPcs={damagePart && /^\d+$/.test(damagePart.pcs) ? Number(damagePart.pcs) : null}
         value={null}
         onConfirm={(v) => {

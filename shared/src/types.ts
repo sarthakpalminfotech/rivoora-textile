@@ -850,6 +850,11 @@ export interface ChallanPendingOrder {
   totalMeters: number;
   /** The order's active takas not yet sent on a challan of this kind (ready ones included) — the "20" of "18 / 20 ready". */
   notSentCount: number;
+  /**
+   * Mill only: approx takas still to come from jobsheets with no takas entered yet (frames × 3). Already INCLUDED in
+   * `notSentCount`, so "18 / ~30 expected" counts the whole order, not only the takas that exist.
+   */
+  expectedMore?: number;
 }
 
 export type ChallanPendingOrderPage = Paginated<ChallanPendingOrder>;
