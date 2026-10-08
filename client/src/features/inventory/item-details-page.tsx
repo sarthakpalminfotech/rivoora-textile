@@ -1,5 +1,5 @@
 import { ChevronRight, ClipboardList } from 'lucide-react';
-import { useParams, useSearchParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { Link } from 'react-router-dom';
 import { type InventoryOrderRow } from '@rivoora/shared';
 import { usePageTitle } from '@/components/layout/page-title';
@@ -72,7 +72,23 @@ export default function InventoryItemDetailsPage() {
   }, [debounced]);
 
   const item = useInventoryItem(key);
-  const orders = useInventoryItemOrders(key, debounced);
+  const navigate = useNavigate();
+  const filter = params.get('filter') === 'ready' ? 'ready' : params.get('filter') === 'making' ? 'making' : '';
+  const orders = useInventoryItemOrders(key, debounced, filter);
+  // In making / Ready for dispatch filter the order list (click again to clear).
+  const toggleFilter = (f: 'ready' | 'making') =>
+    setParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        if (filter === f) next.delete('filter');
+        else next.set('filter', f);
+        return next;
+      },
+      { replace: true },
+    );
+  // Damaged / In refinish open this design's Damaged details.
+  const from = `/inventory/items/${key}${params.toString() ? `?${params.toString()}` : ''}`;
+  const openDamaged = (refinish: boolean) => navigate(`/inventory/damaged/${key}${refinish ? '?refinish=1' : ''}`, { state: { from } });
   usePageTitle(item.data?.code ?? 'Inventory');
 
   const pcs = item.data?.pcs;
@@ -91,11 +107,11 @@ export default function InventoryItemDetailsPage() {
             {pcs ? (
               <>
                 <KpiTile label="Ordered" value={pcsText(pcs.ordered)} />
-                <KpiTile label="In making" value={pcsText(pcs.inMaking)} dot="#38BDF8" />
+                <KpiTile label="In making" value={pcsText(pcs.inMaking)} dot="#38BDF8" onClick={() => toggleFilter('making')} active={filter === 'making'} />
                 <KpiTile label="In godown" value={pcsText(pcs.inGodown)} dot="#10B981" />
-                <KpiTile label="Ready for dispatch" value={pcsText(pcs.readyDispatch)} dot="#14B8A6" />
-                <KpiTile label="Damaged" value={pcsText(pcs.damaged)} dot="#EF4444" tone={pcs.damaged > 0 ? 'danger' : undefined} />
-                <KpiTile label="In refinish" value={pcsText(pcs.inRefinish)} dot="#F59E0B" />
+                <KpiTile label="Ready for dispatch" value={pcsText(pcs.readyDispatch)} dot="#14B8A6" onClick={() => toggleFilter('ready')} active={filter === 'ready'} />
+                <KpiTile label="Damaged" value={pcsText(pcs.damaged)} dot="#EF4444" tone={pcs.damaged > 0 ? 'danger' : undefined} onClick={() => openDamaged(false)} />
+                <KpiTile label="In refinish" value={pcsText(pcs.inRefinish)} dot="#F59E0B" onClick={() => openDamaged(true)} />
               </>
             ) : (
               <KpiSkeleton count={6} />
@@ -120,8 +136,8 @@ export default function InventoryItemDetailsPage() {
             ) : orders.data.length === 0 ? (
               <EmptyState
                 icon={ClipboardList}
-                title={debounced ? 'No orders match your search' : 'No orders for this design yet'}
-                description={debounced ? undefined : 'Orders on this design will be listed here.'}
+                title={debounced || filter ? 'No orders match' : 'No orders for this design yet'}
+                description={debounced || filter ? undefined : 'Orders on this design will be listed here.'}
                 className="py-10"
               />
             ) : (

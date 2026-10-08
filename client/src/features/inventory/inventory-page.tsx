@@ -19,7 +19,10 @@ const KPI_DOT = { godown: '#10B981', ready: '#14B8A6', making: '#38BDF8', damage
 /* KPI row                                                              */
 /* ------------------------------------------------------------------ */
 
-function Kpis() {
+type KpiKey = 'godown' | 'ready' | 'making' | 'damaged' | 'refinish';
+
+function Kpis({ selected, onToggle }: { selected: KpiKey[]; onToggle: (k: KpiKey) => void }) {
+  const tile = (k: KpiKey) => ({ onClick: () => onToggle(k), active: selected.includes(k) });
   const query = useInventorySummary();
   const grid = 'grid grid-cols-2 gap-2.5 md:grid-cols-5';
   if (query.isPending) {
@@ -40,11 +43,11 @@ function Kpis() {
   return (
     <div className="space-y-2">
       <div className={grid}>
-        <KpiTile label="Total in godown" value={pcsText(totalInGodown)} dot={KPI_DOT.godown} />
-        <KpiTile label="Ready for dispatch" value={pcsText(totals.readyDispatch)} dot={KPI_DOT.ready} />
-        <KpiTile label="In making" value={pcsText(totals.inMaking)} dot={KPI_DOT.making} />
-        <KpiTile label="Damaged pcs" value={pcsText(totals.damaged)} dot={KPI_DOT.damaged} tone={totals.damaged > 0 ? 'danger' : undefined} />
-        <KpiTile label="In refinish" value={pcsText(totals.inRefinish)} dot={KPI_DOT.refinish} className="col-span-2 md:col-span-1" />
+        <KpiTile label="Total in godown" value={pcsText(totalInGodown)} dot={KPI_DOT.godown} {...tile('godown')} />
+        <KpiTile label="Ready for dispatch" value={pcsText(totals.readyDispatch)} dot={KPI_DOT.ready} {...tile('ready')} />
+        <KpiTile label="In making" value={pcsText(totals.inMaking)} dot={KPI_DOT.making} {...tile('making')} />
+        <KpiTile label="Damaged pcs" value={pcsText(totals.damaged)} dot={KPI_DOT.damaged} tone={totals.damaged > 0 ? 'danger' : undefined} {...tile('damaged')} />
+        <KpiTile label="In refinish" value={pcsText(totals.inRefinish)} dot={KPI_DOT.refinish} {...tile('refinish')} className="col-span-2 md:col-span-1" />
       </div>
       {excludedOrders > 0 && (
         <p className="px-1 text-xs text-slate-400">
@@ -206,11 +209,11 @@ function EmptyBlock({ searching, title, description }: { searching: boolean; tit
   );
 }
 
-function AllDesigns({ search, from }: { search: string; from: string }) {
-  const query = useInventoryItems(search);
+function AllDesigns({ search, kpi, from }: { search: string; kpi: string; from: string }) {
+  const query = useInventoryItems(search, kpi);
   if (query.isPending) return <GridSkeleton />;
   if (query.isError) return <ErrorState error={query.error} onRetry={() => void query.refetch()} />;
-  if (query.items.length === 0) return <EmptyBlock searching={!!search} title="No designs ordered yet" description="Designs appear here once an order is placed on them." />;
+  if (query.items.length === 0) return <EmptyBlock searching={!!search || !!kpi} title="No designs ordered yet" description="Designs appear here once an order is placed on them." />;
   return (
     <>
       <ul className={cn(GRID, query.isPlaceholderData && 'opacity-60')}>
@@ -250,6 +253,8 @@ export default function InventoryPage() {
   const [params, setParams] = useSearchParams();
   const location = useLocation();
   const section: Section = params.get('section') === 'damaged' ? 'damaged' : 'all';
+  const KPI_KEYS: KpiKey[] = ['godown', 'ready', 'making', 'damaged', 'refinish'];
+  const kpis = (params.get('kpi') ?? '').split(',').filter((k): k is KpiKey => (KPI_KEYS as string[]).includes(k));
   const [search, setSearch] = useState(params.get('q') ?? '');
   const debounced = useDebounce(search, 300).trim();
 
@@ -279,11 +284,24 @@ export default function InventoryPage() {
       },
       { replace: true },
     );
+  // KPI tiles filter the All designs grid (none selected = everything); several selected = designs with any of them.
+  const toggleKpi = (k: KpiKey) =>
+    setParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        const list = kpis.includes(k) ? kpis.filter((x) => x !== k) : [...kpis, k];
+        if (list.length) next.set('kpi', list.join(','));
+        else next.delete('kpi');
+        next.delete('section');
+        return next;
+      },
+      { replace: true },
+    );
   const from = `${location.pathname}${location.search}`;
 
   return (
     <div className="page-container space-y-5 pb-28 pt-4 md:py-5">
-      <Kpis />
+      <Kpis selected={kpis} onToggle={toggleKpi} />
 
       <div className="flex items-center justify-between gap-3 border-b border-border">
         <SectionTabs value={section} onChange={setSection} />
@@ -297,7 +315,7 @@ export default function InventoryPage() {
         </div>
       </div>
 
-      {section === 'all' ? <AllDesigns search={debounced} from={from} /> : <DamagedItems search={debounced} from={from} />}
+      {section === 'all' ? <AllDesigns search={debounced} kpi={kpis.join(',')} from={from} /> : <DamagedItems search={debounced} from={from} />}
     </div>
   );
 }

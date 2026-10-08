@@ -2,6 +2,7 @@ import { and, eq, inArray, sql, type SQL } from 'drizzle-orm';
 import { z } from 'zod';
 import {
   addInventoryPcs,
+  type InventoryPcs,
   compareInventoryItems,
   compareTakaNo,
   DAMAGE_TYPES,
@@ -240,16 +241,27 @@ export async function getInventorySummary(role: RoleKey): Promise<InventorySumma
   return { totals, totalInGodown: totalInGodown(totals), excludedOrders: excluded };
 }
 
-export const inventoryListQuerySchema = paginationSchema;
+export const INVENTORY_KPI_KEYS = ['godown', 'ready', 'making', 'damaged', 'refinish'] as const;
+
+export const inventoryListQuerySchema = paginationSchema.extend({
+  /** Comma-separated KPI filters; an item is kept when it has pcs in ANY of them. */
+  kpi: z
+    .string()
+    .optional()
+    .transform((v) => (v ? v.split(',').filter((k) => (INVENTORY_KPI_KEYS as readonly string[]).includes(k)) : [])),
+});
 
 function paginate<T>(items: T[], page: number, limit: number): Paginated<T> {
   const start = (page - 1) * limit;
   return { items: items.slice(start, start + limit), page, limit, total: items.length, hasMore: start + limit < items.length };
 }
 
+const kpiPcs = (p: InventoryPcs, k: string) =>
+  k === 'godown' ? totalInGodown(p) : k === 'ready' ? p.readyDispatch : k === 'making' ? p.inMaking : k === 'damaged' ? p.damaged : p.inRefinish;
+
 /** GET /inventory/items?search=&page=&limit= */
 export async function listInventoryItems(role: RoleKey, query: unknown): Promise<Paginated<InventoryItemCard>> {
-  const { page, limit, search } = inventoryListQuerySchema.parse(query);
+  const { page, limit, search, kpi } = inventoryListQuerySchema.parse(query);
   const { list } = await loadOrderPcs(role);
   const grouped = groupByItem(list);
   const headers = await loadHeaders([...grouped.keys()]);
@@ -258,6 +270,7 @@ export async function listInventoryItems(role: RoleKey, query: unknown): Promise
     const header = headers.get(key);
     if (!header || pcs.ordered <= 0) continue; // items with nothing ordered are not shown
     if (search && !searchMatches(header, search)) continue;
+    if (kpi.length && !kpi.some((k) => kpiPcs(pcs, k) > 0)) continue;
     cards.push({ ...header, pcs });
   }
   cards.sort((a, b) =>
@@ -277,6 +290,8 @@ export async function getInventoryItem(role: RoleKey, key: string): Promise<Inve
 }
 
 export const itemOrdersQuerySchema = z.object({
+  /** Only orders that have ready-for-dispatch / in-making pcs of this item. */
+  filter: z.enum(['ready', 'making']).optional().catch(undefined),
   search: z
     .string()
     .trim()
@@ -287,7 +302,7 @@ export const itemOrdersQuerySchema = z.object({
 
 /** GET /inventory/items/:key/orders?search= — newest first; search = order number or taka number. */
 export async function listInventoryItemOrders(role: RoleKey, key: string, query: unknown): Promise<InventoryOrderRow[]> {
-  const { search } = itemOrdersQuerySchema.parse(query);
+  const { search, filter } = itemOrdersQuerySchema.parse(query);
   await loadHeader(key);
   const { list } = await loadOrderPcs(role, key);
   let matching: Set<number> | null = null;
@@ -305,6 +320,7 @@ export async function listInventoryItemOrders(role: RoleKey, key: string, query:
   }
   return list
     .filter((o) => !matching || matching.has(o.orderId))
+    .filter((o) => !filter || (filter === 'ready' ? o.pcs.readyDispatch : o.pcs.inMaking) > 0)
     .sort((a, b) => b.orderNo - a.orderNo)
     .map((o) => ({
       orderId: o.orderId,

@@ -37,6 +37,7 @@ import { useBrokerLookup, useCustomerLookup, useMaterialLookup } from '../master
 import { CustomerFormDialog } from '../masters/customers/customer-form';
 import { BUTTA_OPTIONS, designCodeField, useCodeAvailability, type ButtaChoice } from '../masters/designs/design-form';
 import { useCreateOrder, useUpdateOrder } from './api';
+import { DesignStockPanel } from './design-stock-panel';
 import { SavedDesignsDrawer, type SavedDesignPick } from './saved-designs-drawer';
 
 type DesignAttachment =
@@ -451,7 +452,8 @@ export function OrderForm({ order }: { order?: OrderDetail }) {
               </button>
             </div>
           ) : (
-            <div className="flex gap-3 rounded-xl border border-border bg-slate-50/60 p-3 sm:gap-4">
+            <div className="flex flex-col rounded-xl border border-border bg-slate-50/60 sm:flex-row">
+            <div className="flex min-w-0 flex-1 gap-3 p-3 sm:gap-4">
               <ImageThumb
                 thumbUrl={design.thumbUrl}
                 fullUrl={design.imageUrl}
@@ -553,6 +555,10 @@ export function OrderForm({ order }: { order?: OrderDetail }) {
                   </Button>
                 </div>
               </div>
+            </div>
+            {design.kind === 'saved' && (
+              <DesignStockPanel designId={design.designId} variationId={design.variationId} />
+            )}
             </div>
           )}
         </SectionCard>

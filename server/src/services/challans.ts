@@ -209,18 +209,36 @@ export async function listPendingOrderTakas(kind: ChallanKind, orderId: number, 
 }
 
 /** GET /<kind>/counts — the Send tab counts: takas ready to send / takas currently with the party. */
-export async function getKindCounts(kind: ChallanKind): Promise<{ pending: number; inKind: number; refinish: number }> {
+/** Taka counts (and pcs) for the Send tab / KPI row. */
+export interface KindCounts {
+  pending: number;
+  inKind: number;
+  refinish: number;
+  pendingPcs: number;
+  inKindPcs: number;
+}
+
+export async function getKindCounts(kind: ChallanKind): Promise<KindCounts> {
   const cfg = CHALLAN_KIND_CONFIG[kind];
+  const pcsOf = sql`COALESCE(${takas.actualPcs}, ${takas.pcs}, 0)`;
   const [row] = await db
     .select({
       pending: sql<number>`COALESCE(SUM(CASE WHEN ${takas.stage} = ${cfg.readyStage} THEN 1 ELSE 0 END), 0)`,
       inKind: sql<number>`COALESCE(SUM(CASE WHEN ${takas.stage} = ${cfg.sentStage} THEN 1 ELSE 0 END), 0)`,
       refinish: sql<number>`COALESCE(SUM(CASE WHEN ${takas.stage} = ${cfg.refinishStage ?? '-'} THEN 1 ELSE 0 END), 0)`,
+      pendingPcs: sql<number>`COALESCE(SUM(CASE WHEN ${takas.stage} = ${cfg.readyStage} THEN ${pcsOf} ELSE 0 END), 0)`,
+      inKindPcs: sql<number>`COALESCE(SUM(CASE WHEN ${takas.stage} = ${cfg.sentStage} THEN ${pcsOf} ELSE 0 END), 0)`,
     })
     .from(takas)
     .innerJoin(jobsheets, eq(jobsheets.id, takas.jobsheetId))
     .where(and(eq(takas.isDeleted, false), eq(jobsheets.isDeleted, false), inArray(takas.stage, [cfg.readyStage, cfg.sentStage, ...(cfg.refinishStage ? [cfg.refinishStage] : [])])));
-  return { pending: Number(row?.pending ?? 0), inKind: Number(row?.inKind ?? 0), refinish: Number(row?.refinish ?? 0) };
+  return {
+    pending: Number(row?.pending ?? 0),
+    inKind: Number(row?.inKind ?? 0),
+    refinish: Number(row?.refinish ?? 0),
+    pendingPcs: Number(row?.pendingPcs ?? 0),
+    inKindPcs: Number(row?.inKindPcs ?? 0),
+  };
 }
 
 /* ------------------------------------------------------------------ */

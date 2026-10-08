@@ -21,7 +21,7 @@ export const inventoryKeys = {
   summary: ['inventory', 'summary'] as const,
   items: ['inventory', 'items'] as const,
   item: (key: string) => ['inventory', 'item', key] as const,
-  itemOrders: (key: string, search: string) => ['inventory', 'item-orders', key, search] as const,
+  itemOrders: (key: string, search: string, filter = '') => ['inventory', 'item-orders', key, search, filter] as const,
   damaged: ['inventory', 'damaged'] as const,
   damagedItem: (key: string) => ['inventory', 'damaged-item', key] as const,
   damagedTakas: (key: string, type: string, refinish: boolean, search: string) => ['inventory', 'damaged-takas', key, type, refinish, search] as const,
@@ -37,8 +37,8 @@ export function useInventorySummary() {
   });
 }
 
-export const useInventoryItems = (search: string) =>
-  useInfiniteList<InventoryItemCard>(inventoryKeys.items, '/inventory/items', { search }, true, { refetchOnWindowFocus: true });
+export const useInventoryItems = (search: string, kpi = '') =>
+  useInfiniteList<InventoryItemCard>(inventoryKeys.items, '/inventory/items', { search, kpi }, true, { refetchOnWindowFocus: true });
 
 export const useDamagedItems = (search: string, enabled = true) =>
   useInfiniteList<DamagedItemCard>(inventoryKeys.damaged, '/inventory/damaged', { search }, enabled, { refetchOnWindowFocus: true });
@@ -51,10 +51,10 @@ export function useInventoryItem(key: string) {
   });
 }
 
-export function useInventoryItemOrders(key: string, search: string) {
+export function useInventoryItemOrders(key: string, search: string, filter = '') {
   return useQuery({
-    queryKey: inventoryKeys.itemOrders(key, search),
-    queryFn: ({ signal }) => api.get<InventoryOrderRow[]>(`/inventory/items/${key}/orders`, { search }, signal),
+    queryKey: inventoryKeys.itemOrders(key, search, filter),
+    queryFn: ({ signal }) => api.get<InventoryOrderRow[]>(`/inventory/items/${key}/orders`, { search, filter }, signal),
     ...live,
   });
 }

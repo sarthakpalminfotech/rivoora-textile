@@ -5,7 +5,9 @@ import { usePageTitle } from '@/components/layout/page-title';
 import { SearchBar } from '@/components/list-parts';
 import { Segmented } from '@/components/ui/segmented';
 import { useDebounce } from '@/hooks/useDebounce';
+import { useRole } from '@/hooks/useRole';
 import { cn } from '@/lib/utils';
+import { KpiTile } from '../inventory/parts';
 import { useKindCounts } from './api';
 import { ChallanList } from './challan-cards';
 import { ReceiveTakaNumber } from './receive-screen';
@@ -27,6 +29,19 @@ function CountPill({ n }: { n: number | undefined }) {
   return <span className="ml-2 inline-flex min-w-6 items-center justify-center rounded-full bg-black/10 px-1.5 text-xs font-bold tabular-nums">{n.toLocaleString('en-IN')}</span>;
 }
 
+/** "12 takas · 340 pcs" for a KPI tile (a dash while loading). */
+function kpiText(takas: number | undefined, pcs: number | undefined) {
+  if (takas === undefined || pcs === undefined) return '—';
+  return (
+    <>
+      {takas.toLocaleString('en-IN')}
+      <span className="ml-1.5 text-xs font-medium leading-tight tracking-normal text-slate-500">
+        {takas === 1 ? 'taka' : 'takas'} · {pcs.toLocaleString('en-IN')} pcs
+      </span>
+    </>
+  );
+}
+
 /**
  * Butta cutting and Mill module (Jemish, Gaurang, Godown supervisor): the SAME screens, parameterised by the challan
  * kind. Two top tabs, kept in the URL: Send (Pending · In butta cutting / In mill, with taka counts) and Receive
@@ -44,6 +59,8 @@ export default function ChallanModulePage({ kind }: { kind: ChallanKind }) {
   const filterParam = params.get('filter');
   const filter: ChallanFilter = filterParam === 'received' || filterParam === 'all' ? filterParam : 'open';
   const counts = useKindCounts(kind);
+  const { can } = useRole();
+  const showKpis = can('canViewInventory'); // Jemish + Gaurang
 
   const update = (patch: Record<string, string | null>) =>
     setParams(
@@ -103,6 +120,24 @@ export default function ChallanModulePage({ kind }: { kind: ChallanKind }) {
 
   return (
     <div className="page-container space-y-4 pb-28 pt-4 md:py-5">
+      {showKpis && (
+        <div className="grid grid-cols-2 gap-2.5">
+          <KpiTile
+            label="Pending to send"
+            value={kpiText(counts.data?.pending, counts.data?.pendingPcs)}
+            dot="#F59E0B"
+            active={tab === 'send' && sendSub === 'pending'}
+            onClick={() => update({ tab: 'send', sub: 'pending', filter: null })}
+          />
+          <KpiTile
+            label={cfg.inLabel}
+            value={kpiText(counts.data?.inKind, counts.data?.inKindPcs)}
+            dot="#38BDF8"
+            active={tab === 'send' && sendSub === 'sent'}
+            onClick={() => update({ tab: 'send', sub: 'sent', filter: null })}
+          />
+        </div>
+      )}
       <Segmented
         options={[
           { value: 'send', label: 'Send' },
