@@ -11,7 +11,6 @@ import {
   Palette,
   ScanLine,
   Scissors,
-  ShieldCheck,
   Store,
   Users,
   Warehouse,
@@ -35,6 +34,8 @@ export interface NavItem {
 
 export const NAV_ITEMS: NavItem[] = [
   { to: '/orders', label: 'Orders', icon: ClipboardList, permission: 'canViewOrders', group: 'main' },
+  // The supervisor's Orders: the orders in production, view only (no client or money).
+  { to: '/orders', label: 'Orders', icon: ClipboardList, permission: 'canViewProductionOrders', group: 'main' },
   { to: '/scan', label: 'Scan jobsheet', hi: 'जॉबशीट स्कैन करें', icon: ScanLine, permission: 'canUseTakaModules', group: 'main' },
   // Same path, different module: the supervisor's list or the Taka entry list (a role only ever has one).
   { to: '/jobsheets', label: 'Jobsheets', icon: ClipboardCheck, permission: 'canViewJobsheetsModule', group: 'main' },
@@ -43,8 +44,7 @@ export const NAV_ITEMS: NavItem[] = [
   // Butta cutting: Jemish, Gaurang and the Godown supervisor. Butta QC: the QC role (bilingual).
   { to: '/butta', label: 'Butta cutting', icon: Scissors, permission: 'canUseButtaModule', group: 'main' },
   { to: '/mill', label: 'Mill', icon: FlaskConical, permission: 'canUseMillModule', group: 'main' },
-  { to: '/butta-qc', label: 'Butta QC', hi: 'बुट्टा QC', icon: BadgeCheck, permission: 'canButtaQc', group: 'main' },
-  { to: '/mill-qc', label: 'Mill QC', hi: 'मिल QC', icon: ShieldCheck, permission: 'canMillQc', group: 'main' },
+  { to: '/qc', label: 'QC', hi: 'क्यूसी', icon: BadgeCheck, permission: 'canButtaQc', group: 'main' },
   // Inventory: design-wise pcs and damaged stock (Jemish, Gaurang).
   { to: '/inventory', label: 'Inventory', icon: Boxes, permission: 'canViewInventory', group: 'main' },
   // Godown supervisor: final takas, split, ready to dispatch.

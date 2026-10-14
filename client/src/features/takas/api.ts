@@ -7,6 +7,7 @@ import type {
   TakaEditResult,
   TakaEntryInput,
   TakaEntryResult,
+  TakaNextNumbers,
   TakaDamagesDetail,
   TakaJobsheetItem,
   TakaJobsheetPage,
@@ -53,6 +54,18 @@ export function useTakaDetail(takaId: number | null) {
     queryKey: takaKeys.detail(takaId ?? 0),
     queryFn: ({ signal }) => api.get<TakaDetail>(`/takas/${takaId}`, undefined, signal),
     enabled: takaId !== null && takaId > 0,
+  });
+}
+
+/** The numbers the next `count` takas would get (system generated; confirmed when saved). */
+export function useNextTakaNumbers(count: number, enabled = true) {
+  return useQuery({
+    queryKey: ['takas', 'next-numbers', count],
+    queryFn: () => api.get<TakaNextNumbers>('/takas/next-numbers', { count }),
+    enabled,
+    staleTime: 0,
+    gcTime: 0,
+    refetchOnWindowFocus: false,
   });
 }
 

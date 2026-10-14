@@ -17,8 +17,8 @@ import { listOrderTakas } from '../services/takas';
 import { getDashboardItems, getOrderDamages, getOrderDashboard } from '../services/dashboard';
 
 export const ordersRouter = Router();
-// The supervisor and the Taka entry role have no access to orders at all.
-ordersRouter.use(requirePermission('canViewOrders'));
+// The supervisor opens orders read only (writes below need their own permissions); the Taka entry role has no access.
+ordersRouter.use(requirePermission('canViewOrders', 'canViewProductionOrders'));
 
 ordersRouter.get(
   '/',

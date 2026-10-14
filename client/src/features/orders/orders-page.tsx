@@ -172,7 +172,7 @@ export default function OrdersPage() {
         <SearchBar
           value={searchText}
           onChange={setSearchText}
-          placeholder="Search by client, broker, order no, design, quantity, material…"
+          placeholder={can('canSeeClient') ? 'Search by client, broker, order no, design, quantity, material…' : 'Search by order no, design, quantity, material…'}
         />
         <FetchingIndicator show={query.isFetching && !loading && !query.isFetchingNextPage} />
         <Button
@@ -287,9 +287,11 @@ export default function OrdersPage() {
                           className="size-16 shrink-0 ring-1 ring-inset ring-black/5"
                         />
                         <div className="min-w-0 flex-1">
-                          <p className="truncate text-[15px] font-semibold text-slate-900" title={o.customerName}>
-                            {o.customerName}
-                          </p>
+                          {can('canSeeClient') && (
+                            <p className="truncate text-[15px] font-semibold text-slate-900" title={o.customerName}>
+                              {o.customerName}
+                            </p>
+                          )}
                           <p
                             className={cn('mt-0.5 truncate text-xs', o.designCode ? 'font-medium text-slate-500' : 'text-slate-400')}
                             title={o.designCode ?? undefined}
@@ -305,7 +307,7 @@ export default function OrdersPage() {
                         <div className="flex items-end pb-0.5">
                           <OrderTypeTag type={o.orderType} />
                         </div>
-                        {o.brokerName && <Field label="Broker" value={o.brokerName} />}
+                        {can('canSeeClient') && o.brokerName && <Field label="Broker" value={o.brokerName} />}
                       </dl>
                       {!selecting && canSend && pending && (
                         <div className="mt-auto pt-3">

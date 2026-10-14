@@ -146,6 +146,17 @@ export function useUndoReceive(kind: ChallanKind) {
   });
 }
 
+/** Mill challans: the godown supervisor counts how many takas came back (just the number). */
+export function useSetReceivedCount() {
+  const qc = useQueryClient();
+  return useMutation({
+    meta: { silentFieldErrors: true },
+    mutationFn: ({ id, count }: { id: number; count: number }) =>
+      api.post<{ challanId: number; receivedCount: number }>(`${base('mill')}/challans/${id}/received-count`, { count }),
+    onSuccess: () => invalidateAfterChallanWrite(qc),
+  });
+}
+
 /* ---------- Order → Docs → Challans ---------- */
 
 export function useOrderChallans(orderId: number) {

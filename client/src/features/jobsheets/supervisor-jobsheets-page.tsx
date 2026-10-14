@@ -1,4 +1,4 @@
-import { ArrowLeftRight, CheckCircle2, ChevronRight, ClipboardCheck, CornerDownRight, Factory, Inbox, Play, SearchX } from 'lucide-react';
+import { ArrowLeftRight, CheckCircle2, ChevronRight, ClipboardCheck, CornerDownRight, Factory, Inbox, Play, Printer, SearchX } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
@@ -29,7 +29,7 @@ import { useNow } from '@/hooks/useNow';
 import { useRole } from '@/hooks/useRole';
 import { formatDate, formatElapsed, formatOrderNo } from '@/lib/format';
 import { cn } from '@/lib/utils';
-import { useSupervisorJobsheets, useSupervisorOrders } from './api';
+import { printUrl, useSupervisorJobsheets, useSupervisorOrders } from './api';
 import { FramesValue, machineNumbers } from './parts';
 import { JobsheetRunDialogs, type RunAction, type RunJobsheet } from './run-dialogs';
 
@@ -100,6 +100,8 @@ function CardImage({ thumbUrl, imageUrl, code }: { thumbUrl: string | null; imag
 
 function JobsheetTile({ js, now, onOpen, onAction }: { js: SupervisorJobsheetItem; now: number; onOpen: () => void; onAction: (a: RunAction) => void }) {
   const run = toRun(js);
+  const navigate = useNavigate();
+  const { can } = useRole();
   const action = (kind: RunAction['kind']) => (e: React.MouseEvent) => {
     e.stopPropagation();
     onAction({ kind, js: run });
@@ -120,7 +122,25 @@ function JobsheetTile({ js, now, onOpen, onAction }: { js: SupervisorJobsheetIte
       aria-label={`Open ${jobsheetRef(js.orderNo, js.jobsheetNo)}`}
       className="flex h-full cursor-pointer flex-col overflow-hidden rounded-xl border border-border bg-white shadow-soft outline-none transition hover:border-primary/30 hover:shadow-pop focus-visible:ring-2 focus-visible:ring-primary/40"
     >
-      <CardImage thumbUrl={js.thumbUrl} imageUrl={js.imageUrl} code={js.designCode} />
+      <div className="relative">
+        <CardImage thumbUrl={js.thumbUrl} imageUrl={js.imageUrl} code={js.designCode} />
+        {can('canPrintJobsheets') && (
+          <Tooltip content="Print jobsheet">
+            <button
+              type="button"
+              title="Print jobsheet"
+              aria-label={`Print ${jobsheetRef(js.orderNo, js.jobsheetNo)}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                navigate(printUrl([js.id]));
+              }}
+              className="absolute right-2 top-2 flex size-10 items-center justify-center rounded-full bg-white text-slate-800 shadow-pop ring-1 ring-black/10 transition hover:bg-slate-50 active:scale-95"
+            >
+              <Printer className="size-5" />
+            </button>
+          </Tooltip>
+        )}
+      </div>
       <div className="flex flex-1 flex-col gap-3 p-4">
         <div className="flex items-start justify-between gap-2">
           <p className="min-w-0 text-2xl font-bold leading-tight text-slate-900">
@@ -128,30 +148,37 @@ function JobsheetTile({ js, now, onOpen, onAction }: { js: SupervisorJobsheetIte
           </p>
           <StatusBadge kind="jobsheet" status={js.status} className="mt-1 shrink-0 text-[13px]" />
         </div>
-        <p className="-mt-1.5 truncate text-sm text-slate-500">{js.designCode ? `Design ${js.designCode}` : 'No design'}</p>
+        <p className="-mt-1.5 truncate text-sm text-slate-500">
+          {js.designCode ? `Design ${js.designCode}` : 'No design'} · {js.quality}
+        </p>
 
         <dl className="grid grid-cols-2 gap-2 border-t border-border pt-3">
           <Fact label={js.status === JOBSHEET_STATUS.COMPLETED ? 'Frames made' : 'Frames'}>
             <FramesValue status={js.status} frames={js.frames} completedFrames={js.completedFrames} withUnit />
           </Fact>
-          <Fact label="Machine">
-            {js.status === JOBSHEET_STATUS.ONGOING && js.runningMachine ? (
-              <span className="inline-flex items-center gap-1.5 font-semibold text-blue-600">
-                <span className="relative flex size-2 shrink-0" aria-hidden>
-                  <span className="absolute inline-flex size-full animate-ping rounded-full bg-blue-400 opacity-75" />
-                  <span className="relative inline-flex size-2 rounded-full bg-blue-500" />
+          {js.runningMachine && (js.status === JOBSHEET_STATUS.ONGOING || js.status === JOBSHEET_STATUS.COMPLETED) ? (
+            <Fact label={js.status === JOBSHEET_STATUS.ONGOING ? 'Running on' : 'Ran on'}>
+              {js.status === JOBSHEET_STATUS.ONGOING ? (
+                <span className="inline-flex items-center gap-1.5 font-semibold text-blue-600">
+                  <span className="relative flex size-2 shrink-0" aria-hidden>
+                    <span className="absolute inline-flex size-full animate-ping rounded-full bg-blue-400 opacity-75" />
+                    <span className="relative inline-flex size-2 rounded-full bg-blue-500" />
+                  </span>
+                  <span className="truncate">
+                    Machine {js.runningMachine.machineNo}
+                    {js.startedAt && <span className="font-medium text-blue-600/80"> · {formatElapsed(js.startedAt, now)} ago</span>}
+                  </span>
                 </span>
-                <span className="truncate">
-                  Machine {js.runningMachine.machineNo}
-                  {js.startedAt && <span className="font-medium text-blue-600/80"> · {formatElapsed(js.startedAt, now)} ago</span>}
-                </span>
-              </span>
-            ) : js.status === JOBSHEET_STATUS.COMPLETED && js.runningMachine ? (
-              `Machine ${js.runningMachine.machineNo}`
-            ) : (
-              machineNumbers(js.machines)
-            )}
-          </Fact>
+              ) : (
+                `Machine ${js.runningMachine.machineNo}`
+              )}
+            </Fact>
+          ) : (
+            <Fact label="Picks">{js.picks || '—'}</Fact>
+          )}
+          <div className="col-span-2">
+            <Fact label="Assigned looms">{machineNumbers(js.machines)}</Fact>
+          </div>
         </dl>
 
         {js.status === JOBSHEET_STATUS.COMPLETED && <p className="text-sm text-slate-500">Completed {formatDate(js.completedAt)}</p>}

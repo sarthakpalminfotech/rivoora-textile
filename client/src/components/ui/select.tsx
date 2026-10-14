@@ -205,7 +205,8 @@ function DropdownCore<V extends string | number>({
 
   return (
     <div className={cn('flex min-w-0 items-stretch gap-2', className)}>
-      <PopoverPrimitive.Root open={open} onOpenChange={changeOpen}>
+      {/* modal: the list takes over the page scroll lock, so it scrolls with wheel and touch even inside a dialog. */}
+      <PopoverPrimitive.Root modal open={open} onOpenChange={changeOpen}>
         <PopoverPrimitive.Trigger asChild disabled={disabled}>
           <button
             id={triggerId}
@@ -284,7 +285,7 @@ function DropdownCore<V extends string | number>({
               tabIndex={-1}
               aria-multiselectable={multiple || undefined}
               aria-activedescendant={!searchable && active >= 0 ? `${listId}-${active}` : undefined}
-              className="min-h-0 flex-1 overflow-y-auto overscroll-contain py-1.5 outline-none"
+              className="min-h-0 flex-1 touch-pan-y overflow-y-auto overscroll-contain py-1.5 outline-none [-webkit-overflow-scrolling:touch]"
             >
               {visible.length === 0 ? (
                 <li className="px-4 py-6 text-center text-sm text-muted-foreground">

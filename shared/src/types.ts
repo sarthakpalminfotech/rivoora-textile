@@ -395,7 +395,7 @@ export interface JobsheetChangeMachineResult {
   orderNo: number;
   completed: JobsheetRef;
   created: JobsheetRef;
-  newMachineNo: number;
+  newMachineNo?: number | null;
 }
 
 /** One card of the supervisor's Jobsheets module. */
@@ -407,6 +407,8 @@ export interface SupervisorJobsheetItem {
   completedFrames: number | null;
   picks: string | null;
   orderNo: number;
+  /** The order's quality (material name). */
+  quality: string;
   designCode: string | null;
   thumbUrl: string | null;
   imageUrl: string | null;
@@ -454,6 +456,8 @@ export interface JobsheetPrintItem {
   jobsheetPieces: number;
   /** Variation code if the order has one, otherwise the design code. */
   designCode: string | null;
+  /** Lump or Pcs to pcs — printed under the design number. */
+  orderType: OrderType;
 }
 
 /* ---------- machine view ---------- */
@@ -578,6 +582,11 @@ export interface OrderTakas {
   totalPcs: number | null;
   /** Every active jobsheet of the order, by number (groups without takas included). */
   groups: JobsheetTakaGroup[];
+}
+
+/** GET /takas/next-numbers — the numbers the next takas would get (not reserved until saved). */
+export interface TakaNextNumbers {
+  numbers: string[];
 }
 
 /** POST /jobsheets/:id/takas */

@@ -71,7 +71,7 @@ lookupRouter.get(
 
 lookupRouter.get(
   '/materials',
-  requirePermission('canViewMasters'),
+  requirePermission('canViewMasters', 'canViewProductionOrders'),
   ah(async (req, res) => {
     res.set('Cache-Control', 'private, max-age=10');
     res.json(await lookupMaterials(querySchema.parse(req.query).search));

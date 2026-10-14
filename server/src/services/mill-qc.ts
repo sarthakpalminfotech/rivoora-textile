@@ -1,4 +1,4 @@
-import { and, desc, eq, sql, type SQL } from 'drizzle-orm';
+import { and, desc, eq, or, sql, type SQL } from 'drizzle-orm';
 import {
   buttaListQuerySchema,
   challanLabel,
@@ -35,7 +35,12 @@ export async function listMillQcPending(q: ButtaListQuery): Promise<QcPendingPag
     const p = likePattern(term);
     search = sql`(${takas.takaNo} LIKE ${p} ESCAPE '\\' OR ${orders.orderNo} = ${/^\d+$/.test(term) ? Number(term) : -1})`;
   }
-  const where = and(eq(takas.stage, 'mill_qc'), eq(takas.isDeleted, false), search);
+  // Waiting for QC: back from the mill, or still marked at the mill on a challan the godown counted takas on.
+  const where = and(
+    or(eq(takas.stage, 'mill_qc'), and(eq(takas.stage, 'at_mill'), sql`${challans.receivedCount} > 0`)),
+    eq(takas.isDeleted, false),
+    search,
+  );
   const [items, [{ total }]] = await db.batch([
     db
       .select({
@@ -60,6 +65,8 @@ export async function listMillQcPending(q: ButtaListQuery): Promise<QcPendingPag
       .select({ total: sql<number>`COUNT(*)` })
       .from(takas)
       .innerJoin(orders, eq(orders.id, takas.orderId))
+      .leftJoin(challanTakas, and(eq(challanTakas.takaId, takas.id), eq(challanTakas.kind, 'mill'), eq(challanTakas.isActive, true)))
+      .leftJoin(challans, eq(challans.id, challanTakas.challanId))
       .where(where),
   ]);
   const count = Number(total);

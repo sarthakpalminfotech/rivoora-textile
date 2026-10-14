@@ -2,6 +2,7 @@ import { and, asc, eq, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import {
   buildOrderDashboard,
+  can,
   canRoleSeeStatus,
   compareTakaNo,
   damageOpenPcs,
@@ -47,7 +48,7 @@ const activeTakasOf = (orderId: number) => and(eq(takas.orderId, orderId), eq(ta
 
 function assertVisible<T extends { status: string }>(role: RoleKey, order: T | undefined): T {
   // The godown / QC roles have a restricted view of every order (no client, no rate) and see no order statuses.
-  if (!order || (!isRestricted(role) && !canRoleSeeStatus(role, order.status))) throw notFound('Order');
+  if (!order || ((!isRestricted(role) || can(role, 'canViewProductionOrders')) && !canRoleSeeStatus(role, order.status))) throw notFound('Order');
   return order;
 }
 

@@ -5,20 +5,18 @@ import { toast } from 'sonner';
 import {
   cleanMeters,
   cleanPcs,
-  cleanTakaNo,
   formatMeters,
   formatPcs,
-  hasTakaErrors,
   JOBSHEET_STATUS,
   jobsheetRef,
   METERS_ERROR_TEXT,
   parseMeters,
   parsePcs,
   PCS_ERROR_TEXT,
-  TAKA_NO_MAX_LENGTH,
+  SECTIONS_PER_BEAM,
+  TAKA_ENTRY_DEFAULT_ROWS,
   totalMeters,
   totalPcs,
-  validateTakaNumbers,
   type JobsheetDetail,
   type Taka,
 } from '@rivoora/shared';
@@ -37,16 +35,12 @@ import { formatDateTime, formatOrderNo } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { useJobsheet } from '../jobsheets/api';
 import { FramesValue, machineNumbers } from '../jobsheets/parts';
-import { useEnterTakas } from './api';
+import { useEnterTakas, useNextTakaNumbers } from './api';
 import { entryLabel, entryPayload, TakaDamageControl, type DamageEntry } from './damage-dialog';
-import { takaErrorText, useUsedTakaNumbers } from './taka-check';
 import { TakaChip } from './taka-chip';
-
-const DEFAULT_ROWS = 6;
 
 interface Row {
   key: number;
-  value: string;
   /** Meters as typed (optional). */
   meters: string;
   /** Pcs as typed (required once the row has a number). */
@@ -59,7 +53,10 @@ interface Row {
 
 let rowKey = 0;
 const emptyRows = (n: number): Row[] =>
-  Array.from({ length: n }, () => ({ key: ++rowKey, value: '', meters: '', pcs: '', pcsTouched: false, damages: [] }));
+  Array.from({ length: n }, () => ({ key: ++rowKey, meters: '', pcs: '', pcsTouched: false, damages: [] }));
+
+/** A row is in use as soon as something is typed in it (its number is system generated). */
+const isUsed = (r: Row) => r.pcs !== '' || r.meters !== '' || r.damages.length > 0;
 
 /** "3 takas · 203.75 m · 36 pcs" (English) for a list of takas / rows. */
 function totalsLine(list: { meters?: number | null; pcs?: number | null }[]) {
@@ -206,6 +203,24 @@ function SuccessView({ js, saved, autoCompleted, onAddMore }: { js: JobsheetDeta
   );
 }
 
+/** Small warning (English + Hindi): the pcs entered don't match what the frames should make. */
+function PcsMismatchNote({ entered, expected, frames, className }: { entered: number; expected: number; frames: number; className?: string }) {
+  return (
+    <p
+      className={cn('mt-3 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-2.5 text-sm font-medium text-amber-900', className)}
+      role="status"
+    >
+      <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-500" aria-hidden />
+      <span>
+        Pcs entered: {entered}. Expected {expected} ({frames} frames × {SECTIONS_PER_BEAM}). Please check.
+        <span lang="hi" className="block">
+          दर्ज पीस: {entered}। अपेक्षित {expected} ({frames} फ्रेम × {SECTIONS_PER_BEAM})। कृपया जाँच लें।
+        </span>
+      </span>
+    </p>
+  );
+}
+
 const fieldBox = (invalid: boolean) =>
   cn(
     'h-14 w-full rounded-xl border bg-white tabular-nums text-slate-900 transition-colors placeholder:text-slate-300 focus:outline-none focus:ring-2 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:opacity-60',
@@ -218,35 +233,42 @@ export default function TakaEntryPage() {
   const navigate = useNavigate();
   const { data: js, isPending, isError, error, refetch } = useJobsheet(id);
   const enter = useEnterTakas(id);
-  const [rows, setRows] = useState<Row[]>(() => emptyRows(DEFAULT_ROWS));
+  const [rows, setRows] = useState<Row[]>(() => emptyRows(TAKA_ENTRY_DEFAULT_ROWS));
   const [note, setNote] = useState('');
-  const [serverError, setServerError] = useState<{ key: number; field: 'takaNo' | 'pcs' | 'damages' | 'other'; message: string } | null>(null);
+  const [serverError, setServerError] = useState<{ key: number; field: 'pcs' | 'damages' | 'other'; message: string } | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [saved, setSaved] = useState<{ takas: Taka[]; autoCompleted: boolean } | null>(null);
   /** The taka number field that has focus (its – / helper keys are shown). */
   const [showAllErrors, setShowAllErrors] = useState(false);
-  const inputs = useRef(new Map<number, HTMLInputElement>());
   const meterInputs = useRef(new Map<number, HTMLInputElement>());
   const pcsInputs = useRef(new Map<number, HTMLInputElement>());
+  const existing = useMemo(() => js?.takas ?? [], [js]);
   usePageTitle(
     js ? bi(jobsheetRef(js.orderNo, js.jobsheetNo), `ऑर्डर #${js.orderNo} (${js.jobsheetNo})`) : bi('Taka entry', 'टाका एंट्री'),
   );
 
-  const existing = useMemo(() => js?.takas ?? [], [js]);
-  // Taka numbers are unique across the whole system: a debounced live check shows "already used" before submit.
-  const used = useUsedTakaNumbers(
-    rows.map((r) => r.value),
-    useMemo(() => new Set(existing.map((t) => t.takaNo)), [existing]),
-  );
-  const errors = useMemo(
-    () => validateTakaNumbers(rows.map((r) => r.value), existing.map((t) => t.takaNo), { ignoreEmpty: true, used }),
-    [rows, existing, used],
-  );
+  // Taka numbers are system generated (auto incremental, from 11). Shown before saving; confirmed on save.
+  const nextNumbers = useNextTakaNumbers(rows.length);
   const meterErrors = useMemo(() => rows.map((r) => parseMeters(r.meters).error), [rows]);
-  // Pcs are required on every row that has a number.
-  const pcsErrors = useMemo(() => rows.map((r) => (r.value.trim() ? parsePcs(r.pcs).error : null)), [rows]);
-  const filled = rows.filter((r) => r.value.trim() !== '');
-  const canSubmit = filled.length > 0 && !hasTakaErrors(errors) && meterErrors.every((e) => e === null);
+  // Pcs are required on every row that is in use.
+  const pcsErrors = useMemo(() => rows.map((r) => (isUsed(r) ? parsePcs(r.pcs).error : null)), [rows]);
+  const filled = rows.filter(isUsed);
+  // The numbers follow the order the rows are saved in: used rows first, then the free ones.
+  const numberOf = useMemo(() => {
+    const map = new Map<number, string>();
+    let used = 0;
+    let free = filled.length;
+    for (const r of rows) {
+      const no = nextNumbers.data?.numbers[isUsed(r) ? used++ : free++];
+      if (no) map.set(r.key, no);
+    }
+    return map;
+  }, [rows, filled.length, nextNumbers.data]);
+  const canSubmit = filled.length > 0 && meterErrors.every((e) => e === null) && !!nextNumbers.data;
+  // Expected pcs for the frames of this jobsheet (frames × sections per beam) vs. everything entered.
+  const expectedPcs = js ? (js.completedFrames ?? js.frames) * SECTIONS_PER_BEAM : 0;
+  const enteredPcs = (totalPcs(existing) ?? 0) + (totalPcs(filled.map((r) => ({ pcs: parsePcs(r.pcs).pcs }))) ?? 0);
+  const pcsMismatch = filled.some((r) => parsePcs(r.pcs).pcs !== null) && enteredPcs !== expectedPcs;
 
   const back = (
     <button
@@ -322,11 +344,11 @@ export default function TakaEntryPage() {
     const [row] = emptyRows(1);
     setRows((prev) => [...prev, row]);
     // Focus the new field once it has rendered.
-    window.setTimeout(() => inputs.current.get(row.key)?.focus(), 0);
+    window.setTimeout(() => meterInputs.current.get(row.key)?.focus(), 0);
   };
   const focusNext = (index: number) => {
     const next = rows[index + 1];
-    if (next) inputs.current.get(next.key)?.focus();
+    if (next) meterInputs.current.get(next.key)?.focus();
     else (document.activeElement as HTMLElement | null)?.blur();
   };
 
@@ -343,7 +365,6 @@ export default function TakaEntryPage() {
 
   const submit = () => {
     const toSave = filled.map((r) => ({
-      takaNo: r.value.trim(),
       meters: parseMeters(r.meters).meters,
       pcs: parsePcs(r.pcs).pcs!,
       damages: r.damages.map(entryPayload),
@@ -354,7 +375,7 @@ export default function TakaEntryPage() {
         onSuccess: (res) => {
           setConfirmOpen(false);
           setSaved({ takas: res.added, autoCompleted: res.autoCompleted });
-          setRows(emptyRows(DEFAULT_ROWS));
+          setRows(emptyRows(TAKA_ENTRY_DEFAULT_ROWS));
           setNote('');
           setShowAllErrors(false);
           toast.success(bi('Saved', 'सेव हो गया'));
@@ -366,9 +387,9 @@ export default function TakaEntryPage() {
           const m = err instanceof ApiError && err.field ? /^takas\.(\d+)\.(\w+)/.exec(err.field) : null;
           const row = m ? filled[Number(m[1])] : undefined;
           if (row) {
-            const field = m![2] === 'takaNo' || m![2] === 'pcs' || m![2] === 'damages' ? m![2] : 'other';
+            const field = m![2] === 'pcs' || m![2] === 'damages' ? m![2] : 'other';
             setServerError({ key: row.key, field, message: err.message });
-            (field === 'pcs' ? pcsInputs : inputs).current.get(row.key)?.focus();
+            pcsInputs.current.get(row.key)?.focus();
           }
         },
       },
@@ -417,16 +438,13 @@ export default function TakaEntryPage() {
       <Section title={<Bi en="New takas" hi="नए टाका" layout="inline" />}>
         <ol className="space-y-3">
           {rows.map((r, i) => {
-            const n = existing.length + i + 1;
-            const err = errors[i];
+            const no = numberOf.get(r.key);
             const meterErr = meterErrors[i];
             const pcsErr = pcsErrors[i];
             const server = serverError?.key === r.key ? serverError : null;
-            const numberMessage = server && server.field !== 'pcs' ? server.message : null;
-            const invalid = !!err || !!numberMessage;
             const showPcsErr = !!pcsErr && (r.pcsTouched || showAllErrors);
             const pcsMessage = server?.field === 'pcs' ? server.message : null;
-            const inputId = `taka-${r.key}`;
+            const otherMessage = server && server.field !== 'pcs' ? server.message : null;
             const metersId = `taka-${r.key}-m`;
             const pcsId = `taka-${r.key}-p`;
             return (
@@ -436,39 +454,17 @@ export default function TakaEntryPage() {
               >
                 {/* Phones: number on its own line, then meters + pcs side by side, then Damage. md+: one row. */}
                 <div className="grid grid-cols-2 gap-x-2 gap-y-1 md:grid-cols-[minmax(0,1fr)_112px_96px_156px]">
-                  <label htmlFor={inputId} className="col-span-2 text-sm font-semibold text-slate-600 md:col-span-1 md:row-start-1">
-                    Taka {n} / <span lang="hi">टाका {n}</span>
-                  </label>
-                  <div className="col-span-2 md:col-span-1 md:row-start-2">
-                    <input
-                      ref={(el) => {
-                        if (el) inputs.current.set(r.key, el);
-                        else inputs.current.delete(r.key);
-                      }}
-                      id={inputId}
-                      value={r.value}
-                      onChange={(e) => {
-                        const value = cleanTakaNo(e.target.value);
-                        setRow(r.key, value ? { value } : { value, meters: '', pcs: '', pcsTouched: false, damages: [] });
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          e.preventDefault();
-                          // Number → its meters → its pcs → the next taka.
-                          if (r.value) meterInputs.current.get(r.key)?.focus();
-                          else focusNext(i);
-                        }
-                      }}
-                      // "tel" keypad: most phones offer a dash there (taka numbers can contain - and /).
-                      inputMode="tel"
-                      autoComplete="off"
-                      enterKeyHint="next"
-                      maxLength={TAKA_NO_MAX_LENGTH}
-                      aria-invalid={invalid || undefined}
-                      aria-describedby={invalid ? `${inputId}-err` : undefined}
-                      className={cn(fieldBox(invalid), 'px-4 text-[24px] font-bold tracking-wide')}
-                      placeholder="—"
-                    />
+                  <span className="col-span-2 text-sm font-semibold text-slate-600 md:col-span-1 md:row-start-1">
+                    Taka number / <span lang="hi">टाका नंबर</span>
+                  </span>
+                  <div
+                    className={cn(
+                      fieldBox(false),
+                      'col-span-2 flex items-center bg-slate-50 px-4 text-[24px] font-bold tracking-wide md:col-span-1 md:row-start-2',
+                    )}
+                    aria-label={bi(`Taka number ${no ?? ''}`, `टाका नंबर ${no ?? ''}`)}
+                  >
+                    {no ?? '…'}
                   </div>
                   <label htmlFor={metersId} className="mt-1 text-sm font-semibold text-slate-600 md:row-start-1 md:mt-0">
                     Meters / <span lang="hi">मीटर</span>
@@ -492,7 +488,6 @@ export default function TakaEntryPage() {
                           pcsInputs.current.get(r.key)?.focus();
                         }
                       }}
-                      disabled={!r.value}
                       inputMode="decimal"
                       autoComplete="off"
                       enterKeyHint="next"
@@ -513,14 +508,13 @@ export default function TakaEntryPage() {
                     id={pcsId}
                     value={r.pcs}
                     onChange={(e) => setRow(r.key, { pcs: cleanPcs(e.target.value) })}
-                    onBlur={() => r.value && !r.pcsTouched && setRow(r.key, { pcsTouched: true })}
+                    onBlur={() => isUsed(r) && !r.pcsTouched && setRow(r.key, { pcsTouched: true })}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter') {
                         e.preventDefault();
                         focusNext(i);
                       }
                     }}
-                    disabled={!r.value}
                     inputMode="numeric"
                     autoComplete="off"
                     enterKeyHint={i === rows.length - 1 ? 'done' : 'next'}
@@ -533,16 +527,15 @@ export default function TakaEntryPage() {
                   <TakaDamageControl
                     entries={r.damages}
                     onChange={(damages) => setRow(r.key, { damages })}
-                    takaLabel={bi(`Taka ${r.value}`, `टाका ${r.value}`)}
+                    takaLabel={bi(`Taka ${no ?? ''}`, `टाका ${no ?? ''}`)}
                     takaPcs={parsePcs(r.pcs).pcs}
-                    disabled={!r.value || parsePcs(r.pcs).error !== null}
+                    disabled={parsePcs(r.pcs).error !== null}
                     className="col-span-2 mt-1 md:col-span-1 md:row-start-2 md:mt-0"
                   />
                 </div>
-                {invalid && (
-                  <p id={`${inputId}-err`} role="alert" className="mt-1 text-sm font-semibold text-destructive">
-                    {numberMessage ?? `${takaErrorText(err!, r.value, used).en} / `}
-                    {!numberMessage && <span lang="hi">{takaErrorText(err!, r.value, used).hi}</span>}
+                {otherMessage && (
+                  <p role="alert" className="mt-1 text-sm font-semibold text-destructive">
+                    {otherMessage}
                   </p>
                 )}
                 {meterErr && (
@@ -567,6 +560,7 @@ export default function TakaEntryPage() {
           <Plus className="!size-5" />
           <Bi en="Add more" hi="और जोड़ें" layout="inline" />
         </Button>
+        {pcsMismatch && <PcsMismatchNote entered={enteredPcs} expected={expectedPcs} frames={js.completedFrames ?? js.frames} />}
       </Section>
 
       <Section title={<Bi en="Note" hi="नोट" layout="inline" />}>
@@ -633,6 +627,7 @@ export default function TakaEntryPage() {
           <span lang="hi">{filled.length} टाका</span>
           {filledTotals && ` · ${filledTotals}`}
         </p>
+        {pcsMismatch && <PcsMismatchNote entered={enteredPcs} expected={expectedPcs} frames={js.completedFrames ?? js.frames} className="mb-3 mt-0" />}
         <ul className="divide-y divide-border rounded-xl border border-border">
           {filled.map((r) => {
             const meters = parseMeters(r.meters).meters;
@@ -640,7 +635,7 @@ export default function TakaEntryPage() {
             return (
               <li key={r.key} className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 px-4 py-2.5">
                 <span className={cn('text-2xl font-bold tabular-nums', r.damages.length ? 'text-red-600' : 'text-slate-900')}>
-                  {r.value}
+                  {numberOf.get(r.key)}
                   {meters !== null && <span className="ml-2 text-lg font-semibold text-slate-500">{formatMeters(meters)}</span>}
                   {pcs !== null && <span className="ml-2 text-lg font-semibold text-slate-500">· {formatPcs(pcs)}</span>}
                 </span>

@@ -1,18 +1,34 @@
-import { ChevronDown, ImageOff, Pencil, Phone, Undo2 } from 'lucide-react';
-import { useState, type ReactNode } from 'react';
-import type { OrderDetail } from '@rivoora/shared';
-import { Button } from '@/components/ui/button';
-import { ImageThumb, Lightbox } from '@/components/ui/image-thumb';
-import { StatusBadge } from '@/components/ui/status-badge';
-import { formatDate, formatMoney, formatOrderNo, formatQuantity } from '@/lib/format';
-import { cn } from '@/lib/utils';
-import { OrderTypeTag } from '../order-type-tag';
+import { useRole } from "@/hooks/useRole";
+import { ChevronDown, ImageOff, Pencil, Phone, Undo2 } from "lucide-react";
+import { useState, type ReactNode } from "react";
+import type { OrderDetail } from "@rivoora/shared";
+import { Button } from "@/components/ui/button";
+import { ImageThumb, Lightbox } from "@/components/ui/image-thumb";
+import { StatusBadge } from "@/components/ui/status-badge";
+import {
+  formatDate,
+  formatMoney,
+  formatOrderNo,
+  formatQuantity,
+} from "@/lib/format";
+import { cn } from "@/lib/utils";
+import { OrderTypeTag } from "../order-type-tag";
 
-function HeaderItem({ label, children, className }: { label: string; children: ReactNode; className?: string }) {
+function HeaderItem({
+  label,
+  children,
+  className,
+}: {
+  label: string;
+  children: ReactNode;
+  className?: string;
+}) {
   return (
-    <div className={cn('min-w-0', className)}>
+    <div className={cn("min-w-0", className)}>
       <dt className="text-[12px] text-muted-foreground">{label}</dt>
-      <dd className="mt-0.5 break-words text-[15px] font-semibold text-slate-900">{children}</dd>
+      <dd className="mt-0.5 break-words text-[15px] font-semibold text-slate-900">
+        {children}
+      </dd>
     </div>
   );
 }
@@ -22,13 +38,16 @@ function DesignThumb({ order }: { order: OrderDetail }) {
   const [open, setOpen] = useState(false);
   const image = order.variation ?? order.design;
   const code = order.variation?.code ?? order.design?.code;
-  const size = 'size-16 md:size-[88px]';
+  const size = "size-16 md:size-[88px]";
 
   if (!image?.thumbUrl) {
     return (
       <span
-        className={cn('flex shrink-0 items-center justify-center rounded-xl bg-slate-100 text-slate-300', size)}
-        aria-label={image ? `Design ${code} has no image` : 'No design'}
+        className={cn(
+          "flex shrink-0 items-center justify-center rounded-xl bg-slate-100 text-slate-300",
+          size,
+        )}
+        aria-label={image ? `Design ${code} has no image` : "No design"}
         role="img"
       >
         <ImageOff className="size-6" aria-hidden />
@@ -42,13 +61,24 @@ function DesignThumb({ order }: { order: OrderDetail }) {
         onClick={() => setOpen(true)}
         aria-label="View design image"
         className={cn(
-          'shrink-0 overflow-hidden rounded-xl outline-none ring-offset-2 transition hover:opacity-90 focus-visible:ring-2 focus-visible:ring-primary',
+          "shrink-0 overflow-hidden rounded-xl outline-none ring-offset-2 transition hover:opacity-90 focus-visible:ring-2 focus-visible:ring-primary",
           size,
         )}
       >
-        <ImageThumb thumbUrl={image.thumbUrl} alt={`Design ${code}`} preview={false} rounded="rounded-xl" className="size-full" />
+        <ImageThumb
+          thumbUrl={image.thumbUrl}
+          alt={`Design ${code}`}
+          preview={false}
+          rounded="rounded-xl"
+          className="size-full"
+        />
       </button>
-      <Lightbox open={open} onOpenChange={setOpen} src={image.imageUrl ?? image.thumbUrl} alt={`Design ${code}`} />
+      <Lightbox
+        open={open}
+        onOpenChange={setOpen}
+        src={image.imageUrl ?? image.thumbUrl}
+        alt={`Design ${code}`}
+      />
     </>
   );
 }
@@ -57,74 +87,133 @@ function DesignThumb({ order }: { order: OrderDetail }) {
  * Order header card (always visible): design thumbnail, order number + status, Undo send for production, and a
  * compact detail grid. Phones show the first four details with a "More details" toggle. `onEdit` adds the edit (pencil) button.
  */
-export function OrderHeader({ order, onUndo, onEdit }: { order: OrderDetail; onUndo?: () => void; onEdit?: () => void }) {
+export function OrderHeader({
+  order,
+  onUndo,
+  onEdit,
+}: {
+  order: OrderDetail;
+  onUndo?: () => void;
+  onEdit?: () => void;
+}) {
   const [more, setMore] = useState(false);
+  const { can } = useRole();
+  const seesClient = can("canSeeClient");
   const code = order.variation?.code ?? order.design?.code;
 
   const items: { label: string; value: ReactNode }[] = [
-    {
-      label: 'Client',
-      value: (
-        <>
-          {order.customer.name}
-          {order.customer.city && <span className="font-normal text-slate-500"> · {order.customer.city}</span>}
-        </>
-      ),
-    },
-    { label: 'Broker', value: order.broker ? order.broker.name : <span className="font-normal text-slate-400">—</span> },
-    {
-      label: 'Design',
-      value: code ? (
-        <>
-          {code}
-          {order.variation && order.design && <span className="font-normal text-slate-500"> · of {order.design.code}</span>}
-        </>
-      ) : (
-        <span className="font-normal text-slate-400">—</span>
-      ),
-    },
-    { label: 'Order quantity', value: formatQuantity(order.quantity, order.unit) },
-    {
-      label: 'Material / Quality',
-      value: (
-        <>
-          {order.material.name}
-          {order.material.code && <span className="font-normal text-slate-500"> {order.material.code}</span>}
-        </>
-      ),
-    },
-    ...(order.unit === 'pcs'
+    ...(seesClient
       ? [
           {
-            label: 'Jobsheet quantity',
-            value: order.jobsheetCount > 0 ? `${order.jobsheetPieces.toLocaleString('en-IN')} pcs` : <span className="font-normal text-slate-400">—</span>,
+            label: "Client",
+            value: (
+              <>
+                {order.customer.name}
+                {order.customer.city && (
+                  <span className="font-normal text-slate-500">
+                    {" "}
+                    · {order.customer.city}
+                  </span>
+                )}
+              </>
+            ),
+          },
+          {
+            label: "Broker",
+            value: order.broker ? (
+              order.broker.name
+            ) : (
+              <span className="font-normal text-slate-400">—</span>
+            ),
           },
         ]
       : []),
     {
-      label: 'Phone',
-      value: order.customer.phone ? (
-        <a href={`tel:${order.customer.phone}`} className="inline-flex items-center gap-1.5 text-primary hover:underline">
-          <Phone className="size-3.5" aria-hidden /> {order.customer.phone}
-        </a>
+      label: "Design",
+      value: code ? (
+        <>
+          {code}
+          {order.variation && order.design && (
+            <span className="font-normal text-slate-500">
+              {" "}
+              · of {order.design.code}
+            </span>
+          )}
+        </>
       ) : (
         <span className="font-normal text-slate-400">—</span>
       ),
     },
-    { label: 'Order date', value: formatDate(order.orderDate) },
-    ...('rate' in order ? [{ label: 'Rate', value: formatMoney(order.rate) }] : []),
+    {
+      label: "Order quantity",
+      value: formatQuantity(order.quantity, order.unit),
+    },
+    {
+      label: "Material / Quality",
+      value: (
+        <>
+          {order.material.name}
+          {order.material.code && (
+            <span className="font-normal text-slate-500">
+              {" "}
+              {order.material.code}
+            </span>
+          )}
+        </>
+      ),
+    },
+    ...(order.unit === "pcs"
+      ? [
+          {
+            label: "Jobsheet quantity",
+            value:
+              order.jobsheetCount > 0 ? (
+                `${order.jobsheetPieces.toLocaleString("en-IN")} pcs`
+              ) : (
+                <span className="font-normal text-slate-400">—</span>
+              ),
+          },
+        ]
+      : []),
+    ...(seesClient
+      ? [
+          {
+            label: "Phone",
+            value: order.customer.phone ? (
+              <a
+                href={`tel:${order.customer.phone}`}
+                className="inline-flex items-center gap-1.5 text-primary hover:underline"
+              >
+                <Phone className="size-3.5" aria-hidden />{" "}
+                {order.customer.phone}
+              </a>
+            ) : (
+              <span className="font-normal text-slate-400">—</span>
+            ),
+          },
+        ]
+      : []),
+    { label: "Order date", value: formatDate(order.orderDate) },
+    ...("rate" in order
+      ? [{ label: "Rate", value: formatMoney(order.rate) }]
+      : []),
   ];
   const PHONE_VISIBLE = 4;
 
   return (
-    <section className="rounded-xl border border-border bg-white p-4 shadow-soft md:p-5" aria-label={`Order ${formatOrderNo(order.orderNo)}`}>
+    <section
+      className="rounded-xl border border-border bg-white p-4 shadow-soft md:p-5"
+      aria-label={`Order ${formatOrderNo(order.orderNo)}`}
+    >
       {/* Phones: thumbnail + title on one row, the details full width below. md+: details beside the thumbnail. */}
       <div className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3.5 md:gap-x-5">
         <div className="md:row-span-2">
           <DesignThumb order={order} />
         </div>
         <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2 self-center md:self-start">
-          <h2 className="text-2xl font-bold leading-tight text-slate-900 md:text-[28px]">Order {formatOrderNo(order.orderNo)}</h2>
+          <h2 className="text-2xl font-bold leading-tight text-slate-900 md:text-[28px]">
+            Order {formatOrderNo(order.orderNo)}
+          </h2>
           <OrderTypeTag type={order.orderType} className="text-xs" />
           <StatusBadge status={order.status} />
           {(onUndo || onEdit) && (
@@ -135,7 +224,13 @@ export function OrderHeader({ order, onUndo, onEdit }: { order: OrderDetail; onU
                 </Button>
               )}
               {onEdit && (
-                <Button variant="secondary" size="icon-sm" onClick={onEdit} aria-label="Edit order" title="Edit order">
+                <Button
+                  variant="secondary"
+                  size="icon-sm"
+                  onClick={onEdit}
+                  aria-label="Edit order"
+                  title="Edit order"
+                >
                   <Pencil />
                 </Button>
               )}
@@ -145,7 +240,11 @@ export function OrderHeader({ order, onUndo, onEdit }: { order: OrderDetail; onU
         <div className="col-span-2 min-w-0 md:col-span-1 md:col-start-2">
           <dl className="mt-3.5 grid grid-cols-2 gap-x-4 gap-y-3 md:mt-4 md:grid-cols-4 md:gap-x-6 xl:grid-cols-6 xl:gap-x-8">
             {items.map((it, i) => (
-              <HeaderItem key={it.label} label={it.label} className={cn(i >= PHONE_VISIBLE && !more && 'hidden md:block')}>
+              <HeaderItem
+                key={it.label}
+                label={it.label}
+                className={cn(i >= PHONE_VISIBLE && !more && "hidden md:block")}
+              >
                 {it.value}
               </HeaderItem>
             ))}
@@ -157,8 +256,14 @@ export function OrderHeader({ order, onUndo, onEdit }: { order: OrderDetail; onU
               aria-expanded={more}
               className="mt-2 inline-flex min-h-9 items-center gap-1 rounded-md text-sm font-semibold text-primary md:hidden"
             >
-              {more ? 'Fewer details' : 'More details'}
-              <ChevronDown className={cn('size-4 transition-transform', more && 'rotate-180')} aria-hidden />
+              {more ? "Fewer details" : "More details"}
+              <ChevronDown
+                className={cn(
+                  "size-4 transition-transform",
+                  more && "rotate-180",
+                )}
+                aria-hidden
+              />
             </button>
           )}
         </div>

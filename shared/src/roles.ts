@@ -4,7 +4,7 @@
  * To add a role: add its key to ROLE_KEYS, give it a config below and
  * add it to `visibleTo` of the statuses it may see (see statuses.ts).
  */
-export const ROLE_KEYS = ['jemish', 'gaurang', 'supervisor', 'taka_entry', 'godown_supervisor', 'butta_qc', 'mill_qc'] as const;
+export const ROLE_KEYS = ['jemish', 'gaurang', 'supervisor', 'taka_entry', 'godown_supervisor', 'qc'] as const;
 export type RoleKey = (typeof ROLE_KEYS)[number];
 
 export interface RolePermissions {
@@ -14,6 +14,8 @@ export interface RolePermissions {
   canViewMasters: boolean;
   /** Can see the rate of an order (details screen / add form only, never the list). */
   canSeeRate: boolean;
+  /** Can see client / broker names and contact details on orders. */
+  canSeeClient: boolean;
   canAddOrder: boolean;
   /** Edit an existing order (client, material, design, quantity, rate, date, notes) from its details screen. */
   canEditOrder: boolean;
@@ -58,6 +60,8 @@ export interface RolePermissions {
   canMillQc: boolean;
   /** Godown Orders module (/godown/orders): final takas, split, ready to dispatch. */
   canUseGodownOrders: boolean;
+  /** The supervisor opens the Orders screens (list, details, dashboard, takas…) read-only, without client or money. */
+  canViewProductionOrders: boolean;
   /** Inventory module (/inventory): design-wise pcs, damaged stock. Jemish + Gaurang only (order lists show client names). */
   canViewInventory: boolean;
 }
@@ -78,12 +82,20 @@ export interface RoleConfig {
 
 const NO_TAKAS = { canUseTakaModules: false, canEnterTakas: false, canEditTakas: false, canViewTakas: false };
 const NO_BUTTA = { canUseButtaModule: false, canCancelChallan: false, canManageButtaParties: false, canButtaQc: false };
-const NO_MILL = { canUseMillModule: false, canManageMillParties: false, canMillQc: false, canUseGodownOrders: false, canViewInventory: false };
+const NO_MILL = {
+  canUseMillModule: false,
+  canManageMillParties: false,
+  canMillQc: false,
+  canUseGodownOrders: false,
+  canViewInventory: false,
+  canViewProductionOrders: false,
+};
 /** Everything off — the base of the two Sprint 7 roles, which only get what they need. */
 const NOTHING = {
   canViewOrders: false,
   canViewMasters: false,
   canSeeRate: false,
+  canSeeClient: false,
   canAddOrder: false,
   canEditOrder: false,
   canSendToProduction: false,
@@ -112,6 +124,7 @@ export const ROLES: Record<RoleKey, RoleConfig> = {
       canViewOrders: true,
       canViewMasters: true,
       canSeeRate: true,
+      canSeeClient: true,
       canAddOrder: true,
       canEditOrder: true,
       canSendToProduction: true,
@@ -136,6 +149,7 @@ export const ROLES: Record<RoleKey, RoleConfig> = {
       canMillQc: false,
       canUseGodownOrders: true,
       canViewInventory: true,
+      canViewProductionOrders: false,
     },
   },
   gaurang: {
@@ -149,6 +163,7 @@ export const ROLES: Record<RoleKey, RoleConfig> = {
       canViewOrders: true,
       canViewMasters: true,
       canSeeRate: true,
+      canSeeClient: true,
       canAddOrder: false,
       canEditOrder: true,
       canSendToProduction: false,
@@ -173,6 +188,7 @@ export const ROLES: Record<RoleKey, RoleConfig> = {
       canMillQc: false,
       canUseGodownOrders: true,
       canViewInventory: true,
+      canViewProductionOrders: false,
     },
   },
   supervisor: {
@@ -185,6 +201,7 @@ export const ROLES: Record<RoleKey, RoleConfig> = {
       canViewOrders: false,
       canViewMasters: false,
       canSeeRate: false,
+      canSeeClient: false,
       canAddOrder: false,
       canEditOrder: false,
       canSendToProduction: false,
@@ -198,8 +215,10 @@ export const ROLES: Record<RoleKey, RoleConfig> = {
       canPrintJobsheets: true,
       canViewMachineView: true,
       ...NO_TAKAS,
+      canViewTakas: true,
       ...NO_BUTTA,
       ...NO_MILL,
+      canViewProductionOrders: true,
     },
   },
   taka_entry: {
@@ -213,6 +232,7 @@ export const ROLES: Record<RoleKey, RoleConfig> = {
       canViewOrders: false,
       canViewMasters: false,
       canSeeRate: false,
+      canSeeClient: false,
       canAddOrder: false,
       canEditOrder: false,
       canSendToProduction: false,
@@ -242,24 +262,16 @@ export const ROLES: Record<RoleKey, RoleConfig> = {
     // Restricted view: order numbers, design and quality only (no client, rate or other order details).
     permissions: { ...NOTHING, canUseButtaModule: true, canUseMillModule: true, canUseGodownOrders: true },
   },
-  butta_qc: {
-    key: 'butta_qc',
-    name: 'Butta QC',
-    title: 'बुट्टा QC',
+  // One person does both QCs: the Butta QC and the Mill QC share this role and one screen (/qc).
+  qc: {
+    key: 'qc',
+    name: 'QC',
+    title: 'क्यूसी',
     initials: 'Q',
-    landing: '/butta-qc',
-    bilingual: true,
-    permissions: { ...NOTHING, canButtaQc: true },
-  },
-  mill_qc: {
-    key: 'mill_qc',
-    name: 'Mill QC',
-    title: 'मिल QC',
-    initials: 'MQ',
-    landing: '/mill-qc',
+    landing: '/qc',
     bilingual: true,
     // Restricted view: order number, design and quality only (never the client).
-    permissions: { ...NOTHING, canMillQc: true },
+    permissions: { ...NOTHING, canButtaQc: true, canMillQc: true },
   },
 };
 

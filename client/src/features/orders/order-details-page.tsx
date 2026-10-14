@@ -76,6 +76,7 @@ function History({ order }: { order: OrderDetail }) {
 
 /** Order details tab: notes, dates and the design (the header holds the main fields). */
 function DetailsTab({ order }: { order: OrderDetail }) {
+  const { can } = useRole();
   const image = order.variation ?? order.design;
   const code = order.variation?.code ?? order.design?.code;
   return (
@@ -84,8 +85,10 @@ function DetailsTab({ order }: { order: OrderDetail }) {
         <Card title="Order">
           <dl className="grid grid-cols-1 gap-4 sm:grid-cols-3">
             <Item label="Order type">{ORDER_TYPE_LABEL[order.orderType]}</Item>
-            <Item label="Client">{order.customer.name}</Item>
-            <Item label="Broker">{order.broker ? order.broker.name : <span className="font-normal text-slate-400">—</span>}</Item>
+            {can('canSeeClient') && <Item label="Client">{order.customer.name}</Item>}
+            {can('canSeeClient') && (
+              <Item label="Broker">{order.broker ? order.broker.name : <span className="font-normal text-slate-400">—</span>}</Item>
+            )}
           </dl>
         </Card>
 

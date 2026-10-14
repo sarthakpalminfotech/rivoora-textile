@@ -3,13 +3,14 @@ import {
   initialTakaStage,
   jobsheetRefShort,
   takaUsedText,
+  TAKA_NO_START,
   type DamageType,
   type RoleKey,
   type TakaEventKind,
   type TakaStage,
 } from '@rivoora/shared';
 import type { DbOrTx, Tx } from '../db/client';
-import { designs, jobsheets, orders, takaDamages, takaEvents, takas } from '../db/schema';
+import { counters, designs, jobsheets, orders, takaDamages, takaEvents, takas } from '../db/schema';
 import { badRequest } from '../lib/errors';
 import { resolveDamage } from './damages';
 import { recomputeOrderStatus } from './jobsheets';
@@ -52,6 +53,40 @@ export async function usedTakaNumbers(tx: DbOrTx, numbers: readonly string[], ex
     for (const r of rows) if (!except.has(r.id)) used.set(r.takaNo, jobsheetRefShort(r.orderNo, r.jobsheetNo));
   }
   return used;
+}
+
+const TAKA_COUNTER = 'taka_no';
+
+/**
+ * Reserves `n` system-generated taka numbers (11, 12, 13 … never reused) inside the write transaction. Numbers that
+ * are already in use (older manual takas) are skipped.
+ */
+export async function allocateTakaNumbers(tx: Tx, n: number): Promise<string[]> {
+  const out: string[] = [];
+  while (out.length < n) {
+    const [row] = await tx
+      .insert(counters)
+      .values({ name: TAKA_COUNTER, value: TAKA_NO_START })
+      .onConflictDoUpdate({ target: counters.name, set: { value: sql`${counters.value} + 1` } })
+      .returning({ value: counters.value });
+    const no = String(row.value);
+    if (!(await usedTakaNumbers(tx, [no])).has(no)) out.push(no);
+  }
+  return out;
+}
+
+/** The next `n` numbers a Taka entry would get right now (read-only; confirmed when the takas are saved). */
+export async function peekTakaNumbers(db: DbOrTx, n: number): Promise<string[]> {
+  const [row] = await db.select({ value: counters.value }).from(counters).where(eq(counters.name, TAKA_COUNTER));
+  let next = row ? row.value + 1 : TAKA_NO_START;
+  const out: string[] = [];
+  while (out.length < n) {
+    const window = Array.from({ length: n + 20 }, (_, i) => String(next + i));
+    const used = await usedTakaNumbers(db, window);
+    for (const no of window) if (!used.has(no) && out.length < n) out.push(no);
+    next += window.length;
+  }
+  return out;
 }
 
 /** "Taka 6245 is already used (Order #26 (319)) / टाका 6245 पहले से है" */

@@ -71,6 +71,7 @@ import {
   resolveDamageNames,
   usedMessage,
   usedTakaNumbers,
+  allocateTakaNumbers,
   writeTakaEvents,
   type TakaEventInput,
 } from './taka-ops';
@@ -148,13 +149,13 @@ export async function enterTakas(role: RoleKey, id: number, input: unknown): Pro
   return db.transaction(async (tx) => {
     const js = await loadJobsheetForTakas(tx, role, id);
     const existing = await activeTakas(tx, id);
-    const values = data.takas.map((t) => t.takaNo);
-    const used = await usedTakaNumbers(tx, values);
-    assertValidNumbers(values, validateTakaNumbers(values, existing.map((t) => t.takaNo), { used }), used);
     if (existing.length + data.takas.length > MAX_TAKAS_PER_JOBSHEET) {
       throw badRequest(`A jobsheet can have at most ${MAX_TAKAS_PER_JOBSHEET} takas.`);
     }
-    data.takas.forEach((t, i) =>
+    // Numbers are system generated (counter, starting at 11) in the order the rows were sent.
+    const numbers = await allocateTakaNumbers(tx, data.takas.length);
+    const rows = data.takas.map((t, i) => ({ ...t, takaNo: numbers[i] }));
+    rows.forEach((t, i) =>
       t.damages.forEach((d, j) => assertDamagePcs(t.takaNo, t.pcs, d.pcs, `takas.${i}.damages.${j}.pcs`)),
     );
 
@@ -163,7 +164,7 @@ export async function enterTakas(role: RoleKey, id: number, input: unknown): Pro
     const inserted = await tx
       .insert(takas)
       .values(
-        data.takas.map((t) => ({
+        rows.map((t) => ({
           jobsheetId: id,
           orderId: js.orderId,
           takaNo: t.takaNo,
@@ -180,7 +181,7 @@ export async function enterTakas(role: RoleKey, id: number, input: unknown): Pro
     const idByNo = new Map(inserted.map((t) => [t.takaNo, t.id]));
 
     // Damages: every one is machine damage (WHERE) at taka entry; the master name says WHAT it is.
-    const flat = data.takas.flatMap((t, i) => t.damages.map((d, j) => ({ takaIndex: i, damageIndex: j, takaNo: t.takaNo, pick: d })));
+    const flat = rows.flatMap((t, i) => t.damages.map((d, j) => ({ takaIndex: i, damageIndex: j, takaNo: t.takaNo, pick: d })));
     const damageIds = await resolveDamageNames(
       tx,
       flat.map((f) => ('damageId' in f.pick ? { damageId: f.pick.damageId } : { otherName: f.pick.otherName })),

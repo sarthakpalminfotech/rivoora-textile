@@ -1,16 +1,16 @@
 # Rivoora Textile — Project State
 
-Snapshot of what the code actually does as of **2026-10-05** — **Sprint 6 (client demo feedback)** is in
+Snapshot of what the code actually does as of **2026-10-14** — the latest work is the **Sprint 11** section at the very end (Sprints 7–10 are short summaries at the end too; see `CLAUDE.md` for detail). **Sprint 6 (client demo feedback)** is in
 [§13](#13-sprint-6--client-demo-feedback); Sprint 5 (order dashboard) in [§12](#12-sprint-5--order-dashboard-order-details-page).
 Sprint 4 is in [§11](#11-sprint-4--taka-entry-role-qr-scan-takas-on-orders), Sprint 3 in
 [§10](#10-sprint-3--supervisor-machine-production-flow-machine-view), Sprint 2 in [§9](#9-sprint-2--machines--jobsheets).
 Written so a developer can continue the project without reading the code first. The original brief is
 `rivoora-claude-code-prompt.md`; day-to-day conventions are in `CLAUDE.md`.
 
-> Where §1–§9 disagree with §10–§13 (e.g. "Ready for production" label, two roles, 4-tab bottom nav, the order details layout, the 2-page print, digits-only taka numbers, DEFAULT_UNIT meters), **the later section is current.**
+> Where §1–§9 disagree with §10–§13 or the Sprint 7–11 sections at the end (e.g. "Ready for production" label, two roles, 4-tab bottom nav, the order details layout, the 2-page print, digits-only taka numbers, DEFAULT_UNIT meters), **the later section is current.**
 
 `npm run typecheck` and `npm run build` pass for all three packages at the time of writing. `npm test` runs the vitest
-suites for the shared logic (jobsheet maths, takas, QR parsing, order dashboard — 66 tests, all passing). There are no server or UI tests
+suites for the shared logic (jobsheet maths, takas, QR parsing, order dashboard, butta/mill, inventory — 173 tests as of Sprint 11, all passing). There are no server or UI tests
 in the repo (the Sprint 3–5 API flows were verified with throwaway scripts against a local SQLite copy, see §10–§12).
 
 ---
@@ -1036,3 +1036,31 @@ Mill QC role, refinish loop back to the mill, godown Orders module (final takas,
 
 ## Sprint 10 (done) — Inventory
 Inventory module (All designs / Damaged, item + damaged-item details, demo stock-clearance card) and the godown order pcs KPIs + Damage tab state badges and filters. See the Sprint 10 section of CLAUDE.md. `npm test`: 173 shared tests; typecheck clean. Verified on a local file DB with hand-seeded takas (numbers hand-checked) and desktop browser screenshots. Not done: 360 / 768 px screenshot pass (the browser window could not be narrowed), real-phone check, stock wipe-out flow (`lastClearedAt` is null).
+
+
+---
+
+## Sprint 11 (done, uncommitted) — post-demo changes, current as of 2026-10-14
+
+Details live in `CLAUDE.md` → "Sprint 11". `npm run typecheck` clean, `npm test` (shared): 173 tests passing. API flows verified on a local libSQL file DB; **no browser / real-device check yet** of the new screens.
+
+**Supervisor (production)**
+- Jobsheet cards: quality, all assigned looms ("Assigned looms"), white print button top-right of the design image. Start dialog button is **Start & print** (starts, opens the print preview; preview has **Close**). Print page shows the order type (Lump / Pcs to pcs) under Design no.
+- Change machine: no machine picker any more (`POST /jobsheets/:id/change-machine` = `{completedFrames, nextFrames}`); "Frames to make next" prefills with the remaining frames.
+- **Orders module = the owner's Orders screens, read only** (`canViewProductionOrders` + `canViewTakas`, no `canViewOrders`). Client / broker / phone / client search hidden via the new `canSeeClient` (Jemish + Gaurang only; server blanks them). He sees orders from *Jobsheet created* to *Taka entry done* (`IN_PRODUCTION` visibility group in `statuses.ts`). Writes stay forbidden. `RequirePermission` / `guard` accept an array (any of).
+
+**Taka entry**
+- Taka numbers are system generated: counter `taka_no`, first number 11, skips numbers already used, never reused (`allocateTakaNumbers`); `GET /takas/next-numbers` previews. `POST /jobsheets/:id/takas` no longer takes `takaNo`. Screen opens with 3 rows (`TAKA_ENTRY_DEFAULT_ROWS`) + Add more; English/Hindi warning when pcs entered ≠ frames × 3. Edit takas (Jemish/Gaurang) still takes manual numbers.
+
+**QC**
+- Butta QC and Mill QC merged into one role `qc` (bilingual, landing `/qc`). One taka-number box routes by stage to the Butta or Mill QC screen; the QC-pending list merges both queues with a Butta / Mill tag. `/butta-qc` and `/mill-qc` redirect to `/qc`; the QC API paths are unchanged.
+
+**Mill receive by count** (migration `0011_mill_received_count`, `challans.received_count`)
+- Godown supervisor enters how many takas came back per mill challan (card on Mill → Receive and challan details; `POST /mill/challans/:id/received-count`). No taka numbers; which takas is found at Mill QC (pending list also includes `at_mill` takas on counted challans). Butta receive is unchanged.
+
+**Fixes**: all `Select` / `MultiSelect` dropdowns scroll with wheel and touch inside dialogs (popover is `modal`, takes over the scroll lock).
+
+**To do before using it live**
+- Run `npm run db:migrate` on Turso — migrations **0010** (Sprint 9) and **0011** are additive; until 0011 is applied, `GET /api/mill/challans` returns 500.
+- Browser check at 360 / 768 px: supervisor cards + Orders, Start & print flow, Taka entry (3 rows + warning), `/qc`, Mill → Receive count, dropdown scroll on a real tablet / phone.
+- Still not built: login/auth, dispatch, stock wipe-out flow, voice notes, jobsheets for kg / g / meter orders. Nothing from Sprints 9–11 is committed to git.

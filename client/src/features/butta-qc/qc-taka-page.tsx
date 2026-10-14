@@ -148,7 +148,7 @@ function ReadOnlySummary({ taka }: { taka: TakaDetail }) {
         </div>
       </Section>
       <Button asChild size="lg" className="h-14 w-full">
-        <Link to="/butta-qc">
+        <Link to="/qc">
           <Bi en="Next taka" hi="अगला टाका" className="items-center" />
         </Link>
       </Button>
@@ -286,7 +286,7 @@ function QcForm({ taka }: { taka: TakaDetail }) {
         onSuccess: () => {
           setConfirmOpen(false);
           toast.success(bi('Saved', 'सेव हो गया'));
-          navigate('/butta-qc', { replace: true });
+          navigate('/qc', { replace: true });
         },
         onError: (err) => {
           setConfirmOpen(false);
@@ -307,10 +307,10 @@ function QcForm({ taka }: { taka: TakaDetail }) {
     <div className="page-container max-w-2xl space-y-4 pt-3 md:pt-5">
       <button
         type="button"
-        onClick={() => navigate('/butta-qc')}
+        onClick={() => navigate('/qc')}
         className="inline-flex min-h-10 items-center gap-1.5 text-sm font-medium text-slate-500 hover:text-primary"
       >
-        <ArrowLeft className="size-4" /> Butta QC / <span lang="hi">बुट्टा QC</span>
+        <ArrowLeft className="size-4" /> QC / <span lang="hi">क्यूसी</span>
       </button>
       <IdentityCard taka={taka} />
 
@@ -647,8 +647,8 @@ export default function QcTakaPage() {
     const notFound = query.error instanceof ApiError && query.error.status === 404;
     return (
       <div className="page-container max-w-2xl py-4">
-        <Link to="/butta-qc" className="inline-flex min-h-10 items-center gap-1.5 text-sm font-medium text-slate-500 hover:text-primary">
-          <ArrowLeft className="size-4" /> Butta QC / <span lang="hi">बुट्टा QC</span>
+        <Link to="/qc" className="inline-flex min-h-10 items-center gap-1.5 text-sm font-medium text-slate-500 hover:text-primary">
+          <ArrowLeft className="size-4" /> QC / <span lang="hi">क्यूसी</span>
         </Link>
         {notFound ? (
           <div className="flex flex-col items-center px-6 py-14 text-center">
@@ -681,7 +681,7 @@ export default function QcTakaPage() {
           </span>
         </p>
         <Button asChild variant="secondary" size="lg" className="h-14 w-full">
-          <Link to="/butta-qc">
+          <Link to="/qc">
             <Bi en="Back" hi="वापस" className="items-center" />
           </Link>
         </Button>

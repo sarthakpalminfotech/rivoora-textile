@@ -96,16 +96,14 @@ describe('taka number validation (one jobsheet)', () => {
     expect(cleanTakaNo('12345678901234567')).toBe('123456789012345');
   });
 
-  it('server schemas: number format, pcs required, at least one taka on entry, empty set allowed on edit', () => {
-    expect(takaEntrySchema.safeParse({ takas: [{ takaNo: '0045', pcs: 12, damages: [{ damageId: 3, pcs: 2 }] }] }).success).toBe(true);
-    expect(takaEntrySchema.safeParse({ takas: [{ takaNo: '62/45-1', pcs: 1 }] }).success).toBe(true);
-    expect(takaEntrySchema.safeParse({ takas: [{ takaNo: '45a', pcs: 1 }] }).success).toBe(false);
-    expect(takaEntrySchema.safeParse({ takas: [{ takaNo: '45-', pcs: 1 }] }).success).toBe(false);
-    expect(takaEntrySchema.safeParse({ takas: [{ takaNo: '45' }] }).success).toBe(false);
+  it('server schemas: numbers are generated (not sent), pcs required, at least one taka on entry, empty set allowed on edit', () => {
+    expect(takaEntrySchema.safeParse({ takas: [{ pcs: 12, damages: [{ damageId: 3, pcs: 2 }] }] }).success).toBe(true);
+    expect(takaEntrySchema.safeParse({ takas: [{ pcs: 1 }] }).success).toBe(true);
+    expect(takaEntrySchema.safeParse({ takas: [{ meters: 10 }] }).success).toBe(false);
     expect(takaEntrySchema.safeParse({ takas: [] }).success).toBe(false);
     expect(takaEditSchema.safeParse({ takas: [], note: '' }).success).toBe(true);
-    const parsed = takaEntrySchema.parse({ takas: [{ takaNo: ' 7 ', pcs: 10 }], note: '  ' });
-    expect(parsed.takas[0]).toEqual({ takaNo: '7', meters: null, pcs: 10, damages: [] });
+    const parsed = takaEntrySchema.parse({ takas: [{ pcs: 10 }], note: '  ' });
+    expect(parsed.takas[0]).toEqual({ meters: null, pcs: 10, damages: [] });
     expect(parsed.note).toBeNull();
   });
 
@@ -156,7 +154,7 @@ describe('taka_entry role', () => {
     expect(can('taka_entry', 'canViewOrders')).toBe(false);
     expect(can('taka_entry', 'canViewMachineView')).toBe(false);
     expect(can('jemish', 'canEditTakas')).toBe(true);
-    expect(can('supervisor', 'canViewTakas')).toBe(false);
+    expect(can('supervisor', 'canViewTakas')).toBe(true); // read only, via the Orders screens
   });
 });
 

@@ -649,6 +649,7 @@ export async function printJobsheets(role: RoleKey, ids: number[]): Promise<Jobs
         orderNo: orders.orderNo,
         orderStatus: orders.status,
         jobsheetPieces: orders.jobsheetPieces,
+        orderType: orders.orderType,
         designCode: sql<string | null>`COALESCE(${designVariations.code}, ${designs.code})`,
       })
       .from(jobsheets)
@@ -682,6 +683,7 @@ export async function printJobsheets(role: RoleKey, ids: number[]): Promise<Jobs
       machineNos: (machinesById.get(r.id) ?? []).map((m) => m.machineNo),
       jobsheetPieces: r.jobsheetPieces,
       designCode: r.designCode,
+      orderType: r.orderType,
     });
   }
   if (items.length === 0) throw notFound('Jobsheets');
@@ -777,6 +779,7 @@ export async function listSupervisorJobsheets(role: RoleKey, q: JobsheetListQuer
         completedFrames: jobsheets.completedFrames,
         picks: jobsheets.picks,
         orderNo: orders.orderNo,
+        quality: materials.name,
         designCode: designCodeCol,
         thumbUrl: designThumbCol,
         imageUrl: designImageCol,
@@ -789,6 +792,7 @@ export async function listSupervisorJobsheets(role: RoleKey, q: JobsheetListQuer
       })
       .from(jobsheets)
       .innerJoin(orders, eq(orders.id, jobsheets.orderId))
+      .innerJoin(materials, eq(materials.id, orders.materialId))
       .leftJoin(designs, eq(designs.id, orders.designId))
       .leftJoin(designVariations, eq(designVariations.id, orders.variationId))
       .leftJoin(runningMachine, eq(runningMachine.id, jobsheets.runningMachineId))
@@ -830,6 +834,7 @@ export async function listSupervisorJobsheets(role: RoleKey, q: JobsheetListQuer
         completedFrames: r.completedFrames,
         picks: r.picks,
         orderNo: r.orderNo,
+        quality: r.quality,
         designCode: r.designCode,
         thumbUrl: r.thumbUrl,
         imageUrl: r.imageUrl,
@@ -1238,8 +1243,6 @@ export async function changeMachine(role: RoleKey, id: number, input: unknown): 
     if (data.completedFrames > js.frames) {
       throw badRequest(`Can't be more than the ${js.frames} frames assigned.`, 'completedFrames');
     }
-    if (data.newMachineId === js.runningMachineId) throw badRequest('Pick a different machine.', 'newMachineId');
-    const newMachine = await activeMachine(tx, data.newMachineId, 'newMachineId');
 
     const updated = await tx
       .update(jobsheets)
@@ -1263,7 +1266,6 @@ export async function changeMachine(role: RoleKey, id: number, input: unknown): 
       {
         status: JOBSHEET_STATUS.SENT,
         parentJobsheetId: id,
-        suggestedMachineId: data.newMachineId,
         note: `Continued from ${jobsheetRefShort(js.orderNo, js.jobsheetNo)}`,
       },
     );
@@ -1273,7 +1275,7 @@ export async function changeMachine(role: RoleKey, id: number, input: unknown): 
         event: 'machine_changed',
         machineId: js.runningMachineId,
         frames: data.completedFrames,
-        note: `Continued as ${jobsheetRefShort(js.orderNo, created.jobsheetNo)} on Machine ${newMachine.machineNo}`,
+        note: `Continued as ${jobsheetRefShort(js.orderNo, created.jobsheetNo)}`,
       },
     ]);
     await recomputeOrderStatus(js.orderId, role, tx);
@@ -1281,7 +1283,6 @@ export async function changeMachine(role: RoleKey, id: number, input: unknown): 
       orderNo: js.orderNo,
       completed: { id, jobsheetNo: js.jobsheetNo, frames: data.completedFrames },
       created,
-      newMachineNo: newMachine.machineNo,
     };
   });
 }

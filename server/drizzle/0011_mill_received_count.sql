@@ -1,0 +1,1 @@
+ALTER TABLE `challans` ADD `received_count` integer DEFAULT 0 NOT NULL;

@@ -1,6 +1,6 @@
 import { QueryClientProvider } from '@tanstack/react-query';
 import { lazy, Suspense, type ReactNode } from 'react';
-import { createBrowserRouter, RouterProvider } from 'react-router-dom';
+import { createBrowserRouter, Navigate, RouterProvider } from 'react-router-dom';
 import { Toaster } from 'sonner';
 import { AppLayout } from '@/components/layout/app-layout';
 import { PageSkeleton } from '@/components/layout/page-skeleton';
@@ -37,9 +37,8 @@ const ChallanDetailsPage = lazy(() => import('@/features/challans/challan-detail
 const ChallanPrintPage = lazy(() => import('@/features/challans/challan-print-page'));
 const PartiesPage = lazy(() => import('@/features/masters/parties/parties-page'));
 const DamageDetailsPage = lazy(() => import('@/features/takas/damage-details-page'));
-const QcHomePage = lazy(() => import('@/features/butta-qc/qc-home-page'));
+const QcHomePage = lazy(() => import('@/features/qc/qc-home-page'));
 const QcTakaPage = lazy(() => import('@/features/butta-qc/qc-taka-page'));
-const MillQcHomePage = lazy(() => import('@/features/mill-qc/qc-home-page'));
 const MillQcTakaPage = lazy(() => import('@/features/mill-qc/qc-taka-page'));
 const GodownOrdersPage = lazy(() => import('@/features/godown/godown-orders-page'));
 const GodownOrderPage = lazy(() => import('@/features/godown/godown-order-page'));
@@ -49,7 +48,7 @@ const InventoryItemDetailsPage = lazy(() => import('@/features/inventory/item-de
 const DamagedDetailsPage = lazy(() => import('@/features/inventory/damaged-details-page'));
 const NotFoundPage = lazy(() => import('@/pages/not-found-page'));
 
-const guard = (permission: keyof RolePermissions, element: ReactNode) => (
+const guard = (permission: keyof RolePermissions | (keyof RolePermissions)[], element: ReactNode) => (
   <RequirePermission permission={permission}>{element}</RequirePermission>
 );
 
@@ -125,15 +124,15 @@ const router = createBrowserRouter([
         element: <AppLayout />,
         children: [
           { index: true, element: <LandingRedirect /> },
-          { path: 'orders', element: guard('canViewOrders', <OrdersPage />) },
-          { path: 'orders/:id', element: guard('canViewOrders', <OrderDetailsPage />) },
+          { path: 'orders', element: guard(['canViewOrders', 'canViewProductionOrders'], <OrdersPage />) },
+          { path: 'orders/:id', element: guard(['canViewOrders', 'canViewProductionOrders'], <OrderDetailsPage />) },
           { path: 'customers', element: guard('canViewMasters', <CustomersPage />) },
           { path: 'materials', element: guard('canViewMasters', <MaterialsPage />) },
           { path: 'designs', element: guard('canViewMasters', <DesignsPage />) },
           { path: 'designs/:id', element: guard('canViewMasters', <DesignDetailPage />) },
           { path: 'machines', element: guard('canViewMasters', <MachinesPage />) },
           { path: 'damages', element: guard('canViewMasters', <DamagesPage />) },
-          { path: 'orders/:orderId/takas/:takaId/damages', element: guard('canEditTakas', <DamageDetailsPage />) },
+          { path: 'orders/:orderId/takas/:takaId/damages', element: guard(['canEditTakas', 'canViewProductionOrders'], <DamageDetailsPage />) },
           { path: 'butta-parties', element: guard('canManageButtaParties', <PartiesPage kind="butta" />) },
           { path: 'mill-parties', element: guard('canManageMillParties', <PartiesPage kind="mill" />) },
           // Butta cutting + Mill modules (Jemish, Gaurang, Godown supervisor) and the Butta QC role.
@@ -141,9 +140,11 @@ const router = createBrowserRouter([
           { path: 'butta/challans/:id', element: guard('canUseButtaModule', <ChallanDetailsPage kind="butta" />) },
           { path: 'mill', element: guard('canUseMillModule', <ChallanModulePage kind="mill" />) },
           { path: 'mill/challans/:id', element: guard('canUseMillModule', <ChallanDetailsPage kind="mill" />) },
-          { path: 'butta-qc', element: guard('canButtaQc', <QcHomePage />) },
+          // One QC home for the QC role; the old home paths lead there.
+          { path: 'qc', element: guard('canButtaQc', <QcHomePage />) },
+          { path: 'butta-qc', element: <Navigate to="/qc" replace /> },
           { path: 'butta-qc/taka/:takaNo', element: guard('canButtaQc', <QcTakaPage />) },
-          { path: 'mill-qc', element: guard('canMillQc', <MillQcHomePage />) },
+          { path: 'mill-qc', element: <Navigate to="/qc" replace /> },
           { path: 'mill-qc/taka/:takaNo', element: guard('canMillQc', <MillQcTakaPage />) },
           // Godown Orders: final takas, split, ready to dispatch (Godown supervisor; Jemish / Gaurang may open it too).
           { path: 'godown/orders', element: guard('canUseGodownOrders', <GodownOrdersPage />) },

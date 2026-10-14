@@ -285,7 +285,7 @@ describe('order status: butta cutting + ready for mill', () => {
       expect(canRoleSeeStatus(role, 'ready_for_mill')).toBe(true);
     }
     expect(statusesForRole('godown_supervisor')).toEqual([]);
-    expect(statusesForRole('butta_qc')).toEqual([]);
+    expect(statusesForRole('qc')).toEqual([]);
   });
 });
 
@@ -308,12 +308,12 @@ describe('sprint 7 roles', () => {
     }
   });
 
-  it('Butta QC: bilingual, only QC, lands on /butta-qc', () => {
-    expect(landingRoute('butta_qc')).toBe('/butta-qc');
-    expect(ROLES.butta_qc.bilingual).toBe(true);
-    expect(can('butta_qc', 'canButtaQc')).toBe(true);
+  it('QC (butta + mill): bilingual, only QC, lands on /qc', () => {
+    expect(landingRoute('qc')).toBe('/qc');
+    expect(ROLES.qc.bilingual).toBe(true);
+    expect(can('qc', 'canButtaQc')).toBe(true);
     for (const p of ['canUseButtaModule', 'canCancelChallan', 'canManageButtaParties', 'canViewOrders', 'canViewMasters', 'canEnterTakas', 'canUseTakaModules'] as const) {
-      expect(can('butta_qc', p), p).toBe(false);
+      expect(can('qc', p), p).toBe(false);
     }
   });
 
@@ -361,7 +361,7 @@ describe('order status: mill', () => {
       expect(canRoleSeeStatus(role, 'in_mill')).toBe(true);
       expect(canRoleSeeStatus(role, 'received_from_mill')).toBe(true);
     }
-    for (const role of ['supervisor', 'taka_entry', 'godown_supervisor', 'butta_qc'] as const) {
+    for (const role of ['supervisor', 'taka_entry', 'godown_supervisor', 'qc'] as const) {
       expect(canRoleSeeStatus(role, 'in_mill')).toBe(false);
     }
   });
@@ -372,7 +372,7 @@ describe('sprint 8 roles', () => {
     for (const r of ['jemish', 'gaurang', 'godown_supervisor'] as const) expect(can(r, 'canUseMillModule'), r).toBe(true);
     for (const r of ['jemish', 'gaurang'] as const) expect(can(r, 'canManageMillParties'), r).toBe(true);
     expect(can('godown_supervisor', 'canManageMillParties')).toBe(false);
-    for (const r of ['supervisor', 'taka_entry', 'butta_qc'] as const) {
+    for (const r of ['supervisor', 'taka_entry', 'qc'] as const) {
       expect(can(r, 'canUseMillModule'), r).toBe(false);
       expect(can(r, 'canManageMillParties'), r).toBe(false);
     }

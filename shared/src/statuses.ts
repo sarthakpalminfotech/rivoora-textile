@@ -18,6 +18,8 @@ export interface StatusConfig {
 }
 
 const FROM_READY: readonly RoleKey[] = ['jemish', 'gaurang'];
+/** Production phase (Jobsheet created → Taka entry done): the supervisor can view these orders too (read only). */
+const IN_PRODUCTION: readonly RoleKey[] = ['jemish', 'gaurang', 'supervisor'];
 
 export const ORDER_STATUSES = [
   {
@@ -40,28 +42,28 @@ export const ORDER_STATUSES = [
     label: 'Jobsheet created',
     sequence: 30,
     badge: { bg: '#E0E7FF', text: '#3730A3', dot: '#6366F1' },
-    visibleTo: FROM_READY,
+    visibleTo: IN_PRODUCTION,
   },
   {
     key: 'in_production',
     label: 'In production',
     sequence: 40,
     badge: { bg: '#E0F2FE', text: '#075985', dot: '#0EA5E9' },
-    visibleTo: FROM_READY,
+    visibleTo: IN_PRODUCTION,
   },
   {
     key: 'production_completed',
     label: 'Production completed',
     sequence: 50,
     badge: { bg: '#CCFBF1', text: '#115E59', dot: '#14B8A6' },
-    visibleTo: FROM_READY,
+    visibleTo: IN_PRODUCTION,
   },
   {
     key: 'taka_entry_done',
     label: 'Taka entry done',
     sequence: 60,
     badge: { bg: '#F3E8FF', text: '#6B21A8', dot: '#A855F7' },
-    visibleTo: FROM_READY,
+    visibleTo: IN_PRODUCTION,
   },
   {
     key: 'in_butta_cutting',

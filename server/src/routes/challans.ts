@@ -12,6 +12,7 @@ import {
   listPendingOrders,
   listPendingOrderTakas,
   receiveTakas,
+  setReceivedCount,
   undoReceive,
 } from '../services/challans';
 
@@ -99,6 +100,14 @@ export function challansRouter(kind: ChallanKind): Router {
     requirePermission('canCancelChallan'),
     ah(async (req, res) => {
       res.json(await cancelChallan(kind, req.role, parseId(req.params.id)));
+    }),
+  );
+
+  // Mill: the godown supervisor counts how many takas came back (the QC finds out which).
+  router.post(
+    '/challans/:id/received-count',
+    ah(async (req, res) => {
+      res.json(await setReceivedCount(kind, req.role, parseId(req.params.id), req.body));
     }),
   );
 

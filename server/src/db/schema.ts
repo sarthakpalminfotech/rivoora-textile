@@ -485,6 +485,8 @@ export const challans = sqliteTable(
     /** yyyy-MM-dd */
     challanDate: text('challan_date').notNull(),
     ewayNo: text('eway_no'),
+    /** Mill challans: how many takas the godown supervisor counted as received (just a count; the QC finds out which). */
+    receivedCount: integer('received_count').notNull().default(0),
     status: text('status').$type<ChallanStatus>().notNull().default('active'),
     cancelledAt: text('cancelled_at'),
     cancelledBy: text('cancelled_by').$type<RoleKey>(),

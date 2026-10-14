@@ -27,6 +27,7 @@ import { formatDate, formatDateTime, formatOrderNo } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { StatTile } from '../jobsheets/parts';
 import { useCancelChallan, useChallan, useReceive } from './api';
+import { ReceivedCountControl } from './received-count';
 import { challanPrintPath, kindPermission, sentListPath } from './kind';
 
 function OrderSection({
@@ -145,7 +146,10 @@ function Body({ challan }: { challan: ChallanDetail }) {
   const [ticked, setTicked] = useState<Set<number>>(new Set());
   const [confirmCancel, setConfirmCancel] = useState(false);
   const cancelled = challan.status === 'cancelled';
-  const canReceive = can(kindPermission(kind)) && !cancelled;
+  // Butta cutting ticks takas off; the mill is counted (just a number) and the Mill QC finds out which takas came.
+  const canReceive = kind === 'butta' && can(kindPermission(kind)) && !cancelled;
+  const canCount = kind === 'mill' && can(kindPermission(kind)) && !cancelled;
+  const qcReceived = challan.orders.reduce((n, o) => n + o.takas.filter((t) => t.receivedAt !== null).length, 0);
   // Only rows that are still with the party can be ticked (a refetch may have received some meanwhile).
   const pendingIds = useMemo(() => new Set(challan.orders.flatMap((o) => o.takas.filter((t) => t.receivedAt === null).map((t) => t.id))), [challan]);
   const tickedNow = [...ticked].filter((id) => pendingIds.has(id));
@@ -253,6 +257,13 @@ function Body({ challan }: { challan: ChallanDetail }) {
         />
         <StatTile label="Pending" value={<span className={cn(challan.pendingCount > 0 && 'text-amber-700')}>{challan.pendingCount}</span>} />
       </div>
+
+      {canCount && (
+        <section className="rounded-xl border border-border bg-white p-4 shadow-soft md:p-5">
+          <ReceivedCountControl challanId={challan.id} total={challan.totalTakas} received={challan.receivedCount} minimum={qcReceived} />
+          <p className="mt-2 text-sm text-slate-500">Just the count. Which takas came back is found out at the Mill QC.</p>
+        </section>
+      )}
 
       {/* Orders in this challan */}
       <div className="flex flex-wrap items-center gap-2" aria-label="Orders in this challan">

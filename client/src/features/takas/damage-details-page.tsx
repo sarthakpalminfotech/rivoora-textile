@@ -145,7 +145,7 @@ function Header({ data, onEdit, canEdit }: { data: TakaDamagesDetail; onEdit: ()
           <p className="text-[13px] font-semibold uppercase tracking-wide text-slate-400">Taka</p>
           <h1 className="break-all text-4xl font-extrabold leading-none tracking-tight text-slate-900 md:text-5xl">{t.takaNo}</h1>
           <p className="mt-2 text-base font-bold text-primary">
-            {can('canViewOrders') ? (
+            {can('canViewOrders') || can('canViewProductionOrders') ? (
               <Link to={`/jobsheets/${t.jobsheetId}`} className="hover:underline">
                 <JobsheetRef orderNo={t.orderNo} jobsheetNo={t.jobsheetNo} variant="short" bracketClassName="text-[0.7em] font-bold" />
               </Link>
@@ -226,7 +226,7 @@ export default function DamageDetailsPage() {
   const takas = useOrderTakas(orderId, canEdit);
   const [editing, setEditing] = useState<EditTakasTarget | null>(null);
   const backTo =
-    (location.state as { from?: string } | null)?.from ?? (can('canViewOrders') ? `/orders/${orderId}?tab=damages` : `/godown/orders/${orderId}?tab=damage`);
+    (location.state as { from?: string } | null)?.from ?? (can('canViewOrders') || can('canViewProductionOrders') ? `/orders/${orderId}?tab=damages` : `/godown/orders/${orderId}?tab=damage`);
 
   const edit = () => {
     const g = takas.data?.groups.find((x) => x.jobsheetId === query.data?.taka.jobsheetId);

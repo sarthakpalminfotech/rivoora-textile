@@ -37,8 +37,8 @@ import { useMillQcTaka, useSubmitMillQc } from './api';
 type Confirm = 'fresh' | 'done' | 'refinish' | null;
 
 const BackLink = () => (
-  <Link to="/mill-qc" className="inline-flex min-h-10 items-center gap-1.5 text-sm font-medium text-slate-500 hover:text-primary">
-    <ArrowLeft className="size-4" /> Mill QC / <span lang="hi">मिल QC</span>
+  <Link to="/qc" className="inline-flex min-h-10 items-center gap-1.5 text-sm font-medium text-slate-500 hover:text-primary">
+    <ArrowLeft className="size-4" /> QC / <span lang="hi">क्यूसी</span>
   </Link>
 );
 
@@ -85,7 +85,7 @@ function SuccessScreen({ taka, result }: { taka: TakaDetail; result: QcResult })
         </p>
       </section>
       <Button asChild size="lg" className="h-14 w-full">
-        <Link to="/mill-qc" replace>
+        <Link to="/qc" replace>
           <Bi en="Next taka" hi="अगला टाका" className="items-center" />
         </Link>
       </Button>
@@ -147,7 +147,7 @@ function ReadOnlySummary({ taka }: { taka: TakaDetail }) {
         </div>
       </Section>
       <Button asChild size="lg" className="h-14 w-full">
-        <Link to="/mill-qc">
+        <Link to="/qc">
           <Bi en="Next taka" hi="अगला टाका" className="items-center" />
         </Link>
       </Button>
@@ -232,8 +232,8 @@ function QcForm({ taka, notReceived }: { taka: TakaDetail; notReceived: boolean 
 
   return (
     <div className="page-container max-w-2xl space-y-4 pt-3 md:pt-5">
-      <button type="button" onClick={() => navigate('/mill-qc')} className="inline-flex min-h-10 items-center gap-1.5 text-sm font-medium text-slate-500 hover:text-primary">
-        <ArrowLeft className="size-4" /> Mill QC / <span lang="hi">मिल QC</span>
+      <button type="button" onClick={() => navigate('/qc')} className="inline-flex min-h-10 items-center gap-1.5 text-sm font-medium text-slate-500 hover:text-primary">
+        <ArrowLeft className="size-4" /> QC / <span lang="hi">क्यूसी</span>
       </button>
       <IdentityCard taka={taka} kind="mill" />
       {notReceived && <NotReceivedAlert />}
@@ -623,7 +623,7 @@ export default function MillQcTakaPage() {
           </span>
         </p>
         <Button asChild variant="secondary" size="lg" className="h-14 w-full">
-          <Link to="/mill-qc">
+          <Link to="/qc">
             <Bi en="Back" hi="वापस" className="items-center" />
           </Link>
         </Button>

@@ -4,14 +4,15 @@ import type { RolePermissions } from '@/config/roles';
 import { useRole } from '@/hooks/useRole';
 
 /** Routes a role may not open redirect to that role's landing page (e.g. the supervisor → /jobsheets). */
-export function RequirePermission({ permission, children }: { permission: keyof RolePermissions; children: ReactNode }) {
+export function RequirePermission({ permission, children }: { permission: keyof RolePermissions | (keyof RolePermissions)[]; children: ReactNode }) {
   const { can, config } = useRole();
-  if (!can(permission)) return <Navigate to={config.landing} replace />;
+  const allowed = Array.isArray(permission) ? permission.some(can) : can(permission);
+  if (!allowed) return <Navigate to={config.landing} replace />;
   return <>{children}</>;
 }
 
 /**
- * Unknown routes: the single-module roles (Taka entry, Godown supervisor, Butta QC — no orders and no jobsheets
+ * Unknown routes: the single-module roles (Taka entry, Godown supervisor, QC — no orders and no jobsheets
  * module) are always sent back to their landing; others see Not found.
  */
 export function NotFoundOrLanding({ fallback }: { fallback: ReactNode }) {

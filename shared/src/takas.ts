@@ -24,6 +24,13 @@ export const TAKA_NO_REGEX = /^\d+([-/]\d+)*[A-Z]?$/;
 export const MAX_TAKAS_PER_SUBMIT = 200;
 export const MAX_TAKAS_PER_JOBSHEET = 500;
 
+/** System-generated taka numbers (Taka entry) count up from here; numbers already in use are skipped. */
+export const TAKA_NO_START = 11;
+/** Rows shown on a fresh Taka entry screen. */
+export const TAKA_ENTRY_DEFAULT_ROWS = 3;
+/** Max rows requested from GET /takas/next-numbers. */
+export const TAKA_NEXT_NUMBERS_MAX = 50;
+
 export type TakaNoError = 'required' | 'format' | 'too_long' | 'duplicate' | 'already_entered' | 'already_used';
 
 /**

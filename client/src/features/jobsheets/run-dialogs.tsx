@@ -1,4 +1,4 @@
-import { Info, Minus, Plus } from 'lucide-react';
+import { Info, Minus, Plus, Printer } from 'lucide-react';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
@@ -110,6 +110,7 @@ function JobsheetHeader({ js }: { js: RunJobsheet }) {
 /* ------------------------------------------------------------------ */
 
 function StartDialog({ js, open, onOpenChange }: { js: RunJobsheet; open: boolean; onOpenChange: (o: boolean) => void }) {
+  const navigate = useNavigate();
   const start = useStartJobsheet();
   const { busy } = useBusyMachines();
   // Active machines assigned to this jobsheet only.
@@ -128,6 +129,8 @@ function StartDialog({ js, open, onOpenChange }: { js: RunJobsheet; open: boolea
         onSuccess: (res) => {
           toast.success(`${jobsheetRefShort(res.orderNo, res.jobsheetNo)} started on Machine ${res.machineNo}`);
           onOpenChange(false);
+          // Start & print: straight to the print preview (Close there returns to the list).
+          navigate(printUrl([js.id]));
         },
         onError: (err) => {
           if (err instanceof ApiError && err.field) setError(err.message);
@@ -148,7 +151,7 @@ function StartDialog({ js, open, onOpenChange }: { js: RunJobsheet; open: boolea
             Cancel
           </Button>
           <Button size="lg" onClick={submit} disabled={!machineId} loading={start.isPending}>
-            Start
+            <Printer /> Start & print
           </Button>
         </>
       }
@@ -307,9 +310,7 @@ function CompleteDialog({ js, open, onOpenChange }: { js: RunJobsheet; open: boo
 function ChangeMachineDialog({ js, open, onOpenChange }: { js: RunJobsheet; open: boolean; onOpenChange: (o: boolean) => void }) {
   const navigate = useNavigate();
   const change = useChangeMachine();
-  const { busy, active, isPending, isError } = useBusyMachines();
   const current = js.runningMachine;
-  const [newMachineId, setNewMachineId] = useState<number | null>(null);
   const [completed, setCompleted] = useState<number | null>(null);
   const [next, setNext] = useState(() => remainingFrames(js.frames, 0));
   const [nextTouched, setNextTouched] = useState(false);
@@ -320,20 +321,6 @@ function ChangeMachineDialog({ js, open, onOpenChange }: { js: RunJobsheet; open
     setNext((n) => nextFramesAfterCompletedChange({ assigned: js.frames, completed: completed ?? 0, current: n, touched: nextTouched }));
   }, [completed, js.frames, nextTouched]);
 
-  const machineOptions = useMemo<SelectOption<number>[]>(
-    () =>
-      active
-        .filter((m) => m.id !== current?.id)
-        .map((m) => {
-          const running = busy.get(m.id);
-          return {
-            value: m.id,
-            label: machineLabel(m),
-            description: running ? `Busy · ${running.map((r) => jobsheetRefShort(r.orderNo, r.jobsheetNo)).join(', ')}` : null,
-          };
-        }),
-    [active, busy, current?.id],
-  );
   const completedOptions = useMemo<SelectOption<number>[]>(
     () => Array.from({ length: js.frames + 1 }, (_, i) => ({ value: i, label: fr(i) })),
     [js.frames],
@@ -342,14 +329,13 @@ function ChangeMachineDialog({ js, open, onOpenChange }: { js: RunJobsheet; open
     () => Array.from({ length: nextFramesMax(js.frames) }, (_, i) => ({ value: i + 1, label: fr(i + 1) })),
     [js.frames],
   );
-  const newMachine = active.find((m) => m.id === newMachineId) ?? null;
-  const ready = newMachineId !== null && completed !== null && next >= 1;
+  const ready = completed !== null && next >= 1;
 
   const submit = () => {
     if (!ready) return;
     setErrors({});
     change.mutate(
-      { id: js.id, newMachineId, completedFrames: completed, nextFrames: next },
+      { id: js.id, completedFrames: completed, nextFrames: next },
       {
         onSuccess: (res) => {
           toast.success(
@@ -384,21 +370,6 @@ function ChangeMachineDialog({ js, open, onOpenChange }: { js: RunJobsheet; open
       }
     >
       <div className="grid gap-5">
-        <Field label="New machine" htmlFor="cm-machine" required error={errors.newMachineId}>
-          <Select
-            id="cm-machine"
-            value={newMachineId}
-            onChange={(v) => setNewMachineId(v)}
-            options={machineOptions}
-            placeholder="Select the new machine"
-            searchable
-            searchPlaceholder="Search machine number or name…"
-            loading={isPending}
-            emptyText={isError ? "Couldn't load machines" : 'No other active machines'}
-            invalid={!!errors.newMachineId}
-            triggerClassName="h-12"
-          />
-        </Field>
         <div className="grid gap-5 sm:grid-cols-2">
           <Field
             label={`Frames completed on ${current ? `Machine ${current.machineNo}` : 'this machine'}`}
@@ -409,7 +380,10 @@ function ChangeMachineDialog({ js, open, onOpenChange }: { js: RunJobsheet; open
             <Select
               id="cm-completed"
               value={completed}
-              onChange={(v) => setCompleted(v)}
+              onChange={(v) => {
+                setCompleted(v);
+                if (!nextTouched) setNext(nextFramesAfterCompletedChange({ assigned: js.frames, completed: v, current: next, touched: false }));
+              }}
               options={completedOptions}
               placeholder="Select"
               invalid={!!errors.completedFrames}
@@ -432,7 +406,7 @@ function ChangeMachineDialog({ js, open, onOpenChange }: { js: RunJobsheet; open
         </div>
         {completed !== null && (
           <p className="rounded-xl border border-primary/15 bg-primary-soft/70 px-4 py-3 text-[15px] font-medium leading-relaxed text-slate-800" aria-live="polite">
-            {changeMachineSummary({ orderNo: js.orderNo, jobsheetNo: js.jobsheetNo, completed, next, newMachineNo: newMachine?.machineNo ?? null })}
+            {changeMachineSummary({ orderNo: js.orderNo, jobsheetNo: js.jobsheetNo, completed, next, newMachineNo: null })}
           </p>
         )}
       </div>

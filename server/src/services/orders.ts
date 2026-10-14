@@ -73,9 +73,10 @@ export async function listOrders(role: RoleKey, q: OrderListQuery): Promise<Pagi
     const term = q.search.replace(/^#/, '').trim();
     const p = likePattern(term);
     const codeP = likePattern(normalizeCode(term));
+    const seesClient = can(role, 'canSeeClient');
     const parts: (SQL | undefined)[] = [
-      sql`${customers.name} LIKE ${p} ESCAPE '\\'`,
-      sql`${customerBrokers.name} LIKE ${p} ESCAPE '\\'`,
+      seesClient ? sql`${customers.name} LIKE ${p} ESCAPE '\\'` : undefined,
+      seesClient ? sql`${customerBrokers.name} LIKE ${p} ESCAPE '\\'` : undefined,
       sql`${materials.name} LIKE ${p} ESCAPE '\\'`,
       sql`${designs.code} LIKE ${codeP} ESCAPE '\\'`,
       sql`${designVariations.code} LIKE ${codeP} ESCAPE '\\'`,
@@ -124,7 +125,10 @@ export async function listOrders(role: RoleKey, q: OrderListQuery): Promise<Pagi
       .leftJoin(designVariations, eq(designVariations.id, orders.variationId))
       .where(where),
   ]);
-  return { items, page: q.page, limit: q.limit, total, hasMore: q.page * q.limit < total };
+  // Roles without `canSeeClient` (the supervisor) never get client or broker names.
+  const hideClient = !can(role, 'canSeeClient');
+  const shown = hideClient ? items.map((i) => ({ ...i, customerName: '', brokerName: null })) : items;
+  return { items: shown, page: q.page, limit: q.limit, total, hasMore: q.page * q.limit < total };
 }
 
 export async function getOrder(role: RoleKey, id: number): Promise<OrderDetail> {
@@ -203,8 +207,8 @@ export async function getOrder(role: RoleKey, id: number): Promise<OrderDetail> 
     jobsheetPieces: r.jobsheetPieces,
     createdAt: r.createdAt,
     updatedAt: r.updatedAt,
-    customer: r.customer,
-    broker: r.brokerId !== null && r.brokerName !== null ? { id: r.brokerId, name: r.brokerName } : null,
+    customer: can(role, 'canSeeClient') ? r.customer : { id: r.customer.id, name: '', phone: null, city: null },
+    broker: can(role, 'canSeeClient') && r.brokerId !== null && r.brokerName !== null ? { id: r.brokerId, name: r.brokerName } : null,
     material: r.material,
     design:
       r.designId !== null && r.designCode !== null

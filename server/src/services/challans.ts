@@ -1,5 +1,6 @@
 import { and, asc, desc, eq, inArray, sql, type SQL } from 'drizzle-orm';
 import {
+  challanReceivedCountSchema,
   CHALLAN_KIND_CONFIG,
   SECTIONS_PER_BEAM,
   canRoleSeeStatus,
@@ -400,7 +401,8 @@ export async function createChallan(kind: ChallanKind, role: RoleKey, input: unk
 const rowsOf = sql`FROM challan_takas ct WHERE ct.challan_id = "challans"."id"`;
 const totalTakasSql = sql<number>`(SELECT COUNT(*) ${rowsOf})`;
 const totalMetersSql = sql<number>`(SELECT COALESCE(SUM(ct.meters), 0) ${rowsOf})`;
-const receivedSql = sql<number>`(SELECT COUNT(*) ${rowsOf} AND ct.received_at IS NOT NULL)`;
+// Received = the larger of the count the godown supervisor entered (mill challans) and the takas actually marked received.
+const receivedSql = sql<number>`MAX("challans"."received_count", (SELECT COUNT(*) ${rowsOf} AND ct.received_at IS NOT NULL))`;
 
 export async function listChallans(kind: ChallanKind, q: ChallanListQuery): Promise<ChallanPage> {
   const conds: (SQL | undefined)[] = [eq(challans.kind, kind)];
@@ -472,6 +474,7 @@ async function loadChallan(kind: ChallanKind, id: number) {
         status: challans.status,
         challanDate: challans.challanDate,
         ewayNo: challans.ewayNo,
+        countedReceived: challans.receivedCount,
         createdBy: challans.createdBy,
         createdAt: challans.createdAt,
         cancelledAt: challans.cancelledAt,
@@ -549,7 +552,7 @@ export async function getChallan(kind: ChallanKind, id: number): Promise<Challan
   for (const g of orderGroups) {
     g.takas.sort((a, b) => Number(a.receivedAt !== null) - Number(b.receivedAt !== null) || compareTakaNo(a.takaNo, b.takaNo));
   }
-  const receivedCount = rows.filter((r) => r.receivedAt !== null).length;
+  const receivedCount = Math.max(challan.countedReceived, rows.filter((r) => r.receivedAt !== null).length);
   return {
     id: challan.id,
     kind: challan.kind,
@@ -598,11 +601,12 @@ export async function cancelChallan(kind: ChallanKind, role: RoleKey, id: number
   const cfg = CHALLAN_KIND_CONFIG[kind];
   return db.transaction(async (tx) => {
     const [challan] = await tx
-      .select({ id: challans.id, challanNo: challans.challanNo, status: challans.status })
+      .select({ id: challans.id, challanNo: challans.challanNo, status: challans.status, countedReceived: challans.receivedCount })
       .from(challans)
       .where(and(eq(challans.id, id), eq(challans.kind, kind)));
     if (!challan) throw notFound('Challan');
     if (challan.status === 'cancelled') throw conflict('This challan is already cancelled.');
+    if (challan.countedReceived > 0) throw conflict("This challan can't be cancelled because takas were already counted as received.");
     const rows = await tx
       .select({ id: challanTakas.id, takaId: challanTakas.takaId, orderId: challanTakas.orderId, receivedAt: challanTakas.receivedAt, isRefinish: challanTakas.isRefinish })
       .from(challanTakas)
@@ -850,3 +854,32 @@ export async function listOrderChallans(role: RoleKey, orderId: number): Promise
 }
 
 export type { TakaStage };
+
+/**
+ * POST /mill/challans/:id/received-count — the godown supervisor counts how many takas came back on a mill challan
+ * (just the number; which takas they are is found out at the Mill QC). Can't be below the takas already marked
+ * received, nor above the takas on the challan.
+ */
+export async function setReceivedCount(kind: ChallanKind, _role: RoleKey, id: number, input: unknown): Promise<{ challanId: number; receivedCount: number }> {
+  if (kind !== 'mill') throw badRequest('Only mill challans are counted this way.');
+  const count = challanReceivedCountSchema.parse(input).count;
+  return db.transaction(async (tx) => {
+    const [challan] = await tx
+      .select({ id: challans.id, status: challans.status })
+      .from(challans)
+      .where(and(eq(challans.id, id), eq(challans.kind, kind)));
+    if (!challan) throw notFound('Challan');
+    if (challan.status === 'cancelled') throw conflict('This challan is cancelled.');
+    const [{ total, received }] = await tx
+      .select({
+        total: sql<number>`COUNT(*)`,
+        received: sql<number>`COALESCE(SUM(CASE WHEN ${challanTakas.receivedAt} IS NOT NULL THEN 1 ELSE 0 END), 0)`,
+      })
+      .from(challanTakas)
+      .where(and(eq(challanTakas.challanId, id), eq(challanTakas.isActive, true)));
+    if (count > Number(total)) throw badRequest(`This challan has only ${Number(total)} takas.`, 'count');
+    if (count < Number(received)) throw badRequest(`${Number(received)} takas are already received (checked at QC), so the count can't be lower.`, 'count');
+    await tx.update(challans).set({ receivedCount: count, updatedAt: now() }).where(eq(challans.id, id));
+    return { challanId: id, receivedCount: count };
+  });
+}

@@ -7,10 +7,11 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { formatDate } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { useChallans } from './api';
+import { ReceivedCountControl } from './received-count';
 import { challanDetailsPath } from './kind';
 
 /** One challan card: GSM-173 / MIL-12, party, date, totals and "8 / 20 received" with a thin progress bar. */
-export function ChallanCard({ challan, onOpen }: { challan: ChallanListItem; onOpen: () => void }) {
+export function ChallanCard({ challan, onOpen, counter }: { challan: ChallanListItem; onOpen: () => void; counter?: boolean }) {
   const cancelled = challan.status === 'cancelled';
   const done = challan.totalTakas > 0 && challan.receivedCount >= challan.totalTakas;
   const share = challan.totalTakas > 0 ? challan.receivedCount / challan.totalTakas : 0;
@@ -78,6 +79,12 @@ export function ChallanCard({ challan, onOpen }: { challan: ChallanListItem; onO
           )}
         </div>
       )}
+      {/* Mill → Receive: the godown supervisor counts the takas that came back, right on the card. */}
+      {counter && !cancelled && (
+        <div className="border-t border-border pt-3">
+          <ReceivedCountControl challanId={challan.id} total={challan.totalTakas} received={challan.receivedCount} compact />
+        </div>
+      )}
     </article>
   );
 }
@@ -102,7 +109,7 @@ const EMPTY: Record<ChallanFilter, string> = {
  * A grid of challan cards for one filter + search. `live` (Receive → Challans) refetches every 10 s and on focus.
  * Clicking a card opens the challan details; `from` is where "back" returns to.
  */
-export function ChallanList({ kind, filter, search, live, from }: { kind: ChallanKind; filter: ChallanFilter; search: string; live?: boolean; from: string }) {
+export function ChallanList({ kind, filter, search, live, from, counter }: { kind: ChallanKind; filter: ChallanFilter; search: string; live?: boolean; from: string; counter?: boolean }) {
   const navigate = useNavigate();
   const query = useChallans(kind, filter, search, live);
   if (query.isPending) return <GridSkeleton />;
@@ -122,7 +129,7 @@ export function ChallanList({ kind, filter, search, live, from }: { kind: Challa
     <>
       <div className={cn('grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4', query.isPlaceholderData && 'opacity-60')}>
         {query.items.map((c) => (
-          <ChallanCard key={c.id} challan={c} onOpen={() => navigate(challanDetailsPath(kind, c.id), { state: { from } })} />
+          <ChallanCard key={c.id} challan={c} counter={counter} onOpen={() => navigate(challanDetailsPath(kind, c.id), { state: { from } })} />
         ))}
       </div>
       <LoadMore

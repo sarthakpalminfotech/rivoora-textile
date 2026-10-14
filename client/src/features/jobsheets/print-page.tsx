@@ -1,8 +1,8 @@
-import { AlertTriangle, ArrowLeft, Loader2, Printer } from 'lucide-react';
+import { AlertTriangle, Loader2, Printer, X } from 'lucide-react';
 import { useEffect, useLayoutEffect, useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import QRCode from 'qrcode';
-import { jobsheetQrUrl, jobsheetRefShort, type JobsheetPrintItem } from '@rivoora/shared';
+import { jobsheetQrUrl, jobsheetRefShort, ORDER_TYPE_LABEL, type JobsheetPrintItem } from '@rivoora/shared';
 import { usePageTitle } from '@/components/layout/page-title';
 import { ErrorState } from '@/components/list-parts';
 import { Button } from '@/components/ui/button';
@@ -55,6 +55,7 @@ const CSS = `
 .jsp-idbox { padding: 3mm; display: flex; flex-direction: column; gap: 3mm; justify-content: center; }
 .jsp-idrow { display: flex; flex-direction: column; gap: 1.2mm; }
 .jsp-assigned { font-size: 8.5pt; font-weight: 600; line-height: 1; }
+.jsp-otype { font-size: 12pt; font-weight: 700; line-height: 1; text-align: center; }
 .jsp-vbox { border: 1.4px solid var(--ink); min-height: 14mm; padding: 1.5mm 3mm; display: flex; align-items: center;
   word-break: break-word; }
 
@@ -140,6 +141,7 @@ function FrontPage({ js, qrSvg }: { js: JobsheetPrintItem; qrSvg: string | undef
             <div className="jsp-idrow">
               <span className="jsp-lbl">Design no:</span>
               <div className="jsp-vbox jsp-val">{js.designCode ?? ''}</div>
+              <span className="jsp-otype">{ORDER_TYPE_LABEL[js.orderType]}</span>
             </div>
           </div>
         </div>
@@ -342,7 +344,7 @@ export default function JobsheetPrintPage() {
       <header className="jsp-toolbar sticky top-0 z-30 border-b border-border bg-white/95 backdrop-blur">
         <div className="mx-auto flex h-14 max-w-4xl items-center gap-2 px-2 md:h-16 md:px-4">
           <Button variant="ghost" size="sm" onClick={goBack}>
-            <ArrowLeft /> Back
+            <X /> Close
           </Button>
           <p className="min-w-0 flex-1 truncate text-sm font-medium text-slate-600">
             {data
