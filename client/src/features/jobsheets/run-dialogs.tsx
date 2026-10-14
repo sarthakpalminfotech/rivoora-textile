@@ -310,6 +310,7 @@ function CompleteDialog({ js, open, onOpenChange }: { js: RunJobsheet; open: boo
 function ChangeMachineDialog({ js, open, onOpenChange }: { js: RunJobsheet; open: boolean; onOpenChange: (o: boolean) => void }) {
   const navigate = useNavigate();
   const change = useChangeMachine();
+  const completeJs = useCompleteJobsheet();
   const current = js.runningMachine;
   const [completed, setCompleted] = useState<number | null>(null);
   const [next, setNext] = useState(() => remainingFrames(js.frames, 0));
@@ -329,11 +330,28 @@ function ChangeMachineDialog({ js, open, onOpenChange }: { js: RunJobsheet; open
     () => Array.from({ length: nextFramesMax(js.frames) }, (_, i) => ({ value: i + 1, label: fr(i + 1) })),
     [js.frames],
   );
-  const ready = completed !== null && next >= 1;
+  // All the frames were made on this machine: nothing is left, so the jobsheet is simply completed (no split).
+  const allDone = completed !== null && completed >= js.frames;
+  const ready = completed !== null && (allDone || next >= 1);
 
   const submit = () => {
     if (!ready) return;
     setErrors({});
+    if (allDone) {
+      completeJs.mutate(
+        { id: js.id, completedFrames: completed },
+        {
+          onSuccess: (res) => {
+            toast.success(`${jobsheetRefShort(res.orderNo, res.jobsheetNo)} completed (${fr(completed)})`);
+            onOpenChange(false);
+          },
+          onError: (err) => {
+            if (err instanceof ApiError && err.field) setErrors({ [err.field]: err.message });
+          },
+        },
+      );
+      return;
+    }
     change.mutate(
       { id: js.id, completedFrames: completed, nextFrames: next },
       {
@@ -357,14 +375,14 @@ function ChangeMachineDialog({ js, open, onOpenChange }: { js: RunJobsheet; open
       onOpenChange={onOpenChange}
       title={`Change machine · ${jobsheetRef(js.orderNo, js.jobsheetNo)}`}
       description={`Currently on ${current ? `Machine ${current.machineNo}` : 'no machine'} · ${fr(js.frames)} assigned`}
-      busy={change.isPending}
+      busy={change.isPending || completeJs.isPending}
       footer={
         <>
-          <Button variant="secondary" size="lg" onClick={() => onOpenChange(false)} disabled={change.isPending}>
+          <Button variant="secondary" size="lg" onClick={() => onOpenChange(false)} disabled={change.isPending || completeJs.isPending}>
             Cancel
           </Button>
-          <Button size="lg" onClick={submit} disabled={!ready} loading={change.isPending}>
-            Confirm
+          <Button size="lg" onClick={submit} disabled={!ready} loading={change.isPending || completeJs.isPending}>
+            {allDone ? 'Mark complete' : 'Confirm'}
           </Button>
         </>
       }
@@ -390,6 +408,7 @@ function ChangeMachineDialog({ js, open, onOpenChange }: { js: RunJobsheet; open
               triggerClassName="h-12"
             />
           </Field>
+          {!allDone && (
           <Field label="Frames to make next" htmlFor="cm-next" required error={errors.nextFrames} hint={nextTouched ? undefined : 'Remaining frames'}>
             <Select
               id="cm-next"
@@ -403,8 +422,14 @@ function ChangeMachineDialog({ js, open, onOpenChange }: { js: RunJobsheet; open
               triggerClassName="h-12"
             />
           </Field>
+          )}
         </div>
-        {completed !== null && (
+        {allDone && (
+          <p className="rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-[15px] font-medium leading-relaxed text-green-900" aria-live="polite">
+            All {fr(js.frames)} are done on this machine, so {jobsheetRefShort(js.orderNo, js.jobsheetNo)} will be marked complete. No new jobsheet is made.
+          </p>
+        )}
+        {completed !== null && !allDone && (
           <p className="rounded-xl border border-primary/15 bg-primary-soft/70 px-4 py-3 text-[15px] font-medium leading-relaxed text-slate-800" aria-live="polite">
             {changeMachineSummary({ orderNo: js.orderNo, jobsheetNo: js.jobsheetNo, completed, next, newMachineNo: null })}
           </p>
