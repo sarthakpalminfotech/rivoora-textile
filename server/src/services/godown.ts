@@ -23,16 +23,28 @@ import {
   type GodownSplitResult,
   type GodownTaka,
   type ReadyDispatchResult,
+  can,
   type RoleKey,
 } from '@rivoora/shared';
 import { db, type Tx } from '../db/client';
-import { damages as damageMaster, designVariations, designs, jobsheets, materials, orders, takaDamages, takas } from '../db/schema';
+import {
+  customerBrokers,
+  customers,
+  damages as damageMaster,
+  designVariations,
+  designs,
+  jobsheets,
+  materials,
+  orders,
+  takaDamages,
+  takas,
+} from '../db/schema';
 import { badRequest, conflict, notFound } from '../lib/errors';
 import { likePattern } from '../lib/http';
 import { getOrderDamages } from './dashboard';
 import { addNewDamages, assertNewDamages } from './qc-shared';
 import { damageImagesOf } from './takas';
-import { takaParentNo } from './taka-shared';
+import { takaOriginOrderNo, takaParentNo } from './taka-shared';
 import { recomputeOrdersStatus, refreshIsDamaged, usedTakaNumbers, usedMessage, writeTakaEvents, type TakaEventInput } from './taka-ops';
 
 /**
@@ -58,14 +70,16 @@ const POST_QC = ['final', 'refinish', 'ready_dispatch'] as const;
  * GET /godown/orders — orders with at least one taka that passed the Mill QC. Orders with unchecked final takas first,
  * then by order number, newest first. Search: order number or any taka number of the order.
  */
-export async function listGodownOrders(q: GodownListQuery): Promise<GodownOrderPage> {
+export async function listGodownOrders(role: RoleKey, q: GodownListQuery): Promise<GodownOrderPage> {
   const parsed = godownListQuerySchema.parse(q);
+  const seesClient = can(role, 'canSeeClient');
   let search: SQL | undefined;
   if (parsed.search) {
     const term = parsed.search.replace(/^#/, '');
     const p = likePattern(term);
     const orderNo = /^\d+$/.test(term) ? Number(term) : -1;
-    search = sql`(${orders.orderNo} = ${orderNo} OR ${orders.id} IN (SELECT t2.order_id FROM takas t2 WHERE t2.is_deleted = 0 AND t2.stage IN ('final', 'refinish', 'ready_dispatch') AND t2.taka_no LIKE ${p} ESCAPE '\\'))`;
+    const byClient = seesClient ? sql` OR ${customers.name} LIKE ${p} ESCAPE '\'` : sql``;
+    search = sql`(${orders.orderNo} = ${orderNo}${byClient} OR ${orders.id} IN (SELECT t2.order_id FROM takas t2 WHERE t2.is_deleted = 0 AND t2.stage IN ('final', 'refinish', 'ready_dispatch') AND t2.taka_no LIKE ${p} ESCAPE '\\'))`;
   }
   const unchecked = sql<number>`SUM(CASE WHEN ${takas.stage} = 'final' AND ${takas.godownCheckedAt} IS NULL THEN 1 ELSE 0 END)`;
   const hasPostQc = sql`SUM(CASE WHEN ${takas.stage} IN ('final', 'refinish', 'ready_dispatch') THEN 1 ELSE 0 END) > 0`;
@@ -78,10 +92,13 @@ export async function listGodownOrders(q: GodownListQuery): Promise<GodownOrderP
       imageUrl: designImageSql,
       orderedPcs: orders.quantity,
       uncheckedCount: unchecked,
+      readyDispatchCount: sql<number>`SUM(CASE WHEN ${takas.stage} = 'ready_dispatch' THEN 1 ELSE 0 END)`,
+      customerName: customers.name,
     })
     .from(takas)
     .innerJoin(jobsheets, eq(jobsheets.id, takas.jobsheetId))
     .innerJoin(orders, eq(orders.id, takas.orderId))
+    .innerJoin(customers, eq(customers.id, orders.customerId))
     .leftJoin(designs, eq(designs.id, orders.designId))
     .leftJoin(designVariations, eq(designVariations.id, orders.variationId))
     .where(and(eq(takas.isDeleted, false), eq(jobsheets.isDeleted, false), search))
@@ -97,11 +114,17 @@ export async function listGodownOrders(q: GodownListQuery): Promise<GodownOrderP
       .from(takas)
       .innerJoin(jobsheets, eq(jobsheets.id, takas.jobsheetId))
       .innerJoin(orders, eq(orders.id, takas.orderId))
+      .innerJoin(customers, eq(customers.id, orders.customerId))
       .where(and(eq(takas.isDeleted, false), eq(jobsheets.isDeleted, false), inArray(takas.stage, [...POST_QC]), search)),
   ]);
   const count = Number(total);
   return {
-    items: items.map((r) => ({ ...r, uncheckedCount: Number(r.uncheckedCount) })),
+    items: items.map((r) => ({
+      ...r,
+      uncheckedCount: Number(r.uncheckedCount),
+      readyDispatchCount: Number(r.readyDispatchCount),
+      customerName: seesClient ? r.customerName : null,
+    })),
     page: parsed.page,
     limit: parsed.limit,
     total: count,
@@ -114,7 +137,7 @@ export async function listGodownOrders(q: GodownListQuery): Promise<GodownOrderP
 /* ------------------------------------------------------------------ */
 
 /** GET /godown/orders/:orderId — header, KPIs, the final takas (+ the ones already ready to dispatch). */
-export async function getGodownOrder(orderId: number): Promise<GodownOrder> {
+export async function getGodownOrder(role: RoleKey, orderId: number): Promise<GodownOrder> {
   const [orderRows, takaRows, damagedRows] = await db.batch([
     db
       .select({
@@ -125,9 +148,20 @@ export async function getGodownOrder(orderId: number): Promise<GodownOrder> {
         imageUrl: designImageSql,
         quality: materials.name,
         orderedPcs: orders.quantity,
+        rate: orders.rate,
+        orderType: orders.orderType,
+        status: orders.status,
+        customerId: customers.id,
+        customerName: customers.name,
+        customerPhone: customers.phone,
+        customerAddress: sql<string | null>`TRIM(COALESCE(${customers.address}, '') || CASE WHEN ${customers.city} IS NOT NULL AND ${customers.city} <> '' THEN ', ' || ${customers.city} ELSE '' END)`,
+        customerGstin: customers.gstNumber,
+        brokerName: customerBrokers.name,
       })
       .from(orders)
       .innerJoin(materials, eq(materials.id, orders.materialId))
+      .innerJoin(customers, eq(customers.id, orders.customerId))
+      .leftJoin(customerBrokers, eq(customerBrokers.id, orders.brokerId))
       .leftJoin(designs, eq(designs.id, orders.designId))
       .leftJoin(designVariations, eq(designVariations.id, orders.variationId))
       .where(eq(orders.id, orderId)),
@@ -144,6 +178,9 @@ export async function getGodownOrder(orderId: number): Promise<GodownOrder> {
         refinishCount: takas.refinishCount,
         isDamaged: takas.isDamaged,
         jobsheetId: takas.jobsheetId,
+        isReturnLot: takas.isReturnLot,
+        returnedAt: takas.returnedAt,
+        originOrderNo: takaOriginOrderNo,
       })
       .from(takas)
       .innerJoin(jobsheets, eq(jobsheets.id, takas.jobsheetId))
@@ -165,8 +202,10 @@ export async function getGodownOrder(orderId: number): Promise<GodownOrder> {
         ),
       ),
   ]);
-  const order = orderRows[0];
-  if (!order) throw notFound('Order');
+  const row = orderRows[0];
+  if (!row) throw notFound('Order');
+  const { customerId, customerName, customerPhone, customerAddress, customerGstin, brokerName, rate, ...order } = row;
+  const seesClient = can(role, 'canSeeClient');
   const kpis = godownKpis(takaRows.map((t) => ({ stage: t.stage, pcs: t.pcs, actualPcs: t.actualPcs, checked: t.godownCheckedAt !== null })));
   const stagePcs = (stage: string) => takaRows.filter((t) => t.stage === stage).reduce((n, t) => n + (takaActualPcs(t) ?? 0), 0);
   const pcsKpis: GodownPcsKpis = {
@@ -182,6 +221,9 @@ export async function getGodownOrder(orderId: number): Promise<GodownOrder> {
     .sort((a, b) => compareTakaNo(a.takaNo, b.takaNo));
   return {
     ...order,
+    customer: seesClient ? { id: customerId, name: customerName, phone: customerPhone, address: customerAddress || null, gstin: customerGstin } : null,
+    brokerName: seesClient ? brokerName : null,
+    rate: can(role, 'canSeeRate') ? rate : null,
     kpis,
     pcsKpis,
     takas: list,
@@ -270,6 +312,9 @@ export async function patchGodownTaka(role: RoleKey, id: number, input: unknown)
         refinishCount: takas.refinishCount,
         isDamaged: takas.isDamaged,
         jobsheetId: takas.jobsheetId,
+        isReturnLot: takas.isReturnLot,
+        returnedAt: takas.returnedAt,
+        originOrderNo: takaOriginOrderNo,
       })
       .from(takas)
       .where(eq(takas.id, id));
@@ -314,7 +359,7 @@ export async function sendGodownRefinish(role: RoleKey, id: number, input: unkno
 }
 
 /** Marks the taka's open damages (one, or all) as fully resolved; returns the `damage_resolved` events. */
-async function clearOpenDamages(tx: Tx, role: RoleKey, takaId: number, onlyId: number | undefined, stage: string, at: string): Promise<TakaEventInput[]> {
+export async function clearOpenDamages(tx: Tx, role: RoleKey, takaId: number, onlyId: number | undefined, stage: string, at: string): Promise<TakaEventInput[]> {
   const open = await tx
     .select({ id: takaDamages.id, foundAt: takaDamages.foundAt, pcs: takaDamages.pcs, name: damageMaster.name })
     .from(takaDamages)
@@ -326,7 +371,7 @@ async function clearOpenDamages(tx: Tx, role: RoleKey, takaId: number, onlyId: n
       .update(takaDamages)
       .set({ status: 'resolved', resolvedPcs: d.pcs ?? 0, resolvedAt: at, resolvedBy: role, resolvedStage: stage })
       .where(eq(takaDamages.id, d.id));
-    events.push({ takaId, event: 'damage_resolved', takaDamageId: d.id, note: `${damageLabel(d.foundAt, d.name)} · ${stage === 'split' ? 'cleared by split' : 'resolved at the godown'}` });
+    events.push({ takaId, event: 'damage_resolved', takaDamageId: d.id, note: `${damageLabel(d.foundAt, d.name)} · ${stage === 'split' ? 'cleared by split' : stage === 'inventory' ? 'marked fresh in inventory' : 'resolved at the godown'}` });
   }
   return events;
 }

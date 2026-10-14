@@ -18,6 +18,8 @@ export interface StatusConfig {
 }
 
 const FROM_READY: readonly RoleKey[] = ['jemish', 'gaurang'];
+/** The dispatch statuses are also visible to Dhruvil (dispatch). */
+const DISPATCH_VISIBLE: readonly RoleKey[] = ['jemish', 'gaurang', 'dhruvil'];
 /** Production phase (Jobsheet created → Taka entry done): the supervisor can view these orders too (read only). */
 const IN_PRODUCTION: readonly RoleKey[] = ['jemish', 'gaurang', 'supervisor'];
 
@@ -107,6 +109,20 @@ export const ORDER_STATUSES = [
     badge: { bg: '#D1FAE5', text: '#065F46', dot: '#059669' },
     visibleTo: FROM_READY,
   },
+  {
+    key: 'partly_dispatched',
+    label: 'Partly dispatched',
+    sequence: 130,
+    badge: { bg: '#FEF9C3', text: '#854D0E', dot: '#EAB308' },
+    visibleTo: DISPATCH_VISIBLE,
+  },
+  {
+    key: 'dispatched',
+    label: 'Dispatched',
+    sequence: 140,
+    badge: { bg: '#CCFBF1', text: '#0F766E', dot: '#0D9488' },
+    visibleTo: DISPATCH_VISIBLE,
+  },
 ] as const satisfies readonly StatusConfig[];
 
 export type OrderStatusKey = (typeof ORDER_STATUSES)[number]['key'];
@@ -124,6 +140,8 @@ export const STATUS = {
   RECEIVED_FROM_MILL: 'received_from_mill',
   MILL_QC_DONE: 'mill_qc_done',
   READY_FOR_DISPATCH: 'ready_for_dispatch',
+  PARTLY_DISPATCHED: 'partly_dispatched',
+  DISPATCHED: 'dispatched',
 } as const satisfies Record<string, OrderStatusKey>;
 
 export const STATUS_KEYS = ORDER_STATUSES.map((s) => s.key) as [OrderStatusKey, ...OrderStatusKey[]];
@@ -278,7 +296,11 @@ export function orderStatusForJobsheets(
   if (list.length === 0) return STATUS.READY_PRODUCTION;
   if (list.every((j) => j.status === JOBSHEET_STATUS.COMPLETED)) {
     if (!list.every((j) => (j.takaCount ?? 0) > 0)) return STATUS.PRODUCTION_COMPLETED;
-    if (takaStages.some((s) => s === 'at_butta' || s === 'butta_qc')) return STATUS.IN_BUTTA_CUTTING;
+    // Sprint 12: once any taka is dispatched the order is Partly dispatched (Dispatched when every taka is).
+    if (takaStages.some((s) => s === 'dispatched')) {
+      return takaStages.every((s) => s === 'dispatched') ? STATUS.DISPATCHED : STATUS.PARTLY_DISPATCHED;
+    }
+    if (takaStages.some((s) => s === 'at_butta' || s === 'butta_qc' || s === 'rework_butta')) return STATUS.IN_BUTTA_CUTTING;
     if (takaStages.length > 0 && takaStages.every((s) => s === 'waiting_mill')) return STATUS.READY_FOR_MILL;
     // Nothing is in butta cutting any more. Takas still `entered` have not been through it yet (earliest stage wins).
     if (!takaStages.includes('entered')) {

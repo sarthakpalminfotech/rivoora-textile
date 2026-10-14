@@ -1,11 +1,14 @@
-import { ArrowLeft, Check, CheckCircle2, Loader2, MoreHorizontal, Scissors, SearchX, TriangleAlert, Truck } from 'lucide-react';
+import { ArrowLeft, Check, CheckCircle2, Loader2, MoreHorizontal, MoveRight, Scissors, SearchX, TriangleAlert, Truck } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import {
   actualVsExpectedLine,
+  canMoveTaka,
   checkedPcsBar,
   cleanPcs,
+  dispatchTotals,
+  moveBlockedReason,
   formatMeters,
   formatPcsDiff,
   takaActualPcs,
@@ -13,6 +16,10 @@ import {
   type GodownTaka,
 } from '@rivoora/shared';
 import { usePageTitle } from '@/components/layout/page-title';
+import { useRole } from '@/hooks/useRole';
+import { DispatchDialog } from '../dispatch/dispatch-dialog';
+import { FromOrderTag, ReturnedTag, ReturnLotTag } from '../takas/taka-tags';
+import { MoveDialog } from './move-dialog';
 import { ErrorState } from '@/components/list-parts';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
@@ -54,6 +61,13 @@ function Header({ order }: { order: GodownOrder }) {
           {order.quality && <span className="font-medium text-slate-500"> · {order.quality}</span>}
         </p>
         <p className="text-sm font-medium tabular-nums text-slate-500">{order.orderedPcs.toLocaleString('en-IN')} pcs ordered</p>
+        {order.customer && (
+          <p className="truncate text-sm font-semibold text-slate-700">
+            M/s {order.customer.name}
+            {order.brokerName && <span className="font-medium text-slate-500"> · Broker {order.brokerName}</span>}
+            {order.rate != null && <span className="font-medium tabular-nums text-slate-500"> · Rate ₹{order.rate.toLocaleString('en-IN')}</span>}
+          </p>
+        )}
       </div>
     </section>
   );
@@ -122,8 +136,11 @@ function TakaRow({
   onDamage,
   onRefinish,
   onResolve,
+  select,
 }: {
   taka: GodownTaka;
+  /** Move-to-order selection mode: a tick box before the row; takas that cannot move are greyed with the reason. */
+  select?: { on: boolean; allowed: boolean; reason: string | null; onToggle: () => void };
   disabled?: boolean;
   onPatch: (patch: { checked?: boolean; actualPcs?: number }) => Promise<unknown>;
   onSplit: () => void;
@@ -164,6 +181,11 @@ function TakaRow({
   return (
     <li className={cn('flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2.5 md:flex-nowrap', disabled && 'bg-slate-50/70')}>
       <div className="flex min-w-0 flex-1 items-center gap-3 md:basis-1/3">
+        {select && (
+          <span title={select.reason ?? undefined} className={cn(!select.allowed && 'opacity-40')}>
+            <TickBox size="lg" checked={select.on} disabled={!select.allowed} onCheckedChange={select.onToggle} aria-label={`Select taka ${taka.takaNo} to move`} />
+          </span>
+        )}
         <TickBox
           size="lg"
           checked={taka.checked || taka.stage === 'ready_dispatch'}
@@ -175,6 +197,9 @@ function TakaRow({
         <div className="min-w-0">
           <p className={cn('flex flex-wrap items-center gap-x-2 text-xl font-bold tabular-nums', disabled ? 'text-slate-500' : 'text-slate-900')}>
             {taka.takaNo}
+            {taka.isReturnLot && <ReturnLotTag />}
+            {taka.returnedAt && !taka.isReturnLot && <ReturnedTag />}
+            {taka.originOrderNo != null && <FromOrderTag orderNo={taka.originOrderNo} />}
             {taka.isDamaged && (
               <span className="inline-flex size-5 items-center justify-center rounded-full bg-red-600 text-[11px] font-extrabold leading-none text-white" title="Open damage" aria-label="Open damage">
                 D
@@ -275,10 +300,30 @@ function FinalTakasTab({ order }: { order: GodownOrder }) {
   const [dispatchOpen, setDispatchOpen] = useState(false);
   const [damageFor, setDamageFor] = useState<GodownTaka | null>(null);
   const [refinishFor, setRefinishFor] = useState<GodownTaka | null>(null);
+  const { can } = useRole();
+  const [dispatchModal, setDispatchModal] = useState(false);
+  const [selecting, setSelecting] = useState(false);
+  const [picked, setPicked] = useState<number[]>([]);
+  const [moveOpen, setMoveOpen] = useState(false);
 
   const finals = order.takas.filter((t) => t.stage === 'final');
   const ready = order.takas.filter((t) => t.stage === 'ready_dispatch');
   const k = order.kpis;
+  const dispatchSum = dispatchTotals(ready.map((t) => ({ meters: t.meters, pcs: takaActualPcs(t) })));
+  const rowSelect = (t: GodownTaka) => {
+    const state = { stage: t.stage, isDamaged: t.isDamaged, checked: t.checked };
+    return {
+      on: picked.includes(t.id),
+      allowed: canMoveTaka(state),
+      reason: moveBlockedReason(state),
+      onToggle: () => setPicked((p) => (p.includes(t.id) ? p.filter((x) => x !== t.id) : [...p, t.id])),
+    };
+  };
+  const pickedTakas = finals.filter((t) => picked.includes(t.id));
+  const stopSelecting = () => {
+    setSelecting(false);
+    setPicked([]);
+  };
 
   const onPatch = (id: number) => (body: { checked?: boolean; actualPcs?: number }) => patch.mutateAsync({ id, ...body });
 
@@ -306,6 +351,14 @@ function FinalTakasTab({ order }: { order: GodownOrder }) {
         </div>
       ) : (
         <section className="overflow-hidden rounded-xl border border-border bg-white shadow-soft">
+          {can('canMoveTakas') && finals.length > 0 && (
+            <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-2">
+              <p className="text-sm text-slate-500">{selecting ? 'Tick the fresh takas to move to another order' : 'Fresh takas can move to another order of the same design'}</p>
+              <Button variant="secondary" size="sm" onClick={() => (selecting ? stopSelecting() : setSelecting(true))}>
+                <MoveRight /> {selecting ? 'Cancel' : 'Move to order'}
+              </Button>
+            </div>
+          )}
           <div className="hidden items-center gap-3 border-b border-border bg-slate-50 px-3 py-2 text-[12px] font-semibold uppercase tracking-wide text-slate-500 md:flex">
             <span className="basis-1/3">Taka</span>
             <span className="flex flex-1 items-center justify-end gap-3">
@@ -322,6 +375,7 @@ function FinalTakasTab({ order }: { order: GodownOrder }) {
                 <TakaRow
                   key={t.id}
                   taka={t}
+                  select={selecting ? rowSelect(t) : undefined}
                   onPatch={onPatch(t.id)}
                   onSplit={() => navigate(`/godown/orders/${order.orderId}/split/${t.id}`)}
                   onDamage={() => setDamageFor(t)}
@@ -346,10 +400,41 @@ function FinalTakasTab({ order }: { order: GodownOrder }) {
 
       {/* Sticky action: above the phone bottom nav, at the bottom of the window on md+. */}
       <div className="sticky bottom-[calc(4rem+env(safe-area-inset-bottom))] z-20 -mx-4 border-t border-border bg-white/95 px-4 py-3 backdrop-blur md:bottom-0 md:mx-0 md:rounded-t-2xl md:border-x">
-        <Button size="lg" className="h-14 w-full text-base" disabled={k.readyCount === 0} onClick={() => setDispatchOpen(true)}>
-          <Truck /> Ready to dispatch ({k.readyCount})
-        </Button>
+        {selecting ? (
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-[15px] font-semibold tabular-nums text-slate-800">{picked.length} {picked.length === 1 ? 'taka' : 'takas'} selected</p>
+            <div className="flex gap-2">
+              <Button variant="secondary" size="lg" className="h-12" onClick={stopSelecting}>
+                Cancel
+              </Button>
+              <Button size="lg" className="h-12" disabled={picked.length === 0} onClick={() => setMoveOpen(true)}>
+                <MoveRight /> Move to order
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <div className={cn('grid gap-2', can('canDispatch') && 'sm:grid-cols-2')}>
+            <Button size="lg" variant={can('canDispatch') ? 'secondary' : 'primary'} className="h-14 w-full text-base" disabled={k.readyCount === 0} onClick={() => setDispatchOpen(true)}>
+              <CheckCircle2 /> Ready to dispatch ({k.readyCount})
+            </Button>
+            {can('canDispatch') && (
+              <Button size="lg" className="h-14 w-full text-base" disabled={ready.length === 0} onClick={() => setDispatchModal(true)}>
+                <Truck /> Dispatch ({ready.length})
+              </Button>
+            )}
+          </div>
+        )}
       </div>
+
+      <DispatchDialog open={dispatchModal} onOpenChange={setDispatchModal} orderId={order.orderId} clientName={order.customer?.name ?? null} totals={dispatchSum} />
+      <MoveDialog
+        open={moveOpen}
+        onOpenChange={setMoveOpen}
+        fromOrderId={order.orderId}
+        fromOrderNo={order.orderNo}
+        takas={pickedTakas}
+        onMoved={stopSelecting}
+      />
 
       <ResponsiveModal
         open={dispatchOpen}

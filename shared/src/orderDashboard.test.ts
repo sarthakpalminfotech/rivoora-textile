@@ -35,7 +35,7 @@ const bar = (d: ReturnType<typeof buildOrderDashboard>, key: string) => d.bar.fi
 
 describe('pipeline config', () => {
   it('maps every taka stage to a main stage', () => {
-    expect(TAKA_STAGES.map(takaStageMain)).toEqual(['production', 'butta', 'butta', 'mill', 'mill', 'mill', 'ready', 'mill', 'ready']);
+    expect(TAKA_STAGES.map(takaStageMain)).toEqual(['production', 'butta', 'butta', 'mill', 'mill', 'mill', 'ready', 'mill', 'ready', 'butta', 'ready']);
   });
 
   it('jobsheet sub-stage rules', () => {
@@ -205,6 +205,7 @@ describe('buildOrderDashboard — damages (open damages by where they were found
       { type: 'butta', count: 2, pcs: 3, connected: true },
       { type: 'mill', count: 0, pcs: null, connected: true },
       { type: 'godown', count: 0, pcs: null, connected: true },
+      { type: 'customer_return', count: 0, pcs: null, connected: true },
     ]);
     expect(d.damageTotal).toBe(5);
     expect(d.takaCount).toBe(8);

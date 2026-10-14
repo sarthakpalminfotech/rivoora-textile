@@ -16,6 +16,9 @@ export const takaChallanKind = sql<ChallanKind | null>`(SELECT ct.kind FROM chal
 /** The number of the taka this one was split from (outer column written explicitly — see the Drizzle gotcha). */
 export const takaParentNo = sql<string | null>`(SELECT p.taka_no FROM takas p WHERE p.id = "takas"."parent_taka_id")`;
 
+/** The number of the order a moved taka came from (outer column written explicitly — see the Drizzle gotcha). */
+export const takaOriginOrderNo = sql<number | null>`(SELECT oo.order_no FROM orders oo WHERE oo.id = "takas"."origin_order_id")`;
+
 /** Columns of a `Taka` DTO (select from `takas`; run the rows through `mapTaka`). */
 export const takaColumns = {
   id: takas.id,
@@ -34,6 +37,11 @@ export const takaColumns = {
   parentTakaNo: takaParentNo,
   godownCheckedAt: takas.godownCheckedAt,
   godownCheckedBy: takas.godownCheckedBy,
+  reworkCount: takas.reworkCount,
+  isReturnLot: takas.isReturnLot,
+  returnedAt: takas.returnedAt,
+  originOrderId: takas.originOrderId,
+  originOrderNo: takaOriginOrderNo,
   enteredBy: takas.enteredBy,
   createdAt: takas.createdAt,
 };

@@ -9,6 +9,8 @@ import {
   challanReceiveSchema,
   compareTakaNo,
   parseChallanNo,
+  isTakaReady,
+  readyStagesOf,
   sendableStages,
   takaStageLabel,
   type ButtaListQuery,
@@ -100,20 +102,20 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
 export type SendMode = 'send' | 'refinish';
 
 /** Stages counted in a mode ("total") and the stage that is ready to send. */
-function modeStages(kind: ChallanKind, mode: SendMode): { notSent: TakaStage[]; ready: TakaStage } {
+function modeStages(kind: ChallanKind, mode: SendMode): { notSent: TakaStage[]; ready: TakaStage[] } {
   const cfg = CHALLAN_KIND_CONFIG[kind];
   if (mode === 'refinish') {
     if (!cfg.refinishStage) throw notFound('Refinish list');
-    return { notSent: [cfg.refinishStage], ready: cfg.refinishStage };
+    return { notSent: [cfg.refinishStage], ready: [cfg.refinishStage] };
   }
-  return { notSent: [...cfg.notSentStages], ready: cfg.readyStage };
+  return { notSent: [...cfg.notSentStages], ready: readyStagesOf(kind) };
 }
 
 /** Takas not yet sent on a challan of this kind (ready ones included) whose jobsheet is active. */
 const notSentWhere = (kind: ChallanKind, mode: SendMode = 'send') =>
   and(inArray(takas.stage, modeStages(kind, mode).notSent), eq(takas.isDeleted, false), eq(jobsheets.isDeleted, false));
 
-const isReadySql = (kind: ChallanKind, mode: SendMode = 'send') => sql`${takas.stage} = ${modeStages(kind, mode).ready}`;
+const isReadySql = (kind: ChallanKind, mode: SendMode = 'send') => sql`${inArray(takas.stage, modeStages(kind, mode).ready)}`;
 
 const pendingOrderColumns = (kind: ChallanKind, mode: SendMode = 'send') => ({
   orderId: orders.id,
@@ -229,7 +231,18 @@ export async function listPendingOrderTakas(kind: ChallanKind, orderId: number, 
       .where(and(notSentWhere(kind, mode), eq(orders.id, orderId)))
       .groupBy(orders.id),
     db
-      .select({ id: takas.id, takaNo: takas.takaNo, meters: takas.meters, pcs: takas.pcs, isDamaged: takas.isDamaged, stage: takas.stage, refinishCount: takas.refinishCount })
+      .select({
+        id: takas.id,
+        takaNo: takas.takaNo,
+        meters: takas.meters,
+        pcs: takas.pcs,
+        isDamaged: takas.isDamaged,
+        stage: takas.stage,
+        refinishCount: takas.refinishCount,
+        reworkCount: takas.reworkCount,
+        // The latest "go back" event: sent back by the owner (sent_back) or by a QC / the godown (sent_refinish).
+        lastBack: sql<string | null>`(SELECT e.event FROM taka_events e WHERE e.taka_id = "takas"."id" AND e.event IN ('sent_back', 'sent_refinish') ORDER BY e.id DESC LIMIT 1)`,
+      })
       .from(takas)
       .innerJoin(jobsheets, eq(jobsheets.id, takas.jobsheetId))
       .where(and(notSentWhere(kind, mode), eq(takas.orderId, orderId))),
@@ -239,7 +252,9 @@ export async function listPendingOrderTakas(kind: ChallanKind, orderId: number, 
   const more = await expectedMoreByOrder(kind, mode, [orderId]);
   return {
     order: withExpected(toPendingOrder(orderRows[0]), more),
-    takas: takaRows.map((t) => ({ ...t, ready: t.stage === ready })).sort((a, b) => compareTakaNo(a.takaNo, b.takaNo)),
+    takas: takaRows
+      .map(({ lastBack, ...t }) => ({ ...t, ready: ready.includes(t.stage), sentBackByOwner: t.stage === 'refinish' && lastBack === 'sent_back' }))
+      .sort((a, b) => compareTakaNo(a.takaNo, b.takaNo)),
   };
 }
 
@@ -258,15 +273,15 @@ export async function getKindCounts(kind: ChallanKind): Promise<KindCounts> {
   const pcsOf = sql`COALESCE(${takas.actualPcs}, ${takas.pcs}, 0)`;
   const [row] = await db
     .select({
-      pending: sql<number>`COALESCE(SUM(CASE WHEN ${takas.stage} = ${cfg.readyStage} THEN 1 ELSE 0 END), 0)`,
+      pending: sql<number>`COALESCE(SUM(CASE WHEN ${inArray(takas.stage, readyStagesOf(kind))} THEN 1 ELSE 0 END), 0)`,
       inKind: sql<number>`COALESCE(SUM(CASE WHEN ${takas.stage} = ${cfg.sentStage} THEN 1 ELSE 0 END), 0)`,
       refinish: sql<number>`COALESCE(SUM(CASE WHEN ${takas.stage} = ${cfg.refinishStage ?? '-'} THEN 1 ELSE 0 END), 0)`,
-      pendingPcs: sql<number>`COALESCE(SUM(CASE WHEN ${takas.stage} = ${cfg.readyStage} THEN ${pcsOf} ELSE 0 END), 0)`,
+      pendingPcs: sql<number>`COALESCE(SUM(CASE WHEN ${inArray(takas.stage, readyStagesOf(kind))} THEN ${pcsOf} ELSE 0 END), 0)`,
       inKindPcs: sql<number>`COALESCE(SUM(CASE WHEN ${takas.stage} = ${cfg.sentStage} THEN ${pcsOf} ELSE 0 END), 0)`,
     })
     .from(takas)
     .innerJoin(jobsheets, eq(jobsheets.id, takas.jobsheetId))
-    .where(and(eq(takas.isDeleted, false), eq(jobsheets.isDeleted, false), inArray(takas.stage, [cfg.readyStage, cfg.sentStage, ...(cfg.refinishStage ? [cfg.refinishStage] : [])])));
+    .where(and(eq(takas.isDeleted, false), eq(jobsheets.isDeleted, false), inArray(takas.stage, [...readyStagesOf(kind), cfg.sentStage, ...(cfg.refinishStage ? [cfg.refinishStage] : [])])));
   return {
     pending: Number(row?.pending ?? 0),
     inKind: Number(row?.inKind ?? 0),
@@ -307,6 +322,8 @@ export async function createChallan(kind: ChallanKind, role: RoleKey, input: unk
     if (!party) throw badRequest(`This ${cfg.partyLabel.toLowerCase()} no longer exists. Pick it again.`, 'partyId');
 
     const sendable: string[] = sendableStages(kind);
+    // A "re-trip" is a second trip of a taka: refinish at the mill, or a taka the owner sent back to butta cutting.
+    const retripStage = cfg.refinishStage ?? cfg.extraReadyStages?.[0];
     const rows: { id: number; takaNo: string; meters: number | null; pcs: number | null; stage: string; orderId: number; refinishCount: number }[] = [];
     for (const part of chunk(data.takaIds)) {
       rows.push(
@@ -344,8 +361,8 @@ export async function createChallan(kind: ChallanKind, role: RoleKey, input: unk
         updatedAt: at,
       })
       .returning({ id: challans.id });
-    // A refinish taka already has a (finished) trip on a challan of this kind: that row is closed before the new one.
-    const refinishIds = rows.filter((r) => r.stage === cfg.refinishStage).map((r) => r.id);
+    // A re-trip taka already has a (finished) trip on a challan of this kind: that row is closed before the new one.
+    const refinishIds = rows.filter((r) => r.stage === retripStage).map((r) => r.id);
     for (const part of chunk(refinishIds)) {
       await tx
         .update(challanTakas)
@@ -361,7 +378,7 @@ export async function createChallan(kind: ChallanKind, role: RoleKey, input: unk
           orderId: r.orderId,
           meters: r.meters,
           pcs: r.pcs,
-          isRefinish: r.stage === cfg.refinishStage,
+          isRefinish: r.stage === retripStage,
           createdAt: at,
           updatedAt: at,
         })),
@@ -383,7 +400,7 @@ export async function createChallan(kind: ChallanKind, role: RoleKey, input: unk
           takaId: r.id,
           event: KIND_EVENTS[kind].sent,
           challanId: challan.id,
-          note: `${challanLabel(challanNo, kind)} · ${party.name}${r.stage === cfg.refinishStage ? ` · refinish${r.refinishCount > 1 ? ` ×${r.refinishCount}` : ''}` : ''}`,
+          note: `${challanLabel(challanNo, kind)} · ${party.name}${r.stage === retripStage ? ` · ${kind === 'mill' ? 'refinish' : 're-butta'}${r.refinishCount > 1 && kind === 'mill' ? ` ×${r.refinishCount}` : ''}` : ''}`,
         }),
       ),
     );
@@ -617,9 +634,10 @@ export async function cancelChallan(kind: ChallanKind, role: RoleKey, id: number
     const at = now();
     // Conditional on the current stage: a taka that moved on meanwhile stops the whole cancel.
     // Refinish trips go back to the refinish list, everything else to the kind's ready stage.
+    // Re-trips (refinish at the mill / sent back to butta cutting) go back to their own list, the rest to the ready stage.
     for (const [isRefinish, backStage] of [
       [false, cfg.readyStage],
-      [true, cfg.refinishStage ?? cfg.readyStage],
+      [true, cfg.refinishStage ?? cfg.extraReadyStages?.[0] ?? cfg.readyStage],
     ] as const) {
       for (const part of chunk(rows.filter((r) => r.isRefinish === isRefinish).map((r) => r.takaId))) {
         const back = await tx
@@ -716,7 +734,7 @@ export async function receiveTakas(kind: ChallanKind, role: RoleKey, input: unkn
           ok: false,
           code: 'not_sent',
           message:
-            row.stage === cfg.readyStage || row.stage === 'entered'
+            isTakaReady(row.stage, kind) || row.stage === 'entered'
               ? `Taka ${row.takaNo} was not sent ${cfg.sentToText}`
               : `Taka ${row.takaNo} was not sent ${cfg.sentToText} (it is at: ${takaStageLabel(row.stage)})`,
         });

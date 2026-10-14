@@ -4,7 +4,9 @@ import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { env } from './env';
 import { errorHandler, notFoundHandler } from './middleware/error';
-import { roleMiddleware } from './middleware/role';
+import { authMiddleware } from './middleware/role';
+import { authRouter } from './routes/auth';
+import { usersRouter } from './routes/users';
 import { buttaQcRouter } from './routes/butta-qc';
 import { millQcRouter } from './routes/mill-qc';
 import { challansRouter } from './routes/challans';
@@ -23,9 +25,12 @@ import { partiesRouter } from './routes/parties';
 import { takaRouter } from './routes/taka';
 import { takasRouter } from './routes/takas';
 import { uploadsRouter } from './routes/uploads';
+import { dispatchRouter, dispatchedRouter } from './routes/dispatch';
 
 const app = express();
 app.disable('x-powered-by');
+// Behind Vercel / a proxy: req.ip (login rate limiting) comes from X-Forwarded-For.
+app.set('trust proxy', 1);
 app.set('etag', 'strong');
 app.use(compression());
 app.use(express.json({ limit: '1mb' }));
@@ -46,7 +51,10 @@ const api = express.Router();
 api.get('/health', (_req, res) => {
   res.json({ ok: true });
 });
-api.use(roleMiddleware);
+// Public: /health and /auth/login. Everything below needs a valid session (cookie).
+api.use('/auth', authRouter);
+api.use(authMiddleware);
+api.use('/users', usersRouter);
 api.use('/orders', ordersRouter);
 api.use('/customers', customersRouter);
 api.use('/materials', materialsRouter);
@@ -65,6 +73,8 @@ api.use('/butta-qc', buttaQcRouter);
 api.use('/mill-qc', millQcRouter);
 api.use('/godown', godownRouter);
 api.use('/inventory', inventoryRouter);
+api.use('/dispatch', dispatchRouter);
+api.use('/dispatched', dispatchedRouter);
 api.use('/lookup', lookupRouter);
 api.use('/uploads', uploadsRouter);
 api.use(notFoundHandler);

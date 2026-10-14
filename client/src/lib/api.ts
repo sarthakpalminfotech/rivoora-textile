@@ -1,5 +1,6 @@
 import type { ApiErrorBody, UploadResult } from '@rivoora/shared';
-import { ROLE_HEADER } from '@/config/roles';
+import { ACT_AS_HEADER } from '@/config/roles';
+import { authStore } from './auth-store';
 import { roleStore } from './role-store';
 
 export class ApiError extends Error {
@@ -34,7 +35,10 @@ interface RequestOptions {
 }
 
 async function request<T>(method: string, path: string, { query, body, signal }: RequestOptions = {}): Promise<T> {
-  const headers: Record<string, string> = { [ROLE_HEADER]: roleStore.get(), Accept: 'application/json' };
+  // The session cookie identifies the user; only a role-switching user (Jemish, Gaurang) acting as another role sends X-Act-As.
+  const headers: Record<string, string> = { Accept: 'application/json' };
+  const own = authStore.user()?.role;
+  if (own && roleStore.get() !== own) headers[ACT_AS_HEADER] = roleStore.get();
   let payload: BodyInit | undefined;
   if (body instanceof FormData) payload = body;
   else if (body !== undefined) {
@@ -44,12 +48,14 @@ async function request<T>(method: string, path: string, { query, body, signal }:
 
   let res: Response;
   try {
-    res = await fetch(`/api${path}${buildQuery(query)}`, { method, headers, body: payload, signal });
+    res = await fetch(`/api${path}${buildQuery(query)}`, { method, headers, body: payload, signal, credentials: 'same-origin' });
   } catch (err) {
     if ((err as Error).name === 'AbortError') throw err;
     throw new ApiError('Could not reach the server. Check your connection and try again.', 0);
   }
 
+  // The session ended (expired, logged out elsewhere, user deactivated): show the login screen.
+  if (res.status === 401 && path !== '/auth/login' && authStore.user()) authStore.signOut();
   if (res.status === 204) return undefined as T;
   const data = (await res.json().catch(() => null)) as unknown;
   if (!res.ok) {

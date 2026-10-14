@@ -4,7 +4,7 @@
  * To add a role: add its key to ROLE_KEYS, give it a config below and
  * add it to `visibleTo` of the statuses it may see (see statuses.ts).
  */
-export const ROLE_KEYS = ['jemish', 'gaurang', 'supervisor', 'taka_entry', 'godown_supervisor', 'qc'] as const;
+export const ROLE_KEYS = ['jemish', 'gaurang', 'supervisor', 'taka_entry', 'godown_supervisor', 'qc', 'dhruvil'] as const;
 export type RoleKey = (typeof ROLE_KEYS)[number];
 
 export interface RolePermissions {
@@ -64,6 +64,20 @@ export interface RolePermissions {
   canViewProductionOrders: boolean;
   /** Inventory module (/inventory): design-wise pcs, damaged stock. Jemish + Gaurang only (order lists show client names). */
   canViewInventory: boolean;
+  /** Send takas back to butta cutting / the mill from the order's Takas tab (Jemish, Gaurang). */
+  canReworkTakas: boolean;
+  /** Dispatch module: create dispatch challans (DC-n), the Dispatched screens. */
+  canDispatch: boolean;
+  /** Goods return (GR) on a dispatch challan. */
+  canGoodsReturn: boolean;
+  /** Move fresh final takas to another order of the same design. */
+  canMoveTakas: boolean;
+  /** Inventory → Damaged → Mark as fresh. */
+  canMarkFresh: boolean;
+  /** Act as another role (the profile menu's Switch role, X-Act-As header). */
+  canSwitchRoles: boolean;
+  /** The Users master. */
+  canManageUsers: boolean;
 }
 
 export interface RoleConfig {
@@ -79,6 +93,27 @@ export interface RoleConfig {
   jobsheetsTabWhenPending?: boolean;
   permissions: RolePermissions;
 }
+
+/** Sprint 12 permissions — everything off (spread into every role, then switched on where needed). */
+const NO_SPRINT12 = {
+  canReworkTakas: false,
+  canDispatch: false,
+  canGoodsReturn: false,
+  canMoveTakas: false,
+  canMarkFresh: false,
+  canSwitchRoles: false,
+  canManageUsers: false,
+};
+/** Jemish + Gaurang: all the Sprint 12 owner permissions. */
+const OWNER_SPRINT12 = {
+  canReworkTakas: true,
+  canDispatch: true,
+  canGoodsReturn: true,
+  canMoveTakas: true,
+  canMarkFresh: true,
+  canSwitchRoles: true,
+  canManageUsers: true,
+};
 
 const NO_TAKAS = { canUseTakaModules: false, canEnterTakas: false, canEditTakas: false, canViewTakas: false };
 const NO_BUTTA = { canUseButtaModule: false, canCancelChallan: false, canManageButtaParties: false, canButtaQc: false };
@@ -111,6 +146,7 @@ const NOTHING = {
   ...NO_TAKAS,
   ...NO_BUTTA,
   ...NO_MILL,
+  ...NO_SPRINT12,
 };
 
 export const ROLES: Record<RoleKey, RoleConfig> = {
@@ -150,6 +186,7 @@ export const ROLES: Record<RoleKey, RoleConfig> = {
       canUseGodownOrders: true,
       canViewInventory: true,
       canViewProductionOrders: false,
+      ...OWNER_SPRINT12,
     },
   },
   gaurang: {
@@ -189,6 +226,7 @@ export const ROLES: Record<RoleKey, RoleConfig> = {
       canUseGodownOrders: true,
       canViewInventory: true,
       canViewProductionOrders: false,
+      ...OWNER_SPRINT12,
     },
   },
   supervisor: {
@@ -218,6 +256,7 @@ export const ROLES: Record<RoleKey, RoleConfig> = {
       canViewTakas: true,
       ...NO_BUTTA,
       ...NO_MILL,
+      ...NO_SPRINT12,
       canViewProductionOrders: true,
     },
   },
@@ -251,6 +290,7 @@ export const ROLES: Record<RoleKey, RoleConfig> = {
       canViewTakas: true,
       ...NO_BUTTA,
       ...NO_MILL,
+      ...NO_SPRINT12,
     },
   },
   godown_supervisor: {
@@ -260,7 +300,8 @@ export const ROLES: Record<RoleKey, RoleConfig> = {
     initials: 'GS',
     landing: '/butta',
     // Restricted view: order numbers, design and quality only (no client, rate or other order details).
-    permissions: { ...NOTHING, canUseButtaModule: true, canUseMillModule: true, canUseGodownOrders: true },
+    // Sprint 12: the godown Orders module moved to Dhruvil — he keeps Butta cutting and Mill.
+    permissions: { ...NOTHING, canUseButtaModule: true, canUseMillModule: true },
   },
   // One person does both QCs: the Butta QC and the Mill QC share this role and one screen (/qc).
   qc: {
@@ -273,10 +314,29 @@ export const ROLES: Record<RoleKey, RoleConfig> = {
     // Restricted view: order number, design and quality only (never the client).
     permissions: { ...NOTHING, canButtaQc: true, canMillQc: true },
   },
+  // Dispatch (Sprint 12): the godown Orders module, dispatch challans, goods return, move to order. Sees client + rate.
+  dhruvil: {
+    key: 'dhruvil',
+    name: 'Dhruvil',
+    title: 'Dispatch',
+    initials: 'D',
+    landing: '/godown/orders',
+    permissions: {
+      ...NOTHING,
+      canSeeClient: true,
+      canSeeRate: true,
+      canUseGodownOrders: true,
+      canDispatch: true,
+      canGoodsReturn: true,
+      canMoveTakas: true,
+    },
+  },
 };
 
 export const DEFAULT_ROLE: RoleKey = 'jemish';
 export const ROLE_HEADER = 'X-Role';
+/** Header a role-switching user (Jemish, Gaurang) sends to act with another role's permissions. */
+export const ACT_AS_HEADER = 'X-Act-As';
 
 export function isRoleKey(value: unknown): value is RoleKey {
   return typeof value === 'string' && (ROLE_KEYS as readonly string[]).includes(value);

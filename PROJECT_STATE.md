@@ -1064,3 +1064,7 @@ Details live in `CLAUDE.md` → "Sprint 11". `npm run typecheck` clean, `npm tes
 - Run `npm run db:migrate` on Turso — migrations **0010** (Sprint 9) and **0011** are additive; until 0011 is applied, `GET /api/mill/challans` returns 500.
 - Browser check at 360 / 768 px: supervisor cards + Orders, Start & print flow, Taka entry (3 rows + warning), `/qc`, Mill → Receive count, dropdown scroll on a real tablet / phone.
 - Still not built: login/auth, dispatch, stock wipe-out flow, voice notes, jobsheets for kg / g / meter orders. Nothing from Sprints 9–11 is committed to git.
+
+## Sprint 12 (done, uncommitted) — current as of 2026-10-14
+
+Rework loops (send back to butta cutting / mill), Dhruvil role (godown Orders + dispatch challans DC-n + goods return GR with revisions + Move to order), Mark as fresh, real login + Users master. Full notes, API list and decisions are in the "Sprint 12" section of CLAUDE.md; spec: rivoora-sprint12-dispatch-login-prompt.md. Migration 0012 (additive) is tested on a local file DB only — run npm run db:migrate on Turso. Not done: responsive screenshot pass of the new screens.

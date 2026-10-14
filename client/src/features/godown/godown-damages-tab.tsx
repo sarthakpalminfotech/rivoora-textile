@@ -21,7 +21,7 @@ const STATES: { key: GodownDamageState; label: string; badge: string }[] = [
   { key: 'refinish', label: 'Refinish', badge: 'bg-amber-100 text-amber-800' },
 ];
 const isState = (v: string | null): v is GodownDamageState => STATES.some((s) => s.key === v);
-const TYPE_SHORT: Record<DamageType, string> = { machine: 'Machine', butta: 'Butta', mill: 'Mill', godown: 'Supervisor' };
+const TYPE_SHORT: Record<DamageType, string> = { machine: 'Machine', butta: 'Butta', mill: 'Mill', godown: 'Supervisor', customer_return: 'Customer return' };
 
 /** The taka's state, as a small soft badge with bold text (never a full-card colour). */
 function StateBadge({ stage }: { stage: string }) {

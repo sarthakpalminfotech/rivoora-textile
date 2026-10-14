@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type {
   DamagedItemCard,
   DamagedItemDetail,
@@ -8,9 +8,11 @@ import type {
   InventoryItemDetail,
   InventoryOrderRow,
   InventorySummary,
+  MarkFreshResult,
 } from '@rivoora/shared';
 import { useInfiniteList } from '@/hooks/useInfiniteList';
 import { api } from '@/lib/api';
+import { invalidateAfterWrite } from '../jobsheets/api';
 
 /**
  * Inventory queries. Keys all start with `['inventory']` — every taka / jobsheet / challan / QC / godown write
@@ -72,5 +74,14 @@ export function useDamagedTakas(key: string, type: DamageType | null, refinish: 
     queryKey: inventoryKeys.damagedTakas(key, type ?? '', refinish, search),
     queryFn: ({ signal }) => api.get<DamagedTakaRow[]>(`/inventory/damaged/${key}/takas`, { type, refinish: refinish ? 1 : undefined, search }, signal),
     ...live,
+  });
+}
+
+/** Mark as fresh: resolves every open damage of a taka (Jemish, Gaurang). */
+export function useMarkFresh() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (takaId: number) => api.post<MarkFreshResult>(`/inventory/takas/${takaId}/mark-fresh`),
+    onSuccess: () => invalidateAfterWrite(qc),
   });
 }

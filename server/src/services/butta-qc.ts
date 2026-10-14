@@ -1,5 +1,5 @@
 import { and, desc, eq, sql, type SQL } from 'drizzle-orm';
-import { buttaListQuerySchema, qcSubmitSchema, type ButtaListQuery, type QcPendingPage, type QcResult, type RoleKey } from '@rivoora/shared';
+import { buttaListQuerySchema, qcSubmitSchema, stageAfterButtaQc, type ButtaListQuery, type QcPendingPage, type QcResult, type RoleKey } from '@rivoora/shared';
 import { db } from '../db/client';
 import { challanTakas, challans, orders, takas } from '../db/schema';
 import { conflict, notFound } from '../lib/errors';
@@ -68,6 +68,7 @@ export async function submitQc(role: RoleKey, takaId: number, input: unknown): P
         orderId: takas.orderId,
         meters: takas.meters,
         pcs: takas.pcs,
+        refinishCount: takas.refinishCount,
       })
       .from(takas)
       .where(and(eq(takas.id, takaId), eq(takas.isDeleted, false)));
@@ -92,10 +93,16 @@ export async function submitQc(role: RoleKey, takaId: number, input: unknown): P
     );
     await refreshIsDamaged(tx, [takaId]);
 
-    // Done: waiting for the mill.
+    // Done: waiting for the mill — or, for a taka that has already been to the mill (re-butta), back to the godown.
+    const [mill] = await tx
+      .select({ id: challanTakas.id })
+      .from(challanTakas)
+      .where(and(eq(challanTakas.takaId, takaId), eq(challanTakas.kind, 'mill')))
+      .limit(1);
+    const nextStage = stageAfterButtaQc({ hasMillHistory: Boolean(mill), refinishCount: taka.refinishCount });
     const moved = await tx
       .update(takas)
-      .set({ stage: 'waiting_mill' })
+      .set({ stage: nextStage })
       .where(and(eq(takas.id, takaId), eq(takas.stage, 'butta_qc')))
       .returning({ isDamaged: takas.isDamaged });
     if (!moved.length) throw conflict(`Taka ${taka.takaNo} was just changed. Go back and open it again.`);

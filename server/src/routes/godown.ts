@@ -1,5 +1,7 @@
 import { Router } from 'express';
 import { godownListQuerySchema } from '@rivoora/shared';
+import { createDispatch } from '../services/dispatch';
+import { getMoveTargets, moveTakas } from '../services/move';
 import { ah, parseId } from '../lib/http';
 import { requirePermission } from '../middleware/role';
 import {
@@ -22,7 +24,7 @@ godownRouter.get(
   '/orders',
   ah(async (req, res) => {
     res.set('Cache-Control', 'no-store');
-    res.json(await listGodownOrders(godownListQuerySchema.parse(req.query)));
+    res.json(await listGodownOrders(req.role, godownListQuerySchema.parse(req.query)));
   }),
 );
 
@@ -30,7 +32,7 @@ godownRouter.get(
   '/orders/:orderId',
   ah(async (req, res) => {
     res.set('Cache-Control', 'no-store');
-    res.json(await getGodownOrder(parseId(req.params.orderId, 'order id')));
+    res.json(await getGodownOrder(req.role, parseId(req.params.orderId, 'order id')));
   }),
 );
 
@@ -46,6 +48,31 @@ godownRouter.post(
   '/orders/:orderId/ready-dispatch',
   ah(async (req, res) => {
     res.json(await confirmReadyDispatch(req.role, parseId(req.params.orderId, 'order id'), req.body));
+  }),
+);
+
+godownRouter.post(
+  '/orders/:orderId/dispatch',
+  requirePermission('canDispatch'),
+  ah(async (req, res) => {
+    res.status(201).json(await createDispatch(req.role, parseId(req.params.orderId, 'order id'), req.body));
+  }),
+);
+
+godownRouter.get(
+  '/orders/:orderId/move-targets',
+  requirePermission('canMoveTakas'),
+  ah(async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    res.json({ items: await getMoveTargets(req.role, parseId(req.params.orderId, 'order id')) });
+  }),
+);
+
+godownRouter.post(
+  '/takas/move',
+  requirePermission('canMoveTakas'),
+  ah(async (req, res) => {
+    res.json(await moveTakas(req.role, req.body));
   }),
 );
 

@@ -1,4 +1,4 @@
-import { AlertTriangle, CheckCircle2 } from 'lucide-react';
+import { AlertTriangle, Check, CheckCircle2 } from 'lucide-react';
 import {
   challanLabel,
   damageLabelOf,
@@ -14,9 +14,17 @@ import {
 } from '@rivoora/shared';
 import { Tooltip } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
+import { FromOrderTag, ReButtaTag, ReturnedTag, ReturnLotTag } from './taka-tags';
 
 type ChipTaka = Pick<Taka, 'takaNo' | 'meters' | 'pcs' | 'damages'> &
-  Partial<Pick<Taka, 'stage' | 'challanNo' | 'challanKind' | 'actualPcs' | 'refinishCount' | 'parentTakaNo' | 'godownCheckedAt'>>;
+  Partial<Pick<Taka, 'stage' | 'challanNo' | 'challanKind' | 'actualPcs' | 'refinishCount' | 'parentTakaNo' | 'godownCheckedAt' | 'reworkCount' | 'isReturnLot' | 'returnedAt' | 'originOrderNo'>>;
+
+/** Selection mode (send back): a tick box in front of the chip; `disabledReason` greys the chip out (shown as a tooltip). */
+export interface TakaChipSelect {
+  selected: boolean;
+  disabledReason: string | null;
+  onToggle: () => void;
+}
 
 /** A small colour dot for a taka's stage (colour from the pipeline config) with the stage label as its tooltip. */
 export function StageDot({ stage, className }: { stage: string; className?: string }) {
@@ -96,6 +104,8 @@ interface TakaChipProps {
   showChallan?: boolean;
   bilingual?: boolean;
   onClick?: () => void;
+  /** Selection mode: the chip becomes a tick-box row instead of opening the drawer. */
+  select?: TakaChipSelect;
   className?: string;
 }
 
@@ -103,7 +113,7 @@ interface TakaChipProps {
  * Taka chip: "6245 · 105.5 m · 12 pcs". Open damages make it red and list each damage; a taka whose damages are all
  * resolved shows a green "Fresh" tag and its resolved damages in grey. Clickable when `onClick` is given.
  */
-export function TakaChip({ taka, size = 'md', showStage, showChallan, bilingual, onClick, className }: TakaChipProps) {
+export function TakaChip({ taka, size = 'md', showStage, showChallan, bilingual, onClick, select, className }: TakaChipProps) {
   const damaged = hasOpenDamage(taka.damages);
   const fresh = isFreshAfterDamage(taka.damages);
   const lg = size === 'lg';
@@ -121,6 +131,9 @@ export function TakaChip({ taka, size = 'md', showStage, showChallan, bilingual,
         </span>
         {fresh && <FreshTag bilingual={bilingual} />}
         {(taka.refinishCount ?? 0) > 0 && <RefinishTag count={taka.refinishCount!} active={taka.stage === 'refinish'} />}
+        {(taka.reworkCount ?? 0) > 0 && <ReButtaTag count={taka.reworkCount!} />}
+        {taka.isReturnLot ? <ReturnLotTag /> : taka.returnedAt ? <ReturnedTag /> : null}
+        {taka.originOrderNo != null && <FromOrderTag orderNo={taka.originOrderNo} />}
         {taka.godownCheckedAt && taka.stage !== 'ready_dispatch' && (
           <span className="inline-flex items-center gap-0.5 rounded-full bg-green-50 px-1.5 py-0.5 text-[11px] font-bold text-green-700" title="Checked by the godown">
             <CheckCircle2 className="size-3" aria-hidden /> Checked
@@ -144,6 +157,37 @@ export function TakaChip({ taka, size = 'md', showStage, showChallan, bilingual,
     damaged ? 'border-red-200 bg-red-50 text-red-700' : 'border-slate-200 bg-slate-50 text-slate-800',
     className,
   );
+  if (select) {
+    const off = select.disabledReason !== null;
+    const row = (
+      <button
+        type="button"
+        disabled={off}
+        onClick={select.onToggle}
+        role="checkbox"
+        aria-checked={select.selected}
+        aria-label={`Select taka ${taka.takaNo}`}
+        className={cn(
+          chip,
+          'flex-row items-start gap-2.5 transition-colors focus-visible:ring-2 focus-visible:ring-primary/40',
+          select.selected && 'border-primary bg-primary-soft',
+          off && 'cursor-not-allowed opacity-50',
+        )}
+      >
+        <span
+          aria-hidden
+          className={cn(
+            'mt-1 flex size-5 shrink-0 items-center justify-center rounded-md border-2',
+            select.selected ? 'border-primary bg-primary text-white' : 'border-slate-300 bg-white text-transparent',
+          )}
+        >
+          <Check className="size-4" strokeWidth={3} />
+        </span>
+        <span className="flex min-w-0 flex-col items-start">{body}</span>
+      </button>
+    );
+    return <li className="max-w-full">{off ? <Tooltip content={select.disabledReason}><span className="inline-block max-w-full">{row}</span></Tooltip> : row}</li>;
+  }
   return (
     <li className="max-w-full">
       {onClick ? (

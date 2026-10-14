@@ -1,7 +1,8 @@
 import { ChevronRight, Ellipsis, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import { Suspense, useState } from 'react';
-import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
+import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { Modal } from '@/components/ui/modal';
+import { ROLES } from '@/config/roles';
 import { useRole } from '@/hooks/useRole';
 import { Bi } from '@/lib/bilingual';
 import { cn } from '@/lib/utils';
@@ -101,6 +102,31 @@ function Sidebar() {
         </button>
       </div>
     </aside>
+  );
+}
+
+/** A subtle bar while a role-switching user (Jemish, Gaurang) acts as another role. */
+function ActingAsBar() {
+  const { config, user, isActingAs, setRole } = useRole();
+  const navigate = useNavigate();
+  if (!user || !isActingAs) return null;
+  return (
+    <div className="flex items-center justify-center gap-2 border-b border-accent/30 bg-accent-soft px-4 py-1.5 text-[13px] text-accent-foreground">
+      <span>
+        Viewing as <b>{config.name}</b>
+      </span>
+      <span aria-hidden>·</span>
+      <button
+        type="button"
+        className="font-semibold underline underline-offset-2 hover:no-underline"
+        onClick={() => {
+          setRole(user.role);
+          navigate(ROLES[user.role].landing);
+        }}
+      >
+        Back to {user.name}
+      </button>
+    </div>
   );
 }
 
@@ -224,6 +250,7 @@ export function AppLayout() {
     <div className="flex min-h-[100dvh]">
       <Sidebar />
       <div className="flex min-w-0 flex-1 flex-col">
+        <ActingAsBar />
         <TopBar />
         <main className="flex-1 pb-[calc(5rem+env(safe-area-inset-bottom))] md:pb-10">
           <Suspense fallback={<PageSkeleton />}>

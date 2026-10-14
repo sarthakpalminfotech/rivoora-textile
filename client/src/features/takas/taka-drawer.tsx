@@ -45,6 +45,10 @@ const EVENT_LABEL: Record<TakaEventKind, string> = {
   godown_unchecked: 'Check removed (godown)',
   actual_pcs_changed: 'Actual pcs changed',
   ready_dispatch: 'Ready to dispatch',
+  sent_back: 'Sent back',
+  dispatched: 'Dispatched',
+  goods_returned: 'Goods returned (GR)',
+  moved_order: 'Moved to another order',
 };
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
@@ -166,10 +170,11 @@ function Body({ takaId }: { takaId: number }) {
                 <p className="text-sm font-semibold text-slate-800">
                   {EVENT_LABEL[e.event] ?? e.event}
                   {e.challanNo != null && <span className="ml-1.5 font-medium text-amber-700">{challanLabel(e.challanNo, e.challanKind ?? 'butta')}</span>}
+                  {e.dispatchChallanLabel && <span className="ml-1.5 font-medium text-teal-700">{e.dispatchChallanLabel}</span>}
                 </p>
                 {e.note && <p className="text-[13px] text-slate-600">{e.note}</p>}
                 <p className="text-xs text-muted-foreground">
-                  {formatDateTime(e.createdAt)} · {ROLES[e.role]?.name ?? e.role}
+                  {formatDateTime(e.createdAt)} · {e.userName ? `${e.userName} (${ROLES[e.role]?.name ?? e.role})` : (ROLES[e.role]?.name ?? e.role)}
                 </p>
               </li>
             ))}

@@ -78,3 +78,23 @@ database stores only their URLs. To move to cloud storage later, add a driver in
 it in `storage/index.ts`.
 
 See `CLAUDE.md` for architecture and conventions.
+
+## Login (Sprint 12)
+
+Everyone logs in with a 10-digit mobile number and a password (httpOnly cookie session, 30 days). `npm run db:migrate` creates the default users if their phone does not exist yet:
+
+| Name | Phone | Role | Default password |
+|---|---|---|---|
+| Jemish | 9999999999 | owner | `Rivoora@999` |
+| Gaurang | 8888888888 | partner | `Rivoora@888` |
+| Supervisor | 7777777777 | supervisor | `Rivoora@777` |
+| Taka entry | 6666666666 | taka_entry | `Rivoora@666` |
+| QC | 5555555555 | qc | `Rivoora@555` |
+| Godown supervisor | 4444444444 | godown_supervisor | `Rivoora@444` |
+| Dhruvil | 3333333333 | dispatch | `Rivoora@333` |
+
+The default password is `Rivoora@` + the first 3 digits of the phone. Change them in **Users** (Jemish / Gaurang) before real use.
+
+**Autofill button:** the login screen has a small *Autofill* button that fills the default password. It is controlled by `VITE_LOGIN_AUTOFILL` (build-time, default **on**). Set `VITE_LOGIN_AUTOFILL=false` in `client/.env` (and in the Vercel env) before real use.
+
+`node scripts/check-auth.mjs http://localhost:4000` runs the auth checks (every route rejects a request without a session, logout, role switching rules, rate limit) against a running API.

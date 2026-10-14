@@ -203,7 +203,7 @@ export const DAMAGE_STATUSES = ['open', 'resolved'] as const;
 export type DamageStatus = (typeof DAMAGE_STATUSES)[number];
 
 /** Where a damage was resolved (`taka_damages.resolved_stage`). */
-export const RESOLVED_STAGE_LABEL: Record<string, string> = { butta_qc: 'butta QC', mill_qc: 'mill QC', godown: 'the godown', split: 'a split' };
+export const RESOLVED_STAGE_LABEL: Record<string, string> = { butta_qc: 'butta QC', mill_qc: 'mill QC', godown: 'the godown', split: 'a split', inventory: 'Marked fresh in inventory' };
 
 /** The fields of one damage row that the labels need. */
 export interface DamageLike {
@@ -257,6 +257,7 @@ export function damageResolveSummary(d: Pick<DamageLike, 'pcs' | 'resolvedPcs' |
 export function damageResolvedText(d: Pick<DamageLike, 'status' | 'resolvedStage'>): string | null {
   if (d.status !== 'resolved') return null;
   const at = d.resolvedStage ? RESOLVED_STAGE_LABEL[d.resolvedStage] : null;
+  if (d.resolvedStage === 'inventory') return 'Marked fresh in inventory';
   return at ? `Resolved at ${at}` : 'Resolved';
 }
 

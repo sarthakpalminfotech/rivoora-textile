@@ -14,6 +14,7 @@ export const DAMAGE_DOT: Record<DamageType, string> = {
   butta: '#F59E0B',
   mill: '#8B5CF6',
   godown: '#64748B',
+  customer_return: '#0EA5E9',
 };
 
 /** One calm tile: one big number, a small label and a tiny coloured dot. Becomes a button when `onClick` is given. */

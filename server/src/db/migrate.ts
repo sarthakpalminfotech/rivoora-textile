@@ -1,6 +1,8 @@
 import { migrate } from 'drizzle-orm/libsql/migrator';
 import { resolve } from 'node:path';
 import { SERVER_ROOT } from '../env';
+import { DEFAULT_USERS } from '@rivoora/shared';
+import { seedDefaultUsers } from '../services/users';
 import { db, libsql } from './client';
 
 /**
@@ -86,6 +88,9 @@ async function main() {
     console.log(`Butta challans moved to the generic challan tables: ${after.challans} challans, ${after.takas} taka rows (counts match).`);
   }
   console.log('Migrations applied.');
+  // Sprint 12: the default logins (a phone that already exists is left alone).
+  const created = await seedDefaultUsers(DEFAULT_USERS);
+  console.log(created ? `Default users created: ${created}.` : 'Default users already exist.');
   libsql.close();
 }
 

@@ -1,5 +1,6 @@
 import { Router } from 'express';
-import { ah } from '../lib/http';
+import { ah, parseId } from '../lib/http';
+import { markTakaFresh } from '../services/move';
 import { requirePermission } from '../middleware/role';
 import {
   getDamagedItem,
@@ -25,4 +26,9 @@ inventoryRouter.get('/items/:key', ah(async (req, res) => res.json(await getInve
 inventoryRouter.get('/items/:key/orders', ah(async (req, res) => res.json(await listInventoryItemOrders(req.role, req.params.key, req.query))));
 inventoryRouter.get('/damaged', ah(async (req, res) => res.json(await listDamagedItems(req.role, req.query))));
 inventoryRouter.get('/damaged/:key', ah(async (req, res) => res.json(await getDamagedItem(req.role, req.params.key))));
+inventoryRouter.post(
+  '/takas/:id/mark-fresh',
+  requirePermission('canMarkFresh'),
+  ah(async (req, res) => res.json(await markTakaFresh(req.role, parseId(req.params.id, 'taka id')))),
+);
 inventoryRouter.get('/damaged/:key/takas', ah(async (req, res) => res.json(await listDamagedTakas(req.role, req.params.key, req.query))));

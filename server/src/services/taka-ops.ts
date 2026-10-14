@@ -1,4 +1,5 @@
 import { and, eq, inArray, sql } from 'drizzle-orm';
+import { currentUserId } from '../lib/request-context';
 import {
   initialTakaStage,
   jobsheetRefShort,
@@ -147,6 +148,8 @@ export interface TakaEventInput {
   challanId?: number | null;
   /** The damage a damage event is about (the damage details timeline). */
   takaDamageId?: number | null;
+  /** Sprint 12: the dispatch challan a dispatched / goods_returned event is about. */
+  dispatchChallanId?: number | null;
   note?: string | null;
 }
 
@@ -163,6 +166,8 @@ export async function writeTakaEvents(tx: Tx, role: RoleKey, events: TakaEventIn
         takaDamageId: e.takaDamageId ?? null,
         note: e.note ?? null,
         role,
+        userId: currentUserId(),
+        dispatchChallanId: e.dispatchChallanId ?? null,
         createdAt: at,
         updatedAt: at,
       })),

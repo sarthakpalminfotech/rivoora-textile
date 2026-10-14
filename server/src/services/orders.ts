@@ -1,4 +1,5 @@
 import { and, asc, count, desc, eq, gte, inArray, lte, or, sql, type SQL } from 'drizzle-orm';
+import { currentUserId } from '../lib/request-context';
 import { z } from 'zod';
 import {
   can,
@@ -324,7 +325,7 @@ export async function createOrder(role: RoleKey, input: unknown): Promise<{ id: 
     }
     await tx
       .insert(orderStatusHistory)
-      .values({ orderId: order.id, fromStatus: null, toStatus: STATUS.PENDING_PRODUCTION, role });
+      .values({ orderId: order.id, fromStatus: null, toStatus: STATUS.PENDING_PRODUCTION, role, userId: currentUserId() });
     return order;
   });
 }
@@ -391,7 +392,7 @@ async function changeStatus(
       const changedAt = new Date().toISOString();
       await tx
         .insert(orderStatusHistory)
-        .values(updated.map((o) => ({ orderId: o.id, fromStatus: from, toStatus: to, role, changedAt })));
+        .values(updated.map((o) => ({ orderId: o.id, fromStatus: from, toStatus: to, role, userId: currentUserId(), changedAt })));
     }
     return updated.map((o) => o.id);
   });

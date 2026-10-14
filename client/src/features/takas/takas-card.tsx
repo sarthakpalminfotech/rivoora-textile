@@ -1,10 +1,11 @@
-import { PackageCheck, Pencil } from 'lucide-react';
+import { CornerUpLeft, PackageCheck, Pencil } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import {
   formatMeters,
   formatPcs,
   JOBSHEET_STATUS,
+  reworkSelectable,
   takaStageShortLabel,
   TAKA_STAGES,
   totalMeters,
@@ -25,6 +26,7 @@ import { cn } from '@/lib/utils';
 import { FramesValue, machineNumbers, StatTile } from '../jobsheets/parts';
 import { useOrderTakas } from './api';
 import { EditTakasDialog, type EditTakasTarget } from './edit-takas-dialog';
+import { SendBackDialog, type SendBackTarget } from './send-back-dialog';
 import { StageDot, TakaChip } from './taka-chip';
 import { TakaDrawer } from './taka-drawer';
 
@@ -50,21 +52,40 @@ function Shell({ title = 'Takas', action, children }: { title?: string; action?:
  * Taka chips: "6245 · 105.5 m · 12 pcs" with a stage dot; open damages in red ("Machine damage · Hole · 2 pcs"),
  * resolved ones grey, and a green "Fresh" tag. Tapping a chip opens the taka details drawer (`onOpen`).
  */
+/** Selection mode of the Takas tab (send back): the ticked taka ids and a toggle. */
+export interface TakaSelection {
+  ids: Set<number>;
+  toggle: (t: Taka) => void;
+}
+
 export function TakaChips({
   takas,
   onOpen,
   showStage = true,
   showChallan = false,
+  selection,
 }: {
   takas: Taka[];
   onOpen?: (t: Taka) => void;
   showStage?: boolean;
   showChallan?: boolean;
+  selection?: TakaSelection;
 }) {
   return (
     <ul className="flex flex-wrap gap-1.5">
       {takas.map((t) => (
-        <TakaChip key={t.id} taka={t} showStage={showStage} showChallan={showChallan} onClick={onOpen ? () => onOpen(t) : undefined} />
+        <TakaChip
+          key={t.id}
+          taka={t}
+          showStage={showStage}
+          showChallan={showChallan}
+          onClick={onOpen ? () => onOpen(t) : undefined}
+          select={
+            selection
+              ? { selected: selection.ids.has(t.id), disabledReason: reworkSelectable(t.stage).reason, onToggle: () => selection.toggle(t) }
+              : undefined
+          }
+        />
       ))}
     </ul>
   );
@@ -130,6 +151,7 @@ function TakaGroup({
   header,
   onEdit,
   onOpen,
+  selection,
 }: {
   group: JobsheetTakaGroup;
   filter: Filter;
@@ -137,6 +159,7 @@ function TakaGroup({
   header: boolean;
   onEdit?: () => void;
   onOpen?: (t: Taka) => void;
+  selection?: TakaSelection;
 }) {
   const shown = group.takas.filter((t) => (filter === 'damaged' ? t.isDamaged : true) && (stage === 'all' || t.stage === stage));
   const machine = machineText(group);
@@ -163,7 +186,7 @@ function TakaGroup({
           ) : (
             <span />
           )}
-          {onEdit && (
+          {onEdit && !selection && (
             <Button variant="secondary" size="sm" onClick={onEdit}>
               <Pencil /> Edit takas
             </Button>
@@ -175,7 +198,7 @@ function TakaGroup({
       ) : shown.length === 0 ? (
         <p className="text-sm text-muted-foreground">{filter === 'damaged' ? 'No damaged takas' : 'No takas in this stage'}</p>
       ) : (
-        <TakaChips takas={shown} onOpen={onOpen} />
+        <TakaChips takas={shown} onOpen={onOpen} selection={selection} />
       )}
       {group.note && (
         <p className="mt-2.5 whitespace-pre-line rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-700">
@@ -219,7 +242,28 @@ export function OrderTakasCard({ order }: { order: OrderDetail }) {
   const [stage, setStage] = useState<StageFilter>('all');
   const [editing, setEditing] = useState<EditTakasTarget | null>(null);
   const [openTaka, setOpenTaka] = useState<Taka | null>(null);
+  const [selecting, setSelecting] = useState(false);
+  const [picked, setPicked] = useState<Map<number, Taka>>(new Map());
+  const [sendTarget, setSendTarget] = useState<SendBackTarget | null>(null);
   const canEdit = can('canEditTakas');
+  const canRework = can('canReworkTakas');
+  const stopSelecting = () => {
+    setSelecting(false);
+    setPicked(new Map());
+    setSendTarget(null);
+  };
+  const selection: TakaSelection | undefined = selecting
+    ? {
+        ids: new Set(picked.keys()),
+        toggle: (t) =>
+          setPicked((prev) => {
+            const next = new Map(prev);
+            if (next.has(t.id)) next.delete(t.id);
+            else next.set(t.id, t);
+            return next;
+          }),
+      }
+    : undefined;
   const data = query.data;
   // Only the stages that have takas get a pill.
   const stagesPresent = TAKA_STAGES.filter((s) => data?.groups.some((g) => g.takas.some((t) => t.stage === s)));
@@ -257,6 +301,7 @@ export function OrderTakasCard({ order }: { order: OrderDetail }) {
               stage={activeStage}
               header
               onOpen={setOpenTaka}
+              selection={selection}
               // A jobsheet without takas can only get them once it is completed.
               onEdit={canEdit && (g.takas.length > 0 || g.status === JOBSHEET_STATUS.COMPLETED) ? () => setEditing(toTarget(g)) : undefined}
             />
@@ -267,8 +312,42 @@ export function OrderTakasCard({ order }: { order: OrderDetail }) {
   }
 
   return (
-    <Shell action={data && data.total > 0 ? <FilterToggle value={filter} onChange={setFilter} damaged={data.damaged} /> : undefined}>
+    <Shell
+      action={
+        data && data.total > 0 ? (
+          <div className="flex flex-wrap items-center gap-2">
+            {canRework && !selecting && (
+              <Button variant="secondary" size="sm" onClick={() => setSelecting(true)}>
+                <CornerUpLeft /> Select
+              </Button>
+            )}
+            <FilterToggle value={filter} onChange={setFilter} damaged={data.damaged} />
+          </div>
+        ) : undefined
+      }
+    >
       {body}
+      {selecting && (
+        <div className="sticky bottom-20 z-10 mt-4 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border bg-white p-3 shadow-card md:bottom-4">
+          <p className="text-[15px] font-semibold tabular-nums text-slate-900">
+            {picked.size} taka{picked.size === 1 ? '' : 's'} selected
+          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button size="sm" disabled={picked.size === 0} onClick={() => setSendTarget('butta')}>
+              Send back to butta cutting
+            </Button>
+            <Button size="sm" variant="secondary" disabled={picked.size === 0} onClick={() => setSendTarget('mill')}>
+              Send back to mill
+            </Button>
+            <Button size="sm" variant="ghost" onClick={stopSelecting}>
+              Cancel
+            </Button>
+          </div>
+        </div>
+      )}
+      {canRework && (
+        <SendBackDialog orderId={order.id} target={sendTarget} takas={[...picked.values()]} onClose={() => setSendTarget(null)} onDone={stopSelecting} />
+      )}
       {canEdit && <EditTakasDialog target={editing} onClose={() => setEditing(null)} />}
       <TakaDrawer takaId={openTaka?.id ?? null} takaNo={openTaka?.takaNo} onClose={() => setOpenTaka(null)} />
     </Shell>

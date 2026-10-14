@@ -1,5 +1,5 @@
 import { QueryClientProvider } from '@tanstack/react-query';
-import { lazy, Suspense, type ReactNode } from 'react';
+import { lazy, Suspense, useEffect, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { createBrowserRouter, Navigate, RouterProvider } from 'react-router-dom';
 import { Toaster } from 'sonner';
 import { AppLayout } from '@/components/layout/app-layout';
@@ -8,7 +8,10 @@ import { PageTitleProvider } from '@/components/layout/page-title';
 import { LandingRedirect, NotFoundOrLanding, RequirePermission } from '@/components/layout/require-permission';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import type { RolePermissions } from '@/config/roles';
+import { Button } from '@/components/ui/button';
 import { useRole } from '@/hooks/useRole';
+import { loadSession } from '@/features/auth/api';
+import { authStore } from '@/lib/auth-store';
 import { queryClient } from '@/lib/query-client';
 import RouteError from '@/pages/route-error';
 
@@ -46,6 +49,12 @@ const SplitPage = lazy(() => import('@/features/godown/split-page'));
 const InventoryPage = lazy(() => import('@/features/inventory/inventory-page'));
 const InventoryItemDetailsPage = lazy(() => import('@/features/inventory/item-details-page'));
 const DamagedDetailsPage = lazy(() => import('@/features/inventory/damaged-details-page'));
+const DispatchPrintPage = lazy(() => import('@/features/dispatch/print-page'));
+const DispatchedPage = lazy(() => import('@/features/dispatch/dispatched-page'));
+const DispatchedOrderPage = lazy(() => import('@/features/dispatch/dispatched-order-page'));
+const GoodsReturnPage = lazy(() => import('@/features/dispatch/goods-return-page'));
+const UsersPage = lazy(() => import('@/features/masters/users/users-page'));
+const LoginPage = lazy(() => import('@/features/auth/login-page'));
 const NotFoundPage = lazy(() => import('@/pages/not-found-page'));
 
 const guard = (permission: keyof RolePermissions | (keyof RolePermissions)[], element: ReactNode) => (
@@ -121,9 +130,21 @@ const router = createBrowserRouter([
         ),
       },
       {
+        path: '/print/dispatch-challan/:id',
+        element: (
+          <Suspense fallback={<PageSkeleton />}>
+            <RequirePermission permission="canDispatch">
+              <DispatchPrintPage />
+            </RequirePermission>
+          </Suspense>
+        ),
+      },
+      {
         element: <AppLayout />,
         children: [
           { index: true, element: <LandingRedirect /> },
+          // Logged-in users who open /login go to their landing page.
+          { path: 'login', element: <LandingRedirect /> },
           { path: 'orders', element: guard(['canViewOrders', 'canViewProductionOrders'], <OrdersPage />) },
           { path: 'orders/:id', element: guard(['canViewOrders', 'canViewProductionOrders'], <OrderDetailsPage />) },
           { path: 'customers', element: guard('canViewMasters', <CustomersPage />) },
@@ -155,6 +176,11 @@ const router = createBrowserRouter([
           { path: 'inventory', element: guard('canViewInventory', <InventoryPage />) },
           { path: 'inventory/items/:key', element: guard('canViewInventory', <InventoryItemDetailsPage />) },
           { path: 'inventory/damaged/:key', element: guard('canViewInventory', <DamagedDetailsPage />) },
+          // Dispatch (Dhruvil; Jemish / Gaurang too): the Dispatched module and goods return.
+          { path: 'dispatched', element: guard('canDispatch', <DispatchedPage />) },
+          { path: 'dispatched/:orderId', element: guard('canDispatch', <DispatchedOrderPage />) },
+          { path: 'dispatched/:orderId/challans/:challanId/gr', element: guard('canGoodsReturn', <GoodsReturnPage />) },
+          { path: 'users', element: guard('canManageUsers', <UsersPage />) },
           { path: 'jobsheets', element: <JobsheetsRoute /> },
           // The supervisor's Order view: one order's jobsheets.
           { path: 'jobsheets/order/:orderId', element: guard('canViewJobsheetsModule', <SupervisorOrderJobsheetsPage />) },
@@ -177,12 +203,54 @@ function RoleScopedRouter() {
   return <RouterProvider key={role} router={router} />;
 }
 
+/**
+ * Login gate. Nobody logged in → the login screen on whatever URL was opened (the router mounts on the same URL after
+ * login, so the user lands back where they were going — a QR link, a deep link…). A 401 anywhere brings it back.
+ */
+function AuthGate() {
+  const auth = useSyncExternalStore(authStore.subscribe, authStore.get);
+  const [failed, setFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
+
+  useEffect(() => {
+    let alive = true;
+    setFailed(false);
+    void loadSession().then((r) => alive && setFailed(r === 'error'));
+    return () => {
+      alive = false;
+    };
+  }, [attempt]);
+
+  if (auth.status === 'in') return <RoleScopedRouter />;
+  if (auth.status === 'out') {
+    return (
+      <Suspense fallback={<PageSkeleton />}>
+        <LoginPage />
+      </Suspense>
+    );
+  }
+  if (failed) {
+    return (
+      <div className="flex min-h-[100dvh] flex-col items-center justify-center gap-3 px-4 text-center">
+        <p className="text-base font-semibold text-slate-900">Could not reach the server</p>
+        <p className="text-sm text-muted-foreground">Check your connection and try again.</p>
+        <Button onClick={() => setAttempt((n) => n + 1)}>Try again</Button>
+      </div>
+    );
+  }
+  return (
+    <div className="flex min-h-[100dvh] items-center justify-center">
+      <img src="/favicon.svg" alt="Rivoora Textile" className="size-12 animate-pulse" />
+    </div>
+  );
+}
+
 export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider delayDuration={150}>
         <PageTitleProvider>
-          <RoleScopedRouter />
+          <AuthGate />
           <Toaster position="top-center" richColors closeButton toastOptions={{ className: 'font-sans' }} />
         </PageTitleProvider>
       </TooltipProvider>

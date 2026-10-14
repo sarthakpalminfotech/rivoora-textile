@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { MAX_PASSWORD_LENGTH, MIN_PASSWORD_LENGTH } from './auth';
+import { ROLE_KEYS } from './roles';
 import { normalizeCode } from './codes';
 import { ORDER_TYPES } from './orderTypes';
 import { UNITS } from './units';
@@ -588,3 +590,104 @@ export const challanReceivedCountSchema = z.object({
   count: z.number({ required_error: 'Enter how many takas were received', invalid_type_error: 'Enter how many takas were received' }).int('Use a whole number').min(0, 'Cannot be negative').max(10_000),
 });
 export type ChallanReceivedCountInput = z.input<typeof challanReceivedCountSchema>;
+
+/* ---------- Login + users (Sprint 12) ---------- */
+
+export const loginSchema = z.object({
+  phone: z.string().trim().regex(/^\d{10}$/, 'Wrong number or password'),
+  password: z.string().min(1, 'Wrong number or password').max(MAX_PASSWORD_LENGTH),
+});
+export type LoginInput = z.input<typeof loginSchema>;
+
+const userPassword = z
+  .string()
+  .min(MIN_PASSWORD_LENGTH, `At least ${MIN_PASSWORD_LENGTH} characters`)
+  .max(MAX_PASSWORD_LENGTH, `At most ${MAX_PASSWORD_LENGTH} characters`);
+
+const userFields = {
+  name: z.string().trim().min(1, 'Enter the name').max(80, 'At most 80 characters'),
+  phone: z.string().trim().regex(/^\d{10}$/, 'Enter a 10-digit mobile number'),
+  role: z.enum(ROLE_KEYS, { errorMap: () => ({ message: 'Pick a role' }) }),
+  isActive: z.boolean().default(true),
+};
+
+/** POST /users — no password = the default password (Rivoora@ + the first 3 digits of the phone). */
+export const userCreateSchema = z.object({ ...userFields, password: userPassword.optional() });
+export type UserCreateInput = z.input<typeof userCreateSchema>;
+
+/** PUT /users/:id (no password here — use reset-password). */
+export const userUpdateSchema = z.object(userFields);
+export type UserUpdateInput = z.input<typeof userUpdateSchema>;
+
+/** POST /users/:id/reset-password — no password = the default password. */
+export const userResetPasswordSchema = z.object({ password: userPassword.optional() });
+export type UserResetPasswordInput = z.input<typeof userResetPasswordSchema>;
+
+/* ---------- Rework, dispatch, GR, move, mark fresh (Sprint 12) ---------- */
+
+const takaIdList = (what: string) =>
+  z
+    .array(z.number().int().positive(), { required_error: `Select at least one ${what}` })
+    .min(1, `Select at least one ${what}`)
+    .max(2000)
+    .transform((ids) => [...new Set(ids)]);
+
+/** POST /orders/:id/takas/send-back */
+export const sendBackSchema = z.object({
+  takaIds: takaIdList('taka'),
+  target: z.enum(['butta', 'mill']),
+  note: optText(300),
+});
+export type SendBackInput = z.input<typeof sendBackSchema>;
+
+const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Pick a date');
+
+/** POST /godown/orders/:id/dispatch */
+export const dispatchSchema = z.object({
+  challanDate: isoDate,
+  transport: optText(80),
+  lrNo: optText(40),
+  ewayNo: optText(40),
+});
+export type DispatchInput = z.input<typeof dispatchSchema>;
+
+/** A damage on a returned item: master name or Other, damaged pcs, optional photos (like the QC damages). */
+const grDamage = qcNewDamageSchema;
+
+/**
+ * POST /dispatch/challans/:id/goods-return — lump: the returned takas (each with optional damages);
+ * pcs to pcs: returned + damaged pcs (and the damage when damaged > 0). Plus the date and a note.
+ */
+export const goodsReturnSchema = z.union([
+  z.object({
+    returns: z
+      .array(z.object({ takaId: z.number().int().positive(), damages: z.array(grDamage).max(MAX_DAMAGES_PER_TAKA).default([]) }))
+      .min(1, 'Tick at least one returned taka')
+      .max(2000),
+    date: isoDate,
+    note: optText(300),
+  }),
+  z.object({
+    returnedPcs: z.number({ invalid_type_error: 'Enter the returned pcs' }).int('Use a whole number').min(1, 'At least 1 pcs').max(100000),
+    damagedPcs: z.number({ invalid_type_error: 'Enter the damaged pcs' }).int('Use a whole number').min(0).max(100000).default(0),
+    damage: grDamage.optional(),
+    date: isoDate,
+    note: optText(300),
+  }),
+]);
+export type GoodsReturnInput = z.input<typeof goodsReturnSchema>;
+
+/** POST /godown/takas/move */
+export const moveTakasSchema = z.object({
+  takaIds: takaIdList('taka'),
+  targetOrderId: z.number().int().positive('Pick the order'),
+});
+export type MoveTakasInput = z.input<typeof moveTakasSchema>;
+
+/** GET /dispatched */
+export const dispatchedListQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+  search: listSearch,
+});
+export type DispatchedListQuery = z.infer<typeof dispatchedListQuerySchema>;

@@ -12,6 +12,8 @@ import {
   ScanLine,
   Scissors,
   Store,
+  Truck,
+  UserCog,
   Users,
   Warehouse,
   type LucideIcon,
@@ -47,8 +49,9 @@ export const NAV_ITEMS: NavItem[] = [
   { to: '/qc', label: 'QC', hi: 'क्यूसी', icon: BadgeCheck, permission: 'canButtaQc', group: 'main' },
   // Inventory: design-wise pcs and damaged stock (Jemish, Gaurang).
   { to: '/inventory', label: 'Inventory', icon: Boxes, permission: 'canViewInventory', group: 'main' },
-  // Godown supervisor: final takas, split, ready to dispatch.
+  // Dhruvil (dispatch): final takas, split, ready to dispatch, dispatch challans. Jemish / Gaurang have their own Orders.
   { to: '/godown/orders', label: 'Orders', icon: Warehouse, permission: 'canUseGodownOrders', group: 'main', hideWith: 'canViewOrders' },
+  { to: '/dispatched', label: 'Dispatched', icon: Truck, permission: 'canDispatch', group: 'main' },
   { to: '/customers', label: 'Customers', icon: Users, permission: 'canViewMasters', group: 'masters' },
   { to: '/materials', label: 'Materials', icon: Layers, permission: 'canViewMasters', group: 'masters' },
   { to: '/designs', label: 'Designs', icon: Palette, permission: 'canViewMasters', group: 'masters' },
@@ -56,6 +59,7 @@ export const NAV_ITEMS: NavItem[] = [
   { to: '/damages', label: 'Damage master', icon: Bandage, permission: 'canViewMasters', group: 'masters' },
   { to: '/butta-parties', label: 'Butta parties', icon: Store, permission: 'canManageButtaParties', group: 'masters' },
   { to: '/mill-parties', label: 'Mill parties', icon: Store, permission: 'canManageMillParties', group: 'masters' },
+  { to: '/users', label: 'Users', icon: UserCog, permission: 'canManageUsers', group: 'masters' },
 ];
 
 export function navItemsFor(can: (p: keyof RolePermissions) => boolean): NavItem[] {

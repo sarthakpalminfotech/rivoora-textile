@@ -30,6 +30,7 @@ import { formatOrderNo, toApiDate } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { usePartyLookup } from '../masters/api';
 import { fetchPendingOrderTakas, useCreateChallan, usePendingOrders, usePendingOrderTakas, type SendMode } from './api';
+import { ReButtaTag, ReMillTag } from '../takas/taka-tags';
 import { challanPrintPath } from './kind';
 
 /** orderId → the ids of its READY takas that are ticked (the takas themselves are cached in `known`). */
@@ -306,6 +307,7 @@ function TakasDrawer({
                       <span className="size-7 shrink-0" aria-hidden />
                     )}
                     <span className={cn('text-xl font-bold tabular-nums', t.ready ? 'text-slate-900' : 'text-slate-400')}>{t.takaNo}</span>
+                    {(t.reworkCount ?? 0) > 0 && (t.stage === 'rework_butta' || t.ready) && <ReButtaTag count={t.reworkCount!} />}
                     <span className="ml-auto text-right text-[15px] font-semibold tabular-nums">
                       <span className={t.ready ? 'text-slate-600' : 'text-slate-400'}>{t.meters != null ? formatMeters(t.meters) : '—'}</span>
                       <span className="ml-2 text-slate-400">{t.pcs != null ? formatPcs(t.pcs) : '—'}</span>
@@ -315,6 +317,7 @@ function TakasDrawer({
                         Refinish{(t.refinishCount ?? 0) > 1 ? ` ×${t.refinishCount}` : ''}
                       </span>
                     )}
+                    {mode === 'refinish' && t.sentBackByOwner && <ReMillTag />}
                     {!t.ready && (
                       <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-slate-200/70 px-2.5 py-0.5 text-[11px] font-semibold text-slate-600">
                         {takaStageStatusText(t.stage)}

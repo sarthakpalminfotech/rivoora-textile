@@ -11,7 +11,7 @@ import type { JobsheetStatusKey } from './statuses';
  */
 
 /** Takas in these stages are "in making" (everything before the godown). */
-export const MAKING_STAGES: readonly string[] = ['entered', 'at_butta', 'butta_qc', 'waiting_mill', 'at_mill', 'mill_qc'];
+export const MAKING_STAGES: readonly string[] = ['entered', 'rework_butta', 'at_butta', 'butta_qc', 'waiting_mill', 'at_mill', 'mill_qc'];
 /** Damaged stock that is physically in the godown. */
 export const DAMAGED_STOCK_STAGES: readonly string[] = ['final', 'ready_dispatch'];
 

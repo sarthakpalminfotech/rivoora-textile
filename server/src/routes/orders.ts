@@ -14,6 +14,7 @@ import {
 import { addSingleJobsheet, generateJobsheets, listOrderJobsheets, sendJobsheets } from '../services/jobsheets';
 import { listOrderChallans } from '../services/challans';
 import { listOrderTakas } from '../services/takas';
+import { sendBackTakas } from '../services/rework';
 import { getDashboardItems, getOrderDamages, getOrderDashboard } from '../services/dashboard';
 
 export const ordersRouter = Router();
@@ -57,6 +58,14 @@ ordersRouter.put(
   requirePermission('canEditOrder'),
   ah(async (req, res) => {
     res.json(await updateOrder(req.role, parseId(req.params.id), req.body));
+  }),
+);
+
+ordersRouter.post(
+  '/:id/takas/send-back',
+  requirePermission('canReworkTakas'),
+  ah(async (req, res) => {
+    res.json(await sendBackTakas(req.role, parseId(req.params.id), req.body));
   }),
 );
 

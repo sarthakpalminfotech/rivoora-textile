@@ -60,6 +60,9 @@ export const TAKA_STAGES = [
   'final',
   'refinish',
   'ready_dispatch',
+  // Sprint 12: sent back to butta cutting by the owner · handed to the client on a dispatch challan.
+  'rework_butta',
+  'dispatched',
 ] as const;
 export type TakaStage = (typeof TAKA_STAGES)[number];
 export const DEFAULT_TAKA_STAGE: TakaStage = 'entered';
@@ -86,6 +89,8 @@ export const SUB_STAGE_KEYS = [
   'refinish',
   'final',
   'ready_dispatch',
+  'rework_butta',
+  'dispatched',
 ] as const;
 export type SubStageKey = (typeof SUB_STAGE_KEYS)[number];
 
@@ -113,6 +118,8 @@ export const SUB_STAGES: readonly SubStageConfig[] = [
   // Butta cutting — connected in Sprint 7.
   { key: 'at_butta', label: 'At butta cutting', shortLabel: 'At butta cutting', mainStage: 'butta', unit: 'takas', colour: '#F59E0B', connected: true, takaStages: ['at_butta'] },
   { key: 'butta_qc', label: 'Received · QC pending', shortLabel: 'QC pending', mainStage: 'butta', unit: 'takas', colour: '#EAB308', connected: true, takaStages: ['butta_qc'] },
+  // Sprint 12: sent back to butta cutting by Jemish / Gaurang, waiting for the next butta challan.
+  { key: 'rework_butta', label: 'Sent back to butta cutting · waiting', shortLabel: 'Sent back · waiting', mainStage: 'butta', unit: 'takas', colour: '#FB923C', connected: true, takaStages: ['rework_butta'] },
   // Mill — connected in Sprint 8 (send / receive on mill challans). The Mill QC comes in a later sprint.
   { key: 'waiting_mill', label: 'Waiting for mill', shortLabel: 'Waiting for mill', mainStage: 'mill', unit: 'takas', colour: '#D97706', connected: true, takaStages: ['waiting_mill'] },
   { key: 'at_mill', label: 'At mill (dyeing)', shortLabel: 'At mill', mainStage: 'mill', unit: 'takas', colour: '#8B5CF6', connected: true, takaStages: ['at_mill'] },
@@ -122,6 +129,8 @@ export const SUB_STAGES: readonly SubStageConfig[] = [
   // Ready — Sprint 9: Mill QC done (final takas with the godown supervisor), then confirmed ready to dispatch.
   { key: 'final', label: 'Final takas (godown)', shortLabel: 'Final takas', mainStage: 'ready', unit: 'takas', colour: '#10B981', connected: true, takaStages: ['final'] },
   { key: 'ready_dispatch', label: 'Ready for dispatch', shortLabel: 'Ready for dispatch', mainStage: 'ready', unit: 'takas', colour: '#059669', connected: true, takaStages: ['ready_dispatch'] },
+  // Sprint 12: dispatched to the client on a dispatch challan (DC-n).
+  { key: 'dispatched', label: 'Dispatched', shortLabel: 'Dispatched', mainStage: 'ready', unit: 'takas', colour: '#0F766E', connected: true, takaStages: ['dispatched'] },
 ];
 
 const subByKey = new Map<string, SubStageConfig>(SUB_STAGES.map((s) => [s.key, s]));
@@ -196,7 +205,7 @@ export function jobsheetSubStage(status: string, takaCount: number): JobsheetSub
 /* Damage types                                                         */
 /* ------------------------------------------------------------------ */
 
-export const DAMAGE_TYPES = ['machine', 'butta', 'mill', 'godown'] as const;
+export const DAMAGE_TYPES = ['machine', 'butta', 'mill', 'godown', 'customer_return'] as const;
 export type DamageType = (typeof DAMAGE_TYPES)[number];
 
 export interface DamageTypeConfig {
@@ -213,6 +222,7 @@ export const DAMAGE_TYPE_CONFIG: readonly DamageTypeConfig[] = [
   { key: 'butta', label: 'Butta cutting damage', recordedWhen: 'At the QC after butta cutting', connected: true },
   { key: 'mill', label: 'Mill damage', recordedWhen: 'At the QC after the mill', connected: true },
   { key: 'godown', label: 'Supervisor marked', recordedWhen: 'By the godown supervisor', connected: true },
+  { key: 'customer_return', label: 'Customer return', recordedWhen: 'At goods return (GR)', connected: true },
 ];
 
 export const DAMAGE_TYPE_LABEL = Object.fromEntries(DAMAGE_TYPE_CONFIG.map((d) => [d.key, d.label])) as Record<DamageType, string>;
@@ -258,6 +268,8 @@ export const TAKA_STAGE_STATUS_TEXT: Record<TakaStage, string> = {
   final: 'Final takas (godown)',
   refinish: 'Refinish',
   ready_dispatch: 'Ready for dispatch',
+  rework_butta: 'Sent back to butta cutting',
+  dispatched: 'Dispatched',
 };
 
 export function takaStageStatusText(stage: string): string {

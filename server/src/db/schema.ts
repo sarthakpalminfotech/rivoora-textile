@@ -208,6 +208,8 @@ export const orderStatusHistory = sqliteTable(
     fromStatus: text('from_status').$type<OrderStatusKey>(),
     toStatus: text('to_status').$type<OrderStatusKey>().notNull(),
     role: text('role').$type<RoleKey>().notNull(),
+    /** Sprint 12: the real logged-in user. Null on older rows. */
+    userId: integer('user_id'),
     changedAt: text('changed_at').notNull().default(nowIso),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
@@ -283,6 +285,8 @@ export const jobsheetEvents = sqliteTable(
     frames: integer('frames'),
     note: text('note'),
     role: text('role').$type<RoleKey>().notNull(),
+    /** Sprint 12: the real logged-in user. Null on older rows. */
+    userId: integer('user_id'),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
@@ -353,6 +357,15 @@ export const takas = sqliteTable(
     /** Ticked by the godown supervisor ("I have checked this taka"). */
     godownCheckedAt: text('godown_checked_at'),
     godownCheckedBy: text('godown_checked_by').$type<RoleKey>(),
+    /** Sprint 12: how many times the owner sent the taka back to butta cutting. */
+    reworkCount: integer('rework_count').notNull().default(0),
+    /** Sprint 12: set when the taka came back from a customer (GR) — and from which dispatch challan. */
+    returnedAt: text('returned_at'),
+    returnedFromChallanId: integer('returned_from_challan_id'),
+    /** Sprint 12: the one taka made for a pcs-to-pcs goods return (no taka numbers on such a challan). */
+    isReturnLot: integer('is_return_lot', { mode: 'boolean' }).notNull().default(false),
+    /** Sprint 12: the order the taka was first made for (set when it is moved to another order). */
+    originOrderId: integer('origin_order_id').references(() => orders.id),
     enteredBy: text('entered_by').$type<RoleKey>().notNull(),
     isDeleted: isDeleted(),
     createdAt: createdAt(),
@@ -431,6 +444,10 @@ export const takaEvents = sqliteTable(
     takaDamageId: integer('taka_damage_id').references((): AnySQLiteColumn => takaDamages.id),
     note: text('note'),
     role: text('role').$type<RoleKey>().notNull(),
+    /** Sprint 12: the real logged-in user (the role may be an acted-as role). Null on older events. */
+    userId: integer('user_id'),
+    /** Sprint 12: the dispatch challan a dispatched / goods_returned event is about. */
+    dispatchChallanId: integer('dispatch_challan_id'),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
@@ -539,6 +556,137 @@ export const challanTakas = sqliteTable(
     index('challan_takas_taka_idx').on(t.takaId),
     uniqueIndex('challan_takas_taka_kind_active_unique').on(t.takaId, t.kind).where(sql`${t.isActive} = 1`),
   ],
+);
+
+/* ------------------------------------------------------------------ */
+/* Sprint 12: dispatch, goods return, users + sessions                  */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Dispatch challans (DC-n). Their own tables (not the generic challans): they go to a CLIENT (the order's customer),
+ * and a goods return makes a REVISION of the same number (DC-12 then DC-12 R1), which the generic unique
+ * (kind, challan_no) index would not allow. revision 0 = the original; a revised row stays for history.
+ */
+export const dispatchChallans = sqliteTable(
+  'dispatch_challans',
+  {
+    id: id(),
+    challanNo: integer('challan_no').notNull(),
+    revision: integer('revision').notNull().default(0),
+    parentChallanId: integer('parent_challan_id').references((): AnySQLiteColumn => dispatchChallans.id),
+    orderId: integer('order_id')
+      .notNull()
+      .references(() => orders.id),
+    /** yyyy-MM-dd */
+    challanDate: text('challan_date').notNull(),
+    transport: text('transport'),
+    lrNo: text('lr_no'),
+    ewayNo: text('eway_no'),
+    /** active = the latest revision · revised = replaced by a later revision (kept for history). */
+    status: text('status').$type<'active' | 'revised'>().notNull().default('active'),
+    createdBy: text('created_by').$type<RoleKey>().notNull(),
+    createdByUserId: integer('created_by_user_id'),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    uniqueIndex('dispatch_challans_no_revision_unique').on(t.challanNo, t.revision),
+    index('dispatch_challans_order_idx').on(t.orderId),
+    index('dispatch_challans_status_idx').on(t.status),
+  ],
+);
+
+/** The takas of a dispatch challan revision, with the taka number / meters / pcs AT THE TIME of dispatch. */
+export const dispatchChallanTakas = sqliteTable(
+  'dispatch_challan_takas',
+  {
+    id: id(),
+    challanId: integer('challan_id')
+      .notNull()
+      .references(() => dispatchChallans.id),
+    takaId: integer('taka_id')
+      .notNull()
+      .references(() => takas.id),
+    takaNo: text('taka_no').notNull(),
+    meters: real('meters'),
+    pcs: integer('pcs'),
+    createdAt: createdAt(),
+  },
+  (t) => [index('dispatch_challan_takas_challan_idx').on(t.challanId), index('dispatch_challan_takas_taka_idx').on(t.takaId)],
+);
+
+/** One goods return (GR): which challan it was made on, the revision it created, and the totals. */
+export const goodsReturns = sqliteTable(
+  'goods_returns',
+  {
+    id: id(),
+    /** The revision that was returned against (now Revised). */
+    challanId: integer('challan_id')
+      .notNull()
+      .references(() => dispatchChallans.id),
+    /** The revision the GR created. */
+    newChallanId: integer('new_challan_id').references(() => dispatchChallans.id),
+    returnDate: text('return_date').notNull(),
+    note: text('note'),
+    role: text('role').$type<RoleKey>().notNull(),
+    userId: integer('user_id'),
+    returnedTakas: integer('returned_takas').notNull().default(0),
+    returnedPcs: integer('returned_pcs').notNull().default(0),
+    damagedPcs: integer('damaged_pcs').notNull().default(0),
+    createdAt: createdAt(),
+  },
+  (t) => [index('goods_returns_challan_idx').on(t.challanId)],
+);
+
+/** The takas a goods return brought back (a pcs-to-pcs GR lists its return-lot taka). */
+export const goodsReturnTakas = sqliteTable(
+  'goods_return_takas',
+  {
+    id: id(),
+    goodsReturnId: integer('goods_return_id')
+      .notNull()
+      .references(() => goodsReturns.id),
+    takaId: integer('taka_id')
+      .notNull()
+      .references(() => takas.id),
+    pcs: integer('pcs'),
+    damagedPcs: integer('damaged_pcs').notNull().default(0),
+  },
+  (t) => [index('goods_return_takas_gr_idx').on(t.goodsReturnId)],
+);
+
+/** Users who log in (phone + password). Roles are fixed in code; this table only holds who has which role. */
+export const users = sqliteTable(
+  'users',
+  {
+    id: id(),
+    name: text('name').notNull(),
+    /** 10 digits, unique among active users. */
+    phone: text('phone').notNull(),
+    role: text('role').$type<RoleKey>().notNull(),
+    /** scrypt: scrypt$salt-hex$hash-hex. Never logged or returned. */
+    passwordHash: text('password_hash').notNull(),
+    isActive: integer('is_active', { mode: 'boolean' }).notNull().default(true),
+    lastLoginAt: text('last_login_at'),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [uniqueIndex('users_phone_active_unique').on(t.phone).where(sql`${t.isActive} = 1`)],
+);
+
+/** Login sessions: id is the SHA-256 of the random 32-byte token held in the cookie. */
+export const sessions = sqliteTable(
+  'sessions',
+  {
+    id: text('id').primaryKey(),
+    userId: integer('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    createdAt: createdAt(),
+    expiresAt: text('expires_at').notNull(),
+    lastSeenAt: text('last_seen_at').notNull().default(nowIso),
+  },
+  (t) => [index('sessions_user_idx').on(t.userId), index('sessions_expires_idx').on(t.expiresAt)],
 );
 
 /** Named running counters (e.g. `jobsheet_no`). Allocate inside the write transaction. */

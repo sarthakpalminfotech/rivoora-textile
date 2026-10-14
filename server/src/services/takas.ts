@@ -1,6 +1,7 @@
 import { and, asc, desc, eq, inArray, sql, type SQL } from 'drizzle-orm';
 import {
   can,
+  dispatchChallanLabel,
   canRoleSeeJobsheetStatus,
   canRoleSeeStatus,
   damageLabel,
@@ -63,7 +64,7 @@ import {
   toMachineRef,
   writeEvents,
 } from './jobsheets';
-import { mapTaka, parseDamagesJson, sortTakas, takaColumns, takaDamagesJson, takaParentNo } from './taka-shared';
+import { mapTaka, parseDamagesJson, sortTakas, takaColumns, takaDamagesJson, takaOriginOrderNo, takaParentNo } from './taka-shared';
 import {
   initialStageForOrder,
   insertTakaDamages,
@@ -362,10 +363,10 @@ export async function editTakas(role: RoleKey, id: number, input: unknown): Prom
     }
     const removed = existing.filter((t) => !seenIds.has(t.id));
     // A taka that is out on a challan (or already past the butta QC step it is in) can't just be removed.
-    const stuck = removed.find((t) => ['at_butta', 'butta_qc', 'at_mill', 'mill_qc', 'final', 'refinish', 'ready_dispatch'].includes(t.stage));
+    const stuck = removed.find((t) => ['at_butta', 'rework_butta', 'butta_qc', 'at_mill', 'mill_qc', 'final', 'refinish', 'ready_dispatch', 'dispatched'].includes(t.stage));
     if (stuck) {
       throw conflict(
-        ['final', 'refinish', 'ready_dispatch'].includes(stuck.stage)
+        ['final', 'refinish', 'ready_dispatch', 'dispatched'].includes(stuck.stage)
           ? `Taka ${stuck.takaNo} has passed the mill and can't be removed.`
           : stuck.stage === 'at_mill' || stuck.stage === 'mill_qc'
             ? `Taka ${stuck.takaNo} is at the mill and can't be removed.`
@@ -533,6 +534,42 @@ export async function listOrderTakas(role: RoleKey, orderId: number): Promise<Or
     note: r.takaNote,
     takas: sortTakas(byJobsheet.get(r.id) ?? []),
   }));
+  // Takas moved here from another order keep their old jobsheet: they get a group of their own ("from Order #A").
+  const known = new Set(sheetRows.map((r) => r.id));
+  const foreign = [...byJobsheet.keys()].filter((id) => !known.has(id));
+  if (foreign.length) {
+    const rows = await db
+      .select({
+        id: jobsheets.id,
+        jobsheetNo: jobsheets.jobsheetNo,
+        status: jobsheets.status,
+        frames: jobsheets.frames,
+        completedFrames: jobsheets.completedFrames,
+        takaNote: jobsheets.takaNote,
+        orderNo: orders.orderNo,
+        machinesJson,
+        ...runningMachineColumns,
+      })
+      .from(jobsheets)
+      .innerJoin(orders, eq(orders.id, jobsheets.orderId))
+      .leftJoin(runningMachine, eq(runningMachine.id, jobsheets.runningMachineId))
+      .where(inArray(jobsheets.id, foreign))
+      .orderBy(asc(jobsheets.jobsheetNo));
+    for (const r of rows) {
+      groups.push({
+        jobsheetId: r.id,
+        jobsheetNo: r.jobsheetNo,
+        orderNo: r.orderNo,
+        status: r.status,
+        frames: r.frames,
+        completedFrames: r.completedFrames,
+        runningMachine: toMachineRef(r),
+        machines: parseMachinesJson(r.machinesJson),
+        note: r.takaNote,
+        takas: sortTakas(byJobsheet.get(r.id) ?? []),
+      });
+    }
+  }
   const all = groups.flatMap((g) => g.takas);
   return {
     orderId: order.id,
@@ -591,6 +628,10 @@ async function loadTakaDetail(role: RoleKey, where: SQL): Promise<TakaDetail> {
       refinishCount: takas.refinishCount,
       parentTakaNo: takaParentNo,
       godownCheckedAt: takas.godownCheckedAt,
+      reworkCount: takas.reworkCount,
+      isReturnLot: takas.isReturnLot,
+      returnedAt: takas.returnedAt,
+      originOrderNo: takaOriginOrderNo,
       isDamaged: takas.isDamaged,
       damagesJson: takaDamagesJson,
       stage: takas.stage,
@@ -653,12 +694,22 @@ async function loadTakaDetail(role: RoleKey, where: SQL): Promise<TakaDetail> {
         takaDamageId: takaEvents.takaDamageId,
         note: takaEvents.note,
         role: takaEvents.role,
+        userName: sql<string | null>`(SELECT u.name FROM users u WHERE u.id = "taka_events"."user_id")`,
+        dispatchChallanId: takaEvents.dispatchChallanId,
+        dcNo: sql<number | null>`(SELECT d.challan_no FROM dispatch_challans d WHERE d.id = "taka_events"."dispatch_challan_id")`,
+        dcRevision: sql<number | null>`(SELECT d.revision FROM dispatch_challans d WHERE d.id = "taka_events"."dispatch_challan_id")`,
         createdAt: takaEvents.createdAt,
       })
       .from(takaEvents)
       .leftJoin(challans, eq(challans.id, takaEvents.challanId))
       .where(eq(takaEvents.takaId, row.id))
-      .orderBy(asc(takaEvents.createdAt), asc(takaEvents.id));
+      .orderBy(asc(takaEvents.createdAt), asc(takaEvents.id))
+      .then((list) =>
+        list.map(({ dcNo, dcRevision, ...e }): TakaEvent => ({
+          ...e,
+          dispatchChallanLabel: dcNo !== null ? dispatchChallanLabel(dcNo, dcRevision ?? 0) : null,
+        })),
+      );
   }
   const damages = parseDamagesJson(row.damagesJson);
   // Photos of the damages: only for the roles that can open the taka details drawer.
@@ -675,6 +726,10 @@ async function loadTakaDetail(role: RoleKey, where: SQL): Promise<TakaDetail> {
     refinishCount: row.refinishCount,
     parentTakaNo: row.parentTakaNo,
     godownCheckedAt: row.godownCheckedAt,
+    reworkCount: row.reworkCount,
+    isReturnLot: row.isReturnLot,
+    returnedAt: row.returnedAt,
+    originOrderNo: row.originOrderNo,
     isDamaged: row.isDamaged,
     damages,
     stage: row.stage,

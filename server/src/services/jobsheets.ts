@@ -1,4 +1,5 @@
 import { and, asc, count, eq, inArray, or, sql, type SQL } from 'drizzle-orm';
+import { currentUserId } from '../lib/request-context';
 import { alias } from 'drizzle-orm/sqlite-core';
 import {
   can,
@@ -170,6 +171,7 @@ export async function writeEvents(tx: Tx, role: RoleKey, events: EventInput[]) {
       frames: e.frames ?? null,
       note: e.note ?? null,
       role,
+      userId: currentUserId(),
       createdAt: at,
       updatedAt: at,
     })),
@@ -237,7 +239,7 @@ async function writeStatus(tx: Tx, role: RoleKey, orderId: number, from: OrderSt
     .where(and(eq(orders.id, orderId), eq(orders.status, from)))
     .returning({ id: orders.id });
   if (updated.length) {
-    await tx.insert(orderStatusHistory).values({ orderId, fromStatus: from, toStatus: to, role, changedAt: now() });
+    await tx.insert(orderStatusHistory).values({ orderId, fromStatus: from, toStatus: to, role, userId: currentUserId(), changedAt: now() });
   }
   return updated.length > 0;
 }

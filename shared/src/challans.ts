@@ -30,6 +30,8 @@ export interface ChallanKindConfig {
   route: string;
   /** Taka stage that can be sent on a challan of this kind. */
   readyStage: TakaStage;
+  /** Further stages a taka can be sent from (butta cutting: takas the owner sent back, `rework_butta`). */
+  extraReadyStages?: readonly TakaStage[];
   /** Stages a taka that is NOT yet sent of this kind can be in (the "total" of "18 / 20 ready"). */
   notSentStages: readonly TakaStage[];
   /** A second stage a taka can be sent from (the mill: takas marked for refinish go back on a normal challan). */
@@ -54,7 +56,8 @@ export const CHALLAN_KIND_CONFIG: Record<ChallanKind, ChallanKindConfig> = {
     sentToText: 'for butta cutting',
     route: '/butta',
     readyStage: 'entered',
-    notSentStages: ['entered'],
+    extraReadyStages: ['rework_butta'],
+    notSentStages: ['entered', 'rework_butta'],
     sentStage: 'at_butta',
     receivedStage: 'butta_qc',
     inLabel: 'In butta cutting',
@@ -70,7 +73,7 @@ export const CHALLAN_KIND_CONFIG: Record<ChallanKind, ChallanKindConfig> = {
     sentToText: 'to the mill',
     route: '/mill',
     readyStage: 'waiting_mill',
-    notSentStages: ['entered', 'at_butta', 'butta_qc', 'waiting_mill'],
+    notSentStages: ['entered', 'rework_butta', 'at_butta', 'butta_qc', 'waiting_mill'],
     refinishStage: 'refinish',
     sentStage: 'at_mill',
     receivedStage: 'mill_qc',
@@ -101,12 +104,17 @@ export interface SendableTaka {
 }
 
 /** A taka is "ready" in the Pending list when it is in the kind's ready stage. */
-export const isTakaReady = (stage: string, kind: ChallanKind) => stage === CHALLAN_KIND_CONFIG[kind].readyStage;
+export const readyStagesOf = (kind: ChallanKind): TakaStage[] => {
+  const cfg = CHALLAN_KIND_CONFIG[kind];
+  return [cfg.readyStage, ...(cfg.extraReadyStages ?? [])];
+};
+
+export const isTakaReady = (stage: string, kind: ChallanKind) => (readyStagesOf(kind) as string[]).includes(stage);
 
 /** Every stage a taka can be put on a challan from: the ready stage, and (the mill) the refinish stage. */
 export const sendableStages = (kind: ChallanKind): TakaStage[] => {
   const cfg = CHALLAN_KIND_CONFIG[kind];
-  return cfg.refinishStage ? [cfg.readyStage, cfg.refinishStage] : [cfg.readyStage];
+  return cfg.refinishStage ? [...readyStagesOf(kind), cfg.refinishStage] : readyStagesOf(kind);
 };
 
 /**

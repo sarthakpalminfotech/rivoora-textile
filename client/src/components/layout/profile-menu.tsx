@@ -1,15 +1,18 @@
-import { Check, ChevronDown } from 'lucide-react';
+import { Check, ChevronDown, LogOut } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuItem,
   DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { ROLE_KEYS, ROLES, isRoleKey } from '@/config/roles';
+import { logout } from '@/features/auth/api';
 import { useRole } from '@/hooks/useRole';
 import { cn } from '@/lib/utils';
 
@@ -41,9 +44,17 @@ export function RoleTag({ className }: { className?: string }) {
   );
 }
 
+/** "Jemish" → "J", "Taka entry" → "TE". */
+function initialsOf(name: string): string {
+  const words = name.trim().split(/s+/).filter(Boolean);
+  return (words.length > 1 ? words[0][0] + words[1][0] : (words[0] ?? '?').slice(0, 1)).toUpperCase();
+}
+
 export function ProfileMenu({ compact }: { compact?: boolean }) {
-  const { role, config, setRole } = useRole();
+  const { role, config, user, canSwitch, setRole } = useRole();
   const navigate = useNavigate();
+  const name = user?.name ?? config.name;
+  const initials = user ? initialsOf(user.name) : config.initials;
 
   return (
     <DropdownMenu>
@@ -51,12 +62,12 @@ export function ProfileMenu({ compact }: { compact?: boolean }) {
         <button
           type="button"
           className="flex min-h-11 items-center gap-2.5 rounded-xl py-1 pl-1 pr-2 transition-colors hover:bg-muted data-[state=open]:bg-muted"
-          aria-label={`Profile: ${config.name} (${config.title}). Switch role`}
+          aria-label={`Profile: ${name} (${config.title})`}
         >
-          <Avatar initials={config.initials} />
+          <Avatar initials={initials} />
           {!compact && (
             <span className="hidden text-left leading-tight sm:block">
-              <span className="block text-sm font-semibold text-slate-900">{config.name}</span>
+              <span className="block text-sm font-semibold text-slate-900">{name}</span>
               <span className="block text-xs text-muted-foreground">{config.title}</span>
             </span>
           )}
@@ -65,33 +76,43 @@ export function ProfileMenu({ compact }: { compact?: boolean }) {
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-64">
         <div className="flex items-center gap-3 px-3 py-2.5">
-          <Avatar initials={config.initials} className="size-10" />
+          <Avatar initials={initials} className="size-10" />
           <div className="min-w-0">
-            <p className="truncate text-sm font-semibold text-slate-900">{config.name}</p>
-            <p className="text-xs text-muted-foreground">Signed in as {config.title}</p>
+            <p className="truncate text-sm font-semibold text-slate-900">{name}</p>
+            <p className="text-xs text-muted-foreground">
+              {user && user.role !== role ? `Viewing as ${config.title}` : config.title}
+            </p>
           </div>
         </div>
         <div className="my-1 h-px bg-border" />
-        <DropdownMenuLabel>Switch role</DropdownMenuLabel>
-        <DropdownMenuRadioGroup
-          value={role}
-          onValueChange={(v) => {
-            if (!isRoleKey(v) || v === role) return;
-            setRole(v);
-            toast.success(`Switched to ${ROLES[v].name} — ${ROLES[v].title}`);
-            navigate(ROLES[v].landing);
-          }}
-        >
-          {ROLE_KEYS.map((key) => (
-            <DropdownMenuRadioItem key={key} value={key}>
-              <Avatar initials={ROLES[key].initials} className="size-7 text-xs ring-0" />
-              <span className="flex-1">
-                {ROLES[key].name} — {ROLES[key].title}
-              </span>
-              {key === role && <Check className="size-4" aria-hidden />}
-            </DropdownMenuRadioItem>
-          ))}
-        </DropdownMenuRadioGroup>
+        {canSwitch && (
+          <>
+            <DropdownMenuLabel>Switch role</DropdownMenuLabel>
+            <DropdownMenuRadioGroup
+              value={role}
+              onValueChange={(v) => {
+                if (!isRoleKey(v) || v === role) return;
+                setRole(v);
+                toast.success(`Switched to ${ROLES[v].name} — ${ROLES[v].title}`);
+                navigate(ROLES[v].landing);
+              }}
+            >
+              {ROLE_KEYS.map((key) => (
+                <DropdownMenuRadioItem key={key} value={key}>
+                  <Avatar initials={ROLES[key].initials} className="size-7 text-xs ring-0" />
+                  <span className="flex-1">
+                    {ROLES[key].name} — {ROLES[key].title}
+                  </span>
+                  {key === role && <Check className="size-4" aria-hidden />}
+                </DropdownMenuRadioItem>
+              ))}
+            </DropdownMenuRadioGroup>
+            <DropdownMenuSeparator />
+          </>
+        )}
+        <DropdownMenuItem onSelect={() => void logout()} className="text-destructive focus:text-destructive">
+          <LogOut className="size-4" aria-hidden /> Log out
+        </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   );

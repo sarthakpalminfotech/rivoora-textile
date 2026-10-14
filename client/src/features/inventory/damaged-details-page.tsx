@@ -1,7 +1,13 @@
 import { ChevronRight, ShieldCheck } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Link, useLocation, useParams, useSearchParams } from 'react-router-dom';
-import { DAMAGE_TYPE_LABEL, DEMO_STOCK_CLEARANCE, isDamageType, type DamagedTakaRow, type DamageType } from '@rivoora/shared';
+import { toast } from 'sonner';
+import { damageLabelOf, DAMAGE_TYPE_LABEL, DEMO_STOCK_CLEARANCE, isDamageType, type DamagedTakaRow, type DamageType } from '@rivoora/shared';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { Button } from '@/components/ui/button';
+import { useRole } from '@/hooks/useRole';
+import { errorMessage } from '@/lib/api';
+import { useTakaDetail } from '../takas/api';
 import { usePageTitle } from '@/components/layout/page-title';
 import { ErrorState } from '@/components/list-parts';
 import { EmptyState } from '@/components/ui/empty-state';
@@ -9,7 +15,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { useDebounce } from '@/hooks/useDebounce';
 import { formatDate, formatMoney, formatOrderNo } from '@/lib/format';
 import { cn } from '@/lib/utils';
-import { useDamagedItem, useDamagedTakas } from './api';
+import { useDamagedItem, useDamagedTakas, useMarkFresh } from './api';
 import { BackLink, DAMAGE_DOT, ExpandingSearch, ItemHeader, KpiSkeleton, KpiTile, pcsText } from './parts';
 
 function Chip({ label, count, dot, active, onClick }: { label: string; count: number; dot?: string; active: boolean; onClick: () => void }) {
@@ -30,13 +36,56 @@ function Chip({ label, count, dot, active, onClick }: { label: string; count: nu
   );
 }
 
-function TakaRow({ taka, from }: { taka: DamagedTakaRow; from: string }) {
+/** Mark as fresh: lists the taka's open damages, then resolves all of them (Jemish, Gaurang). */
+function MarkFreshDialog({ taka, onClose }: { taka: DamagedTakaRow | null; onClose: () => void }) {
+  const detail = useTakaDetail(taka?.id ?? 0);
+  const mark = useMarkFresh();
+  const open = detail.data?.damages.filter((d) => d.status === 'open') ?? [];
   return (
-    <li>
+    <ConfirmDialog
+      open={taka !== null}
+      onOpenChange={(o) => !o && onClose()}
+      title={taka ? `Mark taka ${taka.takaNo} as fresh?` : 'Mark as fresh'}
+      confirmLabel="Mark as fresh"
+      loading={mark.isPending}
+      onConfirm={() =>
+        taka &&
+        mark.mutate(taka.id, {
+          onSuccess: () => {
+            toast.success(`Taka ${taka.takaNo} marked fresh`);
+            onClose();
+          },
+          onError: (err) => toast.error(errorMessage(err)),
+        })
+      }
+      description={
+        <div className="space-y-2">
+          <p>These open damages will be resolved:</p>
+          {detail.isPending ? (
+            <Skeleton className="h-10 rounded-lg" />
+          ) : (
+            <ul className="space-y-1">
+              {(open.length ? open : []).map((d) => (
+                <li key={d.id} className="rounded-lg bg-red-50 px-3 py-1.5 text-sm font-semibold text-red-700">
+                  {damageLabelOf(d)}
+                </li>
+              ))}
+              {open.length === 0 && taka && <li className="text-sm text-slate-500">{taka.names.join(', ') || 'No open damage'}</li>}
+            </ul>
+          )}
+        </div>
+      }
+    />
+  );
+}
+
+function TakaRow({ taka, from, onFresh }: { taka: DamagedTakaRow; from: string; onFresh?: (t: DamagedTakaRow) => void }) {
+  return (
+    <li className="flex items-center">
       <Link
         to={`/orders/${taka.orderId}/takas/${taka.id}/damages`}
         state={{ from }}
-        className="flex min-h-[56px] items-center gap-3 px-4 py-2.5 outline-none transition hover:bg-slate-50 focus-visible:bg-slate-50"
+        className="flex min-h-[56px] min-w-0 flex-1 items-center gap-3 px-4 py-2.5 outline-none transition hover:bg-slate-50 focus-visible:bg-slate-50"
         aria-label={`Taka ${taka.takaNo}, order ${formatOrderNo(taka.orderNo)}`}
       >
         <div className="min-w-0 flex-1">
@@ -55,6 +104,11 @@ function TakaRow({ taka, from }: { taka: DamagedTakaRow; from: string }) {
         </span>
         <ChevronRight className="size-4 shrink-0 text-slate-300" aria-hidden />
       </Link>
+      {onFresh && (
+        <Button variant="secondary" size="sm" className="mr-3 shrink-0" onClick={() => onFresh(taka)}>
+          Mark as fresh
+        </Button>
+      )}
     </li>
   );
 }
@@ -78,6 +132,8 @@ function LastClearance() {
 /** Inventory → Damaged item details: damaged + refinish pcs, filters by damage type, the taka list, last clearance (demo). */
 export default function DamagedDetailsPage() {
   const { key = '' } = useParams<{ key: string }>();
+  const { can } = useRole();
+  const [fresh, setFresh] = useState<DamagedTakaRow | null>(null);
   const location = useLocation();
   const [params, setParams] = useSearchParams();
   const rawType = params.get('type');
@@ -185,13 +241,14 @@ export default function DamagedDetailsPage() {
             ) : (
               <ul className="divide-y divide-border">
                 {takas.data.map((t) => (
-                  <TakaRow key={t.id} taka={t} from={from} />
+                  <TakaRow key={t.id} taka={t} from={from} onFresh={can('canMarkFresh') && t.names.length > 0 ? setFresh : undefined} />
                 ))}
               </ul>
             )}
           </section>
 
           <LastClearance />
+          {can('canMarkFresh') && <MarkFreshDialog taka={fresh} onClose={() => setFresh(null)} />}
         </>
       )}
     </div>

@@ -551,6 +551,15 @@ export interface Taka {
   /** Ticked by the godown supervisor. */
   godownCheckedAt: string | null;
   godownCheckedBy: RoleKey | null;
+  /** Sprint 12: how many times the owner sent it back to butta cutting ("Re-butta ×2"). */
+  reworkCount: number;
+  /** Sprint 12: a return lot (pcs-to-pcs goods return) — shown with a "Return lot" tag. */
+  isReturnLot: boolean;
+  /** Sprint 12: set when the taka came back from a customer (GR). */
+  returnedAt: string | null;
+  /** Sprint 12: the order the taka was moved here from ("from Order #A"). */
+  originOrderId: number | null;
+  originOrderNo: number | null;
   enteredBy: RoleKey;
   createdAt: string;
 }
@@ -732,6 +741,11 @@ export const TAKA_EVENT_KINDS = [
   'godown_unchecked',
   'actual_pcs_changed',
   'ready_dispatch',
+  // Sprint 12
+  'sent_back',
+  'dispatched',
+  'goods_returned',
+  'moved_order',
 ] as const;
 export type TakaEventKind = (typeof TAKA_EVENT_KINDS)[number];
 
@@ -745,6 +759,11 @@ export interface TakaEvent {
   takaDamageId: number | null;
   note: string | null;
   role: RoleKey;
+  /** Sprint 12: the real user who did it (name), when known. */
+  userName?: string | null;
+  /** Sprint 12: the dispatch challan a dispatched / goods_returned event is about. */
+  dispatchChallanId?: number | null;
+  dispatchChallanLabel?: string | null;
   createdAt: string;
 }
 
@@ -765,6 +784,11 @@ export interface TakaDetail {
   refinishCount: number;
   parentTakaNo: string | null;
   godownCheckedAt: string | null;
+  /** Sprint 12 */
+  reworkCount: number;
+  isReturnLot: boolean;
+  returnedAt: string | null;
+  originOrderNo: number | null;
   isDamaged: boolean;
   damages: TakaDamage[];
   stage: TakaStage;
@@ -881,6 +905,10 @@ export interface ChallanPendingTaka {
   ready: boolean;
   /** Refinish takas: how many times it was sent to refinish (the "x2" tag). */
   refinishCount?: number;
+  /** Sprint 12: how many times the owner sent it back to butta cutting ("Re-butta"). */
+  reworkCount?: number;
+  /** Sprint 12: a refinish taka the OWNER sent back to the mill ("Re-mill · Sent back by owner"). */
+  sentBackByOwner?: boolean;
 }
 
 /** GET /butta|mill/pending-orders/:orderId/takas — every not-yet-sent taka of the order, ready ones flagged. */
@@ -1076,6 +1104,10 @@ export interface GodownOrderCard {
   orderedPcs: number;
   /** Final takas not ticked yet (orders with some come first). */
   uncheckedCount: number;
+  /** Sprint 12: the client (Dhruvil only). */
+  customerName: string | null;
+  /** Sprint 12: takas ready for dispatch (the Dispatch button is enabled when > 0). */
+  readyDispatchCount: number;
 }
 
 export type GodownOrderPage = Paginated<GodownOrderCard>;
@@ -1097,6 +1129,10 @@ export interface GodownTaka {
   /** Open damages (name · where · open pcs) — the red D badge. */
   isDamaged: boolean;
   jobsheetId: number;
+  /** Sprint 12 */
+  isReturnLot: boolean;
+  returnedAt: string | null;
+  originOrderNo: number | null;
 }
 
 /** GET /godown/orders/:orderId */
@@ -1108,6 +1144,12 @@ export interface GodownOrder {
   imageUrl: string | null;
   quality: string | null;
   orderedPcs: number;
+  /** Sprint 12: Dhruvil sees the client and the rate (null for roles without canSeeClient / canSeeRate). */
+  customer: { id: number; name: string; phone: string | null; address: string | null; gstin: string | null } | null;
+  brokerName: string | null;
+  rate: number | null;
+  orderType: OrderType;
+  status: OrderStatusKey;
   kpis: import('./godown').GodownKpis;
   /** Sprint 10: pcs tiles (ready for dispatch / refinish / damaged). */
   pcsKpis: GodownPcsKpis;
@@ -1239,4 +1281,170 @@ export interface GodownDamages extends OrderDamages {
   stateCounts: { state: GodownDamageState; count: number }[];
   /** Damaged takas per damage type (takas with an OPEN damage of that type). */
   typeCounts: { type: DamageType; count: number }[];
+}
+
+/* ---------- Login + users (Sprint 12) ---------- */
+
+/** One row of the Users master (never carries a password or hash). */
+export interface UserRow {
+  id: number;
+  name: string;
+  phone: string;
+  role: RoleKey;
+  isActive: boolean;
+  lastLoginAt: string | null;
+  createdAt: string;
+}
+
+/** GET /auth/me and POST /auth/login */
+export interface AuthSession {
+  user: import('./auth').AuthUser;
+}
+
+/* ---------- Rework (Sprint 12) ---------- */
+
+/** POST /orders/:id/takas/send-back */
+export interface SendBackResult {
+  orderId: number;
+  target: 'butta' | 'mill';
+  sent: number;
+  pcs: number;
+}
+
+/* ---------- Dispatch (Sprint 12) ---------- */
+
+/** POST /godown/orders/:orderId/dispatch → the new challan. */
+export interface DispatchResult {
+  challanId: number;
+  challanNo: number;
+  orderId: number;
+  takas: number;
+  pcs: number;
+  meters: number;
+}
+
+export interface DispatchTakaRow {
+  id: number;
+  takaId: number;
+  takaNo: string;
+  meters: number | null;
+  pcs: number | null;
+}
+
+/** GET /dispatch/challans/:id (any revision) — also feeds the print. */
+export interface DispatchChallanDetail {
+  id: number;
+  challanNo: number;
+  revision: number;
+  /** "DC-12" / "DC-12 R1" */
+  label: string;
+  /** Revisions: "DC-12" (the label of the revision it replaces). */
+  replacesLabel: string | null;
+  status: 'active' | 'revised';
+  challanDate: string;
+  transport: string | null;
+  lrNo: string | null;
+  ewayNo: string | null;
+  order: {
+    orderId: number;
+    orderNo: number;
+    orderType: OrderType;
+    status: OrderStatusKey;
+    quality: string | null;
+    designCode: string | null;
+    thumbUrl: string | null;
+  };
+  customer: { name: string; address: string | null; phone: string | null; gstin: string | null };
+  brokerName: string | null;
+  /** Lump orders: the taka grid. */
+  takas: DispatchTakaRow[];
+  /** Pcs-to-pcs orders: Sr | Quality | Design | Pcs. */
+  lines: { quality: string; design: string; pcs: number }[];
+  totals: { takas: number; pcs: number; meters: number };
+  createdAt: string;
+}
+
+/** One challan of the order dispatch screen. */
+export interface DispatchChallanListItem {
+  id: number;
+  challanNo: number;
+  revision: number;
+  label: string;
+  status: 'active' | 'revised';
+  challanDate: string;
+  takas: number;
+  pcs: number;
+  meters: number;
+  /** A GR can still be made (active revision with something on it). */
+  canGoodsReturn: boolean;
+}
+
+/** One order card of the Dispatched list. */
+export interface DispatchedOrderCard {
+  orderId: number;
+  orderNo: number;
+  customerName: string;
+  designCode: string | null;
+  thumbUrl: string | null;
+  imageUrl: string | null;
+  quality: string | null;
+  status: OrderStatusKey;
+  orderedPcs: number;
+  dispatchedPcs: number;
+  latestChallanLabel: string;
+  latestChallanDate: string;
+}
+export type DispatchedOrderPage = Paginated<DispatchedOrderCard>;
+
+/** GET /dispatched/:orderId */
+export interface DispatchedOrderDetail {
+  orderId: number;
+  orderNo: number;
+  orderType: OrderType;
+  status: OrderStatusKey;
+  customerName: string;
+  designCode: string | null;
+  thumbUrl: string | null;
+  imageUrl: string | null;
+  quality: string | null;
+  orderedPcs: number;
+  dispatchedPcs: number;
+  challans: DispatchChallanListItem[];
+}
+
+/** POST /dispatch/challans/:id/goods-return */
+export interface GoodsReturnResult {
+  goodsReturnId: number;
+  /** The revision the GR created. */
+  challanId: number;
+  label: string;
+  returnedTakas: number;
+  returnedPcs: number;
+  damagedPcs: number;
+  orderId: number;
+}
+
+/* ---------- Move to order (Sprint 12) ---------- */
+
+/** One order a fresh taka can be moved to. */
+export interface MoveTarget {
+  orderId: number;
+  orderNo: number;
+  customerName: string | null;
+  orderedPcs: number;
+  readyPcs: number;
+  status: OrderStatusKey;
+}
+
+export interface MoveTakasResult {
+  moved: number;
+  pcs: number;
+  fromOrderIds: number[];
+  targetOrderId: number;
+}
+
+/** POST /inventory/takas/:id/mark-fresh */
+export interface MarkFreshResult {
+  takaId: number;
+  resolved: number;
 }

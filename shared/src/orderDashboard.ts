@@ -321,6 +321,12 @@ export function buildOrderDashboard(input: DashboardInput, now: Date = new Date(
       for (const [main, p] of pcsByJobsheet.get(j.id) ?? []) addPcs(main, p.pcs + p.without * perTaka);
     }
   }
+  // Takas moved here from another order keep their old jobsheet: their own pcs still count in the bar.
+  const ownJobsheets = new Set(sorted.map((j) => j.id));
+  for (const [jobsheetId, perPcs] of pcsByJobsheet) {
+    if (ownJobsheets.has(jobsheetId)) continue;
+    for (const [main, p] of perPcs) addPcs(main, p.pcs);
+  }
   subs.get('on_loom')!.machines = loomMachines.size;
   const waiting = subs.get('with_supervisor')!;
   const oldestHours = hoursSince(waiting.oldestSince, now);
@@ -350,10 +356,10 @@ export function buildOrderDashboard(input: DashboardInput, now: Date = new Date(
     jobsheets.length > 0 &&
     jobsheets.every((j) => j.status === 'completed' && (takasByJobsheet.get(j.id)?.size ?? 0) > 0) &&
     stageCount('entered') === 0;
-  const buttaDone = productionDone && stageCount('entered', 'at_butta', 'butta_qc') === 0 && takaCount > 0;
+  const buttaDone = productionDone && stageCount('entered', 'rework_butta', 'at_butta', 'butta_qc') === 0 && takaCount > 0;
   const buttaSkipped = buttaDone && input.buttaTakas === 0;
-  const millDone = buttaDone && takaCount > 0 && stageCount('final', 'ready_dispatch') === takaCount;
-  const readyDone = takaCount > 0 && stageCount('ready_dispatch') === takaCount;
+  const millDone = buttaDone && takaCount > 0 && stageCount('final', 'ready_dispatch', 'dispatched') === takaCount;
+  const readyDone = takaCount > 0 && stageCount('ready_dispatch', 'dispatched') === takaCount;
   const stateOf = (key: MainStageKey, connected: boolean): StageState => {
     if (!connected) return null;
     if (key === 'production') return productionDone ? 'completed' : null;

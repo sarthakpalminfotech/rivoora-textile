@@ -12,6 +12,7 @@ import type {
   TakaJobsheetItem,
   TakaJobsheetPage,
   TakaTab,
+  SendBackResult,
 } from '@rivoora/shared';
 import { useInfiniteList } from '@/hooks/useInfiniteList';
 import { api } from '@/lib/api';
@@ -107,5 +108,15 @@ export function useTakaDamages(takaId: number) {
     queryFn: ({ signal }) => api.get<TakaDamagesDetail>(`/takas/${takaId}/damages`, undefined, signal),
     enabled: takaId > 0,
     refetchOnWindowFocus: true,
+  });
+}
+
+/** Rework: send takas back to butta cutting / the mill (Jemish, Gaurang). */
+export function useSendBackTakas(orderId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { takaIds: number[]; target: 'butta' | 'mill'; note?: string }) =>
+      api.post<SendBackResult>(`/orders/${orderId}/takas/send-back`, data),
+    onSuccess: () => invalidateAfterWrite(qc, orderId),
   });
 }
