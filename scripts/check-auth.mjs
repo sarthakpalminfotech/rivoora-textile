@@ -3,7 +3,7 @@
  *   node scripts/check-auth.mjs [baseUrl]
  * 1. every /api router rejects a request without a session cookie (401),
  * 2. login works, wrong passwords give one generic message,
- * 3. a role that can't switch roles can't use X-Act-As, Jemish can,
+ * 3. a role that can't switch roles can't use X-Act-As, Jenish can,
  * 4. logout clears the cookie and the session stops working.
  */
 const base = process.argv[2] ?? 'http://localhost:4000';
@@ -39,21 +39,21 @@ const unknown = await login('1234567890', 'x');
 check(unknown.res.status === 401 && unknown.body?.error?.message === 'Wrong number or password', 'unknown number → the same message');
 
 const jemish = await login('9999999999', 'Rivoora@999');
-check(jemish.res.status === 200 && jemish.cookie?.startsWith('rivoora_session='), 'Jemish logs in with the default password');
+check(jemish.res.status === 200 && jemish.cookie?.startsWith('rivoora_session='), 'Jenish logs in with the default password');
 const setCookie = jemish.res.headers.get('set-cookie') ?? '';
 check(/HttpOnly/i.test(setCookie) && /SameSite=Lax/i.test(setCookie), 'cookie is HttpOnly + SameSite=Lax');
 
 const api = (cookie, path, headers = {}) => fetch(`${base}/api/${path}`, { headers: { Cookie: cookie, ...headers } });
 check((await api(jemish.cookie, 'auth/me')).status === 200, 'GET /auth/me with the cookie');
-check((await api(jemish.cookie, 'orders')).status === 200, 'Jemish lists orders');
-check((await api(jemish.cookie, 'customers')).status === 200, 'Jemish opens the customers master');
-check((await api(jemish.cookie, 'customers', { 'X-Act-As': 'supervisor' })).status === 403, 'Jemish acting as the supervisor loses the customers master');
-check((await api(jemish.cookie, 'jobsheets', { 'X-Act-As': 'supervisor' })).status === 200, 'Jemish acting as the supervisor sees the supervisor jobsheets');
+check((await api(jemish.cookie, 'orders')).status === 200, 'Jenish lists orders');
+check((await api(jemish.cookie, 'customers')).status === 200, 'Jenish opens the customers master');
+check((await api(jemish.cookie, 'customers', { 'X-Act-As': 'supervisor' })).status === 403, 'Jenish acting as the supervisor loses the customers master');
+check((await api(jemish.cookie, 'jobsheets', { 'X-Act-As': 'supervisor' })).status === 200, 'Jenish acting as the supervisor sees the supervisor jobsheets');
 
 const supervisor = await login('7777777777', 'Rivoora@777');
 check(supervisor.res.status === 200, 'Supervisor logs in');
 check((await api(supervisor.cookie, 'jobsheets', { 'X-Act-As': 'jemish' })).status === 200, 'supervisor X-Act-As jemish is ignored (still the supervisor jobsheets)');
-check((await api(supervisor.cookie, 'customers', { 'X-Act-As': 'jemish' })).status === 403, 'supervisor can not become Jemish (customers master stays closed)');
+check((await api(supervisor.cookie, 'customers', { 'X-Act-As': 'jemish' })).status === 403, 'supervisor can not become Jenish (customers master stays closed)');
 check((await api(supervisor.cookie, 'users')).status === 403, 'supervisor can not open the Users master');
 
 const out = await fetch(`${base}/api/auth/logout`, { method: 'POST', headers: { Cookie: supervisor.cookie } });

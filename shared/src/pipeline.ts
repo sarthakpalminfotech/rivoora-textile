@@ -118,7 +118,7 @@ export const SUB_STAGES: readonly SubStageConfig[] = [
   // Butta cutting — connected in Sprint 7.
   { key: 'at_butta', label: 'At butta cutting', shortLabel: 'At butta cutting', mainStage: 'butta', unit: 'takas', colour: '#F59E0B', connected: true, takaStages: ['at_butta'] },
   { key: 'butta_qc', label: 'Received · QC pending', shortLabel: 'QC pending', mainStage: 'butta', unit: 'takas', colour: '#EAB308', connected: true, takaStages: ['butta_qc'] },
-  // Sprint 12: sent back to butta cutting by Jemish / Gaurang, waiting for the next butta challan.
+  // Sprint 12: sent back to butta cutting by Jenish / Gaurang, waiting for the next butta challan.
   { key: 'rework_butta', label: 'Sent back to butta cutting · waiting', shortLabel: 'Sent back · waiting', mainStage: 'butta', unit: 'takas', colour: '#FB923C', connected: true, takaStages: ['rework_butta'] },
   // Mill — connected in Sprint 8 (send / receive on mill challans). The Mill QC comes in a later sprint.
   { key: 'waiting_mill', label: 'Waiting for mill', shortLabel: 'Waiting for mill', mainStage: 'mill', unit: 'takas', colour: '#D97706', connected: true, takaStages: ['waiting_mill'] },

@@ -40,7 +40,7 @@ takasRouter.get(
   }),
 );
 
-/** The damage details screen: every damage of the taka with pcs, photos and its own timeline (Jemish / Gaurang). */
+/** The damage details screen: every damage of the taka with pcs, photos and its own timeline (Jenish / Gaurang). */
 takasRouter.get(
   '/:id/damages',
   requirePermission('canEditTakas', 'canUseGodownOrders', 'canViewProductionOrders'),

@@ -3,7 +3,7 @@ import { ah, paginationSchema, parseId } from '../lib/http';
 import { requirePermission } from '../middleware/role';
 import { createDamage, deleteDamage, getDamage, listDamages, updateDamage } from '../services/damages';
 
-/** Damage master (what a damage is). Read with the masters; writes need `canManageDamages` (Jemish, Gaurang). */
+/** Damage master (what a damage is). Read with the masters; writes need `canManageDamages` (Jenish, Gaurang). */
 export const damagesRouter = Router();
 damagesRouter.use(requirePermission('canViewMasters'));
 const manage = requirePermission('canManageDamages');

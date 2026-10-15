@@ -78,7 +78,7 @@ export function useDamagedTakas(key: string, type: DamageType | null, refinish: 
   });
 }
 
-/** Mark as fresh: resolves every open damage of a taka (Jemish, Gaurang). */
+/** Mark as fresh: resolves every open damage of a taka (Jenish, Gaurang). */
 export function useMarkFresh() {
   const qc = useQueryClient();
   return useMutation({

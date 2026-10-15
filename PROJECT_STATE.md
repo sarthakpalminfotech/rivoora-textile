@@ -1077,3 +1077,11 @@ Free stock + Move to inventory / Add from free stock (replaces Move to order), r
 - **Turso changes when you run `npm run db:migrate`** (migration `0013_sprint13_free_stock_blouse.sql`, additive only): `orders.blouse_option`; `taka_damages.recorded_at`; `takas.is_free_stock` (default 0), `free_stock_at`, `free_stock_by`, `free_stock_reason`, `allocated_order_id`, `has_been_to_mill` (default 0); indexes `takas_free_stock_idx`, `takas_allocated_order_idx`; backfills: `has_been_to_mill` (mill challan rows / `received_mill` or `mill_qc_done` events / refinish_count > 0, then split children), `taka_damages.recorded_at` from `found_at`. No data is dropped or otherwise rewritten. Migrations 0010–0012 must be applied first if they are not already.
 - Deviation from the spec: "not marked" is the value `unmarked` in `taka_damages.found_at` (not NULL) so no table rebuild is needed.
 - Not done: 360 / 768 px screenshots, real-phone check, clicking through the Move to inventory / Add from free stock dialogs in the browser.
+
+## Sprint 14 (done, uncommitted) — current as of 2026-10-15
+
+Eleven small client-feedback changes (spec: rivoora-sprint14-small-changes-prompt.md; notes in the "Sprint 14" section of CLAUDE.md): stock panel not filtered by blouse, Party filter + multi-select filters, History Overview / Detailed (`orderMilestones`), Taka entry pcs before meters, pcs totals in Send popups, challan card design thumbnails + design preview, QC pending list removed, Dispatch damage notice, "Ready for order" label, delivery challans in Docs, owner name "Jenish".
+
+- Verified: `npm run typecheck` clean, `npm test` 249 passing (new `sprint14.test.ts`, `orderFilters.test.ts`); API checked against a local file DB (milestones, challan list designs, Docs incl. delivery challans, `party` filter, owner login shows "Jenish").
+- **No schema change.** One optional Turso step, to run only when you decide: `npm run db:rename-owner` (renames the default owner user to Jenish; touches only phone 9999999999 + name 'Jemish').
+- Not done: no 360 / 768 / 1280px screenshot pass and no real-phone check (design preview swipe, Taka entry order, History Overview, Dispatch notice were typechecked + logic-tested, not clicked through); nothing is committed.

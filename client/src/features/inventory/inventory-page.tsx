@@ -43,7 +43,7 @@ function Kpis({ selected, onToggle }: { selected: KpiKey[]; onToggle: (k: KpiKey
   return (
     <div className="space-y-2">
       <div className={grid}>
-        <KpiTile label="Total in godown" value={pcsText(totalInGodown)} dot={KPI_DOT.godown} {...tile('godown')} />
+        <KpiTile label="Total ready for order" value={pcsText(totalInGodown)} dot={KPI_DOT.godown} {...tile('godown')} />
         <KpiTile label="Ready for dispatch" value={pcsText(totals.readyDispatch)} dot={KPI_DOT.ready} {...tile('ready')} />
         <KpiTile label="In making" value={pcsText(totals.inMaking)} dot={KPI_DOT.making} {...tile('making')} />
         <KpiTile label="Damaged pcs" value={pcsText(totals.damaged)} dot={KPI_DOT.damaged} tone={totals.damaged > 0 ? 'danger' : undefined} {...tile('damaged')} />
@@ -253,7 +253,7 @@ function DamagedItems({ search, from }: { search: string; from: string }) {
 /* page                                                                 */
 /* ------------------------------------------------------------------ */
 
-/** Inventory (Jemish / Gaurang): design-wise pcs. Section and search live in the URL (`?section=damaged&q=D101`). */
+/** Inventory (Jenish / Gaurang): design-wise pcs. Section and search live in the URL (`?section=damaged&q=D101`). */
 export default function InventoryPage() {
   usePageTitle('Inventory');
   const [params, setParams] = useSearchParams();

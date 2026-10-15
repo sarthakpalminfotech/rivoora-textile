@@ -239,7 +239,7 @@ export const toTarget = (g: JobsheetTakaGroup): EditTakasTarget => ({
   note: g.note,
 });
 
-/** Order details → Takas card (Jemish / Gaurang): summary, All / Damaged only, grouped by jobsheet. */
+/** Order details → Takas card (Jenish / Gaurang): summary, All / Damaged only, grouped by jobsheet. */
 export function OrderTakasCard({ order }: { order: OrderDetail }) {
   const { can } = useRole();
   const query = useOrderTakas(order.id);
@@ -412,7 +412,7 @@ export function OrderTakasCard({ order }: { order: OrderDetail }) {
   );
 }
 
-/** Jobsheet details → Takas block (Jemish / Gaurang), with the same Edit form. */
+/** Jobsheet details → Takas block (Jenish / Gaurang), with the same Edit form. */
 export function JobsheetTakasCard({ js }: { js: JobsheetDetail }) {
   const { can } = useRole();
   const [editing, setEditing] = useState<EditTakasTarget | null>(null);

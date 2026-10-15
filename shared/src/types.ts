@@ -295,7 +295,7 @@ export interface JobsheetEvent {
   createdAt: string;
 }
 
-/** Order information on a jobsheet — only for Jemish / Gaurang (the supervisor gets `null`). */
+/** Order information on a jobsheet — only for Jenish / Gaurang (the supervisor gets `null`). */
 export interface JobsheetOrderInfo {
   id: number;
   orderNo: number;
@@ -841,7 +841,7 @@ export interface TakaDetail {
   design: TakaDesignInfo;
   /** The challans of the taka (butta cutting, mill) — the active row of each kind, also after it came back. */
   challans: TakaChallanRef[];
-  /** Taka history — Jemish / Gaurang only (empty for the new roles). */
+  /** Taka history — Jenish / Gaurang only (empty for the new roles). */
   events: TakaEvent[];
   createdAt: string;
 }
@@ -865,7 +865,7 @@ export interface TakaDamageFull extends TakaDamage {
   events: TakaEvent[];
 }
 
-/** GET /takas/:id/damages — the damage details screen (Jemish / Gaurang). */
+/** GET /takas/:id/damages — the damage details screen (Jenish / Gaurang). */
 export interface TakaDamagesDetail {
   taka: {
     id: number;
@@ -964,8 +964,20 @@ export type ButtaPendingOrderTakas = ChallanPendingOrderTakas;
 
 export type ChallanStatus = 'active' | 'cancelled';
 
+/** A design on a challan card: one entry per order + design / variation (the thumbnails and the design preview). */
+export interface ChallanDesign {
+  orderNo: number;
+  /** The variation code when the order has one, else the design code. */
+  designCode: string;
+  thumbUrl: string | null;
+  /** Full image — loaded only in the design preview. */
+  imageUrl: string | null;
+}
+
 /** One challan card (Send → In butta cutting, Receive → Challans). */
 export interface ChallanListItem {
+  /** Distinct designs of the challan's orders, by order number. */
+  designs: ChallanDesign[];
   id: number;
   kind: ChallanKind;
   challanNo: number;
@@ -1117,10 +1129,26 @@ export interface OrderChallan {
   receivedCount: number;
 }
 
-/** GET /orders/:id/challans */
+/** A delivery (dispatch) challan on the Docs tab: every revision is its own row (DC-12, DC-12 R1). */
+export interface OrderDeliveryChallan {
+  id: number;
+  kind: 'delivery';
+  challanNo: number;
+  revision: number;
+  /** `DC-12` / `DC-12 R1` */
+  label: string;
+  /** active = the latest revision · revised = replaced by a later one. */
+  status: 'active' | 'revised';
+  challanDate: string;
+  takas: number;
+  pcs: number;
+  meters: number;
+}
+
+/** GET /orders/:id/challans — butta + mill challans, plus delivery challans for roles that can dispatch. */
 export interface OrderChallans {
   orderId: number;
-  items: OrderChallan[];
+  items: (OrderChallan | OrderDeliveryChallan)[];
 }
 
 /* ---------- Mill QC (Sprint 9) ---------- */

@@ -6,7 +6,7 @@ import { roleStore } from '@/lib/role-store';
 
 /**
  * `role` is the ACTING role (what the screens and the server use). `user` is the logged-in person; users whose role can
- * switch roles (Jemish, Gaurang) may act as another role (`setRole`, sent as X-Act-As).
+ * switch roles (Jenish, Gaurang) may act as another role (`setRole`, sent as X-Act-As).
  */
 export function useRole() {
   const role = useSyncExternalStore(roleStore.subscribe, roleStore.get);

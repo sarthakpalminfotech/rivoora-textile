@@ -1,6 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { MillQcSubmitInput, MillQcTaka, QcPendingTaka, QcResult } from '@rivoora/shared';
-import { useInfiniteList } from '@/hooks/useInfiniteList';
+import type { MillQcSubmitInput, MillQcTaka, QcResult } from '@rivoora/shared';
 import { api } from '@/lib/api';
 import { invalidateAfterChallanWrite } from '../challans/api';
 
@@ -8,7 +7,6 @@ import { invalidateAfterChallanWrite } from '../challans/api';
 
 export const millQcKeys = { all: ['mill-qc'] as const, pending: ['mill-qc', 'pending'] as const };
 
-export const useMillQcPending = (search: string) => useInfiniteList<QcPendingTaka>(millQcKeys.pending, '/mill-qc/pending', { search });
 
 /** Opens a taka by number (numbers can contain `/`, so they are encoded). */
 export const fetchMillQcTaka = (no: string) => api.get<MillQcTaka>(`/mill-qc/taka/${encodeURIComponent(no)}`);

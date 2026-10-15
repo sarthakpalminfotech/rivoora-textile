@@ -15,7 +15,10 @@ export type OrderTab = (typeof ORDER_TABS)[number];
 
 const isTab = (v: string | null): v is OrderTab => v !== null && (ORDER_TABS as readonly string[]).includes(v);
 
-type Patch = Partial<Record<'tab' | 'stage' | 'sub' | 'type', string | null>>;
+export const HISTORY_VIEWS = ['overview', 'detailed'] as const;
+export type HistoryView = (typeof HISTORY_VIEWS)[number];
+
+type Patch = Partial<Record<'tab' | 'stage' | 'sub' | 'type' | 'hview', string | null>>;
 
 /**
  * Order details view state, kept in the URL (`?tab=dashboard&stage=production&sub=on_loom`, `?tab=damages&type=machine`)
@@ -32,6 +35,9 @@ export function useOrderView() {
   const stage: MainStageKey | null = isMainStageKey(rawStage) ? rawStage : sub ? getSubStage(sub).mainStage : null;
   const rawType = params.get('type');
   const damageType: DamageType | null = isDamageType(rawType) ? rawType : null;
+
+  const rawHView = params.get('hview');
+  const historyView: HistoryView = rawHView === 'detailed' ? 'detailed' : 'overview';
 
   const update = useCallback(
     (patch: Patch) =>
@@ -57,6 +63,9 @@ export function useOrderView() {
     /** Only a sub-stage of the selected main stage counts. */
     sub: sub && (!stage || getSubStage(sub).mainStage === stage) ? sub : null,
     damageType,
+    /** History tab: Overview (main steps, default) or Detailed (every status change). */
+    historyView,
+    setHistoryView: (v: HistoryView) => update({ hview: v === 'overview' ? null : v }),
     setTab: (t: OrderTab) => update({ tab: t, ...(t !== 'damages' ? { type: null } : {}) }),
     selectStage: (s: MainStageKey) => update({ tab: 'dashboard', stage: s, sub: null }),
     /** Clicking the open sub-stage again closes the panel. */

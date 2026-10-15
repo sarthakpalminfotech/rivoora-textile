@@ -86,7 +86,7 @@ export function useEnterTakas(jobsheetId: number) {
   });
 }
 
-/** Jemish / Gaurang: replace a jobsheet's takas + note. */
+/** Jenish / Gaurang: replace a jobsheet's takas + note. */
 export function useEditTakas(jobsheetId: number) {
   const qc = useQueryClient();
   return useMutation({
@@ -111,7 +111,7 @@ export function useTakaDamages(takaId: number) {
   });
 }
 
-/** Rework: send takas back to butta cutting / the mill (Jemish, Gaurang). */
+/** Rework: send takas back to butta cutting / the mill (Jenish, Gaurang). */
 export function useSendBackTakas(orderId: number) {
   const qc = useQueryClient();
   return useMutation({

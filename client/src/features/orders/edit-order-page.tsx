@@ -5,7 +5,7 @@ import { useRole } from '@/hooks/useRole';
 import { useOrder } from './api';
 import { OrderForm } from './add-order-page';
 
-/** `/orders/:id/edit` — the order form pre-filled with an existing order (Jemish / Gaurang). */
+/** `/orders/:id/edit` — the order form pre-filled with an existing order (Jenish / Gaurang). */
 export default function EditOrderPage() {
   const id = Number(useParams().id);
   const { can } = useRole();

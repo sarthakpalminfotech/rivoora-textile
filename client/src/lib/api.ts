@@ -35,7 +35,7 @@ interface RequestOptions {
 }
 
 async function request<T>(method: string, path: string, { query, body, signal }: RequestOptions = {}): Promise<T> {
-  // The session cookie identifies the user; only a role-switching user (Jemish, Gaurang) acting as another role sends X-Act-As.
+  // The session cookie identifies the user; only a role-switching user (Jenish, Gaurang) acting as another role sends X-Act-As.
   const headers: Record<string, string> = { Accept: 'application/json' };
   const own = authStore.user()?.role;
   if (own && roleStore.get() !== own) headers[ACT_AS_HEADER] = roleStore.get();

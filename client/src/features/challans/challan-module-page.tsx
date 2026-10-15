@@ -51,7 +51,7 @@ function kpiText(takas: number | undefined, pcs: number | undefined) {
 }
 
 /**
- * Butta cutting and Mill module (Jemish, Gaurang, Godown supervisor): the SAME screens, parameterised by the challan
+ * Butta cutting and Mill module (Jenish, Gaurang, Godown supervisor): the SAME screens, parameterised by the challan
  * kind. Two top tabs, kept in the URL: Send (Pending · In butta cutting / In mill, with taka counts) and Receive
  * (Taka number · Challans). Tablet-first with 48px tap targets.
  */
@@ -76,7 +76,7 @@ export default function ChallanModulePage({ kind }: { kind: ChallanKind }) {
     filterParam === "received" || filterParam === "all" ? filterParam : "open";
   const counts = useKindCounts(kind);
   const { can } = useRole();
-  const showKpis = can("canViewInventory"); // Jemish + Gaurang
+  const showKpis = can("canViewInventory"); // Jenish + Gaurang
 
   const update = (patch: Record<string, string | null>) =>
     setParams(

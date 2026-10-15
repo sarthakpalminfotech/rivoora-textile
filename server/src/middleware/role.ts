@@ -9,7 +9,7 @@ declare global {
   // eslint-disable-next-line @typescript-eslint/no-namespace
   namespace Express {
     interface Request {
-      /** The ACTING role: the user's own role, or the role a switching user (Jemish / Gaurang) acts as. */
+      /** The ACTING role: the user's own role, or the role a switching user (Jenish / Gaurang) acts as. */
       role: RoleKey;
       /** The logged-in user (their own role, never the acted-as one). */
       user: AuthUser;

@@ -38,6 +38,8 @@ type Selection = Map<number, Set<number>>;
 
 interface SelectedTotals {
   takas: number;
+  /** Total pcs of the selected takas (a taka without pcs counts 0). */
+  pcs: number;
   meters: number;
   orders: number;
 }
@@ -217,6 +219,7 @@ function TakasDrawer({
   const all = ready.length > 0 && ready.every((t) => ids.has(t.id));
   const some = ids.size > 0;
   const meters = takas?.filter((t) => ids.has(t.id)).reduce((s, t) => s + (t.meters ?? 0), 0) ?? 0;
+  const pcs = takas?.filter((t) => ids.has(t.id)).reduce((s, t) => s + (t.pcs ?? 0), 0) ?? 0;
   const toggle = (id: number, on: boolean) => {
     const next = new Set(ids);
     if (on) next.add(id);
@@ -234,7 +237,7 @@ function TakasDrawer({
       footer={
         <>
           <p className="mr-auto text-sm font-semibold text-slate-700">
-            {ids.size} selected{ids.size > 0 && ` · ${formatMeters(Math.round(meters * 100) / 100)}`}
+            {ids.size} selected{ids.size > 0 && ` · ${formatPcs(pcs)} · ${formatMeters(Math.round(meters * 100) / 100)}`}
           </p>
           <Button size="lg" className="h-12 min-w-28" onClick={onClose}>
             Done
@@ -499,10 +502,14 @@ function SendDialog({
       }
     >
       <div className="space-y-4 pb-1">
-        <dl className="grid grid-cols-3 gap-2 rounded-xl bg-slate-50 p-3 text-center">
+        <dl className="grid grid-cols-4 gap-2 rounded-xl bg-slate-50 p-3 text-center">
           <div>
             <dt className="text-[12px] text-muted-foreground">Takas</dt>
             <dd className="text-2xl font-bold tabular-nums text-slate-900">{totals.takas}</dd>
+          </div>
+          <div>
+            <dt className="text-[12px] text-muted-foreground">Pcs</dt>
+            <dd className="text-2xl font-bold tabular-nums text-slate-900">{totals.pcs.toLocaleString('en-IN')}</dd>
           </div>
           <div>
             <dt className="text-[12px] text-muted-foreground">Meters</dt>
@@ -628,11 +635,16 @@ export function SendPending({ kind, search, mode = 'send' }: { kind: ChallanKind
   const totals: SelectedTotals = useMemo(() => {
     let takas = 0;
     let meters = 0;
+    let pcs = 0;
     for (const [orderId, ids] of selection) {
       takas += ids.size;
-      for (const t of known.get(orderId) ?? []) if (ids.has(t.id)) meters += t.meters ?? 0;
+      for (const t of known.get(orderId) ?? [])
+        if (ids.has(t.id)) {
+          meters += t.meters ?? 0;
+          pcs += t.pcs ?? 0;
+        }
     }
-    return { takas, meters: Math.round(meters * 100) / 100, orders: selection.size };
+    return { takas, pcs, meters: Math.round(meters * 100) / 100, orders: selection.size };
   }, [selection, known]);
   const takaIds = useMemo(() => [...selection.values()].flatMap((s) => [...s]), [selection]);
 
@@ -714,7 +726,7 @@ export function SendPending({ kind, search, mode = 'send' }: { kind: ChallanKind
         <div className="fixed inset-x-0 bottom-[calc(4rem+env(safe-area-inset-bottom))] z-30 border-t border-border bg-white/95 px-4 py-3 shadow-pop backdrop-blur md:sticky md:inset-x-auto md:bottom-4 md:rounded-xl md:border">
           <div className="mx-auto flex flex-wrap items-center gap-2">
             <p className="mr-auto text-sm font-semibold text-slate-800">
-              {totals.takas} {totals.takas === 1 ? 'taka' : 'takas'} · {formatMeters(totals.meters)} selected
+              {totals.takas} {totals.takas === 1 ? 'taka' : 'takas'} · {formatPcs(totals.pcs)} · {formatMeters(totals.meters)} selected
               <span className="hidden font-medium text-slate-500 sm:inline">
                 {' '}
                 · {totals.orders} {totals.orders === 1 ? 'order' : 'orders'}

@@ -16,7 +16,7 @@ import { chunk, recomputeOrdersStatus, writeTakaEvents, type TakaEventInput } fr
 import { takaInOrder } from './free-stock';
 
 /**
- * Rework: Jemish / Gaurang send takas back to butta cutting (`rework_butta`) or to the mill (`refinish`, which already
+ * Rework: Jenish / Gaurang send takas back to butta cutting (`rework_butta`) or to the mill (`refinish`, which already
  * goes back through Mill → Send → Refinish). One transaction with conditional stage updates; ends with the status recompute.
  */
 export async function sendBackTakas(role: RoleKey, orderId: number, input: unknown): Promise<SendBackResult> {

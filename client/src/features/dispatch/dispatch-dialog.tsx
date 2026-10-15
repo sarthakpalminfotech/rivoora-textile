@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import { AlertTriangle, ChevronDown } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
-import { dispatchChallanLabel } from '@rivoora/shared';
+import { damageLabel, damageOpenPcs, dispatchChallanLabel, type OrderType } from '@rivoora/shared';
 import { Button } from '@/components/ui/button';
 import { DatePicker } from '@/components/ui/date-picker';
 import { Field } from '@/components/ui/field';
@@ -9,6 +10,7 @@ import { Input } from '@/components/ui/input';
 import { ResponsiveModal } from '@/components/ui/modal';
 import { errorMessage } from '@/lib/api';
 import { toApiDate } from '@/lib/format';
+import { useGodownDamages } from '../godown/api';
 import { useCreateDispatch } from './api';
 
 /**
@@ -21,12 +23,14 @@ export function DispatchDialog({
   orderId,
   clientName,
   totals,
+  orderType,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   orderId: number;
   clientName: string | null;
   totals: { takas: number; pcs: number; meters: number };
+  orderType?: OrderType;
 }) {
   const navigate = useNavigate();
   const create = useCreateDispatch(orderId);
@@ -35,6 +39,20 @@ export function DispatchDialog({
   const [lrNo, setLrNo] = useState('');
   const [ewayNo, setEwayNo] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [damageOpen, setDamageOpen] = useState(false);
+  const damages = useGodownDamages(orderId, open);
+  // Takas ready to dispatch that still carry an OPEN damage: a notice only, never a blocker.
+  const damaged = useMemo(() => {
+    const rows = (damages.data?.items ?? [])
+      .filter((t) => t.stage === 'ready_dispatch')
+      .map((t) => {
+        const open = t.damages.filter((d) => d.status === 'open');
+        const pcs = open.reduce((n, d) => n + (damageOpenPcs(d) ?? 0), 0);
+        return { id: t.id, takaNo: t.takaNo, pcs: pcs > 0 ? pcs : (t.pcs ?? 0), damages: open };
+      })
+      .filter((t) => t.damages.length > 0);
+    return { rows, pcs: rows.reduce((n, t) => n + t.pcs, 0) };
+  }, [damages.data]);
 
   useEffect(() => {
     if (!open) return;
@@ -43,6 +61,7 @@ export function DispatchDialog({
     setLrNo('');
     setEwayNo('');
     setError(null);
+    setDamageOpen(false);
   }, [open]);
 
   const submit = () => {
@@ -100,6 +119,36 @@ export function DispatchDialog({
             <dd className="text-2xl font-bold tabular-nums text-slate-900">{totals.meters > 0 ? totals.meters.toFixed(2) : '—'}</dd>
           </div>
         </dl>
+        {damaged.rows.length > 0 && (
+          <div role="status" className="rounded-xl border border-amber-200 bg-amber-50 text-amber-900">
+            <button
+              type="button"
+              onClick={() => setDamageOpen((o) => !o)}
+              aria-expanded={damageOpen}
+              className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm font-semibold"
+            >
+              <AlertTriangle className="size-4 shrink-0" aria-hidden />
+              <span className="min-w-0 flex-1">
+                {damaged.rows.length} {damaged.rows.length === 1 ? 'taka' : 'takas'} ({damaged.pcs.toLocaleString('en-IN')} pcs) still have damage
+              </span>
+              <ChevronDown className={`size-4 shrink-0 transition-transform ${damageOpen ? 'rotate-180' : ''}`} aria-hidden />
+            </button>
+            {damageOpen && (
+              <ul className="space-y-1 border-t border-amber-200 px-3 py-2 text-[13px]">
+                {damaged.rows.map((t) => (
+                  <li key={t.id} className="flex flex-wrap gap-x-2">
+                    {orderType !== 'pcs_to_pcs' && <span className="font-bold tabular-nums">{t.takaNo}</span>}
+                    <span>
+                      {t.damages
+                        .map((d) => damageLabel(d.foundAt, d.damageName, damageOpenPcs(d)))
+                        .join(' · ')}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
         <Field label="Challan date" htmlFor="dc-date">
           <DatePicker id="dc-date" value={date} onChange={setDate} />
         </Field>

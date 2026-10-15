@@ -40,8 +40,9 @@ export const masterKeys = {
 
 /* ---------- lookups (dropdowns) ---------- */
 
-export function useCustomerLookup(search: string) {
+export function useCustomerLookup(search: string, enabled = true) {
   return useQuery({
+    enabled,
     queryKey: [...masterKeys.lookupCustomers, search],
     queryFn: ({ signal }) => api.get<LookupItem[]>('/lookup/customers', { search }, signal),
     placeholderData: keepPreviousData,
@@ -59,7 +60,7 @@ export function useBrokerLookup(customerId: number | null) {
   });
 }
 
-/** Damage master names for the damage popup (Jemish, Gaurang, Taka entry). */
+/** Damage master names for the damage popup (Jenish, Gaurang, Taka entry). */
 export function useDamageLookup(search = '', enabled = true) {
   return useQuery({
     queryKey: [...masterKeys.lookupDamages, search],

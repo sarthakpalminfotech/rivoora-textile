@@ -53,7 +53,7 @@ Requires Node 20+.
 
 ## Roles
 
-There is no login yet. Use the profile menu (top right) to switch between **Jemish — Owner** (everything),
+There is no login yet. Use the profile menu (top right) to switch between **Jenish — Owner** (everything),
 **Gaurang — Partner** (orders from Jobsheet pending on, jobsheets, read-only masters), **Supervisor** (Jobsheets
 module + Machine view) and **Taka entry** (Scan jobsheet + a Jobsheets list to enter takas; English + Hindi screens).
 The server enforces what each role can see and do.
@@ -85,7 +85,7 @@ Everyone logs in with a 10-digit mobile number and a password (httpOnly cookie s
 
 | Name | Phone | Role | Default password |
 |---|---|---|---|
-| Jemish | 9999999999 | owner | `Rivoora@999` |
+| Jenish | 9999999999 | owner | `Rivoora@999` |
 | Gaurang | 8888888888 | partner | `Rivoora@888` |
 | Supervisor | 7777777777 | supervisor | `Rivoora@777` |
 | Taka entry | 6666666666 | taka_entry | `Rivoora@666` |
@@ -93,7 +93,7 @@ Everyone logs in with a 10-digit mobile number and a password (httpOnly cookie s
 | Godown supervisor | 4444444444 | godown_supervisor | `Rivoora@444` |
 | Dhruvil | 3333333333 | dispatch | `Rivoora@333` |
 
-The default password is `Rivoora@` + the first 3 digits of the phone. Change them in **Users** (Jemish / Gaurang) before real use.
+The default password is `Rivoora@` + the first 3 digits of the phone. Change them in **Users** (Jenish / Gaurang) before real use.
 
 **Autofill button:** the login screen has a small *Autofill* button that fills the default password. It is controlled by `VITE_LOGIN_AUTOFILL` (build-time, default **on**). Set `VITE_LOGIN_AUTOFILL=false` in `client/.env` (and in the Vercel env) before real use.
 

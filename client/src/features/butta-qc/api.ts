@@ -1,12 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { QcPendingTaka, QcResult, QcSubmitInput, TakaDetail } from '@rivoora/shared';
-import { useInfiniteList } from '@/hooks/useInfiniteList';
+import type { QcResult, QcSubmitInput, TakaDetail } from '@rivoora/shared';
 import { api } from '@/lib/api';
-import { challanKeys, invalidateAfterChallanWrite } from '../challans/api';
+import { invalidateAfterChallanWrite } from '../challans/api';
 
 /* ---------- Butta QC ---------- */
 
-export const useQcPending = (search: string) => useInfiniteList<QcPendingTaka>(challanKeys.qc, '/butta-qc/pending', { search });
 
 /** The one active taka with this number (Receive / Butta QC). Encoded: numbers can contain `/`. */
 export const fetchTakaByNo = (no: string) => api.get<TakaDetail>(`/takas/by-no/${encodeURIComponent(no)}`);

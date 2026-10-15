@@ -16,7 +16,7 @@ import { likePattern, type PaginationQuery } from '../lib/http';
 import { hashPassword } from '../lib/password';
 import { deleteUserSessions } from './auth';
 
-/** The Users master (Jemish, Gaurang). Roles are fixed in code; this only manages who has which role. */
+/** The Users master (Jenish, Gaurang). Roles are fixed in code; this only manages who has which role. */
 
 const columns = {
   id: users.id,

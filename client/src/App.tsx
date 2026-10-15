@@ -156,7 +156,7 @@ const router = createBrowserRouter([
           { path: 'orders/:orderId/takas/:takaId/damages', element: guard(['canEditTakas', 'canViewProductionOrders'], <DamageDetailsPage />) },
           { path: 'butta-parties', element: guard('canManageButtaParties', <PartiesPage kind="butta" />) },
           { path: 'mill-parties', element: guard('canManageMillParties', <PartiesPage kind="mill" />) },
-          // Butta cutting + Mill modules (Jemish, Gaurang, Godown supervisor) and the Butta QC role.
+          // Butta cutting + Mill modules (Jenish, Gaurang, Godown supervisor) and the Butta QC role.
           { path: 'butta', element: guard('canUseButtaModule', <ChallanModulePage kind="butta" />) },
           { path: 'butta/challans/:id', element: guard('canUseButtaModule', <ChallanDetailsPage kind="butta" />) },
           { path: 'mill', element: guard('canUseMillModule', <ChallanModulePage kind="mill" />) },
@@ -167,16 +167,16 @@ const router = createBrowserRouter([
           { path: 'butta-qc/taka/:takaNo', element: guard('canButtaQc', <QcTakaPage />) },
           { path: 'mill-qc', element: <Navigate to="/qc" replace /> },
           { path: 'mill-qc/taka/:takaNo', element: guard('canMillQc', <MillQcTakaPage />) },
-          // Godown Orders: final takas, split, ready to dispatch (Godown supervisor; Jemish / Gaurang may open it too).
+          // Godown Orders: final takas, split, ready to dispatch (Godown supervisor; Jenish / Gaurang may open it too).
           { path: 'godown/orders', element: guard('canUseGodownOrders', <GodownOrdersPage />) },
           { path: 'godown/orders/:orderId', element: guard('canUseGodownOrders', <GodownOrderPage />) },
           { path: 'godown/orders/:orderId/split/:takaId', element: guard('canUseGodownOrders', <SplitPage />) },
           { path: 'godown/orders/:orderId/takas/:takaId/damages', element: guard('canUseGodownOrders', <DamageDetailsPage />) },
-          // Inventory (Jemish / Gaurang): design-wise pcs, damaged stock.
+          // Inventory (Jenish / Gaurang): design-wise pcs, damaged stock.
           { path: 'inventory', element: guard('canViewInventory', <InventoryPage />) },
           { path: 'inventory/items/:key', element: guard('canViewInventory', <InventoryItemDetailsPage />) },
           { path: 'inventory/damaged/:key', element: guard('canViewInventory', <DamagedDetailsPage />) },
-          // Dispatch (Dhruvil; Jemish / Gaurang too): the Dispatched module and goods return.
+          // Dispatch (Dhruvil; Jenish / Gaurang too): the Dispatched module and goods return.
           { path: 'dispatched', element: guard('canDispatch', <DispatchedPage />) },
           { path: 'dispatched/:orderId', element: guard('canDispatch', <DispatchedOrderPage />) },
           { path: 'dispatched/:orderId/challans/:challanId/gr', element: guard('canGoodsReturn', <GoodsReturnPage />) },
@@ -184,7 +184,7 @@ const router = createBrowserRouter([
           { path: 'jobsheets', element: <JobsheetsRoute /> },
           // The supervisor's Order view: one order's jobsheets.
           { path: 'jobsheets/order/:orderId', element: guard('canViewJobsheetsModule', <SupervisorOrderJobsheetsPage />) },
-          // Role-aware: Jemish / Gaurang get the full view, the supervisor his restricted one, Taka entry his entry screen.
+          // Role-aware: Jenish / Gaurang get the full view, the supervisor his restricted one, Taka entry his entry screen.
           { path: 'jobsheets/:id', element: <JobsheetRoute /> },
           { path: 'machine-view', element: guard('canViewMachineView', <MachineViewPage />) },
           { path: 'scan', element: guard('canUseTakaModules', <ScanPage />) },

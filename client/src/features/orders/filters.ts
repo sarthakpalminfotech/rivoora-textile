@@ -8,6 +8,8 @@ export interface OrderFilters {
   search: string;
   statuses: OrderStatusKey[];
   materials: number[];
+  /** Party (client) ids — only for roles that see the client. */
+  parties: number[];
   /** Order type (Lump / Pcs to pcs). */
   types: OrderType[];
   from?: string;
@@ -28,6 +30,7 @@ export function useOrderFilters() {
       search: params.get('q') ?? '',
       statuses: list('status').filter(isStatusKey),
       materials: list('material').map(Number).filter((n) => Number.isInteger(n) && n > 0),
+      parties: list('party').map(Number).filter((n) => Number.isInteger(n) && n > 0),
       types: list('type').filter(isOrderType),
       from: DATE_RE.test(from) ? from : undefined,
       to: DATE_RE.test(to) ? to : undefined,
@@ -43,6 +46,7 @@ export function useOrderFilters() {
           if ('search' in patch) set('q', patch.search?.trim());
           if ('statuses' in patch) set('status', patch.statuses?.join(','));
           if ('materials' in patch) set('material', patch.materials?.join(','));
+          if ('parties' in patch) set('party', patch.parties?.join(','));
           if ('types' in patch) set('type', patch.types?.join(','));
           if ('from' in patch) set('from', patch.from);
           if ('to' in patch) set('to', patch.to);
@@ -55,7 +59,7 @@ export function useOrderFilters() {
   );
 
   const activeCount =
-    filters.statuses.length + filters.materials.length + filters.types.length + (filters.from || filters.to ? 1 : 0);
+    filters.statuses.length + filters.materials.length + filters.parties.length + filters.types.length + (filters.from || filters.to ? 1 : 0);
 
   return { filters, setFilters, activeCount };
 }

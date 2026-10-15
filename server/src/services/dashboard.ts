@@ -29,7 +29,7 @@ import { mapTaka, parseDamagesJson, sortTakas, takaColumns, takaDamagesJson } fr
 import { takaInOrder } from './free-stock';
 
 /**
- * Order dashboard (Jemish / Gaurang): counts, the items of one sub-stage, and the damaged takas.
+ * Order dashboard (Jenish / Gaurang): counts, the items of one sub-stage, and the damaged takas.
  * Same visibility rule as `GET /orders/:id` (404 when the role can't see the order's status).
  */
 

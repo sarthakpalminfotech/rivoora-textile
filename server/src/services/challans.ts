@@ -1,6 +1,9 @@
 import { and, asc, desc, eq, inArray, sql, type SQL } from 'drizzle-orm';
 import {
+  can,
   challanReceivedCountSchema,
+  dispatchChallanLabel,
+  mergeOrderChallans,
   CHALLAN_KIND_CONFIG,
   SECTIONS_PER_BEAM,
   canRoleSeeStatus,
@@ -15,6 +18,7 @@ import {
   takaStageLabel,
   type ButtaListQuery,
   type ChallanCreateResult,
+  type ChallanDesign,
   type ChallanDetail,
   type ChallanKind,
   type ChallanListQuery,
@@ -25,6 +29,7 @@ import {
   type ChallanPendingOrderTakas,
   type ChallanPrintData,
   type OrderChallans,
+  type OrderDeliveryChallan,
   type ReceiveResponse,
   type ReceiveResult,
   type RoleKey,
@@ -39,6 +44,8 @@ import {
   counters,
   designVariations,
   designs,
+  dispatchChallanTakas,
+  dispatchChallans,
   jobsheets,
   materials,
   millParties,
@@ -462,10 +469,41 @@ export async function listChallans(kind: ChallanKind, q: ChallanListQuery): Prom
     db.select({ total: sql<number>`COUNT(*)` }).from(challans).where(where),
   ]);
   const count = Number(total);
+  // The designs of the page's challans: ONE query for all the cards (no per-card queries).
+  const designsByChallan = new Map<number, ChallanDesign[]>();
+  if (items.length) {
+    const designRows = await db
+      .select({
+        challanId: challanTakas.challanId,
+        orderNo: orders.orderNo,
+        designCode: sql<string | null>`COALESCE(${designVariations.code}, ${designs.code})`,
+        thumbUrl: sql<string | null>`COALESCE(${designVariations.thumbUrl}, ${designs.thumbUrl})`,
+        imageUrl: sql<string | null>`COALESCE(${designVariations.imageUrl}, ${designs.imageUrl})`,
+      })
+      .from(challanTakas)
+      .innerJoin(orders, eq(orders.id, challanTakas.orderId))
+      .leftJoin(designs, eq(designs.id, orders.designId))
+      .leftJoin(designVariations, eq(designVariations.id, orders.variationId))
+      .where(
+        inArray(
+          challanTakas.challanId,
+          items.map((i) => i.id),
+        ),
+      )
+      .groupBy(challanTakas.challanId, orders.id)
+      .orderBy(asc(orders.orderNo));
+    for (const r of designRows) {
+      if (!r.designCode) continue;
+      const list = designsByChallan.get(r.challanId) ?? [];
+      list.push({ orderNo: r.orderNo, designCode: r.designCode, thumbUrl: r.thumbUrl, imageUrl: r.imageUrl });
+      designsByChallan.set(r.challanId, list);
+    }
+  }
   return {
     filter: q.filter,
     items: items.map((r) => ({
       ...r,
+      designs: designsByChallan.get(r.id) ?? [],
       totalTakas: Number(r.totalTakas),
       totalMeters: round2(Number(r.totalMeters)),
       receivedCount: Number(r.receivedCount),
@@ -834,10 +872,13 @@ export async function undoReceive(kind: ChallanKind, role: RoleKey, takaId: numb
 
 /**
  * GET /orders/:id/challans — every challan (butta AND mill, cancelled ones included) that holds at least one taka of
- * the order, newest first, with this order's share of it. Same visibility rule as the order itself.
+ * the order, newest first, with this order's share of it. Same visibility rule as the order itself. Delivery
+ * (dispatch) challans live in their own tables (every revision is a row), so they are read separately and merged in
+ * — only for roles that can dispatch.
  */
 export async function listOrderChallans(role: RoleKey, orderId: number): Promise<OrderChallans> {
-  const [orderRows, rows] = await db.batch([
+  const withDelivery = can(role, 'canDispatch');
+  const [orderRows, rows, deliveryRows] = await db.batch([
     db.select({ id: orders.id, status: orders.status }).from(orders).where(eq(orders.id, orderId)),
     db
       .select({
@@ -858,19 +899,47 @@ export async function listOrderChallans(role: RoleKey, orderId: number): Promise
       .where(eq(challanTakas.orderId, orderId))
       .groupBy(challans.id)
       .orderBy(desc(challans.createdAt), desc(challans.id)),
+    db
+      .select({
+        id: dispatchChallans.id,
+        challanNo: dispatchChallans.challanNo,
+        revision: dispatchChallans.revision,
+        status: dispatchChallans.status,
+        challanDate: dispatchChallans.challanDate,
+        createdAt: dispatchChallans.createdAt,
+        takas: sql<number>`COUNT(${dispatchChallanTakas.id})`,
+        pcs: sql<number>`COALESCE(SUM(${dispatchChallanTakas.pcs}), 0)`,
+        meters: sql<number>`COALESCE(SUM(${dispatchChallanTakas.meters}), 0)`,
+      })
+      .from(dispatchChallans)
+      .leftJoin(dispatchChallanTakas, eq(dispatchChallanTakas.challanId, dispatchChallans.id))
+      // Roles that can't dispatch get none of these (an always-false condition keeps the batch shape).
+      .where(and(eq(dispatchChallans.orderId, orderId), withDelivery ? undefined : sql`0`))
+      .groupBy(dispatchChallans.id),
   ]);
   const order = orderRows[0];
   if (!order || !canRoleSeeStatus(role, order.status)) throw notFound('Order');
-  return {
-    orderId,
-    items: rows.map(({ createdAt: _createdAt, ...r }) => ({
-      ...r,
-      orderTakas: Number(r.orderTakas),
-      orderMeters: round2(Number(r.orderMeters)),
-      totalTakas: Number(r.totalTakas),
-      receivedCount: Number(r.receivedCount),
-    })),
-  };
+  const buttaAndMill = rows.map((r) => ({
+    ...r,
+    orderTakas: Number(r.orderTakas),
+    orderMeters: round2(Number(r.orderMeters)),
+    totalTakas: Number(r.totalTakas),
+    receivedCount: Number(r.receivedCount),
+  }));
+  const deliveries: (OrderDeliveryChallan & { createdAt: string })[] = deliveryRows.map((r) => ({
+    id: r.id,
+    kind: 'delivery',
+    challanNo: r.challanNo,
+    revision: r.revision,
+    label: dispatchChallanLabel(r.challanNo, r.revision),
+    status: r.status,
+    challanDate: r.challanDate,
+    takas: Number(r.takas),
+    pcs: Number(r.pcs),
+    meters: round2(Number(r.meters)),
+    createdAt: r.createdAt,
+  }));
+  return { orderId, items: mergeOrderChallans(buttaAndMill, deliveries) };
 }
 
 export type { TakaStage };

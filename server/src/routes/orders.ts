@@ -13,6 +13,7 @@ import {
 } from '../services/orders';
 import { addSingleJobsheet, generateJobsheets, listOrderJobsheets, sendJobsheets } from '../services/jobsheets';
 import { listOrderChallans } from '../services/challans';
+import { getOrderMilestones } from '../services/order-milestones';
 import { listOrderTakas } from '../services/takas';
 import { sendBackTakas } from '../services/rework';
 import { addFromFreeStock, moveToInventory } from '../services/inventory-moves';
@@ -74,7 +75,7 @@ ordersRouter.post(
   }),
 );
 
-/** Edit an order (Jemish / Gaurang) — returns the updated order detail. */
+/** Edit an order (Jenish / Gaurang) — returns the updated order detail. */
 ordersRouter.put(
   '/:id',
   requirePermission('canEditOrder'),
@@ -155,6 +156,15 @@ ordersRouter.get(
   '/:id/dashboard/items',
   ah(async (req, res) => {
     res.json(await getDashboardItems(req.role, parseId(req.params.id), req.query));
+  }),
+);
+
+/** History → Overview: the raw times of the main steps (the maths is the shared `orderMilestones`). */
+ordersRouter.get(
+  '/:id/milestones',
+  ah(async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    res.json(await getOrderMilestones(req.role, parseId(req.params.id)));
   }),
 );
 

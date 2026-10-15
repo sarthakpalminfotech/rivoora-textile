@@ -36,7 +36,7 @@ function Chip({ label, count, dot, active, onClick }: { label: string; count: nu
   );
 }
 
-/** Mark as fresh: lists the taka's open damages, then resolves all of them (Jemish, Gaurang). */
+/** Mark as fresh: lists the taka's open damages, then resolves all of them (Jenish, Gaurang). */
 function MarkFreshDialog({ taka, onClose }: { taka: DamagedTakaRow | null; onClose: () => void }) {
   const detail = useTakaDetail(taka?.id ?? 0);
   const mark = useMarkFresh();

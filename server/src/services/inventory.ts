@@ -46,7 +46,7 @@ import { parseDamagesJson, takaDamagesJson } from './taka-shared';
 import { takaNotFree, takaOrderId } from './free-stock';
 
 /**
- * Inventory (Jemish / Gaurang): design-wise pcs. The rows are loaded with a few aggregate queries (one per table,
+ * Inventory (Jenish / Gaurang): design-wise pcs. The rows are loaded with a few aggregate queries (one per table,
  * grouped per order / jobsheet / stage — never per item) and folded through the shared `orderInventoryPcs`, so the
  * numbers can never drift from the order dashboard. Only pcs orders count; the rest is reported as "left out".
  */

@@ -17,7 +17,7 @@ const notify = () => listeners.forEach((l) => l());
 
 /**
  * Tiny external store for the ACTING role (React and the API client read the same one). The logged-in user's own role
- * is the default; only users who can switch roles (Jemish, Gaurang) may act as another one, and their choice is
+ * is the default; only users who can switch roles (Jenish, Gaurang) may act as another one, and their choice is
  * remembered in this browser.
  */
 export const roleStore = {

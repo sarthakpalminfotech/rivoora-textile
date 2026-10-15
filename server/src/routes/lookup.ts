@@ -39,7 +39,7 @@ lookupRouter.get(
   }),
 );
 
-/** Damage names for the damage popup: Jemish, Gaurang (edit takas), the Taka entry role and Butta QC. */
+/** Damage names for the damage popup: Jenish, Gaurang (edit takas), the Taka entry role and Butta QC. */
 lookupRouter.get(
   '/damages',
   requirePermission('canViewMasters', 'canEnterTakas', 'canEditTakas', 'canButtaQc', 'canMillQc', 'canUseGodownOrders'),
@@ -49,7 +49,7 @@ lookupRouter.get(
   }),
 );
 
-/** Butta parties for the Send dialog (Jemish, Gaurang, Godown supervisor). */
+/** Butta parties for the Send dialog (Jenish, Gaurang, Godown supervisor). */
 lookupRouter.get(
   '/butta-parties',
   requirePermission('canManageButtaParties', 'canUseButtaModule'),
@@ -59,7 +59,7 @@ lookupRouter.get(
   }),
 );
 
-/** Mill parties for the Send dialog (Jemish, Gaurang, Godown supervisor). */
+/** Mill parties for the Send dialog (Jenish, Gaurang, Godown supervisor). */
 lookupRouter.get(
   '/mill-parties',
   requirePermission('canManageMillParties', 'canUseMillModule'),

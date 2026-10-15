@@ -14,7 +14,7 @@ import {
   listInventoryItems,
 } from '../services/inventory';
 
-/** Inventory (Jemish / Gaurang): design-wise pcs and damaged stock. Live numbers — never cached. */
+/** Inventory (Jenish / Gaurang): design-wise pcs and damaged stock. Live numbers — never cached. */
 export const inventoryRouter = Router();
 inventoryRouter.use((_req, res, next) => {
   res.set('Cache-Control', 'no-store');

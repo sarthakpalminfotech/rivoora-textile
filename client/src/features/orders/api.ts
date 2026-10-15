@@ -4,6 +4,7 @@ import {
   type OrderCreateInput,
   type OrderDetail,
   type OrderListItem,
+  type OrderMilestoneInput,
   type OrderUpdateInput,
   type Paginated,
   type PreviousDesign,
@@ -28,9 +29,19 @@ export function useOrders(filters: OrderFilters) {
     search: filters.search,
     status: filters.statuses,
     material: filters.materials,
+    party: filters.parties,
     type: filters.types,
     from: filters.from,
     to: filters.to,
+  });
+}
+
+/** History → Overview: raw times of the main steps (fed to the shared `orderMilestones`). */
+export function useOrderMilestones(id: number) {
+  return useQuery({
+    queryKey: ['orders', 'milestones', id] as const,
+    queryFn: ({ signal }) => api.get<OrderMilestoneInput>(`/orders/${id}/milestones`, undefined, signal),
+    enabled: Number.isInteger(id) && id > 0,
   });
 }
 

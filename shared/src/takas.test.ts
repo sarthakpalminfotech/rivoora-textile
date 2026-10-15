@@ -126,7 +126,7 @@ describe('order status: Taka entry done', () => {
     expect(orderStatusForJobsheets([{ status: 'completed', takaCount: 3 }, { status: 'completed', takaCount: 0 }])).toBe(
       'production_completed',
     );
-    // Jemish removes all takas of a jobsheet.
+    // Jenish removes all takas of a jobsheet.
     expect(orderStatusForJobsheets([{ status: 'completed', takaCount: 0 }])).toBe('production_completed');
   });
 
@@ -359,7 +359,7 @@ describe('customer brokers + order type schemas', () => {
 });
 
 describe('sprint 6 role + status labels', () => {
-  it('Damage master rights: Jemish and Gaurang only', () => {
+  it('Damage master rights: Jenish and Gaurang only', () => {
     expect(can('jemish', 'canManageDamages')).toBe(true);
     expect(can('gaurang', 'canManageDamages')).toBe(true);
     expect(can('supervisor', 'canManageDamages')).toBe(false);

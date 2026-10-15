@@ -162,7 +162,7 @@ export default function OrdersPage() {
   const hasFilters = activeCount > 0 || !!filters.search;
   const clearAll = () => {
     setSearchText('');
-    setFilters({ search: '', statuses: [], materials: [], types: [], from: undefined, to: undefined });
+    setFilters({ search: '', statuses: [], materials: [], parties: [], types: [], from: undefined, to: undefined });
   };
   const count = selected.size;
 

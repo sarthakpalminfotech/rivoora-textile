@@ -7,6 +7,8 @@ import {
   isOrderType,
   isStatusKey,
   normalizeCode,
+  parseIdList,
+  parseKeyList,
   orderCreateSchema,
   orderUpdateSchema,
   STATUS,
@@ -44,12 +46,11 @@ const dateString = z
 
 export const orderListQuerySchema = paginationSchema.extend({
   status: z.string().optional().transform(csv),
-  material: z
-    .string()
-    .optional()
-    .transform((v) => csv(v).map(Number).filter((n) => Number.isInteger(n) && n > 0)),
+  material: z.string().optional().transform((v) => parseIdList(v)),
+  /** Party (client) filter: `party=3,7` — only honoured for roles that see the client. */
+  party: z.string().optional().transform((v) => parseIdList(v)),
   /** Order type filter: `type=lump,pcs_to_pcs`. */
-  type: z.string().optional().transform((v) => csv(v).filter(isOrderType)),
+  type: z.string().optional().transform((v) => parseKeyList(v, isOrderType)),
   from: dateString,
   to: dateString,
 });
@@ -71,6 +72,7 @@ export async function listOrders(role: RoleKey, q: OrderListQuery): Promise<Pagi
   if (q.to) conditions.push(lte(orders.orderDate, q.to));
   if (q.material.length) conditions.push(inArray(orders.materialId, q.material));
   if (q.type.length) conditions.push(inArray(orders.orderType, q.type));
+  if (q.party.length && can(role, 'canSeeClient')) conditions.push(inArray(orders.customerId, q.party));
   if (q.search) {
     const term = q.search.replace(/^#/, '').trim();
     const p = likePattern(term);

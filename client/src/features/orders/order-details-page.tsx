@@ -11,8 +11,6 @@ import { EmptyState } from '@/components/ui/empty-state';
 import { ImageThumb } from '@/components/ui/image-thumb';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { ROLES } from '@/config/roles';
-import { getStatus } from '@/config/statuses';
 import { useRole } from '@/hooks/useRole';
 import { ApiError } from '@/lib/api';
 import { formatDateTime, formatOrderNo } from '@/lib/format';
@@ -27,6 +25,7 @@ import { DashboardSkeleton, DashboardTab } from './dashboard/dashboard-tab';
 import { OrderHeader } from './dashboard/order-header';
 import { useOrderView, type OrderTab } from './dashboard/view-state';
 import { BlouseTag } from '../free-stock/blouse';
+import { HistoryTab } from './history-tab';
 
 function Card({ title, children, action, className }: { title: string; children: ReactNode; action?: ReactNode; className?: string }) {
   return (
@@ -46,32 +45,6 @@ function Item({ label, children, className }: { label: string; children: ReactNo
       <dt className="text-[13px] text-muted-foreground">{label}</dt>
       <dd className="mt-0.5 break-words text-[15px] font-semibold text-slate-900">{children}</dd>
     </div>
-  );
-}
-
-function History({ order }: { order: OrderDetail }) {
-  const entries = [...order.history].reverse();
-  return (
-    <ol className="relative space-y-5 pl-6 before:absolute before:bottom-2 before:left-[7px] before:top-2 before:w-0.5 before:bg-slate-200">
-      {entries.map((h, i) => {
-        const to = getStatus(h.toStatus);
-        const isUndo = h.fromStatus !== null && getStatus(h.fromStatus).sequence > to.sequence;
-        const title = h.fromStatus === null ? 'Order created' : isUndo ? `Moved back to ${to.label}` : `Moved to ${to.label}`;
-        return (
-          <li key={h.id} className="relative">
-            <span
-              className="absolute -left-6 top-1 size-4 rounded-full border-[3px] border-white shadow"
-              style={{ backgroundColor: i === 0 ? to.badge.dot : '#CBD5E1' }}
-              aria-hidden
-            />
-            <p className="text-[15px] font-semibold text-slate-900">{title}</p>
-            <p className="text-sm text-slate-500">
-              {formatDateTime(h.changedAt)} · by {ROLES[h.role]?.name ?? h.role}
-            </p>
-          </li>
-        );
-      })}
-    </ol>
   );
 }
 
@@ -333,8 +306,8 @@ export default function OrderDetailsPage() {
           <DetailsTab order={order} />
         </TabsContent>
         <TabsContent value="history" className="mt-4">
-          <Card title="Status history" className="lg:max-w-2xl" action={<CalendarClock className="size-4 text-slate-400" aria-hidden />}>
-            <History order={order} />
+          <Card title="History" className="lg:max-w-2xl" action={<CalendarClock className="size-4 text-slate-400" aria-hidden />}>
+            <HistoryTab order={order} view={view} />
           </Card>
         </TabsContent>
         {canTakas && (

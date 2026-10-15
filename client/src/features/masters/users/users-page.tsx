@@ -230,7 +230,7 @@ const columns: Column<UserRow>[] = [
   { header: 'Last login', cell: (u) => <span className="text-slate-500">{u.lastLoginAt ? formatDateTime(u.lastLoginAt) : 'Never'}</span> },
 ];
 
-/** Users master (Jemish, Gaurang): who can log in, with which role. Roles themselves are fixed in code. */
+/** Users master (Jenish, Gaurang): who can log in, with which role. Roles themselves are fixed in code. */
 export default function UsersPage() {
   usePageTitle('Users');
   const { user: me } = useRole();

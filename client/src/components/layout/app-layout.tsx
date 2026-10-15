@@ -105,7 +105,7 @@ function Sidebar() {
   );
 }
 
-/** A subtle bar while a role-switching user (Jemish, Gaurang) acts as another role. */
+/** A subtle bar while a role-switching user (Jenish, Gaurang) acts as another role. */
 function ActingAsBar() {
   const { config, user, isActingAs, setRole } = useRole();
   const navigate = useNavigate();

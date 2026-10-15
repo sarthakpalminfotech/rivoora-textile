@@ -200,7 +200,7 @@ describe('login helpers', () => {
     expect(DEFAULT_USERS.map((u) => u.role)).toEqual(['jemish', 'gaurang', 'supervisor', 'taka_entry', 'qc', 'godown_supervisor', 'dhruvil']);
     expect(new Set(DEFAULT_USERS.map((u) => u.phone)).size).toBe(7);
   });
-  it('X-Act-As: only Jemish and Gaurang may switch', () => {
+  it('X-Act-As: only Jenish and Gaurang may switch', () => {
     expect(resolveActingRole('jemish', 'supervisor')).toEqual({ role: 'supervisor', ignored: false });
     expect(resolveActingRole('gaurang', 'dhruvil')).toEqual({ role: 'dhruvil', ignored: false });
     expect(resolveActingRole('supervisor', 'jemish')).toEqual({ role: 'supervisor', ignored: true });
@@ -225,7 +225,7 @@ describe('sprint 12 roles', () => {
     expect(can('godown_supervisor', 'canUseMillModule')).toBe(true);
     expect(ROLES.godown_supervisor.landing).toBe('/butta');
   });
-  it('Jemish and Gaurang get the owner permissions', () => {
+  it('Jenish and Gaurang get the owner permissions', () => {
     for (const r of ['jemish', 'gaurang'] as const) {
       for (const p of ['canReworkTakas', 'canDispatch', 'canGoodsReturn', 'canMoveToInventory', 'canMarkFresh', 'canSwitchRoles', 'canManageUsers'] as const) expect(can(r, p), `${r} ${p}`).toBe(true);
     }

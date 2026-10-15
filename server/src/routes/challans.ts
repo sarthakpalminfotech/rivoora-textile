@@ -17,7 +17,7 @@ import {
 } from '../services/challans';
 
 /**
- * Challan module of one kind (butta cutting at `/butta`, the mill at `/mill` — one router, mounted twice). Jemish,
+ * Challan module of one kind (butta cutting at `/butta`, the mill at `/mill` — one router, mounted twice). Jenish,
  * Gaurang and the Godown supervisor; never returns a client name or a rate.
  */
 export function challansRouter(kind: ChallanKind): Router {

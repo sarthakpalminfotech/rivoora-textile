@@ -206,7 +206,7 @@ export default function InventoryItemDetailsPage() {
               <>
                 <KpiTile label="Ordered" value={pcsText(pcs.ordered)} />
                 <KpiTile label="In making" value={pcsText(pcs.inMaking)} dot="#38BDF8" onClick={() => toggleFilter('making')} active={filter === 'making'} />
-                <KpiTile label="In godown" value={pcsText(pcs.inGodown)} dot="#10B981" />
+                <KpiTile label="Ready for order" value={pcsText(pcs.inGodown)} dot="#10B981" />
                 <KpiTile label="Ready for dispatch" value={pcsText(pcs.readyDispatch)} dot="#14B8A6" onClick={() => toggleFilter('ready')} active={filter === 'ready'} />
                 <KpiTile label="Damaged" value={pcsText(pcs.damaged)} dot="#EF4444" tone={pcs.damaged > 0 ? 'danger' : undefined} onClick={() => openDamaged(false)} />
                 <KpiTile label="In refinish" value={pcsText(pcs.inRefinish)} dot="#F59E0B" onClick={() => openDamaged(true)} />

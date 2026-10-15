@@ -132,7 +132,7 @@ jobsheetsRouter.post(
   }),
 );
 
-/** Jemish / Gaurang: edit the whole taka set of a jobsheet + its note. */
+/** Jenish / Gaurang: edit the whole taka set of a jobsheet + its note. */
 jobsheetsRouter.put(
   '/:id/takas',
   requirePermission('canEditTakas'),

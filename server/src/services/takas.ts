@@ -252,7 +252,7 @@ async function damageNames(tx: Tx, ids: readonly number[]): Promise<Map<number, 
 }
 
 /* ------------------------------------------------------------------ */
-/* edit (Jemish / Gaurang)                                              */
+/* edit (Jenish / Gaurang)                                              */
 /* ------------------------------------------------------------------ */
 
 type EditRow = ReturnType<typeof takaEditSchema.parse>['takas'][number];
@@ -494,7 +494,7 @@ export async function editTakas(role: RoleKey, id: number, input: unknown): Prom
 }
 
 /* ------------------------------------------------------------------ */
-/* order takas (Jemish / Gaurang)                                       */
+/* order takas (Jenish / Gaurang)                                       */
 /* ------------------------------------------------------------------ */
 
 export async function listOrderTakas(role: RoleKey, orderId: number): Promise<OrderTakas> {
@@ -666,7 +666,7 @@ async function loadTakaDetail(role: RoleKey, where: SQL): Promise<TakaDetail> {
     .where(and(eq(takas.isDeleted, false), where))
     .limit(1);
   if (!row) throw notFound('Taka');
-  // Jemish / Gaurang follow the order visibility rule; the godown / QC roles only ever get the restricted fields.
+  // Jenish / Gaurang follow the order visibility rule; the godown / QC roles only ever get the restricted fields.
   if (!isRestricted(role) && !canRoleSeeStatus(role, row.orderStatus)) throw notFound('Taka');
 
   // The challans of the taka: the active row of each kind (butta cutting, then the mill), also after it came back.

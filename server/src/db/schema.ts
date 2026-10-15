@@ -263,7 +263,7 @@ export const jobsheets = sqliteTable(
     parentJobsheetId: integer('parent_jobsheet_id').references((): AnySQLiteColumn => jobsheets.id),
     /** Machine chosen in Change machine — pre-selected at Start. */
     suggestedMachineId: integer('suggested_machine_id').references(() => machines.id),
-    /** Common note of the taka entry (appended on every entry, editable by Jemish / Gaurang). */
+    /** Common note of the taka entry (appended on every entry, editable by Jenish / Gaurang). */
     takaNote: text('taka_note'),
     isDeleted: isDeleted(),
     createdAt: createdAt(),

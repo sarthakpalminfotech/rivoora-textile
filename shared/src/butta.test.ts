@@ -275,7 +275,7 @@ describe('order status: butta cutting + ready for mill', () => {
     expect(orderStatusForJobsheets(done, [])).toBe('taka_entry_done');
   });
 
-  it('the new statuses have their own order, badge and are visible to Jemish and Gaurang only', () => {
+  it('the new statuses have their own order, badge and are visible to Jenish and Gaurang only', () => {
     expect(getStatus('in_butta_cutting')).toMatchObject({ label: 'In butta cutting', sequence: 70 });
     expect(getStatus('ready_for_mill')).toMatchObject({ label: 'Ready for mill', sequence: 80 });
     expect(getStatus('in_butta_cutting').badge.dot).not.toBe(getStatus('ready_for_mill').badge.dot);
@@ -290,7 +290,7 @@ describe('order status: butta cutting + ready for mill', () => {
 });
 
 describe('sprint 7 roles', () => {
-  it('Jemish and Gaurang: butta module, cancel challan and parties; no QC', () => {
+  it('Jenish and Gaurang: butta module, cancel challan and parties; no QC', () => {
     for (const r of ['jemish', 'gaurang'] as const) {
       expect(can(r, 'canUseButtaModule')).toBe(true);
       expect(can(r, 'canCancelChallan')).toBe(true);
@@ -352,7 +352,7 @@ describe('order status: mill', () => {
     expect(orderStatusForJobsheets([{ status: 'completed', takaCount: 3 }, { status: 'completed', takaCount: 0 }], ['at_mill'])).toBe('production_completed');
   });
 
-  it('new statuses: own order and colours, visible to Jemish and Gaurang only', () => {
+  it('new statuses: own order and colours, visible to Jenish and Gaurang only', () => {
     expect(getStatus('in_mill')).toMatchObject({ label: 'In mill', sequence: 90 });
     expect(getStatus('received_from_mill')).toMatchObject({ label: 'Received from mill', sequence: 100 });
     const dots = ['ready_for_mill', 'in_mill', 'received_from_mill', 'in_butta_cutting'].map((k) => getStatus(k).badge.dot);
@@ -368,7 +368,7 @@ describe('order status: mill', () => {
 });
 
 describe('sprint 8 roles', () => {
-  it('Jemish, Gaurang and the Godown supervisor use the mill module; only Jemish and Gaurang manage mill parties', () => {
+  it('Jenish, Gaurang and the Godown supervisor use the mill module; only Jenish and Gaurang manage mill parties', () => {
     for (const r of ['jemish', 'gaurang', 'godown_supervisor'] as const) expect(can(r, 'canUseMillModule'), r).toBe(true);
     for (const r of ['jemish', 'gaurang'] as const) expect(can(r, 'canManageMillParties'), r).toBe(true);
     expect(can('godown_supervisor', 'canManageMillParties')).toBe(false);

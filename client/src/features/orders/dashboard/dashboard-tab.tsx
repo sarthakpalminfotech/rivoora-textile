@@ -534,7 +534,7 @@ function AlertsCard({ alerts, view }: { alerts: DashboardAlert[]; view: OrderVie
 /* special cases                                                        */
 /* ------------------------------------------------------------------ */
 
-/** Pending for production (Jemish only): nothing to show yet, with the Send for production action. */
+/** Pending for production (Jenish only): nothing to show yet, with the Send for production action. */
 function NotSentYet({ order }: { order: OrderDetail }) {
   const { can } = useRole();
   const send = useSendToProduction();

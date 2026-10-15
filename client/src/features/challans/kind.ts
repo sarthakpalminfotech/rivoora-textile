@@ -6,7 +6,7 @@ import type { RolePermissions } from '@/config/roles';
  * rules (stages, prefix, labels) live in `CHALLAN_KIND_CONFIG` (shared); this adds the routes and permissions.
  */
 
-/** Permission to use the module of a kind (Jemish, Gaurang, Godown supervisor). */
+/** Permission to use the module of a kind (Jenish, Gaurang, Godown supervisor). */
 export const kindPermission = (kind: ChallanKind): keyof RolePermissions => (kind === 'butta' ? 'canUseButtaModule' : 'canUseMillModule');
 
 /** `/butta/challans/12` or `/mill/challans/12` */

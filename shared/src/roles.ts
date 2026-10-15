@@ -62,9 +62,9 @@ export interface RolePermissions {
   canUseGodownOrders: boolean;
   /** The supervisor opens the Orders screens (list, details, dashboard, takas…) read-only, without client or money. */
   canViewProductionOrders: boolean;
-  /** Inventory module (/inventory): design-wise pcs, damaged stock. Jemish + Gaurang only (order lists show client names). */
+  /** Inventory module (/inventory): design-wise pcs, damaged stock. Jenish + Gaurang only (order lists show client names). */
   canViewInventory: boolean;
-  /** Send takas back to butta cutting / the mill from the order's Takas tab (Jemish, Gaurang). */
+  /** Send takas back to butta cutting / the mill from the order's Takas tab (Jenish, Gaurang). */
   canReworkTakas: boolean;
   /** Dispatch module: create dispatch challans (DC-n), the Dispatched screens. */
   canDispatch: boolean;
@@ -104,7 +104,7 @@ const NO_SPRINT12 = {
   canSwitchRoles: false,
   canManageUsers: false,
 };
-/** Jemish + Gaurang: all the Sprint 12 owner permissions. */
+/** Jenish + Gaurang: all the Sprint 12 owner permissions. */
 const OWNER_SPRINT12 = {
   canReworkTakas: true,
   canDispatch: true,
@@ -152,7 +152,7 @@ const NOTHING = {
 export const ROLES: Record<RoleKey, RoleConfig> = {
   jemish: {
     key: 'jemish',
-    name: 'Jemish',
+    name: 'Jenish',
     title: 'Owner',
     initials: 'J',
     landing: '/orders',
@@ -335,7 +335,7 @@ export const ROLES: Record<RoleKey, RoleConfig> = {
 
 export const DEFAULT_ROLE: RoleKey = 'jemish';
 export const ROLE_HEADER = 'X-Role';
-/** Header a role-switching user (Jemish, Gaurang) sends to act with another role's permissions. */
+/** Header a role-switching user (Jenish, Gaurang) sends to act with another role's permissions. */
 export const ACT_AS_HEADER = 'X-Act-As';
 
 export function isRoleKey(value: unknown): value is RoleKey {

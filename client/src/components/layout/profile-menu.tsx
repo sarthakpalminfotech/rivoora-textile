@@ -44,7 +44,7 @@ export function RoleTag({ className }: { className?: string }) {
   );
 }
 
-/** "Jemish" → "J", "Taka entry" → "TE". */
+/** "Jenish" → "J", "Taka entry" → "TE". */
 function initialsOf(name: string): string {
   const words = name.trim().split(/s+/).filter(Boolean);
   return (words.length > 1 ? words[0][0] + words[1][0] : (words[0] ?? '?').slice(0, 1)).toUpperCase();

@@ -50,7 +50,7 @@ import { recomputeOrdersStatus, refreshIsDamaged, usedTakaNumbers, usedMessage, 
 import { takaInOrder, takaNotFree, takaOrderId } from './free-stock';
 
 /**
- * Godown supervisor → Orders (also open to Jemish / Gaurang): the order's final takas, ticked one by one, with the
+ * Godown supervisor → Orders (also open to Jenish / Gaurang): the order's final takas, ticked one by one, with the
  * pcs actually counted, splits, and the "Ready to dispatch" confirmation. Restricted view: never a client or a rate.
  * Every write is one transaction with conditional stage updates and ends with the order status recompute.
  */

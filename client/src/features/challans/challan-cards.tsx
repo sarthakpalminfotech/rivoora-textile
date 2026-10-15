@@ -7,6 +7,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { formatDate } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { useChallans } from './api';
+import { ChallanDesigns } from './design-preview';
 import { ReceivedCountControl } from './received-count';
 import { challanDetailsPath } from './kind';
 
@@ -40,6 +41,7 @@ export function ChallanCard({ challan, onOpen, counter }: { challan: ChallanList
           <p className="truncate text-[15px] font-semibold text-slate-700">{challan.partyName}</p>
           <p className="text-sm text-slate-500">{formatDate(challan.challanDate)}</p>
         </div>
+        <ChallanDesigns designs={challan.designs} />
         {cancelled && (
           <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-slate-200 px-2.5 py-1 text-xs font-bold text-slate-600">
             <Ban className="size-3.5" aria-hidden /> Cancelled

@@ -38,7 +38,7 @@ export function switchableRoles(userRole: RoleKey): RoleKey[] {
 
 /** The default users created by the migrate step (only when the phone doesn't exist yet). */
 export const DEFAULT_USERS: readonly { name: string; phone: string; role: RoleKey }[] = [
-  { name: 'Jemish', phone: '9999999999', role: 'jemish' },
+  { name: 'Jenish', phone: '9999999999', role: 'jemish' },
   { name: 'Gaurang', phone: '8888888888', role: 'gaurang' },
   { name: 'Supervisor', phone: '7777777777', role: 'supervisor' },
   { name: 'Taka entry', phone: '6666666666', role: 'taka_entry' },
@@ -50,6 +50,6 @@ export const DEFAULT_USERS: readonly { name: string; phone: string; role: RoleKe
 export interface AuthUser {
   id: number;
   name: string;
-  /** The user's own role (the acting role may differ for Jemish / Gaurang). */
+  /** The user's own role (the acting role may differ for Jenish / Gaurang). */
   role: RoleKey;
 }

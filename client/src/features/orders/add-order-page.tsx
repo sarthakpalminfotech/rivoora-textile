@@ -177,9 +177,9 @@ export function OrderForm({ order }: { order?: OrderDetail }) {
     formState: { errors, isDirty },
   } = useForm<FormValues>({ resolver: zodResolver(schema), defaultValues: order ? fromOrder(order) : defaults() });
 
-  const [customerId, design, noteImages, newDesignCode, blouseOption] = useWatch({
+  const [customerId, design, noteImages, newDesignCode] = useWatch({
     control,
-    name: ['customerId', 'design', 'noteImages', 'newDesignCode', 'blouseOption'],
+    name: ['customerId', 'design', 'noteImages', 'newDesignCode'],
   });
 
   // Dropdown data with server-side search
@@ -583,7 +583,7 @@ export function OrderForm({ order }: { order?: OrderDetail }) {
               </div>
             </div>
             {design.kind === 'saved' && (
-              <DesignStockPanel designId={design.designId} variationId={design.variationId} blouse={blouseOption} />
+              <DesignStockPanel designId={design.designId} variationId={design.variationId} />
             )}
             </div>
           )}

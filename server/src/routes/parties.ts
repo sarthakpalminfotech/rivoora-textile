@@ -5,7 +5,7 @@ import { requirePermission } from '../middleware/role';
 import { createParty, deleteParty, getParty, listParties, updateParty } from '../services/parties';
 
 /**
- * Party master of a challan kind (butta parties / mill parties — one router, mounted twice). Jemish and Gaurang manage
+ * Party master of a challan kind (butta parties / mill parties — one router, mounted twice). Jenish and Gaurang manage
  * them (`canManageButtaParties` / `canManageMillParties`); the Send dialog reads `/lookup/<kind>-parties`.
  */
 export function partiesRouter(kind: ChallanKind): Router {

@@ -36,7 +36,7 @@ export async function listDamages({ page, limit, search }: PaginationQuery): Pro
   return { items, page, limit, total, hasMore: page * limit < total };
 }
 
-/** GET /lookup/damages — active names for the damage popup (Jemish, Gaurang, Taka entry). */
+/** GET /lookup/damages — active names for the damage popup (Jenish, Gaurang, Taka entry). */
 export async function lookupDamages(search?: string): Promise<LookupItem[]> {
   return db
     .select({ id: damages.id, name: damages.name })

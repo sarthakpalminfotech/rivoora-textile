@@ -205,7 +205,7 @@ describe('order status: Partly dispatched / Dispatched / Returned', () => {
   it('all remaining takas dispatched after a goods return → Returned', () => {
     expect(orderStatusForJobsheets(done(), ['dispatched', 'dispatched'], true)).toBe('returned');
   });
-  it('Returned has its own status: sequence 145, visible to Jemish, Gaurang and Dhruvil only', () => {
+  it('Returned has its own status: sequence 145, visible to Jenish, Gaurang and Dhruvil only', () => {
     const s = getStatus('returned');
     expect(s.label).toBe('Returned');
     expect(s.sequence).toBe(145);
@@ -298,7 +298,7 @@ describe('request schemas', () => {
     expect(addFromFreeStockSchema.safeParse({ takaIds: [3] }).success).toBe(true);
     expect(addFromFreeStockSchema.safeParse({ pcs: 12 }).success).toBe(true);
   });
-  it('permission canMoveToInventory: Jemish, Gaurang, Dhruvil', () => {
+  it('permission canMoveToInventory: Jenish, Gaurang, Dhruvil', () => {
     for (const r of ['jemish', 'gaurang', 'dhruvil'] as const) expect(can(r, 'canMoveToInventory'), r).toBe(true);
     for (const r of ['supervisor', 'taka_entry', 'qc', 'godown_supervisor'] as const) expect(can(r, 'canMoveToInventory'), r).toBe(false);
   });

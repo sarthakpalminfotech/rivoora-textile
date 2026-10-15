@@ -1,7 +1,7 @@
 import { Ban, CheckCircle2, FileText, Printer } from 'lucide-react';
 import { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { CHALLAN_KIND_CONFIG, challanLabel, formatMeters, type OrderChallan } from '@rivoora/shared';
+import { CHALLAN_KIND_CONFIG, challanLabel, formatMeters, isDeliveryChallan, type OrderChallan, type OrderDeliveryChallan } from '@rivoora/shared';
 import { ErrorState } from '@/components/list-parts';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -9,6 +9,72 @@ import { formatDate } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { useOrderChallans } from '../../challans/api';
 import { challanDetailsPath, challanPrintPath } from '../../challans/kind';
+
+/** Delivery (dispatch) challan: DC-12 / DC-12 R1 with its Active / Revised state. Opens the order's dispatch screen. */
+function DeliveryRow({ c, onOpen }: { c: OrderDeliveryChallan; onOpen: () => void }) {
+  const revised = c.status === 'revised';
+  return (
+    <li
+      role="link"
+      tabIndex={0}
+      aria-label={`Open delivery challan ${c.label}`}
+      onClick={(e) => {
+        if ((e.target as HTMLElement).closest('a, button')) return;
+        onOpen();
+      }}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' && e.target === e.currentTarget) onOpen();
+      }}
+      className={cn(
+        'flex min-w-0 cursor-pointer flex-col gap-3 rounded-xl border bg-white p-4 shadow-soft outline-none transition duration-150 hover:border-primary/30 hover:shadow-pop focus-visible:ring-2 focus-visible:ring-primary/40',
+        revised ? 'border-slate-200 bg-slate-50' : 'border-border',
+      )}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className={cn('text-2xl font-bold leading-tight tabular-nums', revised ? 'text-slate-400' : 'text-slate-900')}>{c.label}</p>
+          <p className="text-sm text-slate-500">{formatDate(c.challanDate)}</p>
+        </div>
+        <div className="flex shrink-0 items-center gap-1.5">
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-white px-2.5 py-1 text-xs font-semibold text-slate-600">
+            <span className="size-2 rounded-full bg-emerald-500" aria-hidden />
+            Delivery
+          </span>
+          <Link
+            to={`/print/dispatch-challan/${c.id}`}
+            className="flex size-10 items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-muted hover:text-primary"
+            aria-label={`Print delivery challan ${c.label}`}
+            title="Print"
+                     >
+            <Printer className="size-5" aria-hidden />
+          </Link>
+        </div>
+      </div>
+      <dl className="grid grid-cols-3 gap-x-3 text-sm">
+        <div>
+          <dt className="text-[12px] text-muted-foreground">Takas</dt>
+          <dd className="text-[15px] font-bold tabular-nums text-slate-900">{c.takas}</dd>
+        </div>
+        <div>
+          <dt className="text-[12px] text-muted-foreground">Pcs</dt>
+          <dd className="text-[15px] font-bold tabular-nums text-slate-900">{c.pcs.toLocaleString('en-IN')}</dd>
+        </div>
+        <div>
+          <dt className="text-[12px] text-muted-foreground">Meters</dt>
+          <dd className="text-[15px] font-bold tabular-nums text-slate-900">{c.meters > 0 ? formatMeters(c.meters) : '—'}</dd>
+        </div>
+      </dl>
+      <span
+        className={cn(
+          'inline-flex w-fit items-center gap-1 rounded-full px-2.5 py-1 text-xs font-bold',
+          revised ? 'bg-slate-200 text-slate-600' : 'bg-green-100 text-green-700',
+        )}
+      >
+        {revised ? 'Revised' : 'Active'}
+      </span>
+    </li>
+  );
+}
 
 /** More document types can be added here later (each one gets its own pill). */
 const DOC_SECTIONS = [{ key: 'challans', label: 'Challans' }] as const;
@@ -139,13 +205,17 @@ export function DocsTab({ orderId }: { orderId: number }) {
           <ErrorState error={query.error} onRetry={() => void query.refetch()} />
         ) : query.data.items.length === 0 ? (
           <div className="rounded-xl border border-border bg-white shadow-soft">
-            <EmptyState icon={FileText} title="No challans for this order yet" description="Butta cutting and mill challans that hold takas of this order appear here." className="py-10" />
+            <EmptyState icon={FileText} title="No challans for this order yet" description="Butta cutting, mill and delivery challans of this order appear here." className="py-10" />
           </div>
         ) : (
           <ul className="grid grid-cols-1 gap-3 sm:grid-cols-[repeat(auto-fill,minmax(18rem,1fr))]">
-            {query.data.items.map((c) => (
-              <ChallanRow key={c.id} c={c} onOpen={() => navigate(challanDetailsPath(c.kind, c.id), { state: { from } })} />
-            ))}
+            {query.data.items.map((c) =>
+              isDeliveryChallan(c) ? (
+                <DeliveryRow key={`dc-${c.id}`} c={c} onOpen={() => navigate(`/dispatched/${orderId}`, { state: { from } })} />
+              ) : (
+                <ChallanRow key={c.id} c={c} onOpen={() => navigate(challanDetailsPath(c.kind, c.id), { state: { from } })} />
+              ),
+            )}
           </ul>
         ))}
     </div>

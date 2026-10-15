@@ -1,28 +1,27 @@
-import { blouseBreakdownText, BLOUSE_LABEL, inventoryKey, type BlouseOption } from '@rivoora/shared';
+import { blouseBreakdownText, inventoryKey } from '@rivoora/shared';
 import { useInventoryItem } from '../inventory/api';
 
 /**
- * Display-only stock of the chosen design / variation, shown beside it on the order form. With a blouse option picked
- * the numbers are filtered to that option ("Showing With blouse stock"); without one it shows the totals with a quiet
- * breakdown line. Free stock (belongs to no order) is included.
+ * Display-only stock of the chosen design / variation, shown beside it on the order form. ALWAYS all stock of the
+ * design: the order's With / Without blouse option does not filter it. A quiet blouse breakdown line is shown for
+ * information. Free stock (belongs to no order) is included.
  */
-export function DesignStockPanel({ designId, variationId, blouse }: { designId: number; variationId: number | null; blouse?: BlouseOption | null }) {
-  const { data, isLoading, isError } = useInventoryItem(inventoryKey({ designId, variationId }), blouse ?? 'all');
+export function DesignStockPanel({ designId, variationId }: { designId: number; variationId: number | null }) {
+  const { data, isLoading, isError } = useInventoryItem(inventoryKey({ designId, variationId }), 'all');
 
   const tiles = data
     ? [
         { label: 'Free stock available', hint: 'Belongs to no order', value: data.free.total, tone: 'text-indigo-700' },
-        { label: 'In godown', hint: 'Finished, not yet ready', value: data.pcs.inGodown, tone: 'text-emerald-700' },
+        { label: 'Ready for order', hint: 'Finished, not yet packed', value: data.pcs.inGodown, tone: 'text-emerald-700' },
         { label: 'Ready for dispatch', hint: 'Packed for orders', value: data.pcs.readyDispatch, tone: 'text-teal-700' },
         { label: 'In making', hint: 'Still in production', value: data.pcs.inMaking, tone: 'text-sky-700' },
       ]
     : [];
-  const breakdown = data && !blouse ? blouseBreakdownText(data.blouseStock) : '';
+  const breakdown = data ? blouseBreakdownText(data.blouseStock) : '';
 
   return (
     <div className="border-t border-border p-3 sm:w-72 sm:shrink-0 sm:border-l sm:border-t-0 sm:p-4 lg:w-80">
       <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Existing inventory</p>
-      {blouse && <p className="mt-1 text-xs font-medium text-fuchsia-700">Showing {BLOUSE_LABEL[blouse]} stock</p>}
       {isError ? (
         <p className="mt-2 text-sm text-muted-foreground">Inventory is not available.</p>
       ) : isLoading ? (

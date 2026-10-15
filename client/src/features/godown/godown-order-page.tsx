@@ -457,7 +457,7 @@ function FinalTakasTab({ order }: { order: GodownOrder }) {
         )}
       </div>
 
-      <DispatchDialog open={dispatchModal} onOpenChange={setDispatchModal} orderId={order.orderId} clientName={order.customer?.name ?? null} totals={dispatchSum} />
+      <DispatchDialog open={dispatchModal} onOpenChange={setDispatchModal} orderId={order.orderId} clientName={order.customer?.name ?? null} totals={dispatchSum} orderType={order.orderType} />
       <MoveToInventoryDialog
         open={moveOpen}
         onOpenChange={setMoveOpen}

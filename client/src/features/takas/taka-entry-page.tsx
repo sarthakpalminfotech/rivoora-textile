@@ -346,11 +346,11 @@ export default function TakaEntryPage() {
     const [row] = emptyRows(1);
     setRows((prev) => [...prev, row]);
     // Focus the new field once it has rendered.
-    window.setTimeout(() => meterInputs.current.get(row.key)?.focus(), 0);
+    window.setTimeout(() => pcsInputs.current.get(row.key)?.focus(), 0);
   };
   const focusNext = (index: number) => {
     const next = rows[index + 1];
-    if (next) meterInputs.current.get(next.key)?.focus();
+    if (next) pcsInputs.current.get(next.key)?.focus();
     else (document.activeElement as HTMLElement | null)?.blur();
   };
 
@@ -454,8 +454,8 @@ export default function TakaEntryPage() {
                 key={r.key}
                 className={cn('-mx-2 rounded-xl px-2 py-1.5 transition-colors', r.damages.length > 0 && 'bg-red-50 ring-1 ring-red-200')}
               >
-                {/* Phones: number on its own line, then meters + pcs side by side, then Damage. md+: one row. */}
-                <div className="grid grid-cols-2 gap-x-2 gap-y-1 md:grid-cols-[minmax(0,1fr)_112px_96px_156px]">
+                {/* Phones: number on its own line, then pcs + meters side by side, then Damage. md+: one row. */}
+                <div className="grid grid-cols-2 gap-x-2 gap-y-1 md:grid-cols-[minmax(0,1fr)_96px_112px_156px]">
                   <span className="col-span-2 text-sm font-semibold text-slate-600 md:col-span-1 md:row-start-1">
                     Taka number / <span lang="hi">टाका नंबर</span>
                   </span>
@@ -468,40 +468,13 @@ export default function TakaEntryPage() {
                   >
                     {no ?? '…'}
                   </div>
-                  <label htmlFor={metersId} className="mt-1 text-sm font-semibold text-slate-600 md:row-start-1 md:mt-0">
-                    Meters / <span lang="hi">मीटर</span>
-                  </label>
                   <label htmlFor={pcsId} className="mt-1 text-sm font-semibold text-slate-600 md:row-start-1 md:mt-0">
                     Pcs / <span lang="hi">पीस</span>
                     <span className="text-destructive">*</span>
                   </label>
-                  <div className="relative self-start md:row-start-2">
-                    <input
-                      ref={(el) => {
-                        if (el) meterInputs.current.set(r.key, el);
-                        else meterInputs.current.delete(r.key);
-                      }}
-                      id={metersId}
-                      value={r.meters}
-                      onChange={(e) => setRow(r.key, { meters: cleanMeters(e.target.value) })}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          e.preventDefault();
-                          pcsInputs.current.get(r.key)?.focus();
-                        }
-                      }}
-                      inputMode="decimal"
-                      autoComplete="off"
-                      enterKeyHint="next"
-                      aria-invalid={!!meterErr || undefined}
-                      aria-describedby={meterErr ? `${metersId}-err` : undefined}
-                      className={cn(fieldBox(!!meterErr), 'pl-3 pr-7 text-[20px] font-bold')}
-                      placeholder="0.0"
-                    />
-                    <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-base font-semibold text-slate-400" aria-hidden>
-                      m
-                    </span>
-                  </div>
+                  <label htmlFor={metersId} className="mt-1 text-sm font-semibold text-slate-600 md:row-start-1 md:mt-0">
+                    Meters / <span lang="hi">मीटर</span>
+                  </label>
                   <input
                     ref={(el) => {
                       if (el) pcsInputs.current.set(r.key, el);
@@ -514,18 +487,45 @@ export default function TakaEntryPage() {
                     onKeyDown={(e) => {
                       if (e.key === 'Enter') {
                         e.preventDefault();
-                        focusNext(i);
+                        meterInputs.current.get(r.key)?.focus();
                       }
                     }}
                     inputMode="numeric"
                     autoComplete="off"
-                    enterKeyHint={i === rows.length - 1 ? 'done' : 'next'}
+                    enterKeyHint="next"
                     aria-required
                     aria-invalid={showPcsErr || !!pcsMessage || undefined}
                     aria-describedby={showPcsErr || pcsMessage ? `${pcsId}-err` : undefined}
                     className={cn(fieldBox(showPcsErr || !!pcsMessage), 'self-start px-3 text-[20px] font-bold md:row-start-2')}
                     placeholder="0"
                   />
+                  <div className="relative self-start md:row-start-2">
+                    <input
+                      ref={(el) => {
+                        if (el) meterInputs.current.set(r.key, el);
+                        else meterInputs.current.delete(r.key);
+                      }}
+                      id={metersId}
+                      value={r.meters}
+                      onChange={(e) => setRow(r.key, { meters: cleanMeters(e.target.value) })}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          focusNext(i);
+                        }
+                      }}
+                      inputMode="decimal"
+                      autoComplete="off"
+                      enterKeyHint={i === rows.length - 1 ? 'done' : 'next'}
+                      aria-invalid={!!meterErr || undefined}
+                      aria-describedby={meterErr ? `${metersId}-err` : undefined}
+                      className={cn(fieldBox(!!meterErr), 'pl-3 pr-7 text-[20px] font-bold')}
+                      placeholder="0.0"
+                    />
+                    <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-base font-semibold text-slate-400" aria-hidden>
+                      m
+                    </span>
+                  </div>
                   <TakaDamageControl
                     entries={r.damages}
                     onChange={(damages) => setRow(r.key, { damages })}
