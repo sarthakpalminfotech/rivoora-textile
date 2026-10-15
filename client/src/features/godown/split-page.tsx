@@ -268,13 +268,12 @@ function SplitForm({ order, taka }: { order: GodownOrder; taka: GodownTaka }) {
         open={damagePart !== undefined}
         onOpenChange={(o) => !o && setDamageFor(null)}
         takaLabel={damagePart ? `Taka ${damagePart.takaNo || '—'}` : ''}
-        foundAt="godown"
         suggestedNames={suggestedNames}
         takaPcs={damagePart && /^\d+$/.test(damagePart.pcs) ? Number(damagePart.pcs) : null}
         value={null}
         onConfirm={(v) => {
           const key = damageFor!;
-          setParts((prev) => prev.map((p) => (p.key === key ? { ...p, damages: [...p.damages, { key: nextEntryKey(), foundAt: 'godown', choice: v.choice, pcs: v.pcs }] } : p)));
+          setParts((prev) => prev.map((p) => (p.key === key ? { ...p, damages: [...p.damages, { key: nextEntryKey(), foundAt: v.type, choice: v.choice, pcs: v.pcs }] } : p)));
         }}
         onRefinish={() => {
           const key = damageFor;

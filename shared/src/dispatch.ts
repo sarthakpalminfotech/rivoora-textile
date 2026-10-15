@@ -129,23 +129,8 @@ export function reducePcsAcrossRows<T extends { id: number; pcs: number | null }
 }
 
 /* ------------------------------------------------------------------ */
-/* Move to order                                                        */
+/* Move to inventory / Add from free stock (totals for the confirm dialog) */
 /* ------------------------------------------------------------------ */
-
-/** A taka can be moved to another order only when it is FRESH stock: final, no open damage, not checked for dispatch. */
-export function canMoveTaka(t: { stage: string; isDamaged: boolean; checked: boolean }): boolean {
-  return t.stage === 'final' && !t.isDamaged && !t.checked;
-}
-
-export function moveBlockedReason(t: { stage: string; isDamaged: boolean; checked: boolean }): string | null {
-  if (t.stage !== 'final') return 'Only final takas in the godown can be moved.';
-  if (t.isDamaged) return "Damaged takas can't be moved — resolve the damage first.";
-  if (t.checked) return 'Untick the taka first (it is checked for dispatch).';
-  return null;
-}
-
-/** An order can receive moved takas unless it is fully dispatched (or not in production yet). */
-export const canReceiveMovedTakas = (orderStatus: string) => orderStatus !== 'dispatched' && orderStatus !== 'pending_production';
 
 /** Totals of the takas that move (count + pcs) — the confirm dialog. */
 export function moveTotals(takas: readonly { pcs: number | null; actualPcs: number | null }[]): { takas: number; pcs: number } {

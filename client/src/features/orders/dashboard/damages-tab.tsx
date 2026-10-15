@@ -29,10 +29,8 @@ import { useOrderDamages } from './api';
 import { ComingSoon } from './dashboard-tab';
 import type { OrderView } from './view-state';
 
-const FILTERS: { key: DamageType | null; label: string }[] = [
-  { key: null, label: 'All' },
-  ...DAMAGE_TYPE_CONFIG.map((d) => ({ key: d.key, label: d.label.replace(/ damage$/, '') })),
-];
+/** Machine / Butta / Mill are always shown; "Not marked" and the older types only when there is something in them. */
+const CORE_TYPES: readonly DamageType[] = ['machine', 'butta', 'mill'];
 
 /** Order details → Damages tab: counts per damage type, filter pills (in the URL) and the damaged takas. */
 export function DamagesTab({ order, view }: { order: OrderDetail; view: OrderView }) {
@@ -51,6 +49,13 @@ export function DamagesTab({ order, view }: { order: OrderDetail; view: OrderVie
   const takas = useOrderTakas(order.id, canEdit && order.jobsheetCount > 0);
   const [editing, setEditing] = useState<EditTakasTarget | null>(null);
   const data = query.data;
+  const visibleTypes = DAMAGE_TYPE_CONFIG.filter(
+    (d) => CORE_TYPES.includes(d.key) || d.key === type || (data?.counts.find((c) => c.type === d.key)?.count ?? 0) > 0,
+  );
+  const filters: { key: DamageType | null; label: string }[] = [
+    { key: null, label: 'All' },
+    ...visibleTypes.map((d) => ({ key: d.key, label: d.key === 'unmarked' ? 'Not marked' : d.label.replace(/ damage$/, '') })),
+  ];
 
   const editJobsheet = (jobsheetId: number) => {
     const g = takas.data?.groups.find((x) => x.jobsheetId === jobsheetId);
@@ -61,7 +66,7 @@ export function DamagesTab({ order, view }: { order: OrderDetail; view: OrderVie
     <div className="space-y-4">
       {/* Summary tiles */}
       <ul className="grid grid-cols-2 gap-2.5 md:grid-cols-3 md:gap-3 xl:grid-cols-5" aria-label="Damage counts">
-        {DAMAGE_TYPE_CONFIG.map((d) => {
+        {visibleTypes.map((d) => {
           const count = data?.counts.find((c) => c.type === d.key);
           const n = count?.count ?? 0;
           return (
@@ -101,7 +106,7 @@ export function DamagesTab({ order, view }: { order: OrderDetail; view: OrderVie
             </label>
           </div>
           <div className="-mx-1 flex max-w-full gap-1.5 overflow-x-auto px-1 scrollbar-none" role="group" aria-label="Filter by damage type">
-            {FILTERS.map((f) => (
+            {filters.map((f) => (
               <button
                 key={f.key ?? 'all'}
                 type="button"

@@ -123,6 +123,14 @@ export const ORDER_STATUSES = [
     badge: { bg: '#CCFBF1', text: '#0F766E', dot: '#0D9488' },
     visibleTo: DISPATCH_VISIBLE,
   },
+  {
+    // Sprint 13: every remaining (non-free) taka is dispatched AND the order had a goods return.
+    key: 'returned',
+    label: 'Returned',
+    sequence: 145,
+    badge: { bg: '#E0F2FE', text: '#0C4A6E', dot: '#0284C7' },
+    visibleTo: DISPATCH_VISIBLE,
+  },
 ] as const satisfies readonly StatusConfig[];
 
 export type OrderStatusKey = (typeof ORDER_STATUSES)[number]['key'];
@@ -142,6 +150,7 @@ export const STATUS = {
   READY_FOR_DISPATCH: 'ready_for_dispatch',
   PARTLY_DISPATCHED: 'partly_dispatched',
   DISPATCHED: 'dispatched',
+  RETURNED: 'returned',
 } as const satisfies Record<string, OrderStatusKey>;
 
 export const STATUS_KEYS = ORDER_STATUSES.map((s) => s.key) as [OrderStatusKey, ...OrderStatusKey[]];
@@ -291,6 +300,8 @@ export interface JobsheetStatusInput {
 export function orderStatusForJobsheets(
   jobsheets: readonly (string | JobsheetStatusInput)[],
   takaStages: readonly string[] = [],
+  /** Sprint 13: the order had a goods return (its returned takas are free stock now and not in `takaStages`). */
+  hadGoodsReturn = false,
 ): OrderStatusKey {
   const list = jobsheets.map((j) => (typeof j === 'string' ? { status: j, takaCount: 0 } : j));
   if (list.length === 0) return STATUS.READY_PRODUCTION;
@@ -298,7 +309,8 @@ export function orderStatusForJobsheets(
     if (!list.every((j) => (j.takaCount ?? 0) > 0)) return STATUS.PRODUCTION_COMPLETED;
     // Sprint 12: once any taka is dispatched the order is Partly dispatched (Dispatched when every taka is).
     if (takaStages.some((s) => s === 'dispatched')) {
-      return takaStages.every((s) => s === 'dispatched') ? STATUS.DISPATCHED : STATUS.PARTLY_DISPATCHED;
+      if (!takaStages.every((s) => s === 'dispatched')) return STATUS.PARTLY_DISPATCHED;
+      return hadGoodsReturn ? STATUS.RETURNED : STATUS.DISPATCHED;
     }
     if (takaStages.some((s) => s === 'at_butta' || s === 'butta_qc' || s === 'rework_butta')) return STATUS.IN_BUTTA_CUTTING;
     if (takaStages.length > 0 && takaStages.every((s) => s === 'waiting_mill')) return STATUS.READY_FOR_MILL;

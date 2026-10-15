@@ -97,7 +97,7 @@ describe('taka number validation (one jobsheet)', () => {
   });
 
   it('server schemas: numbers are generated (not sent), pcs required, at least one taka on entry, empty set allowed on edit', () => {
-    expect(takaEntrySchema.safeParse({ takas: [{ pcs: 12, damages: [{ damageId: 3, pcs: 2 }] }] }).success).toBe(true);
+    expect(takaEntrySchema.safeParse({ takas: [{ pcs: 12, damages: [{ type: 'machine', damageId: 3, pcs: 2 }] }] }).success).toBe(true);
     expect(takaEntrySchema.safeParse({ takas: [{ pcs: 1 }] }).success).toBe(true);
     expect(takaEntrySchema.safeParse({ takas: [{ meters: 10 }] }).success).toBe(false);
     expect(takaEntrySchema.safeParse({ takas: [] }).success).toBe(false);
@@ -270,21 +270,22 @@ describe('pcs per taka', () => {
 
 describe('damage payload (a list per taka)', () => {
   it('accepts master damages and "Other" names, each with the damaged pcs', () => {
-    expect(takaDamageSchema.parse({ damageId: 4, pcs: 2 })).toEqual({ damageId: 4, pcs: 2 });
-    expect(takaDamageSchema.parse({ otherName: '  Oil stain ', pcs: 1 })).toEqual({ otherName: 'Oil stain', pcs: 1 });
+    expect(takaDamageSchema.parse({ type: 'machine', damageId: 4, pcs: 2 })).toEqual({ type: 'machine', damageId: 4, pcs: 2 });
+    expect(takaDamageSchema.parse({ type: 'mill', otherName: '  Oil stain ', pcs: 1 })).toEqual({ type: 'mill', otherName: 'Oil stain', pcs: 1 });
     const parsed = takaEntrySchema.parse({
-      takas: [{ takaNo: '1', pcs: 12, damages: [{ damageId: 1, pcs: 2 }, { otherName: 'Hole', pcs: 1 }] }],
+      takas: [{ takaNo: '1', pcs: 12, damages: [{ type: 'machine', damageId: 1, pcs: 2 }, { type: 'butta', otherName: 'Hole', pcs: 1 }] }],
     });
     expect(parsed.takas[0].damages).toHaveLength(2);
   });
 
   it('a damage needs a name and pcs: empty Other, both keys, missing pcs or id are rejected', () => {
-    expect(takaDamageSchema.safeParse({ otherName: '   ', pcs: 1 }).success).toBe(false);
-    expect(takaDamageSchema.safeParse({ damageId: 1, otherName: 'Hole', pcs: 1 }).success).toBe(false);
-    expect(takaDamageSchema.safeParse({ damageId: 1 }).success).toBe(false);
-    expect(takaDamageSchema.safeParse({ damageId: 1, pcs: 0 }).success).toBe(false);
-    expect(takaDamageSchema.safeParse({ damageId: null, pcs: 1 }).success).toBe(false);
-    expect(takaDamageSchema.safeParse({ otherName: 'x'.repeat(81), pcs: 1 }).success).toBe(false);
+    const t = 'machine' as const;
+    expect(takaDamageSchema.safeParse({ type: t, otherName: '   ', pcs: 1 }).success).toBe(false);
+    expect(takaDamageSchema.safeParse({ type: t, damageId: 1, otherName: 'Hole', pcs: 1 }).success).toBe(false);
+    expect(takaDamageSchema.safeParse({ type: t, damageId: 1 }).success).toBe(false);
+    expect(takaDamageSchema.safeParse({ type: t, damageId: 1, pcs: 0 }).success).toBe(false);
+    expect(takaDamageSchema.safeParse({ type: t, damageId: null, pcs: 1 }).success).toBe(false);
+    expect(takaDamageSchema.safeParse({ type: t, otherName: 'x'.repeat(81), pcs: 1 }).success).toBe(false);
   });
 
   it('edit keeps an older nameless damage as { id, damageId: null, pcs: null }', () => {

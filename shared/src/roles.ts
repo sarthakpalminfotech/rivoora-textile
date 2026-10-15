@@ -70,8 +70,8 @@ export interface RolePermissions {
   canDispatch: boolean;
   /** Goods return (GR) on a dispatch challan. */
   canGoodsReturn: boolean;
-  /** Move fresh final takas to another order of the same design. */
-  canMoveTakas: boolean;
+  /** Sprint 13: Move to inventory (free stock) and Add from free stock / Assign to order. */
+  canMoveToInventory: boolean;
   /** Inventory → Damaged → Mark as fresh. */
   canMarkFresh: boolean;
   /** Act as another role (the profile menu's Switch role, X-Act-As header). */
@@ -99,7 +99,7 @@ const NO_SPRINT12 = {
   canReworkTakas: false,
   canDispatch: false,
   canGoodsReturn: false,
-  canMoveTakas: false,
+  canMoveToInventory: false,
   canMarkFresh: false,
   canSwitchRoles: false,
   canManageUsers: false,
@@ -109,7 +109,7 @@ const OWNER_SPRINT12 = {
   canReworkTakas: true,
   canDispatch: true,
   canGoodsReturn: true,
-  canMoveTakas: true,
+  canMoveToInventory: true,
   canMarkFresh: true,
   canSwitchRoles: true,
   canManageUsers: true,
@@ -328,7 +328,7 @@ export const ROLES: Record<RoleKey, RoleConfig> = {
       canUseGodownOrders: true,
       canDispatch: true,
       canGoodsReturn: true,
-      canMoveTakas: true,
+      canMoveToInventory: true,
     },
   },
 };

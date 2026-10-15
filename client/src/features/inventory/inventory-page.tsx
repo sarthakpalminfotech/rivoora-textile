@@ -13,22 +13,22 @@ import { CardThumb, ExpandingSearch, KpiSkeleton, KpiTile, pcsText } from './par
 
 type Section = 'all' | 'damaged';
 
-const KPI_DOT = { godown: '#10B981', ready: '#14B8A6', making: '#38BDF8', damaged: '#EF4444', refinish: '#F59E0B' } as const;
+const KPI_DOT = { godown: '#10B981', ready: '#14B8A6', making: '#38BDF8', damaged: '#EF4444', refinish: '#F59E0B', free: '#6366F1' } as const;
 
 /* ------------------------------------------------------------------ */
 /* KPI row                                                              */
 /* ------------------------------------------------------------------ */
 
-type KpiKey = 'godown' | 'ready' | 'making' | 'damaged' | 'refinish';
+type KpiKey = 'godown' | 'ready' | 'making' | 'damaged' | 'refinish' | 'free';
 
 function Kpis({ selected, onToggle }: { selected: KpiKey[]; onToggle: (k: KpiKey) => void }) {
   const tile = (k: KpiKey) => ({ onClick: () => onToggle(k), active: selected.includes(k) });
   const query = useInventorySummary();
-  const grid = 'grid grid-cols-2 gap-2.5 md:grid-cols-5';
+  const grid = 'grid grid-cols-2 gap-2.5 md:grid-cols-3 xl:grid-cols-6';
   if (query.isPending) {
     return (
       <div className={grid}>
-        <KpiSkeleton count={5} />
+        <KpiSkeleton count={6} />
       </div>
     );
   }
@@ -39,7 +39,7 @@ function Kpis({ selected, onToggle }: { selected: KpiKey[]; onToggle: (k: KpiKey
       </div>
     );
   }
-  const { totals, totalInGodown, excludedOrders } = query.data;
+  const { totals, totalInGodown, excludedOrders, freePcs } = query.data;
   return (
     <div className="space-y-2">
       <div className={grid}>
@@ -47,7 +47,8 @@ function Kpis({ selected, onToggle }: { selected: KpiKey[]; onToggle: (k: KpiKey
         <KpiTile label="Ready for dispatch" value={pcsText(totals.readyDispatch)} dot={KPI_DOT.ready} {...tile('ready')} />
         <KpiTile label="In making" value={pcsText(totals.inMaking)} dot={KPI_DOT.making} {...tile('making')} />
         <KpiTile label="Damaged pcs" value={pcsText(totals.damaged)} dot={KPI_DOT.damaged} tone={totals.damaged > 0 ? 'danger' : undefined} {...tile('damaged')} />
-        <KpiTile label="In refinish" value={pcsText(totals.inRefinish)} dot={KPI_DOT.refinish} {...tile('refinish')} className="col-span-2 md:col-span-1" />
+        <KpiTile label="In refinish" value={pcsText(totals.inRefinish)} dot={KPI_DOT.refinish} {...tile('refinish')} />
+        <KpiTile label="Free stock" value={pcsText(freePcs)} dot={KPI_DOT.free} {...tile('free')} />
       </div>
       {excludedOrders > 0 && (
         <p className="px-1 text-xs text-slate-400">
@@ -150,6 +151,11 @@ function ItemCard({ item, from }: { item: InventoryItemCard; from: string }) {
           <Figure label="In making" value={pcs.inMaking} />
           <Figure label="Ready" value={pcs.readyDispatch} />
         </div>
+        {item.freePcs > 0 && (
+          <p className="-mt-1 inline-flex w-fit items-center gap-1.5 rounded-full bg-indigo-50 px-2.5 py-1 text-xs font-semibold tabular-nums text-indigo-700">
+            <span className="size-1.5 rounded-full bg-indigo-500" aria-hidden /> Free {pcsText(item.freePcs)}
+          </p>
+        )}
         <div className="mt-auto flex h-1 overflow-hidden rounded-full bg-slate-100" role="img" aria-label={`${pcsText(pcs.readyDispatch)} ready and ${pcsText(pcs.inMaking)} in making of ${pcsText(pcs.ordered)} ordered`}>
           <span className="h-full bg-emerald-500" style={{ width: `${bar.ready}%` }} />
           <span className="h-full bg-sky-300" style={{ width: `${bar.making}%` }} />
@@ -253,7 +259,7 @@ export default function InventoryPage() {
   const [params, setParams] = useSearchParams();
   const location = useLocation();
   const section: Section = params.get('section') === 'damaged' ? 'damaged' : 'all';
-  const KPI_KEYS: KpiKey[] = ['godown', 'ready', 'making', 'damaged', 'refinish'];
+  const KPI_KEYS: KpiKey[] = ['godown', 'ready', 'making', 'damaged', 'refinish', 'free'];
   const kpis = (params.get('kpi') ?? '').split(',').filter((k): k is KpiKey => (KPI_KEYS as string[]).includes(k));
   const [search, setSearch] = useState(params.get('q') ?? '');
   const debounced = useDebounce(search, 300).trim();

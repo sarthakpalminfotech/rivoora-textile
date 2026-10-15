@@ -34,6 +34,7 @@ import { cn } from '@/lib/utils';
 import { DamageDialog, entryLabel, nextEntryKey, qcEntryPayload, type DamageEntry } from '../takas/damage-dialog';
 import { useSubmitQc, useTakaByNo } from './api';
 import { FreshTag } from '../takas/taka-chip';
+import { BlouseTag } from '../free-stock/blouse';
 
 /** The pcs a taka damage still has open (older damages without pcs: unknown until typed). */
 const openOf = (d: { pcs: number | null; resolvedPcs: number; status: string }) => damageOpenPcs(d);
@@ -78,6 +79,8 @@ export function IdentityCard({ taka, kind }: { taka: TakaDetail; kind?: ChallanK
       <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-border pt-3 text-sm text-slate-600">
         <span className="font-semibold text-slate-800">{taka.design.code ?? 'No design'}</span>
         {taka.quality && <span>{taka.quality}</span>}
+        <BlouseTag option={taka.blouseOption} hindi />
+        {taka.isFreeStock && <span className="rounded-full bg-indigo-50 px-2 py-0.5 text-[12px] font-bold text-indigo-700">Free stock</span>}
         {taka.challans.filter((c) => !kind || c.kind === kind).map((c) => (
           <span key={c.id} className="font-semibold text-amber-700">
             {challanLabel(c.challanNo, c.kind)}
@@ -532,11 +535,10 @@ function QcForm({ taka }: { taka: TakaDetail }) {
         open={addOpen}
         onOpenChange={setAddOpen}
         takaLabel={bi(`Taka ${taka.takaNo}`, `टाका ${taka.takaNo}`)}
-        foundAt="butta"
         takaPcs={takaPcs}
         value={null}
         allowImages
-        onConfirm={(v) => setAdded((prev) => [...prev, { key: nextEntryKey(), foundAt: 'butta', choice: v.choice, pcs: v.pcs, images: v.images }])}
+        onConfirm={(v) => setAdded((prev) => [...prev, { key: nextEntryKey(), foundAt: v.type, choice: v.choice, pcs: v.pcs, images: v.images }])}
       />
 
       <ResolveDialog

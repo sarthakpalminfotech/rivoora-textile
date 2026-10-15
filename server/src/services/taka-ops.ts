@@ -5,6 +5,7 @@ import {
   jobsheetRefShort,
   takaUsedText,
   TAKA_NO_START,
+  type DamageRecordedAt,
   type DamageType,
   type RoleKey,
   type TakaEventKind,
@@ -113,7 +114,10 @@ export interface DamageRow {
   takaId: number;
   damageId: number | null;
   pcs: number | null;
+  /** The damage TYPE (machine / butta / mill / unmarked). */
   foundAt: DamageType;
+  /** Where it was recorded. */
+  recordedAt: DamageRecordedAt;
 }
 
 /** Inserts open damages; returns their ids in order. */
@@ -130,6 +134,7 @@ export async function insertTakaDamages(tx: Tx, role: RoleKey, rows: DamageRow[]
           damageId: r.damageId,
           pcs: r.pcs,
           foundAt: r.foundAt,
+          recordedAt: r.recordedAt,
           status: 'open' as const,
           createdBy: role,
           createdAt: at,
@@ -199,5 +204,32 @@ export async function resolveDamageNames(
 
 /** Recomputes the order status of every touched order (call at the end of every send / receive / QC / cancel). */
 export async function recomputeOrdersStatus(tx: Tx, role: RoleKey, orderIds: readonly number[]) {
-  for (const id of new Set(orderIds)) await recomputeOrderStatus(id, role, tx);
+  // Callers pass the takas' ORIGIN orders; takas allocated from free stock count for another order — recompute that too.
+  const ids = new Set(orderIds);
+  for (const part of chunk([...ids])) {
+    if (!part.length) continue;
+    const allocated = await tx
+      .selectDistinct({ id: takas.allocatedOrderId })
+      .from(takas)
+      .where(and(inArray(takas.orderId, part), sql`${takas.allocatedOrderId} IS NOT NULL`, eq(takas.isDeleted, false)));
+    for (const a of allocated) if (a.id !== null) ids.add(a.id);
+  }
+  for (const id of ids) await recomputeOrderStatus(id, role, tx);
+}
+
+/** Sprint 13: has this taka's PARENT (or any ancestor through `parent_taka_id`) been to the mill? Split parts inherit it. */
+export async function ancestorHasBeenToMill(tx: DbOrTx, parentTakaId: number | null): Promise<boolean> {
+  const seen = new Set<number>();
+  let cur = parentTakaId;
+  while (cur !== null && !seen.has(cur)) {
+    seen.add(cur);
+    const [row] = await tx
+      .select({ hasBeenToMill: takas.hasBeenToMill, parentTakaId: takas.parentTakaId })
+      .from(takas)
+      .where(eq(takas.id, cur));
+    if (!row) return false;
+    if (row.hasBeenToMill) return true;
+    cur = row.parentTakaId;
+  }
+  return false;
 }

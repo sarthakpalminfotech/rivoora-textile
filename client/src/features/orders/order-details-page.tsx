@@ -2,7 +2,7 @@ import { ArrowLeft, CalendarClock, ImageOff, PackageCheck, Send } from 'lucide-r
 import { useState, type ReactNode } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
-import { isReadyOrLater, ORDER_TYPE_LABEL, STATUS, type OrderDetail } from '@rivoora/shared';
+import { isReadyOrLater, ORDER_TYPE_LABEL, returnedSummary, STATUS, type OrderDetail } from '@rivoora/shared';
 import { usePageTitle } from '@/components/layout/page-title';
 import { ErrorState } from '@/components/list-parts';
 import { Button } from '@/components/ui/button';
@@ -26,6 +26,7 @@ import { DocsTab } from './dashboard/docs-tab';
 import { DashboardSkeleton, DashboardTab } from './dashboard/dashboard-tab';
 import { OrderHeader } from './dashboard/order-header';
 import { useOrderView, type OrderTab } from './dashboard/view-state';
+import { BlouseTag } from '../free-stock/blouse';
 
 function Card({ title, children, action, className }: { title: string; children: ReactNode; action?: ReactNode; className?: string }) {
   return (
@@ -85,12 +86,23 @@ function DetailsTab({ order }: { order: OrderDetail }) {
         <Card title="Order">
           <dl className="grid grid-cols-1 gap-4 sm:grid-cols-3">
             <Item label="Order type">{ORDER_TYPE_LABEL[order.orderType]}</Item>
+            <Item label="Blouse">{order.blouseOption ? <BlouseTag option={order.blouseOption} /> : <span className="font-normal text-slate-400">Not set</span>}</Item>
             {can('canSeeClient') && <Item label="Client">{order.customer.name}</Item>}
             {can('canSeeClient') && (
               <Item label="Broker">{order.broker ? order.broker.name : <span className="font-normal text-slate-400">—</span>}</Item>
             )}
           </dl>
         </Card>
+
+        {order.returned && (
+          <p className="rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-[14px] font-medium text-sky-900">
+            {returnedSummary(order.returned.takas, order.returned.pcs)}
+            {' · '}
+            <Link to={`/print/dispatch-challan/${order.returned.challanId}`} className="font-semibold underline underline-offset-2">
+              See {order.returned.challanLabel}
+            </Link>
+          </p>
+        )}
 
         <Card title="Notes">
           {order.notes ? (

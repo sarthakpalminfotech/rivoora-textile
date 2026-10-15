@@ -9,3 +9,6 @@ server/uploads/*
 !server/uploads/.gitkeep
 
 .vercel
+
+.vercel
+.env*

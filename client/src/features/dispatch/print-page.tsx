@@ -2,6 +2,7 @@ import { ArrowLeft, Loader2, Printer, X } from 'lucide-react';
 import { useLayoutEffect, useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
+  BLOUSE_LABEL,
   CHALLAN_GROUPS,
   CHALLAN_PAPER,
   CHALLAN_ROWS_PER_GROUP,
@@ -166,7 +167,10 @@ function SheetTop({ data, pageLabel }: { data: DispatchChallanDetail; pageLabel:
       </div>
       <div className="chp-quality chp-row">
         <span>Quality Name : {data.order.quality ?? ''}</span>
-        <span>Design : {data.order.designCode ?? ''}</span>
+        <span>
+          Design : {data.order.designCode ?? ''}
+          {data.order.blouseOption ? ` (${BLOUSE_LABEL[data.order.blouseOption]})` : ''}
+        </span>
       </div>
     </>
   );

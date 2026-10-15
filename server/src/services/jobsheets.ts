@@ -56,6 +56,8 @@ import { db, type DbOrTx, type Tx } from '../db/client';
 import {
   counters,
   customers,
+  dispatchChallans,
+  goodsReturns,
   designVariations,
   designs,
   jobsheetEvents,
@@ -70,6 +72,7 @@ import {
 import { badRequest, conflict, notFound } from '../lib/errors';
 import { likePattern } from '../lib/http';
 import { mapTaka, sortTakas, TAKA_EVENTS, takaColumns } from './taka-shared';
+import { takaInOrder } from './free-stock';
 
 const JOBSHEET_COUNTER = 'jobsheet_no';
 export const now = () => new Date().toISOString();
@@ -264,10 +267,17 @@ export async function recomputeOrderStatus(orderId: number, role: RoleKey, tx: T
     .select({ stage: takas.stage })
     .from(takas)
     .innerJoin(jobsheets, eq(jobsheets.id, takas.jobsheetId))
-    .where(and(eq(takas.orderId, orderId), eq(takas.isDeleted, false), eq(jobsheets.isDeleted, false)));
+    .where(and(takaInOrder(orderId), eq(takas.isDeleted, false), eq(jobsheets.isDeleted, false)));
+  // Sprint 13: an order that had a goods return ends as Returned (not Dispatched) once its remaining takas are dispatched.
+  const [gr] = await tx
+    .select({ n: sql<number>`COUNT(*)` })
+    .from(goodsReturns)
+    .innerJoin(dispatchChallans, eq(dispatchChallans.id, goodsReturns.challanId))
+    .where(eq(dispatchChallans.orderId, orderId));
   const next = orderStatusForJobsheets(
     rows,
     stageRows.map((r) => r.stage),
+    Number(gr?.n ?? 0) > 0,
   );
   if (next === order.status) return false;
   return writeStatus(tx, role, orderId, order.status, next);
@@ -502,6 +512,7 @@ export async function getJobsheet(role: RoleKey, id: number): Promise<JobsheetDe
         parentJobsheetId: jobsheets.parentJobsheetId,
         parentJobsheetNo,
         takaNote: jobsheets.takaNote,
+        blouseOption: orders.blouseOption,
         ...runningMachineColumns,
         order: orderPlanColumns,
         customer: { id: customers.id, name: customers.name, city: customers.city },
@@ -581,6 +592,7 @@ export async function getJobsheet(role: RoleKey, id: number): Promise<JobsheetDe
   return {
     id: r.id,
     jobsheetNo: r.jobsheetNo,
+    blouseOption: r.blouseOption,
     status: r.status,
     frames: r.frames,
     completedFrames: r.completedFrames,
@@ -652,6 +664,7 @@ export async function printJobsheets(role: RoleKey, ids: number[]): Promise<Jobs
         orderStatus: orders.status,
         jobsheetPieces: orders.jobsheetPieces,
         orderType: orders.orderType,
+        blouseOption: orders.blouseOption,
         designCode: sql<string | null>`COALESCE(${designVariations.code}, ${designs.code})`,
       })
       .from(jobsheets)
@@ -686,6 +699,7 @@ export async function printJobsheets(role: RoleKey, ids: number[]): Promise<Jobs
       jobsheetPieces: r.jobsheetPieces,
       designCode: r.designCode,
       orderType: r.orderType,
+      blouseOption: r.blouseOption,
     });
   }
   if (items.length === 0) throw notFound('Jobsheets');
@@ -760,6 +774,7 @@ export async function listSupervisorJobsheets(role: RoleKey, q: JobsheetListQuer
         designCode: designCodeCol,
         designThumbUrl: designThumbCol,
         designImageUrl: designImageCol,
+        blouseOption: orders.blouseOption,
       })
       .from(jobsheets)
       .innerJoin(orders, eq(orders.id, jobsheets.orderId))
@@ -782,6 +797,7 @@ export async function listSupervisorJobsheets(role: RoleKey, q: JobsheetListQuer
         picks: jobsheets.picks,
         orderNo: orders.orderNo,
         quality: materials.name,
+        blouseOption: orders.blouseOption,
         designCode: designCodeCol,
         thumbUrl: designThumbCol,
         imageUrl: designImageCol,
@@ -837,6 +853,7 @@ export async function listSupervisorJobsheets(role: RoleKey, q: JobsheetListQuer
         picks: r.picks,
         orderNo: r.orderNo,
         quality: r.quality,
+        blouseOption: r.blouseOption,
         designCode: r.designCode,
         thumbUrl: r.thumbUrl,
         imageUrl: r.imageUrl,
@@ -888,6 +905,7 @@ export async function listSupervisorOrders(role: RoleKey, q: SupervisorOrderList
         designCode: designCodeCol,
         designThumbUrl: designThumbCol,
         designImageUrl: designImageCol,
+        blouseOption: orders.blouseOption,
         pending,
         ongoing,
         completed,
@@ -927,6 +945,7 @@ export async function listSupervisorOrders(role: RoleKey, q: SupervisorOrderList
       designCode: r.designCode,
       designThumbUrl: r.designThumbUrl,
       designImageUrl: r.designImageUrl,
+      blouseOption: r.blouseOption,
       counts: {
         pending: Number(r.pending),
         ongoing: Number(r.ongoing),

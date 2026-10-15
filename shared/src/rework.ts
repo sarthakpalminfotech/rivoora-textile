@@ -33,12 +33,18 @@ export function reworkSelectable(stage: string): ReworkSelectable {
 }
 
 /**
- * Where a taka goes after the Butta QC. A taka that has ALREADY been to the mill (a mill challan row in its history, or
- * refinish_count > 0) goes back to the godown (`final`) — it was dyed once, so it doesn't go to the mill again by
- * itself. Otherwise the normal flow: `waiting_mill`.
+ * A taka that has already been to the mill (itself, or any ancestor through `parent_taka_id`) is dyed: after a Butta QC
+ * (e.g. a re-butta) it goes back to the godown (`final`) — to its order, or still free stock — and NOT to the mill again.
+ * Everything else follows the normal flow: `waiting_mill`.
  */
-export function stageAfterButtaQc(taka: { hasMillHistory?: boolean; refinishCount?: number | null }): TakaStage {
-  return taka.hasMillHistory || (taka.refinishCount ?? 0) > 0 ? 'final' : 'waiting_mill';
+export function stageAfterButtaQc(taka: {
+  hasBeenToMill?: boolean | null;
+  ancestorHasBeenToMill?: boolean | null;
+  hasMillHistory?: boolean;
+  refinishCount?: number | null;
+}): TakaStage {
+  const dyed = !!taka.hasBeenToMill || !!taka.ancestorHasBeenToMill || !!taka.hasMillHistory || (taka.refinishCount ?? 0) > 0;
+  return dyed ? 'final' : 'waiting_mill';
 }
 
 /** The stage a taka sent back to `target` moves to. */

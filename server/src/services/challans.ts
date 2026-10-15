@@ -48,6 +48,7 @@ import {
 import { badRequest, conflict, notFound } from '../lib/errors';
 import { likePattern } from '../lib/http';
 import { chunk, recomputeOrdersStatus, writeTakaEvents, type TakaEventInput } from './taka-ops';
+import { takaOrderId } from './free-stock';
 
 /**
  * Butta cutting AND the mill: Send (pending orders → challan), the challan list / details / print data, Receive.
@@ -190,7 +191,7 @@ export async function listPendingOrders(kind: ChallanKind, q: ButtaListQuery, mo
       .select(pendingOrderColumns(kind, mode))
       .from(takas)
       .innerJoin(jobsheets, eq(jobsheets.id, takas.jobsheetId))
-      .innerJoin(orders, eq(orders.id, takas.orderId))
+      .innerJoin(orders, eq(orders.id, takaOrderId))
       .innerJoin(materials, eq(materials.id, orders.materialId))
       .leftJoin(designs, eq(designs.id, orders.designId))
       .leftJoin(designVariations, eq(designVariations.id, orders.variationId))
@@ -204,7 +205,7 @@ export async function listPendingOrders(kind: ChallanKind, q: ButtaListQuery, mo
       .select({ total: sql<number>`COUNT(DISTINCT ${orders.id})` })
       .from(takas)
       .innerJoin(jobsheets, eq(jobsheets.id, takas.jobsheetId))
-      .innerJoin(orders, eq(orders.id, takas.orderId))
+      .innerJoin(orders, eq(orders.id, takaOrderId))
       .leftJoin(designs, eq(designs.id, orders.designId))
       .leftJoin(designVariations, eq(designVariations.id, orders.variationId))
       .where(and(notSentWhere(kind, mode), isReadySql(kind, mode), search)),
@@ -224,7 +225,7 @@ export async function listPendingOrderTakas(kind: ChallanKind, orderId: number, 
       .select(pendingOrderColumns(kind, mode))
       .from(takas)
       .innerJoin(jobsheets, eq(jobsheets.id, takas.jobsheetId))
-      .innerJoin(orders, eq(orders.id, takas.orderId))
+      .innerJoin(orders, eq(orders.id, takaOrderId))
       .innerJoin(materials, eq(materials.id, orders.materialId))
       .leftJoin(designs, eq(designs.id, orders.designId))
       .leftJoin(designVariations, eq(designVariations.id, orders.variationId))
@@ -245,7 +246,7 @@ export async function listPendingOrderTakas(kind: ChallanKind, orderId: number, 
       })
       .from(takas)
       .innerJoin(jobsheets, eq(jobsheets.id, takas.jobsheetId))
-      .where(and(notSentWhere(kind, mode), eq(takas.orderId, orderId))),
+      .where(and(notSentWhere(kind, mode), eq(takaOrderId, orderId))),
   ]);
   if (!orderRows[0]) throw notFound(`Order with takas waiting for ${CHALLAN_KIND_CONFIG[kind].place}`);
   const ready = modeStages(kind, mode).ready;
@@ -704,7 +705,7 @@ export async function receiveTakas(kind: ChallanKind, role: RoleKey, input: unkn
           receivedAt: challanTakas.receivedAt,
         })
         .from(takas)
-        .innerJoin(orders, eq(orders.id, takas.orderId))
+        .innerJoin(orders, eq(orders.id, takaOrderId))
         .leftJoin(challanTakas, and(eq(challanTakas.takaId, takas.id), eq(challanTakas.kind, kind), eq(challanTakas.isActive, true)))
         .leftJoin(challans, eq(challans.id, challanTakas.challanId))
         .where(and(eq(takas.isDeleted, false), 'takaNo' in w ? eq(takas.takaNo, w.takaNo) : eq(takas.id, w.id)))
@@ -743,7 +744,8 @@ export async function receiveTakas(kind: ChallanKind, role: RoleKey, input: unkn
       const at = now();
       const moved = await tx
         .update(takas)
-        .set({ stage: cfg.receivedStage })
+        // Sprint 13: coming back from the mill = it has been to the mill (a later re-butta must not send it there again).
+        .set(kind === 'mill' ? { stage: cfg.receivedStage, hasBeenToMill: true } : { stage: cfg.receivedStage })
         .where(and(eq(takas.id, row.id), eq(takas.stage, cfg.sentStage)))
         .returning({ id: takas.id });
       const marked = moved.length
@@ -787,7 +789,7 @@ export async function undoReceive(kind: ChallanKind, role: RoleKey, takaId: numb
         meters: challanTakas.meters,
       })
       .from(takas)
-      .innerJoin(orders, eq(orders.id, takas.orderId))
+      .innerJoin(orders, eq(orders.id, takaOrderId))
       .leftJoin(challanTakas, and(eq(challanTakas.takaId, takas.id), eq(challanTakas.kind, kind), eq(challanTakas.isActive, true)))
       .leftJoin(challans, eq(challans.id, challanTakas.challanId))
       .where(and(eq(takas.id, takaId), eq(takas.isDeleted, false)));

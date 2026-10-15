@@ -1,20 +1,28 @@
-import { ChevronRight, ClipboardList } from 'lucide-react';
+import { Boxes, ChevronRight, ClipboardList, PackagePlus } from 'lucide-react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { Link } from 'react-router-dom';
-import { type InventoryOrderRow } from '@rivoora/shared';
+import { FREE_STOCK_REASON_LABEL, formatMeters, isBlouseFilter, takaStageShortLabel, type BlouseFilter, type FreeStockTaka, type InventoryOrderRow } from '@rivoora/shared';
 import { usePageTitle } from '@/components/layout/page-title';
 import { ErrorState } from '@/components/list-parts';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Skeleton } from '@/components/ui/skeleton';
 import { StatusBadge } from '@/components/ui/status-badge';
+import { Button } from '@/components/ui/button';
+import { TickBox } from '@/components/ui/tick-box';
+import { useRole } from '@/hooks/useRole';
+import { formatDate } from '@/lib/format';
 import { useDebounce } from '@/hooks/useDebounce';
 import { formatOrderNo } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { useEffect, useState } from 'react';
+import { AddFromFreeStockDialog } from '../free-stock/add-from-free-stock-dialog';
+import { useItemFreeStock } from '../free-stock/api';
+import { BlouseTag, BlouseToggle } from '../free-stock/blouse';
+import { StageDot } from '../takas/taka-chip';
 import { useInventoryItem, useInventoryItemOrders } from './api';
 import { BackLink, ExpandingSearch, ItemHeader, KpiSkeleton, KpiTile, pcsText } from './parts';
 
-const KPI_GRID = 'grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-6';
+const KPI_GRID = 'grid grid-cols-2 gap-2.5 sm:grid-cols-4 lg:grid-cols-7';
 
 function OrderRow({ order }: { order: InventoryOrderRow }) {
   const share = order.orderedPcs > 0 ? Math.min(100, (order.readyPcs / order.orderedPcs) * 100) : 0;
@@ -27,7 +35,10 @@ function OrderRow({ order }: { order: InventoryOrderRow }) {
       >
         <div className="min-w-[9rem] flex-1">
           <p className="text-[17px] font-bold leading-tight text-slate-900">Order {formatOrderNo(order.orderNo)}</p>
-          <p className="truncate text-[13px] text-slate-500">{order.customerName}</p>
+          <p className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[13px] text-slate-500">
+            <span className="truncate">{order.customerName}</span>
+            <BlouseTag option={order.blouseOption} />
+          </p>
         </div>
         <div className="flex min-w-[14rem] flex-[2] items-center gap-4">
           <div className="shrink-0">
@@ -47,6 +58,80 @@ function OrderRow({ order }: { order: InventoryOrderRow }) {
         <ChevronRight className="hidden size-4 shrink-0 text-slate-300 lg:block" aria-hidden />
       </Link>
     </li>
+  );
+}
+
+function FreeTakaRow({ t, selectable, on, onToggle }: { t: FreeStockTaka; selectable: boolean; on: boolean; onToggle: () => void }) {
+  return (
+    <li className="flex items-center gap-3 px-4 py-2.5">
+      {selectable && <TickBox size="lg" checked={on} onCheckedChange={onToggle} aria-label={`Select taka ${t.takaNo}`} />}
+      <div className="min-w-0 flex-1">
+        <p className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          <span className="text-[17px] font-bold tabular-nums text-slate-900">{t.takaNo}</span>
+          <span className="inline-flex items-center gap-1 text-[12px] font-medium text-slate-500">
+            <StageDot stage={t.stage} className="ring-0" /> {takaStageShortLabel(t.stage)}
+          </span>
+          <BlouseTag option={t.blouseOption} />
+          {t.isDamaged && <span className="rounded-full bg-red-50 px-2 py-0.5 text-[12px] font-semibold text-red-600">Damaged{t.damagedPcs ? ` · ${t.damagedPcs} pcs` : ''}</span>}
+        </p>
+        <p className="text-[13px] tabular-nums text-slate-500">
+          {t.pcs != null ? `${pcsText(t.pcs)} pcs` : 'no pcs'}
+          {t.meters != null && ` · ${formatMeters(t.meters)}`} · from Order {formatOrderNo(t.fromOrderNo)}
+        </p>
+      </div>
+      <div className="shrink-0 text-right text-[12px] text-slate-500">
+        {t.reason && <p className="font-semibold text-slate-700">{FREE_STOCK_REASON_LABEL[t.reason]}</p>}
+        {t.freeStockAt && <p>{formatDate(t.freeStockAt)}</p>}
+      </div>
+    </li>
+  );
+}
+
+/** Free stock of the item (belongs to no order): the figures and the free takas; Assign to order puts them on an order. */
+function FreeStockSection({ itemKey, designCode, blouse }: { itemKey: string; designCode: string | null; blouse: BlouseFilter }) {
+  const { can } = useRole();
+  const free = useItemFreeStock(itemKey, blouse);
+  const [picked, setPicked] = useState<number[]>([]);
+  const [assignOpen, setAssignOpen] = useState(false);
+  const canAssign = can('canMoveToInventory');
+  const data = free.data;
+  if (free.isPending) return <Skeleton className="h-28 rounded-xl" />;
+  if (free.isError || !data) return null;
+  if (data.takas.length === 0) return null;
+  const f = data.figures;
+  const toggle = (id: number) => setPicked((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
+  return (
+    <section className="overflow-hidden rounded-xl border border-border bg-white shadow-soft" aria-labelledby="free-stock-title">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-2.5">
+        <h2 id="free-stock-title" className="flex items-center gap-2 text-[15px] font-semibold text-slate-900">
+          <Boxes className="size-4 text-indigo-500" aria-hidden /> Free stock <span className="font-medium text-slate-400">· {pcsText(f.total)} pcs</span>
+        </h2>
+        {canAssign && (
+          <Button variant="secondary" size="sm" onClick={() => setAssignOpen(true)}>
+            <PackagePlus /> Assign to order{picked.length ? ` (${picked.length})` : ''}
+          </Button>
+        )}
+      </div>
+      <div className="grid grid-cols-3 gap-2.5 border-b border-border p-3">
+        <KpiTile label="Free pcs ready" value={pcsText(f.ready)} dot="#10B981" />
+        <KpiTile label="Free pcs in making" value={pcsText(f.making)} dot="#38BDF8" />
+        <KpiTile label="Free damaged pcs" value={pcsText(f.damaged)} dot="#EF4444" tone={f.damaged > 0 ? 'danger' : undefined} />
+      </div>
+      <ul className="divide-y divide-border">
+        {data.takas.map((t) => (
+          <FreeTakaRow key={t.id} t={t} selectable={canAssign} on={picked.includes(t.id)} onToggle={() => toggle(t.id)} />
+        ))}
+      </ul>
+      {canAssign && (
+        <AddFromFreeStockDialog
+          open={assignOpen}
+          onOpenChange={setAssignOpen}
+          choices={{ itemKey, designCode }}
+          preselectIds={picked}
+          onDone={() => setPicked([])}
+        />
+      )}
+    </section>
   );
 }
 
@@ -71,10 +156,22 @@ export default function InventoryItemDetailsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debounced]);
 
-  const item = useInventoryItem(key);
+  const blouseParam = params.get('blouse');
+  const blouse: BlouseFilter = isBlouseFilter(blouseParam) ? blouseParam : 'all';
+  const setBlouse = (b: BlouseFilter) =>
+    setParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        if (b === 'all') next.delete('blouse');
+        else next.set('blouse', b);
+        return next;
+      },
+      { replace: true },
+    );
+  const item = useInventoryItem(key, blouse);
   const navigate = useNavigate();
   const filter = params.get('filter') === 'ready' ? 'ready' : params.get('filter') === 'making' ? 'making' : '';
-  const orders = useInventoryItemOrders(key, debounced, filter);
+  const orders = useInventoryItemOrders(key, debounced, filter, blouse);
   // In making / Ready for dispatch filter the order list (click again to clear).
   const toggleFilter = (f: 'ready' | 'making') =>
     setParams(
@@ -103,6 +200,7 @@ export default function InventoryItemDetailsPage() {
       ) : (
         <>
           {item.data ? <ItemHeader item={item.data} /> : <Skeleton className="h-28 rounded-2xl" />}
+          {item.data && <BlouseToggle value={blouse} onChange={setBlouse} counts={item.data.blouseCounts} />}
           <div className={KPI_GRID}>
             {pcs ? (
               <>
@@ -112,9 +210,10 @@ export default function InventoryItemDetailsPage() {
                 <KpiTile label="Ready for dispatch" value={pcsText(pcs.readyDispatch)} dot="#14B8A6" onClick={() => toggleFilter('ready')} active={filter === 'ready'} />
                 <KpiTile label="Damaged" value={pcsText(pcs.damaged)} dot="#EF4444" tone={pcs.damaged > 0 ? 'danger' : undefined} onClick={() => openDamaged(false)} />
                 <KpiTile label="In refinish" value={pcsText(pcs.inRefinish)} dot="#F59E0B" onClick={() => openDamaged(true)} />
+                <KpiTile label="Free stock" value={pcsText(item.data?.free.total ?? 0)} dot="#6366F1" />
               </>
             ) : (
-              <KpiSkeleton count={6} />
+              <KpiSkeleton count={7} />
             )}
           </div>
 
@@ -148,6 +247,8 @@ export default function InventoryItemDetailsPage() {
               </ul>
             )}
           </section>
+
+          <FreeStockSection itemKey={key} designCode={item.data?.code ?? null} blouse={blouse} />
         </>
       )}
     </div>

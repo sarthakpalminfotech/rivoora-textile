@@ -13,6 +13,7 @@ export const DAMAGE_DOT: Record<DamageType, string> = {
   machine: '#EF4444',
   butta: '#F59E0B',
   mill: '#8B5CF6',
+  unmarked: '#94A3B8',
   godown: '#64748B',
   customer_return: '#0EA5E9',
 };

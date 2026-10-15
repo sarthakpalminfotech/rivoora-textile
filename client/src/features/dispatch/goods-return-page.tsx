@@ -15,7 +15,7 @@ import { TickBox } from '@/components/ui/tick-box';
 import { ApiError, errorMessage } from '@/lib/api';
 import { formatOrderNo, toApiDate } from '@/lib/format';
 import { cn } from '@/lib/utils';
-import { DamageDialog, entryLabel, nextEntryKey, qcEntryPayload, type DamageEntry } from '../takas/damage-dialog';
+import { DamageDialog, entryLabel, grEntryPayload, nextEntryKey, type DamageEntry } from '../takas/damage-dialog';
 import { useDispatchChallan, useGoodsReturn } from './api';
 
 /** Where the damage popup was opened from: a lump taka, or the one damage of a pcs-to-pcs return. */
@@ -79,8 +79,8 @@ function Form({ challan }: { challan: DispatchChallanDetail }) {
 
   const body = (): GoodsReturnInput =>
     lump
-      ? { returns: [...returned].map((takaId) => ({ takaId, damages: (damages[takaId] ?? []).map(qcEntryPayload) })), date, note }
-      : { returnedPcs: rp, damagedPcs: dp, ...(dp > 0 && pcsDamage ? { damage: qcEntryPayload(pcsDamage) } : {}), date, note };
+      ? { returns: [...returned].map((takaId) => ({ takaId, damages: (damages[takaId] ?? []).map(grEntryPayload) })), date, note }
+      : { returnedPcs: rp, damagedPcs: dp, ...(dp > 0 && pcsDamage ? { damage: grEntryPayload(pcsDamage) } : {}), date, note };
 
   const submit = () => {
     setError(null);
@@ -197,12 +197,12 @@ function Form({ challan }: { challan: DispatchChallanDetail }) {
         open={target !== null}
         onOpenChange={(o) => !o && setTarget(null)}
         takaLabel={target?.type === 'taka' ? `Taka ${target.takaNo}` : `${challan.label} return`}
-        foundAt="customer_return"
+        typeOptional
         takaPcs={target?.type === 'taka' ? target.pcs : dp > 0 ? dp : null}
         value={null}
         allowImages
         onConfirm={(v) => {
-          const entry: DamageEntry = { key: nextEntryKey(), foundAt: 'customer_return', choice: v.choice, pcs: target?.type === 'pcs' ? dp : v.pcs, images: v.images };
+          const entry: DamageEntry = { key: nextEntryKey(), foundAt: v.type, choice: v.choice, pcs: target?.type === 'pcs' ? dp : v.pcs, images: v.images };
           if (target?.type === 'taka') setDamages((d) => ({ ...d, [target.takaId]: [...(d[target.takaId] ?? []), entry] }));
           else setPcsDamage(entry);
         }}

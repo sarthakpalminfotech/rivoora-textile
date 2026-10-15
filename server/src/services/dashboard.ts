@@ -26,6 +26,7 @@ import { challanTakas, jobsheets, orders, takaDamages, takas } from '../db/schem
 import { notFound } from '../lib/errors';
 import { activeTakaCount, isRestricted, machinesJson, parseMachinesJson, runningMachine, runningMachineColumns, toMachineRef } from './jobsheets';
 import { mapTaka, parseDamagesJson, sortTakas, takaColumns, takaDamagesJson } from './taka-shared';
+import { takaInOrder } from './free-stock';
 
 /**
  * Order dashboard (Jemish / Gaurang): counts, the items of one sub-stage, and the damaged takas.
@@ -44,7 +45,7 @@ const orderColumns = {
 
 const activeJobsheetOf = (orderId: number) => and(eq(jobsheets.orderId, orderId), eq(jobsheets.isDeleted, false));
 /** Active takas of the order whose jobsheet is active too. */
-const activeTakasOf = (orderId: number) => and(eq(takas.orderId, orderId), eq(takas.isDeleted, false), eq(jobsheets.isDeleted, false));
+const activeTakasOf = (orderId: number) => and(takaInOrder(orderId), eq(takas.isDeleted, false), eq(jobsheets.isDeleted, false));
 
 function assertVisible<T extends { status: string }>(role: RoleKey, order: T | undefined): T {
   // The godown / QC roles have a restricted view of every order (no client, no rate) and see no order statuses.

@@ -38,6 +38,7 @@ import { FramesValue, machineNumbers } from '../jobsheets/parts';
 import { useEnterTakas, useNextTakaNumbers } from './api';
 import { entryLabel, entryPayload, TakaDamageControl, type DamageEntry } from './damage-dialog';
 import { TakaChip } from './taka-chip';
+import { BlouseTag } from '../free-stock/blouse';
 
 interface Row {
   key: number;
@@ -100,6 +101,7 @@ function IdentityCard({ js }: { js: JobsheetDetail }) {
             <JobsheetRef orderNo={js.orderNo} jobsheetNo={js.jobsheetNo} variant="short" bracketClassName="text-[0.55em] font-bold" />
           </h2>
           <p className="mt-2 truncate text-xl font-bold text-primary">{js.design?.code ?? 'No design'}</p>
+          <BlouseTag option={js.blouseOption} hindi className="mt-1.5" />
         </div>
       </div>
       <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 border-t border-border pt-3 text-sm text-slate-600">

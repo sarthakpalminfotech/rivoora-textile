@@ -14,10 +14,10 @@ import {
 } from '@rivoora/shared';
 import { Tooltip } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
-import { FromOrderTag, ReButtaTag, ReturnedTag, ReturnLotTag } from './taka-tags';
+import { FreeStockTag, FromOrderTag, InOrderTag, ReButtaTag, ReturnLotTag, ReturnedTag } from './taka-tags';
 
 type ChipTaka = Pick<Taka, 'takaNo' | 'meters' | 'pcs' | 'damages'> &
-  Partial<Pick<Taka, 'stage' | 'challanNo' | 'challanKind' | 'actualPcs' | 'refinishCount' | 'parentTakaNo' | 'godownCheckedAt' | 'reworkCount' | 'isReturnLot' | 'returnedAt' | 'originOrderNo'>>;
+  Partial<Pick<Taka, 'stage' | 'challanNo' | 'challanKind' | 'actualPcs' | 'refinishCount' | 'parentTakaNo' | 'godownCheckedAt' | 'reworkCount' | 'isReturnLot' | 'returnedAt' | 'originOrderNo' | 'isFreeStock' | 'allocatedOrderNo'>>;
 
 /** Selection mode (send back): a tick box in front of the chip; `disabledReason` greys the chip out (shown as a tooltip). */
 export interface TakaChipSelect {
@@ -134,6 +134,8 @@ export function TakaChip({ taka, size = 'md', showStage, showChallan, bilingual,
         {(taka.reworkCount ?? 0) > 0 && <ReButtaTag count={taka.reworkCount!} />}
         {taka.isReturnLot ? <ReturnLotTag /> : taka.returnedAt ? <ReturnedTag /> : null}
         {taka.originOrderNo != null && <FromOrderTag orderNo={taka.originOrderNo} />}
+        {taka.isFreeStock && <FreeStockTag />}
+        {taka.allocatedOrderNo != null && <InOrderTag orderNo={taka.allocatedOrderNo} />}
         {taka.godownCheckedAt && taka.stage !== 'ready_dispatch' && (
           <span className="inline-flex items-center gap-0.5 rounded-full bg-green-50 px-1.5 py-0.5 text-[11px] font-bold text-green-700" title="Checked by the godown">
             <CheckCircle2 className="size-3" aria-hidden /> Checked

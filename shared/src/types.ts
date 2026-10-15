@@ -7,6 +7,7 @@ import type { ChallanFilter, JobsheetTab, TakaTab } from './schemas';
 import type { DamageType, SubStageKey, TakaStage } from './pipeline';
 import type { DamageStatus } from './takas';
 import type { ChallanKind } from './challans';
+import type { BlouseOption, DamageRecordedAt, FreeStockReason } from './freeStock';
 
 export interface ApiErrorBody {
   error: { message: string; field?: string };
@@ -113,6 +114,8 @@ export interface OrderListItem {
   quantity: number;
   unit: Unit;
   orderType: OrderType;
+  /** Sprint 13: the order's blouse option (null = not set). */
+  blouseOption: BlouseOption | null;
   brokerName: string | null;
   status: OrderStatusKey;
   orderDate: string;
@@ -136,11 +139,22 @@ export interface OrderImage {
   thumbUrl: string;
 }
 
+/** Sprint 13: what came back from the customer on an order ("Dispatched · 3 takas / 120 pcs returned to stock"). */
+export interface OrderReturnSummary {
+  takas: number;
+  pcs: number;
+  /** The latest revision of the dispatch challan the GR created (link to the GR). */
+  challanId: number;
+  challanLabel: string;
+}
+
 export interface OrderDetail {
   id: number;
   orderNo: number;
   status: OrderStatusKey;
   orderType: OrderType;
+  /** Sprint 13: the order's blouse option (null = not set). */
+  blouseOption: BlouseOption | null;
   quantity: number;
   unit: Unit;
   /** Omitted entirely for roles that may not see rate. */
@@ -162,6 +176,8 @@ export interface OrderDetail {
   variation: { id: number; code: string; imageUrl: string | null; thumbUrl: string | null } | null;
   noteImages: OrderImage[];
   history: OrderStatusHistoryEntry[];
+  /** Sprint 13: set once goods came back (the order shows "Returned"); only for roles that see the dispatch statuses. */
+  returned: OrderReturnSummary | null;
 }
 
 export interface PreviousDesign {
@@ -333,6 +349,8 @@ export interface JobsheetDetail {
   events: JobsheetEvent[];
   /** Always present (the supervisor sees it as plain text). */
   orderNo: number;
+  /** Sprint 13: the order's blouse option (null = not set). */
+  blouseOption: BlouseOption | null;
   design: JobsheetDesign | null;
   /** Null for the supervisor: no client, rate or order details. */
   order: JobsheetOrderInfo | null;
@@ -409,6 +427,8 @@ export interface SupervisorJobsheetItem {
   orderNo: number;
   /** The order's quality (material name). */
   quality: string;
+  /** Sprint 13: the order's blouse option (null = not set). */
+  blouseOption: BlouseOption | null;
   designCode: string | null;
   thumbUrl: string | null;
   imageUrl: string | null;
@@ -435,6 +455,8 @@ export interface SupervisorOrderHeader {
   designCode: string | null;
   designThumbUrl: string | null;
   designImageUrl: string | null;
+  /** Sprint 13: the order's blouse option (null = not set). */
+  blouseOption: BlouseOption | null;
 }
 
 /** One card of the supervisor's Order view (only Sent / Ongoing / Completed jobsheets count). */
@@ -458,6 +480,8 @@ export interface JobsheetPrintItem {
   designCode: string | null;
   /** Lump or Pcs to pcs — printed under the design number. */
   orderType: OrderType;
+  /** Sprint 13: the order's blouse option (null = not set). */
+  blouseOption: BlouseOption | null;
 }
 
 /* ---------- machine view ---------- */
@@ -499,8 +523,10 @@ export interface TakaDamage {
   /** WHAT the damage is (Damage master); null on an older damage recorded without a name. */
   damageId: number | null;
   damageName: string | null;
-  /** WHERE it was found. */
+  /** The damage TYPE (machine / butta / mill; `unmarked` = "Damage type not marked"; older: godown / customer_return). */
   foundAt: DamageType;
+  /** Sprint 13: WHERE it was recorded (taka entry, butta QC, godown, goods return …); null on older damages. */
+  recordedAt: DamageRecordedAt | null;
   /** Damaged pcs; null on an older (migrated) damage. */
   pcs: number | null;
   /** Pcs of the damage that were resolved (a partial resolve keeps the damage open with fewer open pcs). */
@@ -560,6 +586,11 @@ export interface Taka {
   /** Sprint 12: the order the taka was moved here from ("from Order #A"). */
   originOrderId: number | null;
   originOrderNo: number | null;
+  /** Sprint 13: free stock (belongs to no order). Normally false on order screens. */
+  isFreeStock: boolean;
+  freeStockReason: FreeStockReason | null;
+  /** Sprint 13: the taka was assigned from this jobsheet's order to ANOTHER order (its number) — it is counted there. */
+  allocatedOrderNo: number | null;
   enteredBy: RoleKey;
   createdAt: string;
 }
@@ -628,6 +659,8 @@ export interface TakaJobsheetItem {
   frames: number;
   completedFrames: number | null;
   orderNo: number;
+  /** Sprint 13: the order's blouse option (null = not set). */
+  blouseOption: BlouseOption | null;
   designCode: string | null;
   thumbUrl: string | null;
   imageUrl: string | null;
@@ -746,6 +779,9 @@ export const TAKA_EVENT_KINDS = [
   'dispatched',
   'goods_returned',
   'moved_order',
+  // Sprint 13
+  'moved_to_inventory',
+  'allocated_from_free_stock',
 ] as const;
 export type TakaEventKind = (typeof TAKA_EVENT_KINDS)[number];
 
@@ -798,6 +834,10 @@ export interface TakaDetail {
   jobsheetNo: number;
   /** The quality = the order's material. */
   quality: string | null;
+  /** Sprint 13: the order's blouse option (null = not set). */
+  blouseOption: BlouseOption | null;
+  /** Sprint 13: the taka is free stock (no order; `orderNo` is the order it was made for). */
+  isFreeStock: boolean;
   design: TakaDesignInfo;
   /** The challans of the taka (butta cutting, mill) — the active row of each kind, also after it came back. */
   challans: TakaChallanRef[];
@@ -1098,6 +1138,8 @@ export interface MillQcTaka {
 export interface GodownOrderCard {
   orderId: number;
   orderNo: number;
+  /** Sprint 13: the order's blouse option (null = not set). */
+  blouseOption: BlouseOption | null;
   designCode: string | null;
   thumbUrl: string | null;
   imageUrl: string | null;
@@ -1148,7 +1190,11 @@ export interface GodownOrder {
   customer: { id: number; name: string; phone: string | null; address: string | null; gstin: string | null } | null;
   brokerName: string | null;
   rate: number | null;
+  /** `d-<id>` | `v-<id>` | `none` - the inventory item of the order's design (free stock lookups). */
+  inventoryKey: string;
   orderType: OrderType;
+  /** Sprint 13: the order's blouse option (null = not set). */
+  blouseOption: BlouseOption | null;
   status: OrderStatusKey;
   kpis: import('./godown').GodownKpis;
   /** Sprint 10: pcs tiles (ready for dispatch / refinish / damaged). */
@@ -1182,6 +1228,8 @@ export type InventoryFigures = import('./inventory').InventoryPcs;
 /** GET /inventory/summary — the top KPIs. */
 export interface InventorySummary {
   totals: InventoryFigures;
+  /** Sprint 13: free stock (belongs to no order), pcs. */
+  freePcs: number;
   /** Ready for dispatch + in godown. */
   totalInGodown: number;
   /** Orders in meters / kg / g that are left out. */
@@ -1206,11 +1254,19 @@ export interface InventoryItemHeader {
 /** One card of the All designs grid. */
 export interface InventoryItemCard extends InventoryItemHeader {
   pcs: InventoryFigures;
+  /** Sprint 13: free stock pcs of this item (the card shows "Free 120" when > 0). */
+  freePcs: number;
 }
 
 /** GET /inventory/items/:key */
 export interface InventoryItemDetail extends InventoryItemHeader {
   pcs: InventoryFigures;
+  /** Sprint 13: free stock of the item (after the blouse filter). */
+  free: FreeStockFigures;
+  /** Sprint 13: pcs per blouse option (ordered pcs + free pcs), unfiltered — for the segmented toggle. */
+  blouseCounts: BlouseCounts;
+  /** Sprint 13: STOCK pcs per blouse option (made / being made + free), unfiltered. */
+  blouseStock: BlouseCounts;
 }
 
 /** One order of an item (GET /inventory/items/:key/orders). */
@@ -1223,6 +1279,7 @@ export interface InventoryOrderRow {
   /** Ready for dispatch pcs. */
   readyPcs: number;
   orderDate: string;
+  blouseOption: BlouseOption | null;
 }
 
 /** One card of the Damaged grid. */
@@ -1259,6 +1316,8 @@ export interface DamagedTakaRow {
   /** Open damage names (for the search and a tooltip). */
   names: string[];
   isRefinish: boolean;
+  /** Sprint 13: the taka is free stock (it belongs to no order; `orderNo` is the order it was made for). */
+  isFreeStock: boolean;
 }
 
 /* Godown order screen (Sprint 10): pcs KPIs + the Damage tab's state per taka. */
@@ -1349,6 +1408,7 @@ export interface DispatchChallanDetail {
     orderId: number;
     orderNo: number;
     orderType: OrderType;
+    blouseOption: BlouseOption | null;
     status: OrderStatusKey;
     quality: string | null;
     designCode: string | null;
@@ -1383,6 +1443,8 @@ export interface DispatchChallanListItem {
 export interface DispatchedOrderCard {
   orderId: number;
   orderNo: number;
+  /** Sprint 13: the order's blouse option (null = not set). */
+  blouseOption: BlouseOption | null;
   customerName: string;
   designCode: string | null;
   thumbUrl: string | null;
@@ -1401,6 +1463,8 @@ export interface DispatchedOrderDetail {
   orderId: number;
   orderNo: number;
   orderType: OrderType;
+  /** Sprint 13: the order's blouse option (null = not set). */
+  blouseOption: BlouseOption | null;
   status: OrderStatusKey;
   customerName: string;
   designCode: string | null;
@@ -1410,6 +1474,8 @@ export interface DispatchedOrderDetail {
   orderedPcs: number;
   dispatchedPcs: number;
   challans: DispatchChallanListItem[];
+  /** Sprint 13: goods that came back to stock (null when there was no goods return). */
+  returned: OrderReturnSummary | null;
 }
 
 /** POST /dispatch/challans/:id/goods-return */
@@ -1424,23 +1490,78 @@ export interface GoodsReturnResult {
   orderId: number;
 }
 
-/* ---------- Move to order (Sprint 12) ---------- */
+/* ---------- Free stock (Sprint 13) ---------- */
 
-/** One order a fresh taka can be moved to. */
-export interface MoveTarget {
+/** POST /orders/:id/takas/move-to-inventory */
+export interface MoveToInventoryResult {
+  orderId: number;
+  /** Takas that became free stock (a split counts its moved part). */
+  takas: number;
+  pcs: number;
+  meters: number;
+  /** pcs-to-pcs: a taka was split to move only part of it. */
+  split: boolean;
+}
+
+/** POST /orders/:id/takas/add-from-free-stock */
+export interface AddFromFreeStockResult {
+  orderId: number;
+  takas: number;
+  pcs: number;
+  split: boolean;
+}
+
+/** One free-stock taka (inventory item details, the Add from free stock picker). */
+export interface FreeStockTaka {
+  id: number;
+  takaNo: string;
+  stage: TakaStage;
+  pcs: number | null;
+  meters: number | null;
+  /** The order it was made for (`takas.order_id`). */
+  fromOrderId: number;
+  fromOrderNo: number;
+  reason: import('./freeStock').FreeStockReason | null;
+  freeStockAt: string | null;
+  isDamaged: boolean;
+  /** Open damaged pcs. */
+  damagedPcs: number;
+  /** Blouse option of the origin order. */
+  blouseOption: import('./freeStock').BlouseOption | null;
+}
+
+/** The free-stock figures of an item (pcs). */
+export interface FreeStockFigures {
+  /** Ready in the godown (`final`). */
+  ready: number;
+  /** Every other stage (still being made / finished). */
+  making: number;
+  /** Open damaged pcs on the ready free stock. */
+  damaged: number;
+  /** ready + making. */
+  total: number;
+}
+
+/** pcs per blouse bucket (for the segmented toggle and the Add order panel). */
+export type BlouseCounts = Partial<Record<'with_blouse' | 'without_blouse' | 'not_set', number>>;
+
+/** GET /inventory/items/:key/free-stock?blouse= */
+export interface ItemFreeStock {
+  figures: FreeStockFigures;
+  takas: FreeStockTaka[];
+  /** Free pcs per blouse option (unfiltered). */
+  blouseCounts: BlouseCounts;
+}
+
+/** An order a free taka can be assigned to (Inventory → Assign to order). */
+export interface AssignTargetOrder {
   orderId: number;
   orderNo: number;
   customerName: string | null;
-  orderedPcs: number;
-  readyPcs: number;
+  orderType: OrderType;
   status: OrderStatusKey;
-}
-
-export interface MoveTakasResult {
-  moved: number;
-  pcs: number;
-  fromOrderIds: number[];
-  targetOrderId: number;
+  orderedPcs: number;
+  blouseOption: import('./freeStock').BlouseOption | null;
 }
 
 /** POST /inventory/takas/:id/mark-fresh */

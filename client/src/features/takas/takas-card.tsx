@@ -1,11 +1,13 @@
-import { CornerUpLeft, PackageCheck, Pencil } from 'lucide-react';
+import { Boxes, CornerUpLeft, PackageCheck, PackagePlus, Pencil } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import {
+  canReceiveFreeStock,
   formatMeters,
   formatPcs,
   JOBSHEET_STATUS,
   reworkSelectable,
+  takaActualPcs,
   takaStageShortLabel,
   TAKA_STAGES,
   totalMeters,
@@ -23,6 +25,8 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { useRole } from '@/hooks/useRole';
 import { cn } from '@/lib/utils';
+import { AddFromFreeStockDialog, itemKeyOf } from '../free-stock/add-from-free-stock-dialog';
+import { MoveToInventoryDialog } from '../free-stock/move-to-inventory-dialog';
 import { FramesValue, machineNumbers, StatTile } from '../jobsheets/parts';
 import { useOrderTakas } from './api';
 import { EditTakasDialog, type EditTakasTarget } from './edit-takas-dialog';
@@ -230,7 +234,8 @@ export const toTarget = (g: JobsheetTakaGroup): EditTakasTarget => ({
   jobsheetNo: g.jobsheetNo,
   orderNo: g.orderNo,
   status: g.status,
-  takas: g.takas,
+  // Free stock / assigned-away takas are not part of the jobsheet's set any more.
+  takas: g.takas.filter((t) => !t.isFreeStock && t.allocatedOrderNo === null),
   note: g.note,
 });
 
@@ -245,12 +250,18 @@ export function OrderTakasCard({ order }: { order: OrderDetail }) {
   const [selecting, setSelecting] = useState(false);
   const [picked, setPicked] = useState<Map<number, Taka>>(new Map());
   const [sendTarget, setSendTarget] = useState<SendBackTarget | null>(null);
+  const [moveOpen, setMoveOpen] = useState(false);
+  const [addOpen, setAddOpen] = useState(false);
   const canEdit = can('canEditTakas');
   const canRework = can('canReworkTakas');
+  // Sprint 13: Move to inventory (free stock) and Add from free stock.
+  const canStock = can('canMoveToInventory') && order.unit === 'pcs';
+  const lump = order.orderType === 'lump';
   const stopSelecting = () => {
     setSelecting(false);
     setPicked(new Map());
     setSendTarget(null);
+    setMoveOpen(false);
   };
   const selection: TakaSelection | undefined = selecting
     ? {
@@ -265,6 +276,8 @@ export function OrderTakasCard({ order }: { order: OrderDetail }) {
       }
     : undefined;
   const data = query.data;
+  // Pcs-to-pcs orders move a pcs count: the pcs in the godown stages (final + ready for dispatch).
+  const godownPcs = (data?.groups ?? []).flatMap((g) => g.takas).filter((t) => t.stage === 'final' || t.stage === 'ready_dispatch').reduce((n, t) => n + (takaActualPcs(t) ?? 0), 0);
   // Only the stages that have takas get a pill.
   const stagesPresent = TAKA_STAGES.filter((s) => data?.groups.some((g) => g.takas.some((t) => t.stage === s)));
   const activeStage: StageFilter = stage !== 'all' && !stagesPresent.includes(stage) ? 'all' : stage;
@@ -316,7 +329,17 @@ export function OrderTakasCard({ order }: { order: OrderDetail }) {
       action={
         data && data.total > 0 ? (
           <div className="flex flex-wrap items-center gap-2">
-            {canRework && !selecting && (
+            {canStock && !selecting && canReceiveFreeStock(order.status) && (
+              <Button variant="secondary" size="sm" onClick={() => setAddOpen(true)}>
+                <PackagePlus /> Add from free stock
+              </Button>
+            )}
+            {canStock && !selecting && !lump && (
+              <Button variant="secondary" size="sm" disabled={godownPcs === 0} onClick={() => setMoveOpen(true)}>
+                <Boxes /> Move to inventory
+              </Button>
+            )}
+            {(canRework || (canStock && lump)) && !selecting && (
               <Button variant="secondary" size="sm" onClick={() => setSelecting(true)}>
                 <CornerUpLeft /> Select
               </Button>
@@ -333,12 +356,21 @@ export function OrderTakasCard({ order }: { order: OrderDetail }) {
             {picked.size} taka{picked.size === 1 ? '' : 's'} selected
           </p>
           <div className="flex flex-wrap items-center gap-2">
-            <Button size="sm" disabled={picked.size === 0} onClick={() => setSendTarget('butta')}>
-              Send back to butta cutting
-            </Button>
-            <Button size="sm" variant="secondary" disabled={picked.size === 0} onClick={() => setSendTarget('mill')}>
-              Send back to mill
-            </Button>
+            {canRework && (
+              <>
+                <Button size="sm" disabled={picked.size === 0} onClick={() => setSendTarget('butta')}>
+                  Send back to butta cutting
+                </Button>
+                <Button size="sm" variant="secondary" disabled={picked.size === 0} onClick={() => setSendTarget('mill')}>
+                  Send back to mill
+                </Button>
+              </>
+            )}
+            {canStock && lump && (
+              <Button size="sm" variant="secondary" disabled={picked.size === 0} onClick={() => setMoveOpen(true)}>
+                <Boxes /> Move to inventory
+              </Button>
+            )}
             <Button size="sm" variant="ghost" onClick={stopSelecting}>
               Cancel
             </Button>
@@ -347,6 +379,32 @@ export function OrderTakasCard({ order }: { order: OrderDetail }) {
       )}
       {canRework && (
         <SendBackDialog orderId={order.id} target={sendTarget} takas={[...picked.values()]} onClose={() => setSendTarget(null)} onDone={stopSelecting} />
+      )}
+      {canStock && (
+        <>
+          <MoveToInventoryDialog
+            open={moveOpen}
+            onOpenChange={setMoveOpen}
+            orderId={order.id}
+            orderNo={order.orderNo}
+            designCode={order.variation?.code ?? order.design?.code ?? null}
+            takas={lump ? [...picked.values()] : undefined}
+            availablePcs={godownPcs}
+            onDone={stopSelecting}
+          />
+          <AddFromFreeStockDialog
+            open={addOpen}
+            onOpenChange={setAddOpen}
+            order={{
+              orderId: order.id,
+              orderNo: order.orderNo,
+              orderType: order.orderType,
+              designCode: order.variation?.code ?? order.design?.code ?? null,
+              blouseOption: order.blouseOption,
+              itemKey: itemKeyOf(order.design?.id, order.variation?.id),
+            }}
+          />
+        </>
       )}
       {canEdit && <EditTakasDialog target={editing} onClose={() => setEditing(null)} />}
       <TakaDrawer takaId={openTaka?.id ?? null} takaNo={openTaka?.takaNo} onClose={() => setOpenTaka(null)} />

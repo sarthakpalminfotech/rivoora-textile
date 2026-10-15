@@ -5,6 +5,8 @@ import {
   canRoleSeeJobsheetStatus,
   canRoleSeeStatus,
   damageLabel,
+  DAMAGE_RECORDED_AT_LABEL,
+  type DamageType,
   jobsheetRef,
   JOBSHEET_STATUS,
   MAX_TAKAS_PER_JOBSHEET,
@@ -76,6 +78,7 @@ import {
   writeTakaEvents,
   type TakaEventInput,
 } from './taka-ops';
+import { takaInOrder, takaOrderId } from './free-stock';
 
 /* ------------------------------------------------------------------ */
 /* helpers                                                              */
@@ -181,7 +184,7 @@ export async function enterTakas(role: RoleKey, id: number, input: unknown): Pro
       .returning({ id: takas.id, takaNo: takas.takaNo });
     const idByNo = new Map(inserted.map((t) => [t.takaNo, t.id]));
 
-    // Damages: every one is machine damage (WHERE) at taka entry; the master name says WHAT it is.
+    // Damages: the type (Machine / Butta / Mill) is chosen by the person entering; the master name says WHAT it is.
     const flat = rows.flatMap((t, i) => t.damages.map((d, j) => ({ takaIndex: i, damageIndex: j, takaNo: t.takaNo, pick: d })));
     const damageIds = await resolveDamageNames(
       tx,
@@ -191,7 +194,7 @@ export async function enterTakas(role: RoleKey, id: number, input: unknown): Pro
     await insertTakaDamages(
       tx,
       role,
-      flat.map((f, n) => ({ takaId: idByNo.get(f.takaNo)!, damageId: damageIds[n], pcs: f.pick.pcs, foundAt: 'machine' as const })),
+      flat.map((f, n) => ({ takaId: idByNo.get(f.takaNo)!, damageId: damageIds[n], pcs: f.pick.pcs, foundAt: f.pick.type, recordedAt: 'taka_entry' as const })),
     );
     const names = await damageNames(tx, damageIds);
     const events: TakaEventInput[] = inserted.map((t) => ({ takaId: t.id, event: 'entered', note: jobsheetRef(js.orderNo, js.jobsheetNo) }));
@@ -199,7 +202,7 @@ export async function enterTakas(role: RoleKey, id: number, input: unknown): Pro
       events.push({
         takaId: idByNo.get(f.takaNo)!,
         event: 'damage_added',
-        note: damageLabel('machine', names.get(damageIds[n]), f.pick.pcs),
+        note: `${damageLabel(f.pick.type, names.get(damageIds[n]), f.pick.pcs)} · recorded at ${DAMAGE_RECORDED_AT_LABEL.taka_entry}`,
       }),
     );
     await writeTakaEvents(tx, role, events);
@@ -264,7 +267,9 @@ export async function editTakas(role: RoleKey, id: number, input: unknown): Prom
   const data = takaEditSchema.parse(input);
   return db.transaction(async (tx) => {
     const js = await loadJobsheetForTakas(tx, role, id);
-    const existing = await activeTakas(tx, id);
+    // Sprint 13: takas that became free stock (or went to another order) are no longer part of this jobsheet's set —
+    // Edit takas must neither show nor remove them (their numbers stay used).
+    const existing = (await activeTakas(tx, id)).filter((t) => !t.isFreeStock && t.allocatedOrderNo === null);
     const values = data.takas.map((t) => t.takaNo);
     const used = await usedTakaNumbers(tx, values, existing.map((t) => t.id));
     assertValidNumbers(values, validateTakaNumbers(values, [], { used }), used);
@@ -282,11 +287,11 @@ export async function editTakas(role: RoleKey, id: number, input: unknown): Prom
     // Damage plan per submitted taka (resolving names in the master first).
     interface DamagePlan {
       /** Existing open damages that change. */
-      updates: { id: number; damageId: number | null; pcs: number | null; before: string; after: string }[];
+      updates: { id: number; damageId: number | null; pcs: number | null; foundAt: DamageType; before: string; after: string }[];
       /** Existing open damages that are removed. */
       removes: { id: number; label: string }[];
       /** New machine damages. */
-      adds: { damageId: number; pcs: number }[];
+      adds: { damageId: number; pcs: number; type: DamageType }[];
     }
     const flat: { rowIndex: number; j: number; pick: { damageId: number } | { otherName: string } }[] = [];
     data.takas.forEach((t, i) =>
@@ -326,17 +331,21 @@ export async function editTakas(role: RoleKey, id: number, input: unknown): Prom
         }
         if (before) {
           keptIds.add(before.id);
-          if (before.damageId !== damageId || before.pcs !== d.pcs) {
+          // An existing damage keeps its type unless the person picked another one.
+          const type = d.type ?? before.foundAt;
+          if (before.damageId !== damageId || before.pcs !== d.pcs || before.foundAt !== type) {
             plan.updates.push({
               id: before.id,
               damageId,
               pcs: d.pcs,
+              foundAt: type,
               before: damageLabel(before.foundAt, before.damageName, before.pcs),
-              after: damageLabel(before.foundAt, damageId !== null ? names.get(damageId) : null, d.pcs),
+              after: damageLabel(type, damageId !== null ? names.get(damageId) : null, d.pcs),
             });
           }
         } else {
-          plan.adds.push({ damageId: damageId!, pcs: d.pcs! });
+          if (!d.type) throw badRequest(`Taka ${t.takaNo}: choose the damage type`, `${field}.type`);
+          plan.adds.push({ damageId: damageId!, pcs: d.pcs!, type: d.type });
         }
       });
       for (const d of oldOpen) {
@@ -411,10 +420,10 @@ export async function editTakas(role: RoleKey, id: number, input: unknown): Prom
       ].filter(Boolean);
       if (parts.length) events.push({ takaId: t.id!, event: 'edited', note: parts.join(' · ') });
       for (const a of t.plan.adds) {
-        events.push({ takaId: t.id!, event: 'damage_added', note: damageLabel('machine', names.get(a.damageId), a.pcs) });
+        events.push({ takaId: t.id!, event: 'damage_added', note: `${damageLabel(a.type, names.get(a.damageId), a.pcs)} · recorded at ${DAMAGE_RECORDED_AT_LABEL.edit_takas}` });
       }
       for (const u of t.plan.updates) {
-        await tx.update(takaDamages).set({ damageId: u.damageId, pcs: u.pcs }).where(eq(takaDamages.id, u.id));
+        await tx.update(takaDamages).set({ damageId: u.damageId, pcs: u.pcs, foundAt: u.foundAt }).where(eq(takaDamages.id, u.id));
       }
       for (const r of t.plan.removes) {
         await tx.update(takaDamages).set({ isDeleted: true }).where(eq(takaDamages.id, r.id));
@@ -422,7 +431,7 @@ export async function editTakas(role: RoleKey, id: number, input: unknown): Prom
       await insertTakaDamages(
         tx,
         role,
-        t.plan.adds.map((a) => ({ takaId: t.id!, damageId: a.damageId, pcs: a.pcs, foundAt: 'machine' as const })),
+        t.plan.adds.map((a) => ({ takaId: t.id!, damageId: a.damageId, pcs: a.pcs, foundAt: a.type, recordedAt: 'edit_takas' as const })),
       );
     }
     if (addedRows.length) {
@@ -450,12 +459,12 @@ export async function editTakas(role: RoleKey, id: number, input: unknown): Prom
         touched.add(takaId);
         events.push({ takaId, event: 'entered', note: `${jobsheetRef(js.orderNo, js.jobsheetNo)} · added in Edit takas` });
         for (const a of t.plan.adds) {
-          events.push({ takaId, event: 'damage_added', note: damageLabel('machine', names.get(a.damageId), a.pcs) });
+          events.push({ takaId, event: 'damage_added', note: `${damageLabel(a.type, names.get(a.damageId), a.pcs)} · recorded at ${DAMAGE_RECORDED_AT_LABEL.edit_takas}` });
         }
         await insertTakaDamages(
           tx,
           role,
-          t.plan.adds.map((a) => ({ takaId, damageId: a.damageId, pcs: a.pcs, foundAt: 'machine' as const })),
+          t.plan.adds.map((a) => ({ takaId, damageId: a.damageId, pcs: a.pcs, foundAt: a.type, recordedAt: 'edit_takas' as const })),
         );
       }
     }
@@ -510,7 +519,7 @@ export async function listOrderTakas(role: RoleKey, orderId: number): Promise<Or
       .select({ ...takaColumns, jobsheetId: takas.jobsheetId })
       .from(takas)
       .innerJoin(jobsheets, eq(jobsheets.id, takas.jobsheetId))
-      .where(and(eq(takas.orderId, orderId), eq(takas.isDeleted, false), eq(jobsheets.isDeleted, false))),
+      .where(and(takaInOrder(orderId), eq(takas.isDeleted, false), eq(jobsheets.isDeleted, false))),
   ]);
   const order = orderRows[0];
   if (!order || !canRoleSeeStatus(role, order.status)) throw notFound('Order');
@@ -594,7 +603,7 @@ export async function checkTakaNo(no: string): Promise<TakaAvailability> {
     .select({ orderNo: orders.orderNo, jobsheetNo: jobsheets.jobsheetNo })
     .from(takas)
     .innerJoin(jobsheets, eq(jobsheets.id, takas.jobsheetId))
-    .innerJoin(orders, eq(orders.id, takas.orderId))
+    .innerJoin(orders, eq(orders.id, takaOrderId))
     .where(and(eq(takas.isDeleted, false), eq(takas.takaNo, value)))
     .limit(1);
   return row ? { available: false, usedBy: { orderNo: row.orderNo, jobsheetNo: row.jobsheetNo } } : { available: true };
@@ -639,6 +648,8 @@ async function loadTakaDetail(role: RoleKey, where: SQL): Promise<TakaDetail> {
       orderId: orders.id,
       orderNo: orders.orderNo,
       orderStatus: orders.status,
+      blouseOption: orders.blouseOption,
+      isFreeStock: takas.isFreeStock,
       jobsheetId: jobsheets.id,
       jobsheetNo: jobsheets.jobsheetNo,
       quality: materials.name,
@@ -648,7 +659,7 @@ async function loadTakaDetail(role: RoleKey, where: SQL): Promise<TakaDetail> {
     })
     .from(takas)
     .innerJoin(jobsheets, eq(jobsheets.id, takas.jobsheetId))
-    .innerJoin(orders, eq(orders.id, takas.orderId))
+    .innerJoin(orders, eq(orders.id, takaOrderId))
     .innerJoin(materials, eq(materials.id, orders.materialId))
     .leftJoin(designs, eq(designs.id, orders.designId))
     .leftJoin(designVariations, eq(designVariations.id, orders.variationId))
@@ -738,6 +749,8 @@ async function loadTakaDetail(role: RoleKey, where: SQL): Promise<TakaDetail> {
     jobsheetId: row.jobsheetId,
     jobsheetNo: row.jobsheetNo,
     quality: row.quality,
+    blouseOption: row.blouseOption,
+    isFreeStock: row.isFreeStock,
     design: { code: row.designCode, thumbUrl: row.thumbUrl, imageUrl: row.imageUrl },
     challans: challanRefs,
     events,
@@ -849,6 +862,7 @@ export async function listTakaJobsheets(q: TakaListQuery): Promise<TakaJobsheetP
         frames: jobsheets.frames,
         completedFrames: jobsheets.completedFrames,
         orderNo: orders.orderNo,
+        blouseOption: orders.blouseOption,
         designCode: designCodeSql,
         thumbUrl: designThumbSql,
         imageUrl: designImageSql,
@@ -891,6 +905,7 @@ export async function listTakaJobsheets(q: TakaListQuery): Promise<TakaJobsheetP
         frames: r.frames,
         completedFrames: r.completedFrames,
         orderNo: r.orderNo,
+        blouseOption: r.blouseOption,
         designCode: r.designCode,
         thumbUrl: r.thumbUrl,
         imageUrl: r.imageUrl,

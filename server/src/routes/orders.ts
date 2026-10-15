@@ -15,10 +15,32 @@ import { addSingleJobsheet, generateJobsheets, listOrderJobsheets, sendJobsheets
 import { listOrderChallans } from '../services/challans';
 import { listOrderTakas } from '../services/takas';
 import { sendBackTakas } from '../services/rework';
+import { addFromFreeStock, moveToInventory } from '../services/inventory-moves';
 import { getDashboardItems, getOrderDamages, getOrderDashboard } from '../services/dashboard';
 
 export const ordersRouter = Router();
 // The supervisor opens orders read only (writes below need their own permissions); the Taka entry role has no access.
+// Sprint 13: Dhruvil (godown Orders) has no access to the Orders screens but may move stock — these two routes are
+// registered before the Orders permission gate and carry their own permission.
+/** Takas / pcs leave the order and become free stock. */
+ordersRouter.post(
+  '/:id/takas/move-to-inventory',
+  requirePermission('canMoveToInventory'),
+  ah(async (req, res) => {
+    res.json(await moveToInventory(req.role, parseId(req.params.id), req.body));
+  }),
+);
+
+/** Sprint 13: free stock of the same design is assigned to this order. */
+ordersRouter.post(
+  '/:id/takas/add-from-free-stock',
+  requirePermission('canMoveToInventory'),
+  ah(async (req, res) => {
+    res.json(await addFromFreeStock(req.role, parseId(req.params.id), req.body));
+  }),
+);
+
+
 ordersRouter.use(requirePermission('canViewOrders', 'canViewProductionOrders'));
 
 ordersRouter.get(

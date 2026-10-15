@@ -4,8 +4,9 @@ import { db } from '../db/client';
 import { challanTakas, challans, orders, takas } from '../db/schema';
 import { conflict, notFound } from '../lib/errors';
 import { likePattern } from '../lib/http';
-import { recomputeOrdersStatus, refreshIsDamaged, writeTakaEvents } from './taka-ops';
+import { ancestorHasBeenToMill, recomputeOrdersStatus, refreshIsDamaged, writeTakaEvents } from './taka-ops';
 import { applyQcChanges } from './qc-shared';
+import { takaOrderId } from './free-stock';
 
 /** Butta QC (bilingual role): the takas received back from butta cutting are checked here. */
 
@@ -34,7 +35,7 @@ export async function listQcPending(q: ButtaListQuery): Promise<QcPendingPage> {
         receivedAt: challanTakas.receivedAt,
       })
       .from(takas)
-      .innerJoin(orders, eq(orders.id, takas.orderId))
+      .innerJoin(orders, eq(orders.id, takaOrderId))
       .leftJoin(challanTakas, and(eq(challanTakas.takaId, takas.id), eq(challanTakas.kind, 'butta'), eq(challanTakas.isActive, true)))
       .leftJoin(challans, eq(challans.id, challanTakas.challanId))
       .where(where)
@@ -44,7 +45,7 @@ export async function listQcPending(q: ButtaListQuery): Promise<QcPendingPage> {
     db
       .select({ total: sql<number>`COUNT(*)` })
       .from(takas)
-      .innerJoin(orders, eq(orders.id, takas.orderId))
+      .innerJoin(orders, eq(orders.id, takaOrderId))
       .where(where),
   ]);
   const count = Number(total);
@@ -69,6 +70,8 @@ export async function submitQc(role: RoleKey, takaId: number, input: unknown): P
         meters: takas.meters,
         pcs: takas.pcs,
         refinishCount: takas.refinishCount,
+        hasBeenToMill: takas.hasBeenToMill,
+        parentTakaId: takas.parentTakaId,
       })
       .from(takas)
       .where(and(eq(takas.id, takaId), eq(takas.isDeleted, false)));
@@ -88,7 +91,7 @@ export async function submitQc(role: RoleKey, takaId: number, input: unknown): P
       role,
       taka,
       data,
-      { foundAt: 'butta', resolvedStage: 'butta_qc', label: 'Butta QC', requireAnswers: true },
+      { recordedAt: 'butta_qc', resolvedStage: 'butta_qc', label: 'Butta QC', requireAnswers: true },
       at,
     );
     await refreshIsDamaged(tx, [takaId]);
@@ -99,7 +102,13 @@ export async function submitQc(role: RoleKey, takaId: number, input: unknown): P
       .from(challanTakas)
       .where(and(eq(challanTakas.takaId, takaId), eq(challanTakas.kind, 'mill')))
       .limit(1);
-    const nextStage = stageAfterButtaQc({ hasMillHistory: Boolean(mill), refinishCount: taka.refinishCount });
+    // Sprint 13: the taka OR any ancestor (a split part) has been to the mill -> final, else the normal flow.
+    const nextStage = stageAfterButtaQc({
+      hasBeenToMill: taka.hasBeenToMill,
+      ancestorHasBeenToMill: await ancestorHasBeenToMill(tx, taka.parentTakaId),
+      hasMillHistory: Boolean(mill),
+      refinishCount: taka.refinishCount,
+    });
     const moved = await tx
       .update(takas)
       .set({ stage: nextStage })

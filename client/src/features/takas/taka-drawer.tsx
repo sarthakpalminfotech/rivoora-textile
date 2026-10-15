@@ -48,6 +48,8 @@ const EVENT_LABEL: Record<TakaEventKind, string> = {
   sent_back: 'Sent back',
   dispatched: 'Dispatched',
   goods_returned: 'Goods returned (GR)',
+  moved_to_inventory: 'Moved to inventory (free stock)',
+  allocated_from_free_stock: 'Added from free stock',
   moved_order: 'Moved to another order',
 };
 

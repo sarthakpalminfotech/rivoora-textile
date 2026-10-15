@@ -5,6 +5,9 @@ import {
   MAX_DAMAGE_IMAGES,
   takaEditNote,
   validateQcDecisions,
+  DAMAGE_NOT_MARKED,
+  DAMAGE_RECORDED_AT_LABEL,
+  type DamageRecordedAt,
   type DamageType,
   type RoleKey,
 } from '@rivoora/shared';
@@ -20,6 +23,8 @@ import { insertTakaDamages, resolveDamageNames, type TakaEventInput } from './ta
 export const isOurImageUrl = (url: string) => url.startsWith('/uploads/') || /^https:\/\//i.test(url);
 
 export interface NewDamageInput {
+  /** The damage type chosen with the radio; null/absent = "not marked" (goods return only). */
+  type?: 'machine' | 'butta' | 'mill' | null;
   pcs: number;
   images: { url: string; thumbUrl: string }[];
   damageId?: number;
@@ -41,11 +46,18 @@ export async function addNewDamages(
   role: RoleKey,
   takaId: number,
   newDamages: readonly NewDamageInput[],
-  foundAt: DamageType,
+  recordedAt: DamageRecordedAt,
   at: string,
   field = 'newDamages',
 ): Promise<TakaEventInput[]> {
   if (!newDamages.length) return [];
+  // Sprint 13: the type is the person's choice (required everywhere except goods return -> "not marked").
+  const typeOf = (d: NewDamageInput, n: number): DamageType => {
+    if (d.type) return d.type;
+    if (recordedAt === 'goods_return') return DAMAGE_NOT_MARKED;
+    throw badRequest('Choose the damage type.', `${field}.${n}.type`);
+  };
+  const types = newDamages.map(typeOf);
   const damageIds = await resolveDamageNames(
     tx,
     newDamages.map((d) => (d.damageId !== undefined ? { damageId: d.damageId } : { otherName: d.otherName ?? '' })),
@@ -54,7 +66,7 @@ export async function addNewDamages(
   const newIds = await insertTakaDamages(
     tx,
     role,
-    newDamages.map((d, n) => ({ takaId, damageId: damageIds[n], pcs: d.pcs, foundAt })),
+    newDamages.map((d, n) => ({ takaId, damageId: damageIds[n], pcs: d.pcs, foundAt: types[n], recordedAt })),
   );
   for (const [n, d] of newDamages.entries()) {
     if (!d.images.length) continue;
@@ -69,7 +81,7 @@ export async function addNewDamages(
     takaId,
     event: 'damage_added' as const,
     takaDamageId: newIds[n],
-    note: `${damageLabel(foundAt, names.get(damageIds[n]), d.pcs)}${d.images.length ? ` · ${d.images.length} photo${d.images.length === 1 ? '' : 's'}` : ''}`,
+    note: `${damageLabel(types[n], names.get(damageIds[n]), d.pcs)} · recorded at ${DAMAGE_RECORDED_AT_LABEL[recordedAt]}${d.images.length ? ` · ${d.images.length} photo${d.images.length === 1 ? '' : 's'}` : ''}`,
   }));
 }
 
@@ -97,7 +109,7 @@ export async function applyQcChanges(
   role: RoleKey,
   taka: { id: number; meters: number | null; pcs: number | null },
   data: QcChangesInput,
-  opts: { foundAt: DamageType; resolvedStage: string; label: string; requireAnswers: boolean },
+  opts: { recordedAt: DamageRecordedAt; resolvedStage: string; label: string; requireAnswers: boolean },
   at: string,
 ): Promise<QcChangesResult> {
   const takaId = taka.id;
@@ -166,6 +178,6 @@ export async function applyQcChanges(
     else kept += 1;
   }
 
-  events.push(...(await addNewDamages(tx, role, takaId, data.newDamages, opts.foundAt, at)));
+  events.push(...(await addNewDamages(tx, role, takaId, data.newDamages, opts.recordedAt, at)));
   return { events, resolved, kept, added: data.newDamages.length };
 }

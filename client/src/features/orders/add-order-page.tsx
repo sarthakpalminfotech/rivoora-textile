@@ -6,11 +6,14 @@ import { Navigate, useBlocker, useLocation, useNavigate } from 'react-router-dom
 import { toast } from 'sonner';
 import { z } from 'zod';
 import {
+  BLOUSE_LABEL,
+  BLOUSE_OPTIONS,
   DEFAULT_UNIT,
   ORDER_TYPE_LABEL,
   ORDER_TYPES,
   UNITS,
   normalizeCode,
+  type BlouseOption,
   type OrderDetail,
   type OrderType,
   type Unit,
@@ -49,6 +52,8 @@ const schema = z
     customerId: z.number().nullable(),
     brokerId: z.number().nullable(),
     orderType: z.enum(ORDER_TYPES).nullable(),
+    /** Optional (Sprint 13): With blouse / Without blouse; null = not set. */
+    blouseOption: z.enum(BLOUSE_OPTIONS).nullable(),
     materialId: z.number().nullable(),
     design: z.custom<DesignAttachment | null>(),
     newDesignCode: z.string(),
@@ -85,6 +90,7 @@ const defaults = (): FormValues => ({
   brokerId: null,
   // Nothing pre-selected on a new order: the type is a required choice.
   orderType: null,
+  blouseOption: null,
   materialId: null,
   design: null,
   newDesignCode: '',
@@ -104,6 +110,7 @@ const fromOrder = (o: OrderDetail): FormValues => {
     customerId: o.customer.id,
     brokerId: o.broker?.id ?? null,
     orderType: o.orderType,
+    blouseOption: o.blouseOption,
     materialId: o.material.id,
     design: o.design
       ? {
@@ -129,6 +136,7 @@ const fromOrder = (o: OrderDetail): FormValues => {
 
 const unitOptions = UNITS.map((u) => ({ value: u, label: u }));
 const orderTypeOptions = ORDER_TYPES.map((t) => ({ value: t, label: ORDER_TYPE_LABEL[t] }));
+const blouseOptions = BLOUSE_OPTIONS.map((b) => ({ value: b, label: BLOUSE_LABEL[b] }));
 
 function SectionCard({ title, children, className }: { title: string; children: React.ReactNode; className?: string }) {
   return (
@@ -169,9 +177,9 @@ export function OrderForm({ order }: { order?: OrderDetail }) {
     formState: { errors, isDirty },
   } = useForm<FormValues>({ resolver: zodResolver(schema), defaultValues: order ? fromOrder(order) : defaults() });
 
-  const [customerId, design, noteImages, newDesignCode] = useWatch({
+  const [customerId, design, noteImages, newDesignCode, blouseOption] = useWatch({
     control,
-    name: ['customerId', 'design', 'noteImages', 'newDesignCode'],
+    name: ['customerId', 'design', 'noteImages', 'newDesignCode', 'blouseOption'],
   });
 
   // Dropdown data with server-side search
@@ -237,6 +245,7 @@ export function OrderForm({ order }: { order?: OrderDetail }) {
       customerId: v.customerId!,
       brokerId: v.brokerId,
       orderType: v.orderType!,
+      blouseOption: v.blouseOption,
       materialId: v.materialId!,
       designId: v.design?.kind === 'saved' ? v.design.designId : null,
       variationId: v.design?.kind === 'saved' ? v.design.variationId : null,
@@ -252,7 +261,7 @@ export function OrderForm({ order }: { order?: OrderDetail }) {
       noteImages: v.noteImages,
     };
     const onError = (err: unknown) => {
-      const handled = applyServerFieldError(err, setError, ['customerId', 'brokerId', 'orderType', 'materialId', 'quantity', 'unit', 'rate', 'orderDate', 'newDesignCode', 'newDesignButta', 'notes'], {
+      const handled = applyServerFieldError(err, setError, ['customerId', 'brokerId', 'orderType', 'blouseOption', 'materialId', 'quantity', 'unit', 'rate', 'orderDate', 'newDesignCode', 'newDesignButta', 'notes'], {
         designCode: 'newDesignCode',
         'newDesign.code': 'newDesignCode',
       });
@@ -429,6 +438,23 @@ export function OrderForm({ order }: { order?: OrderDetail }) {
                 )}
               />
             </Field>
+            <Field label="Blouse" htmlFor="blouse-option" error={errors.blouseOption?.message} hint="Optional · shown to production and dispatch">
+              <Controller
+                control={control}
+                name="blouseOption"
+                render={({ field }) => (
+                  <Segmented<BlouseOption>
+                    id="blouse-option"
+                    aria-label="Blouse"
+                    options={blouseOptions}
+                    value={field.value}
+                    // Tapping the selected option again clears it.
+                    onChange={(b) => field.onChange(field.value === b ? null : b)}
+                    invalid={!!errors.blouseOption}
+                  />
+                )}
+              />
+            </Field>
           </div>
         </SectionCard>
 
@@ -557,7 +583,7 @@ export function OrderForm({ order }: { order?: OrderDetail }) {
               </div>
             </div>
             {design.kind === 'saved' && (
-              <DesignStockPanel designId={design.designId} variationId={design.variationId} />
+              <DesignStockPanel designId={design.designId} variationId={design.variationId} blouse={blouseOption} />
             )}
             </div>
           )}

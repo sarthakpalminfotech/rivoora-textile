@@ -1068,3 +1068,12 @@ Details live in `CLAUDE.md` → "Sprint 11". `npm run typecheck` clean, `npm tes
 ## Sprint 12 (done, uncommitted) — current as of 2026-10-14
 
 Rework loops (send back to butta cutting / mill), Dhruvil role (godown Orders + dispatch challans DC-n + goods return GR with revisions + Move to order), Mark as fresh, real login + Users master. Full notes, API list and decisions are in the "Sprint 12" section of CLAUDE.md; spec: rivoora-sprint12-dispatch-login-prompt.md. Migration 0012 (additive) is tested on a local file DB only — run npm run db:migrate on Turso. Not done: responsive screenshot pass of the new screens.
+
+## Sprint 13 (done, uncommitted) — current as of 2026-10-15
+
+Free stock + Move to inventory / Add from free stock (replaces Move to order), re-butta fix (`has_been_to_mill`, split parts inherit), damage-type radio (+ `recorded_at`, "Not marked"), Returned status (GR sends goods to free stock), Blouse option everywhere. Details, decisions and the order-counting rule are in the "Sprint 13" section of CLAUDE.md; spec: rivoora-sprint13-free-stock-blouse-prompt.md.
+
+- Verified: `npm run typecheck` clean, `npm test` 238 passing (new `sprint13.test.ts`), `node scripts/check-sprint13.mjs` (about 55 API checks incl. the migration on a local file DB, the free-stock rule, pcs split, re-butta, GR to Returned) and `check-auth.mjs` pass; desktop browser look at inventory / Takas tab / damage popup.
+- **Turso changes when you run `npm run db:migrate`** (migration `0013_sprint13_free_stock_blouse.sql`, additive only): `orders.blouse_option`; `taka_damages.recorded_at`; `takas.is_free_stock` (default 0), `free_stock_at`, `free_stock_by`, `free_stock_reason`, `allocated_order_id`, `has_been_to_mill` (default 0); indexes `takas_free_stock_idx`, `takas_allocated_order_idx`; backfills: `has_been_to_mill` (mill challan rows / `received_mill` or `mill_qc_done` events / refinish_count > 0, then split children), `taka_damages.recorded_at` from `found_at`. No data is dropped or otherwise rewritten. Migrations 0010–0012 must be applied first if they are not already.
+- Deviation from the spec: "not marked" is the value `unmarked` in `taka_damages.found_at` (not NULL) so no table rebuild is needed.
+- Not done: 360 / 768 px screenshots, real-phone check, clicking through the Move to inventory / Add from free stock dialogs in the browser.

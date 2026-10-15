@@ -37,7 +37,7 @@ export function useDispatchChallan(id: number) {
   });
 }
 
-export const useDispatchedOrders = (search: string) => useInfiniteList<DispatchedOrderCard>(dispatchKeys.list, '/dispatched', { search });
+export const useDispatchedOrders = (search: string, status = '') => useInfiniteList<DispatchedOrderCard>(dispatchKeys.list, '/dispatched', { search, status: status || undefined });
 
 export function useDispatchedOrder(orderId: number) {
   return useQuery({

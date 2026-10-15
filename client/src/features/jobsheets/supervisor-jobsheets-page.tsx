@@ -32,6 +32,7 @@ import { cn } from '@/lib/utils';
 import { printUrl, useSupervisorJobsheets, useSupervisorOrders } from './api';
 import { FramesValue, machineNumbers } from './parts';
 import { JobsheetRunDialogs, type RunAction, type RunJobsheet } from './run-dialogs';
+import { BlouseTag } from '../free-stock/blouse';
 
 // The supervisor's labels: Sent = "Pending", Ongoing = "On-loom" (from the status config's roleLabels).
 const TAB_LABEL: Record<JobsheetTab, string> = {
@@ -151,6 +152,7 @@ function JobsheetTile({ js, now, onOpen, onAction }: { js: SupervisorJobsheetIte
         <p className="-mt-1.5 truncate text-sm text-slate-500">
           {js.designCode ? `Design ${js.designCode}` : 'No design'} · {js.quality}
         </p>
+        {js.blouseOption && <BlouseTag option={js.blouseOption} className="-mt-1.5 w-fit" />}
 
         <dl className="grid grid-cols-2 gap-2 border-t border-border pt-3">
           <Fact label={js.status === JOBSHEET_STATUS.COMPLETED ? 'Frames made' : 'Frames'}>
@@ -416,6 +418,7 @@ function OrderTile({ order, onOpen }: { order: SupervisorOrderItem; onOpen: () =
         <div>
           <p className="text-2xl font-bold leading-tight text-slate-900">Order {formatOrderNo(order.orderNo)}</p>
           <p className="truncate text-sm text-slate-500">{order.designCode ? `Design ${order.designCode}` : 'No design'}</p>
+          {order.blouseOption && <BlouseTag option={order.blouseOption} className="mt-1" />}
         </div>
         <div className="flex flex-wrap gap-1.5" aria-label="Jobsheets per status">
           <CountPill status="sent" n={counts.pending} />

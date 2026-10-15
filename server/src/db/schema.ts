@@ -11,9 +11,12 @@ import {
 } from 'drizzle-orm/sqlite-core';
 import type {
   ChallanKind,
+  BlouseOption,
   ChallanStatus,
+  DamageRecordedAt,
   DamageStatus,
   DamageType,
+  FreeStockReason,
   JobsheetEventKind,
   JobsheetStatusKey,
   OrderStatusKey,
@@ -151,6 +154,8 @@ export const orders = sqliteTable(
     brokerId: integer('broker_id').references(() => customerBrokers.id),
     /** `lump` | `pcs_to_pcs` — required on new orders; existing orders were backfilled as `pcs_to_pcs`. */
     orderType: text('order_type').$type<OrderType>().notNull().default('pcs_to_pcs'),
+    /** Sprint 13: optional blouse option (`with_blouse` | `without_blouse`); null = not set. */
+    blouseOption: text('blouse_option').$type<BlouseOption>(),
     materialId: integer('material_id')
       .notNull()
       .references(() => materials.id),
@@ -366,6 +371,15 @@ export const takas = sqliteTable(
     isReturnLot: integer('is_return_lot', { mode: 'boolean' }).notNull().default(false),
     /** Sprint 12: the order the taka was first made for (set when it is moved to another order). */
     originOrderId: integer('origin_order_id').references(() => orders.id),
+    /** Sprint 13: free stock = stock that belongs to no order (`order_id` stays the ORIGIN order). */
+    isFreeStock: integer('is_free_stock', { mode: 'boolean' }).notNull().default(false),
+    freeStockAt: text('free_stock_at'),
+    freeStockBy: text('free_stock_by').$type<RoleKey>(),
+    freeStockReason: text('free_stock_reason').$type<FreeStockReason>(),
+    /** Sprint 13: the order a free-stock taka was assigned to (it then counts for that order, not the origin one). */
+    allocatedOrderId: integer('allocated_order_id').references(() => orders.id),
+    /** Sprint 13: the taka (or one of its ancestors through `parent_taka_id`) has been to the mill. */
+    hasBeenToMill: integer('has_been_to_mill', { mode: 'boolean' }).notNull().default(false),
     enteredBy: text('entered_by').$type<RoleKey>().notNull(),
     isDeleted: isDeleted(),
     createdAt: createdAt(),
@@ -377,6 +391,8 @@ export const takas = sqliteTable(
     index('takas_order_idx').on(t.orderId),
     index('takas_taka_no_idx').on(t.takaNo),
     index('takas_stage_idx').on(t.stage),
+    index('takas_free_stock_idx').on(t.isFreeStock),
+    index('takas_allocated_order_idx').on(t.allocatedOrderId),
     index('takas_damage_idx').on(t.damageId),
     uniqueIndex('takas_taka_no_active_unique').on(t.takaNo).where(sql`${t.isDeleted} = 0`),
   ],
@@ -395,8 +411,13 @@ export const takaDamages = sqliteTable(
       .references(() => takas.id),
     /** WHAT the damage is (Damage master). Null on an older damage recorded without a name. */
     damageId: integer('damage_id').references(() => damages.id),
-    /** WHERE it was found. */
+    /**
+     * The damage TYPE chosen by the person marking it (`machine` | `butta` | `mill`). `unmarked` = "Damage type not
+     * marked" (goods return only; Sprint 13 — kept as a value, not NULL, so the column needs no rebuild).
+     */
     foundAt: text('found_at').$type<DamageType>().notNull().default('machine'),
+    /** Sprint 13: WHERE it was recorded (taka entry, butta QC, godown, …). Null on rows that could not be backfilled. */
+    recordedAt: text('recorded_at').$type<DamageRecordedAt>(),
     /** Damaged pcs (1 to the taka's pcs). Null only on migrated rows. */
     pcs: integer('pcs'),
     /** Pcs resolved so far (a partial resolve keeps the damage open). Open pcs = pcs − resolved_pcs. */

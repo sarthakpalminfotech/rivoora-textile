@@ -1,6 +1,6 @@
 import { ArrowLeft, Printer, SearchX, Undo2 } from 'lucide-react';
-import { useNavigate, useParams } from 'react-router-dom';
-import { ORDER_TYPE_LABEL } from '@rivoora/shared';
+import { Link, useNavigate, useParams } from 'react-router-dom';
+import { ORDER_TYPE_LABEL, returnedSummary } from '@rivoora/shared';
 import { usePageTitle } from '@/components/layout/page-title';
 import { ErrorState } from '@/components/list-parts';
 import { Button } from '@/components/ui/button';
@@ -12,6 +12,7 @@ import { ApiError } from '@/lib/api';
 import { formatDate, formatOrderNo } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { useDispatchedOrder } from './api';
+import { BlouseTag } from '../free-stock/blouse';
 
 /** `/dispatched/:orderId` — the order header and every dispatch challan (all revisions) with Print and GR. */
 export default function DispatchedOrderPage() {
@@ -48,12 +49,23 @@ export default function DispatchedOrderPage() {
               <p className="truncate text-sm text-slate-500">
                 {o.designCode ? `Design ${o.designCode}` : 'No design'}
                 {o.quality && ` · ${o.quality}`} · {ORDER_TYPE_LABEL[o.orderType]}
+                {o.blouseOption && <BlouseTag option={o.blouseOption} className="ml-2 align-middle" />}
               </p>
               <p className="text-sm font-semibold tabular-nums text-slate-800">
                 {o.dispatchedPcs.toLocaleString('en-IN')} <span className="font-medium text-slate-500">/ {o.orderedPcs.toLocaleString('en-IN')} pcs dispatched</span>
               </p>
             </div>
           </section>
+
+          {o.returned && (
+            <p className="rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-[14px] font-medium text-sky-900">
+              {returnedSummary(o.returned.takas, o.returned.pcs)}
+              {' · '}
+              <Link to={`/print/dispatch-challan/${o.returned.challanId}`} className="font-semibold underline underline-offset-2">
+                See {o.returned.challanLabel}
+              </Link>
+            </p>
+          )}
 
           <section className="overflow-hidden rounded-xl border border-border bg-white shadow-soft">
             <h2 className="border-b border-border bg-slate-50 px-4 py-2 text-[12px] font-semibold uppercase tracking-wide text-slate-500">Dispatch challans</h2>

@@ -1,14 +1,13 @@
-import { ArrowLeft, Check, CheckCircle2, Loader2, MoreHorizontal, MoveRight, Scissors, SearchX, TriangleAlert, Truck } from 'lucide-react';
+import { ArrowLeft, Boxes, Check, CheckCircle2, Loader2, MoreHorizontal, PackagePlus, Scissors, SearchX, TriangleAlert, Truck } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import {
   actualVsExpectedLine,
-  canMoveTaka,
   checkedPcsBar,
   cleanPcs,
   dispatchTotals,
-  moveBlockedReason,
+  moveToInventorySelectable,
   formatMeters,
   formatPcsDiff,
   takaActualPcs,
@@ -19,7 +18,9 @@ import { usePageTitle } from '@/components/layout/page-title';
 import { useRole } from '@/hooks/useRole';
 import { DispatchDialog } from '../dispatch/dispatch-dialog';
 import { FromOrderTag, ReturnedTag, ReturnLotTag } from '../takas/taka-tags';
-import { MoveDialog } from './move-dialog';
+import { AddFromFreeStockDialog } from '../free-stock/add-from-free-stock-dialog';
+import { BlouseTag } from '../free-stock/blouse';
+import { MoveToInventoryDialog } from '../free-stock/move-to-inventory-dialog';
 import { ErrorState } from '@/components/list-parts';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
@@ -59,6 +60,7 @@ function Header({ order }: { order: GodownOrder }) {
         <p className="truncate text-[15px] font-semibold text-slate-600">
           {order.designCode ? `Design ${order.designCode}` : 'No design'}
           {order.quality && <span className="font-medium text-slate-500"> · {order.quality}</span>}
+          {order.blouseOption && <BlouseTag option={order.blouseOption} className="ml-2 align-middle" />}
         </p>
         <p className="text-sm font-medium tabular-nums text-slate-500">{order.orderedPcs.toLocaleString('en-IN')} pcs ordered</p>
         {order.customer && (
@@ -139,7 +141,7 @@ function TakaRow({
   select,
 }: {
   taka: GodownTaka;
-  /** Move-to-order selection mode: a tick box before the row; takas that cannot move are greyed with the reason. */
+  /** Move-to-inventory selection mode: a tick box before the row; takas that cannot move are greyed with the reason. */
   select?: { on: boolean; allowed: boolean; reason: string | null; onToggle: () => void };
   disabled?: boolean;
   onPatch: (patch: { checked?: boolean; actualPcs?: number }) => Promise<unknown>;
@@ -183,7 +185,7 @@ function TakaRow({
       <div className="flex min-w-0 flex-1 items-center gap-3 md:basis-1/3">
         {select && (
           <span title={select.reason ?? undefined} className={cn(!select.allowed && 'opacity-40')}>
-            <TickBox size="lg" checked={select.on} disabled={!select.allowed} onCheckedChange={select.onToggle} aria-label={`Select taka ${taka.takaNo} to move`} />
+            <TickBox size="lg" checked={select.on} disabled={!select.allowed} onCheckedChange={select.onToggle} aria-label={`Select taka ${taka.takaNo} to move to inventory`} />
           </span>
         )}
         <TickBox
@@ -305,21 +307,25 @@ function FinalTakasTab({ order }: { order: GodownOrder }) {
   const [selecting, setSelecting] = useState(false);
   const [picked, setPicked] = useState<number[]>([]);
   const [moveOpen, setMoveOpen] = useState(false);
+  const [addOpen, setAddOpen] = useState(false);
 
   const finals = order.takas.filter((t) => t.stage === 'final');
   const ready = order.takas.filter((t) => t.stage === 'ready_dispatch');
   const k = order.kpis;
   const dispatchSum = dispatchTotals(ready.map((t) => ({ meters: t.meters, pcs: takaActualPcs(t) })));
+  const lump = order.orderType === 'lump';
+  const canMoveStock = can('canMoveToInventory');
+  const godownPcs = order.takas.reduce((n, t) => n + (takaActualPcs(t) ?? 0), 0);
   const rowSelect = (t: GodownTaka) => {
-    const state = { stage: t.stage, isDamaged: t.isDamaged, checked: t.checked };
+    const sel = moveToInventorySelectable(t.stage);
     return {
       on: picked.includes(t.id),
-      allowed: canMoveTaka(state),
-      reason: moveBlockedReason(state),
+      allowed: sel.selectable,
+      reason: sel.reason,
       onToggle: () => setPicked((p) => (p.includes(t.id) ? p.filter((x) => x !== t.id) : [...p, t.id])),
     };
   };
-  const pickedTakas = finals.filter((t) => picked.includes(t.id));
+  const pickedTakas = order.takas.filter((t) => picked.includes(t.id));
   const stopSelecting = () => {
     setSelecting(false);
     setPicked([]);
@@ -351,12 +357,27 @@ function FinalTakasTab({ order }: { order: GodownOrder }) {
         </div>
       ) : (
         <section className="overflow-hidden rounded-xl border border-border bg-white shadow-soft">
-          {can('canMoveTakas') && finals.length > 0 && (
-            <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-2">
-              <p className="text-sm text-slate-500">{selecting ? 'Tick the fresh takas to move to another order' : 'Fresh takas can move to another order of the same design'}</p>
-              <Button variant="secondary" size="sm" onClick={() => (selecting ? stopSelecting() : setSelecting(true))}>
-                <MoveRight /> {selecting ? 'Cancel' : 'Move to order'}
-              </Button>
+          {canMoveStock && (
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-3 py-2">
+              <p className="text-sm text-slate-500">
+                {selecting ? 'Tick the takas to move to inventory' : lump ? 'Takas can leave this order and become free stock' : 'Pcs can leave this order and become free stock'}
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {!selecting && (
+                  <Button variant="secondary" size="sm" onClick={() => setAddOpen(true)}>
+                    <PackagePlus /> Add from free stock
+                  </Button>
+                )}
+                {lump ? (
+                  <Button variant="secondary" size="sm" onClick={() => (selecting ? stopSelecting() : setSelecting(true))}>
+                    <Boxes /> {selecting ? 'Cancel' : 'Move to inventory'}
+                  </Button>
+                ) : (
+                  <Button variant="secondary" size="sm" disabled={godownPcs === 0} onClick={() => setMoveOpen(true)}>
+                    <Boxes /> Move to inventory
+                  </Button>
+                )}
+              </div>
             </div>
           )}
           <div className="hidden items-center gap-3 border-b border-border bg-slate-50 px-3 py-2 text-[12px] font-semibold uppercase tracking-wide text-slate-500 md:flex">
@@ -390,7 +411,17 @@ function FinalTakasTab({ order }: { order: GodownOrder }) {
               <p className="border-y border-border bg-slate-50 px-3 py-1.5 text-[12px] font-semibold uppercase tracking-wide text-slate-500">Ready for dispatch ({ready.length})</p>
               <ul className="divide-y divide-border">
                 {ready.map((t) => (
-                  <TakaRow key={t.id} taka={t} disabled onPatch={async () => undefined} onSplit={() => undefined} onDamage={() => undefined} onRefinish={() => undefined} onResolve={() => undefined} />
+                  <TakaRow
+                    key={t.id}
+                    taka={t}
+                    disabled
+                    select={selecting ? rowSelect(t) : undefined}
+                    onPatch={async () => undefined}
+                    onSplit={() => undefined}
+                    onDamage={() => undefined}
+                    onRefinish={() => undefined}
+                    onResolve={() => undefined}
+                  />
                 ))}
               </ul>
             </>
@@ -408,7 +439,7 @@ function FinalTakasTab({ order }: { order: GodownOrder }) {
                 Cancel
               </Button>
               <Button size="lg" className="h-12" disabled={picked.length === 0} onClick={() => setMoveOpen(true)}>
-                <MoveRight /> Move to order
+                <Boxes /> Move to inventory
               </Button>
             </div>
           </div>
@@ -427,13 +458,20 @@ function FinalTakasTab({ order }: { order: GodownOrder }) {
       </div>
 
       <DispatchDialog open={dispatchModal} onOpenChange={setDispatchModal} orderId={order.orderId} clientName={order.customer?.name ?? null} totals={dispatchSum} />
-      <MoveDialog
+      <MoveToInventoryDialog
         open={moveOpen}
         onOpenChange={setMoveOpen}
-        fromOrderId={order.orderId}
-        fromOrderNo={order.orderNo}
-        takas={pickedTakas}
-        onMoved={stopSelecting}
+        orderId={order.orderId}
+        orderNo={order.orderNo}
+        designCode={order.designCode}
+        takas={lump ? pickedTakas : undefined}
+        availablePcs={godownPcs}
+        onDone={stopSelecting}
+      />
+      <AddFromFreeStockDialog
+        open={addOpen}
+        onOpenChange={setAddOpen}
+        order={{ orderId: order.orderId, orderNo: order.orderNo, orderType: order.orderType, designCode: order.designCode, blouseOption: order.blouseOption, itemKey: order.inventoryKey }}
       />
 
       <ResponsiveModal
@@ -478,13 +516,12 @@ function FinalTakasTab({ order }: { order: GodownOrder }) {
         open={damageFor !== null}
         onOpenChange={(o) => !o && setDamageFor(null)}
         takaLabel={damageFor ? `Taka ${damageFor.takaNo}` : ''}
-        foundAt="godown"
         takaPcs={damageFor ? takaActualPcs(damageFor) : null}
         value={null}
         onConfirm={(v) => {
           const id = damageFor!.id;
           markDamage.mutate(
-            { id, damage: { ...entryPayload({ key: nextEntryKey(), foundAt: 'godown', choice: v.choice, pcs: v.pcs }), images: [] } },
+            { id, damage: { ...entryPayload({ key: nextEntryKey(), foundAt: v.type, choice: v.choice, pcs: v.pcs }), images: [] } },
             {
               onSuccess: () => toast.success('Damage marked'),
               onError: (err) => toast.error(errorMessage(err)),

@@ -13,6 +13,7 @@ import { db } from '../db/client';
 import { jobsheets, orders, takas } from '../db/schema';
 import { conflict, notFound } from '../lib/errors';
 import { chunk, recomputeOrdersStatus, writeTakaEvents, type TakaEventInput } from './taka-ops';
+import { takaInOrder } from './free-stock';
 
 /**
  * Rework: Jemish / Gaurang send takas back to butta cutting (`rework_butta`) or to the mill (`refinish`, which already
@@ -31,7 +32,7 @@ export async function sendBackTakas(role: RoleKey, orderId: number, input: unkno
           .select({ id: takas.id, takaNo: takas.takaNo, stage: takas.stage, pcs: takas.pcs, actualPcs: takas.actualPcs })
           .from(takas)
           .innerJoin(jobsheets, eq(jobsheets.id, takas.jobsheetId))
-          .where(and(inArray(takas.id, part), eq(takas.orderId, orderId), eq(takas.isDeleted, false), eq(jobsheets.isDeleted, false)))),
+          .where(and(inArray(takas.id, part), takaInOrder(orderId), eq(takas.isDeleted, false), eq(jobsheets.isDeleted, false)))),
       );
     }
     const found = new Map(rows.map((r) => [r.id, r]));

@@ -4,6 +4,7 @@ import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
   CHALLAN_KIND_CONFIG,
   challanLabel,
+  DAMAGE_RECORDED_AT_LABEL,
   DAMAGE_TYPE_LABEL,
   damageOpenPcs,
   formatMeters,
@@ -84,7 +85,10 @@ function DamageSection({ d }: { d: TakaDamageFull }) {
             {resolved ? <CheckCircle2 className="size-5 shrink-0 text-green-600" aria-hidden /> : <AlertTriangle className="size-5 shrink-0" aria-hidden />}
             {name}
           </h2>
-          <p className="mt-0.5 text-sm font-medium text-slate-600">{DAMAGE_TYPE_LABEL[d.foundAt]}</p>
+          <p className="mt-0.5 text-sm font-medium text-slate-600">
+            {DAMAGE_TYPE_LABEL[d.foundAt]}
+            {d.recordedAt && <span className="text-slate-400"> · recorded at {DAMAGE_RECORDED_AT_LABEL[d.recordedAt]}</span>}
+          </p>
         </div>
         <span
           className={cn(

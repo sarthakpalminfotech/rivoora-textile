@@ -2,7 +2,7 @@ import { AlertTriangle, Loader2, Printer, X } from 'lucide-react';
 import { useEffect, useLayoutEffect, useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import QRCode from 'qrcode';
-import { jobsheetQrUrl, jobsheetRefShort, ORDER_TYPE_LABEL, type JobsheetPrintItem } from '@rivoora/shared';
+import { BLOUSE_PRINT_LABEL, jobsheetQrUrl, jobsheetRefShort, ORDER_TYPE_LABEL, type JobsheetPrintItem } from '@rivoora/shared';
 import { usePageTitle } from '@/components/layout/page-title';
 import { ErrorState } from '@/components/list-parts';
 import { Button } from '@/components/ui/button';
@@ -56,6 +56,7 @@ const CSS = `
 .jsp-idrow { display: flex; flex-direction: column; gap: 1.2mm; }
 .jsp-assigned { font-size: 8.5pt; font-weight: 600; line-height: 1; }
 .jsp-otype { font-size: 12pt; font-weight: 700; line-height: 1; text-align: center; }
+.jsp-blouse { margin-top: 1.2mm; font-size: 13pt; font-weight: 800; letter-spacing: 0.06em; line-height: 1; text-align: center; border: 1.4px solid var(--ink); padding: 1.2mm 2mm; }
 .jsp-vbox { border: 1.4px solid var(--ink); min-height: 14mm; padding: 1.5mm 3mm; display: flex; align-items: center;
   word-break: break-word; }
 
@@ -142,6 +143,7 @@ function FrontPage({ js, qrSvg }: { js: JobsheetPrintItem; qrSvg: string | undef
               <span className="jsp-lbl">Design no:</span>
               <div className="jsp-vbox jsp-val">{js.designCode ?? ''}</div>
               <span className="jsp-otype">{ORDER_TYPE_LABEL[js.orderType]}</span>
+              {js.blouseOption && <span className="jsp-blouse">{BLOUSE_PRINT_LABEL[js.blouseOption]}</span>}
             </div>
           </div>
         </div>

@@ -25,6 +25,7 @@ import {
   type DispatchedOrderPage,
   type DispatchResult,
   type GoodsReturnResult,
+  type OrderReturnSummary,
   type OrderStatusKey,
   type RoleKey,
 } from '@rivoora/shared';
@@ -49,6 +50,7 @@ import { currentUserId } from '../lib/request-context';
 import { likePattern } from '../lib/http';
 import { addNewDamages, assertNewDamages } from './qc-shared';
 import { allocateTakaNumbers, chunk, recomputeOrdersStatus, refreshIsDamaged, writeTakaEvents, type TakaEventInput } from './taka-ops';
+import { freeStockFields, takaInOrder, takaInOrderRaw } from './free-stock';
 
 /**
  * Dispatch (Dhruvil): a dispatch takes ALL the takas of an order that are ready for dispatch onto one challan (DC-n),
@@ -86,7 +88,7 @@ export async function createDispatch(role: RoleKey, orderId: number, input: unkn
       .select({ id: takas.id, takaNo: takas.takaNo, meters: takas.meters, pcs: takas.pcs, actualPcs: takas.actualPcs })
       .from(takas)
       .innerJoin(jobsheets, eq(jobsheets.id, takas.jobsheetId))
-      .where(and(eq(takas.orderId, orderId), eq(takas.stage, 'ready_dispatch'), eq(takas.isDeleted, false), eq(jobsheets.isDeleted, false)));
+      .where(and(takaInOrder(orderId), eq(takas.stage, 'ready_dispatch'), eq(takas.isDeleted, false), eq(jobsheets.isDeleted, false)));
     if (!ready.length) throw conflict('There are no takas ready for dispatch on this order.');
     ready.sort((a, b) => compareTakaNo(a.takaNo, b.takaNo));
 
@@ -154,6 +156,7 @@ export async function getDispatchChallan(id: number): Promise<DispatchChallanDet
         orderId: orders.id,
         orderNo: orders.orderNo,
         orderType: orders.orderType,
+        blouseOption: orders.blouseOption,
         orderStatus: orders.status,
         quality: materials.name,
         designCode: designCodeSql,
@@ -196,6 +199,7 @@ export async function getDispatchChallan(id: number): Promise<DispatchChallanDet
       orderId: row.orderId,
       orderNo: row.orderNo,
       orderType: row.orderType,
+      blouseOption: row.blouseOption,
       status: row.orderStatus as OrderStatusKey,
       quality: row.quality,
       designCode: row.designCode,
@@ -214,13 +218,14 @@ export async function getDispatchChallan(id: number): Promise<DispatchChallanDet
 /* Dispatched module                                                    */
 /* ------------------------------------------------------------------ */
 
-const orderDispatchedPcs = sql<number>`COALESCE((SELECT SUM(COALESCE(t.actual_pcs, t.pcs, 0)) FROM takas t WHERE t.order_id = "orders"."id" AND t.is_deleted = 0 AND t.stage = 'dispatched'), 0)`;
+const orderDispatchedPcs = sql<number>`COALESCE((SELECT SUM(COALESCE(t.actual_pcs, t.pcs, 0)) FROM takas t WHERE ${takaInOrderRaw('t', '"orders"."id"')} AND t.is_deleted = 0 AND t.stage = 'dispatched'), 0)`;
 const latestChallanId = sql<number>`(SELECT MAX(c.id) FROM dispatch_challans c WHERE c.order_id = "orders"."id")`;
 
 /** GET /dispatched — orders that have dispatch challans, newest dispatch first. Server-side search. */
 export async function listDispatchedOrders(role: RoleKey, q: DispatchedListQuery): Promise<DispatchedOrderPage> {
   const parsed = dispatchedListQuerySchema.parse(q);
   let search: SQL | undefined;
+  const statusFilter = parsed.status ? eq(orders.status, parsed.status) : undefined;
   if (parsed.search) {
     const term = parsed.search.replace(/^#/, '');
     const p = likePattern(term);
@@ -238,6 +243,7 @@ export async function listDispatchedOrders(role: RoleKey, q: DispatchedListQuery
     .select({
       orderId: orders.id,
       orderNo: orders.orderNo,
+      blouseOption: orders.blouseOption,
       customerName: customers.name,
       designCode: designCodeSql,
       thumbUrl: designThumbSql,
@@ -254,7 +260,7 @@ export async function listDispatchedOrders(role: RoleKey, q: DispatchedListQuery
     .leftJoin(customerBrokers, eq(customerBrokers.id, orders.brokerId))
     .leftJoin(designs, eq(designs.id, orders.designId))
     .leftJoin(designVariations, eq(designVariations.id, orders.variationId))
-    .where(and(sql`EXISTS (SELECT 1 FROM dispatch_challans c WHERE c.order_id = "orders"."id")`, search));
+    .where(and(sql`EXISTS (SELECT 1 FROM dispatch_challans c WHERE c.order_id = "orders"."id")`, statusFilter, search));
   const [items, [{ total }]] = await db.batch([
     base.orderBy(desc(latestChallanId)).limit(parsed.limit).offset((parsed.page - 1) * parsed.limit),
     db
@@ -265,7 +271,7 @@ export async function listDispatchedOrders(role: RoleKey, q: DispatchedListQuery
       .leftJoin(customerBrokers, eq(customerBrokers.id, orders.brokerId))
       .leftJoin(designs, eq(designs.id, orders.designId))
       .leftJoin(designVariations, eq(designVariations.id, orders.variationId))
-      .where(and(sql`EXISTS (SELECT 1 FROM dispatch_challans c WHERE c.order_id = "orders"."id")`, search)),
+      .where(and(sql`EXISTS (SELECT 1 FROM dispatch_challans c WHERE c.order_id = "orders"."id")`, statusFilter, search)),
   ]);
   const ids = items.map((i) => i.latestId);
   const latest = ids.length
@@ -298,6 +304,7 @@ export async function getDispatchedOrder(role: RoleKey, orderId: number): Promis
         orderId: orders.id,
         orderNo: orders.orderNo,
         orderType: orders.orderType,
+        blouseOption: orders.blouseOption,
         status: orders.status,
         customerName: customers.name,
         designCode: designCodeSql,
@@ -342,12 +349,33 @@ export async function getDispatchedOrder(role: RoleKey, orderId: number): Promis
     meters: round2(Number(c.meters)),
     canGoodsReturn: mayReturn && c.status === 'active' && Number(c.pcs) > 0,
   }));
-  return { ...order, status: order.status as OrderStatusKey, dispatchedPcs: Number(order.dispatchedPcs), challans };
+  return { ...order, status: order.status as OrderStatusKey, dispatchedPcs: Number(order.dispatchedPcs), challans, returned: await getOrderReturnSummary(orderId) };
 }
 
 /* ------------------------------------------------------------------ */
 /* Goods return (GR)                                                    */
 /* ------------------------------------------------------------------ */
+
+/** What came back on this order in total (null when there was no goods return) + the latest challan revision. */
+export async function getOrderReturnSummary(orderId: number): Promise<OrderReturnSummary | null> {
+  const [sum] = await db
+    .select({
+      n: sql<number>`COUNT(*)`,
+      takas: sql<number>`COALESCE(SUM(${goodsReturns.returnedTakas}), 0)`,
+      pcs: sql<number>`COALESCE(SUM(${goodsReturns.returnedPcs}), 0)`,
+      lastChallanId: sql<number | null>`MAX(${goodsReturns.newChallanId})`,
+    })
+    .from(goodsReturns)
+    .innerJoin(dispatchChallans, eq(dispatchChallans.id, goodsReturns.challanId))
+    .where(eq(dispatchChallans.orderId, orderId));
+  if (!sum || Number(sum.n) === 0 || sum.lastChallanId === null) return null;
+  const [latest] = await db
+    .select({ id: dispatchChallans.id, challanNo: dispatchChallans.challanNo, revision: dispatchChallans.revision })
+    .from(dispatchChallans)
+    .where(eq(dispatchChallans.id, sum.lastChallanId));
+  if (!latest) return null;
+  return { takas: Number(sum.takas), pcs: Number(sum.pcs), challanId: latest.id, challanLabel: dispatchChallanLabel(latest.challanNo, latest.revision) };
+}
 
 /** POST /dispatch/challans/:id/goods-return */
 export async function createGoodsReturn(role: RoleKey, challanId: number, input: unknown): Promise<GoodsReturnResult> {
@@ -379,7 +407,7 @@ export async function createGoodsReturn(role: RoleKey, challanId: number, input:
     const returnedForGr: { takaId: number; pcs: number | null; damagedPcs: number }[] = [];
 
     if ('returns' in data) {
-      /* ---- lump: the ticked takas come back as final takas ---- */
+      /* ---- lump: the ticked takas come back as final takas and go straight to FREE STOCK (Sprint 13) ---- */
       const ids = data.returns.map((r) => r.takaId);
       if (new Set(ids).size !== ids.length) throw badRequest('A taka is ticked twice.');
       const onChallan = new Map(rows.map((r) => [r.takaId, r]));
@@ -401,13 +429,20 @@ export async function createGoodsReturn(role: RoleKey, challanId: number, input:
         const row = onChallan.get(r.takaId)!;
         const moved = await tx
           .update(takas)
-          .set({ stage: 'final', returnedAt: at, returnedFromChallanId: challanId, godownCheckedAt: null, godownCheckedBy: null })
+          .set({
+            stage: 'final',
+            returnedAt: at,
+            returnedFromChallanId: challanId,
+            godownCheckedAt: null,
+            godownCheckedBy: null,
+            ...freeStockFields(role, at, 'goods_return'),
+          })
           .where(and(eq(takas.id, r.takaId), eq(takas.stage, 'dispatched')))
           .returning({ id: takas.id });
         if (!moved.length) throw conflict(`Taka ${row.takaNo} changed meanwhile. Refresh and try again.`);
         const damaged = r.damages.reduce((n, d) => n + d.pcs, 0);
-        events.push({ takaId: r.takaId, event: 'goods_returned', dispatchChallanId: challanId, note: `Returned from ${label}${damaged ? ` · ${damaged} pcs damaged` : ''}` });
-        events.push(...(await addNewDamages(tx, role, r.takaId, r.damages, 'customer_return', at, `returns.${i}.damages`)));
+        events.push({ takaId: r.takaId, event: 'goods_returned', dispatchChallanId: challanId, note: `Returned from ${label}${damaged ? ` · ${damaged} pcs damaged` : ''} · now free stock` });
+        events.push(...(await addNewDamages(tx, role, r.takaId, r.damages, 'goods_return', at, `returns.${i}.damages`)));
         touched.push(r.takaId);
         returnedTakas += 1;
         returnedPcs += row.pcs ?? 0;
@@ -458,13 +493,15 @@ export async function createGoodsReturn(role: RoleKey, challanId: number, input:
           isReturnLot: true,
           returnedAt: at,
           returnedFromChallanId: challanId,
+          hasBeenToMill: true,
+          ...freeStockFields(role, at, 'goods_return'),
           enteredBy: role,
           createdAt: at,
           updatedAt: at,
         })
         .returning({ id: takas.id });
-      events.push({ takaId: lotTaka.id, event: 'goods_returned', dispatchChallanId: challanId, note: `Return lot · ${lot.pcs} pcs returned from ${label}${lot.damagedPcs ? ` · ${lot.damagedPcs} pcs damaged` : ''}` });
-      if (damage) events.push(...(await addNewDamages(tx, role, lotTaka.id, [damage], 'customer_return', at, 'damage')));
+      events.push({ takaId: lotTaka.id, event: 'goods_returned', dispatchChallanId: challanId, note: `Return lot · ${lot.pcs} pcs returned from ${label}${lot.damagedPcs ? ` · ${lot.damagedPcs} pcs damaged` : ''} · now free stock` });
+      if (damage) events.push(...(await addNewDamages(tx, role, lotTaka.id, [damage], 'goods_return', at, 'damage')));
       touched.push(lotTaka.id);
       returnedTakas = 1;
       returnedPcs = lot.pcs;

@@ -465,11 +465,10 @@ function QcForm({ taka, notReceived }: { taka: TakaDetail; notReceived: boolean 
         open={addOpen}
         onOpenChange={setAddOpen}
         takaLabel={bi(`Taka ${taka.takaNo}`, `टाका ${taka.takaNo}`)}
-        foundAt="mill"
         takaPcs={takaPcs}
         value={null}
         allowImages
-        onConfirm={(v) => setAdded((prev) => [...prev, { key: nextEntryKey(), foundAt: 'mill', choice: v.choice, pcs: v.pcs, images: v.images }])}
+        onConfirm={(v) => setAdded((prev) => [...prev, { key: nextEntryKey(), foundAt: v.type, choice: v.choice, pcs: v.pcs, images: v.images }])}
         onRefinish={() => tryConfirm('refinish')}
       />
 

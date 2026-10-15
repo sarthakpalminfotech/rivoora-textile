@@ -20,6 +20,7 @@ import { cn } from '@/lib/utils';
 import { useOrders, useSendToProduction } from './api';
 import { useOrderFilters } from './filters';
 import { FilterChips, OrderFiltersDialog } from './order-filters';
+import { BlouseTag } from '../free-stock/blouse';
 
 const isPending = (o: OrderListItem) => o.status === STATUS.PENDING_PRODUCTION;
 
@@ -304,8 +305,9 @@ export default function OrdersPage() {
                         <Field label="Quality" value={o.materialName} />
                         <Field label="Quantity" value={formatQuantity(o.quantity, o.unit)} />
                         <Field label="Date" value={formatDate(o.orderDate)} />
-                        <div className="flex items-end pb-0.5">
+                        <div className="flex flex-wrap items-end gap-1.5 pb-0.5">
                           <OrderTypeTag type={o.orderType} />
+                          <BlouseTag option={o.blouseOption} />
                         </div>
                         {can('canSeeClient') && o.brokerName && <Field label="Broker" value={o.brokerName} />}
                       </dl>

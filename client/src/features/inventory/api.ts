@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type {
+  BlouseFilter,
   DamagedItemCard,
   DamagedItemDetail,
   DamagedTakaRow,
@@ -22,8 +23,8 @@ export const inventoryKeys = {
   all: ['inventory'] as const,
   summary: ['inventory', 'summary'] as const,
   items: ['inventory', 'items'] as const,
-  item: (key: string) => ['inventory', 'item', key] as const,
-  itemOrders: (key: string, search: string, filter = '') => ['inventory', 'item-orders', key, search, filter] as const,
+  item: (key: string, blouse = 'all') => ['inventory', 'item', key, blouse] as const,
+  itemOrders: (key: string, search: string, filter = '', blouse = 'all') => ['inventory', 'item-orders', key, search, filter, blouse] as const,
   damaged: ['inventory', 'damaged'] as const,
   damagedItem: (key: string) => ['inventory', 'damaged-item', key] as const,
   damagedTakas: (key: string, type: string, refinish: boolean, search: string) => ['inventory', 'damaged-takas', key, type, refinish, search] as const,
@@ -45,18 +46,18 @@ export const useInventoryItems = (search: string, kpi = '') =>
 export const useDamagedItems = (search: string, enabled = true) =>
   useInfiniteList<DamagedItemCard>(inventoryKeys.damaged, '/inventory/damaged', { search }, enabled, { refetchOnWindowFocus: true });
 
-export function useInventoryItem(key: string) {
+export function useInventoryItem(key: string, blouse: BlouseFilter = 'all') {
   return useQuery({
-    queryKey: inventoryKeys.item(key),
-    queryFn: ({ signal }) => api.get<InventoryItemDetail>(`/inventory/items/${key}`, undefined, signal),
+    queryKey: inventoryKeys.item(key, blouse),
+    queryFn: ({ signal }) => api.get<InventoryItemDetail>(`/inventory/items/${key}`, blouse === 'all' ? undefined : { blouse }, signal),
     ...live,
   });
 }
 
-export function useInventoryItemOrders(key: string, search: string, filter = '') {
+export function useInventoryItemOrders(key: string, search: string, filter = '', blouse: BlouseFilter = 'all') {
   return useQuery({
-    queryKey: inventoryKeys.itemOrders(key, search, filter),
-    queryFn: ({ signal }) => api.get<InventoryOrderRow[]>(`/inventory/items/${key}/orders`, { search, filter }, signal),
+    queryKey: inventoryKeys.itemOrders(key, search, filter, blouse),
+    queryFn: ({ signal }) => api.get<InventoryOrderRow[]>(`/inventory/items/${key}/orders`, { search, filter, blouse: blouse === 'all' ? undefined : blouse }, signal),
     ...live,
   });
 }

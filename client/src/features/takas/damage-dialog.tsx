@@ -1,12 +1,16 @@
-import { AlertTriangle, Pencil, Plus, Trash2 } from 'lucide-react';
+import { AlertTriangle, Cog, Droplets, Pencil, Plus, Scissors, Trash2, type LucideIcon } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import {
+  CHOOSABLE_DAMAGE_LABEL,
+  CHOOSABLE_DAMAGE_TYPES,
   cleanPcs,
   DAMAGE_NAME_MAX_LENGTH,
-  DAMAGE_TYPE_LABEL,
+  DAMAGE_NOT_MARKED,
+  isChoosableDamageType,
   damageLabel,
   damagePcsErrorText,
   parseDamagePcs,
+  type ChoosableDamageType,
   type DamageImageInput,
   type DamageType,
   type TakaDamage,
@@ -69,26 +73,92 @@ export function entriesOfTaka(t: { damages: TakaDamage[] }): DamageEntry[] {
 export const entrySignature = (e: DamageEntry) =>
   `${e.id ?? 'new'}|${e.choice.kind === 'master' ? `#${e.choice.damageId}` : e.choice.kind === 'other' ? `~${e.choice.name.trim().toLowerCase()}` : 'legacy'}|${e.pcs ?? ''}`;
 
-/** What Taka entry sends for one damage (pcs is required). */
-export function entryPayload(e: DamageEntry): { damageId: number; pcs: number } | { otherName: string; pcs: number } {
+/** The type chosen with the radio (Machine / Butta cutting / Mill) — what every damage write sends as `type`. */
+const choosableType = (e: Pick<DamageEntry, 'foundAt'>): ChoosableDamageType => (isChoosableDamageType(e.foundAt) ? e.foundAt : 'machine');
+
+/** What Taka entry sends for one damage (type + pcs are required). */
+export function entryPayload(
+  e: DamageEntry,
+): { type: ChoosableDamageType; damageId: number; pcs: number } | { type: ChoosableDamageType; otherName: string; pcs: number } {
   const pcs = e.pcs ?? 0;
-  if (e.choice.kind === 'master') return { damageId: e.choice.damageId, pcs };
-  return { otherName: e.choice.kind === 'other' ? e.choice.name.trim() : '', pcs };
+  const type = choosableType(e);
+  if (e.choice.kind === 'master') return { type, damageId: e.choice.damageId, pcs };
+  return { type, otherName: e.choice.kind === 'other' ? e.choice.name.trim() : '', pcs };
 }
 
-/** What Butta QC sends for a NEW damage: like Taka entry + its photos. */
+/** What Butta QC / Mill QC / the godown send for a NEW damage: like Taka entry + its photos. */
 export function qcEntryPayload(e: DamageEntry) {
   return { ...entryPayload(e), images: e.images ?? [] };
+}
+
+/** Goods return: the type is optional — "not marked" is sent as `null`. */
+export function grEntryPayload(e: DamageEntry) {
+  const base = entryPayload(e);
+  return { ...base, type: isChoosableDamageType(e.foundAt) ? e.foundAt : null, images: e.images ?? [] };
 }
 
 /** What Edit takas sends: existing open damages keep their `id`; an older nameless / pcs-less one stays as it is. */
 export function editEntryPayload(
   e: DamageEntry,
-): { id?: number; damageId: number | null; pcs: number | null } | { id?: number; otherName: string; pcs: number } {
+): { id?: number; type?: ChoosableDamageType; damageId: number | null; pcs: number | null } | { id?: number; type?: ChoosableDamageType; otherName: string; pcs: number } {
   const id = e.id !== undefined ? { id: e.id } : {};
-  if (e.choice.kind === 'master') return { ...id, damageId: e.choice.damageId, pcs: e.pcs };
-  if (e.choice.kind === 'other') return { ...id, otherName: e.choice.name.trim(), pcs: e.pcs ?? 0 };
-  return { ...id, damageId: null, pcs: e.pcs };
+  // New rows always carry the chosen type; an existing damage keeps its (possibly older) type unless it was changed.
+  const type = isChoosableDamageType(e.foundAt) ? { type: e.foundAt } : {};
+  if (e.choice.kind === 'master') return { ...id, ...type, damageId: e.choice.damageId, pcs: e.pcs };
+  if (e.choice.kind === 'other') return { ...id, ...type, otherName: e.choice.name.trim(), pcs: e.pcs ?? 0 };
+  return { ...id, ...type, damageId: null, pcs: e.pcs };
+}
+
+const TYPE_ICON: Record<ChoosableDamageType, LucideIcon> = { machine: Cog, butta: Scissors, mill: Droplets };
+
+interface DamageTypeRadioProps {
+  value: ChoosableDamageType | null;
+  onChange: (type: ChoosableDamageType | null) => void;
+  /** Goods return: nothing chosen is fine (tapping the chosen card again clears it). */
+  optional?: boolean;
+  /** Show the Hindi line too (Taka entry / QC screens). */
+  bilingual?: boolean;
+}
+
+/** The "Damage type" radio: three large tappable cards, nothing pre-selected. */
+export function DamageTypeRadio({ value, onChange, optional, bilingual }: DamageTypeRadioProps) {
+  return (
+    <div role="radiogroup" aria-label={bilingual ? 'Damage type / खराबी का प्रकार' : 'Damage type'} className="space-y-2">
+      <p className="text-sm font-semibold text-slate-800">
+        {bilingual ? <Bi en="Damage type" hi="खराबी का प्रकार" layout="inline" /> : 'Damage type'}
+        {!optional && <span className="ml-0.5 text-destructive">*</span>}
+        {optional && <span className="ml-1.5 text-xs font-normal text-slate-500">{bilingual ? 'Optional / वैकल्पिक' : 'Optional'}</span>}
+      </p>
+      <div className="grid grid-cols-3 gap-2">
+        {CHOOSABLE_DAMAGE_TYPES.map((type) => {
+          const Icon = TYPE_ICON[type];
+          const on = value === type;
+          const label = CHOOSABLE_DAMAGE_LABEL[type];
+          return (
+            <button
+              key={type}
+              type="button"
+              role="radio"
+              aria-checked={on}
+              onClick={() => onChange(on && optional ? null : type)}
+              className={cn(
+                'flex min-h-[4.5rem] flex-col items-center justify-center gap-1 rounded-xl border-2 px-1.5 py-2 text-center transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40',
+                on ? 'border-red-600 bg-red-50 text-red-700 shadow-sm' : 'border-slate-200 bg-white text-slate-600 hover:border-red-300',
+              )}
+            >
+              <Icon className="size-5 shrink-0" aria-hidden />
+              <span className="text-[13px] font-bold leading-tight">{label.en}</span>
+              {bilingual && (
+                <span lang="hi" className="text-[12px] leading-tight">
+                  {label.hi}
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
 }
 
 const OTHER = -1;
@@ -98,13 +168,13 @@ interface DamageDialogProps {
   onOpenChange: (open: boolean) => void;
   /** "Taka 6245" — shown under the title. */
   takaLabel: string;
-  /** Where this damage is found: machine (taka entry, Edit takas) or butta (Butta QC). */
-  foundAt: DamageType;
+  /** Goods return: the damage type is optional (nothing chosen is saved as "Damage type not marked"). */
+  typeOptional?: boolean;
   /** The taka's pcs: the damaged pcs may not be more. Null = unknown (older taka without pcs). */
   takaPcs: number | null;
   /** The damage being changed (opening an existing damage offers Change / Remove). */
   value: DamageEntry | null;
-  onConfirm: (value: { choice: DamageChoice; pcs: number; images: DamageImageInput[] }) => void;
+  onConfirm: (value: { type: DamageType; choice: DamageChoice; pcs: number; images: DamageImageInput[] }) => void;
   onRemove?: () => void;
   /** Butta QC / Mill QC: a new damage can carry photos (Camera / Attach image). */
   allowImages?: boolean;
@@ -122,11 +192,11 @@ interface DamageDialogProps {
  * type it, and give the damaged pcs. A centred modal on md+, a bottom sheet on phones; bilingual for the Taka entry
  * and Butta QC roles.
  */
-export function DamageDialog({ open, onOpenChange, takaLabel, foundAt, takaPcs, value, onConfirm, onRemove, allowImages, onRefinish, suggestedNames }: DamageDialogProps) {
+export function DamageDialog({ open, onOpenChange, takaLabel, typeOptional, takaPcs, value, onConfirm, onRemove, allowImages, onRefinish, suggestedNames }: DamageDialogProps) {
   const [images, setImages] = useState<DamageImageInput[]>([]);
   const [uploading, setUploading] = useState(false);
-  const where = DAMAGE_TYPE_LABEL[foundAt];
   const bilingual = useBilingual();
+  const [type, setType] = useState<ChoosableDamageType | null>(null);
   const t = (en: string, hi: string) => (bilingual ? `${en} / ${hi}` : en);
   const [selected, setSelected] = useState<number | null>(null);
   const [selectedName, setSelectedName] = useState<string | undefined>();
@@ -143,6 +213,8 @@ export function DamageDialog({ open, onOpenChange, takaLabel, foundAt, takaPcs, 
     setImages(value?.images ?? []);
     setUploading(false);
     setPcsText(value?.pcs != null ? String(value.pcs) : '');
+    // Nothing is pre-selected on a new damage; an existing one shows the type it was saved with.
+    setType(value && isChoosableDamageType(value.foundAt) ? value.foundAt : null);
     const choice = value?.choice;
     if (choice?.kind === 'master') {
       setSelected(choice.damageId);
@@ -174,7 +246,12 @@ export function DamageDialog({ open, onOpenChange, takaLabel, foundAt, takaPcs, 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lookup.data, bilingual, suggestedNames, search]);
 
+  // An older damage with a legacy type (Supervisor marked, …) may be saved without choosing a new one.
+  const legacyType = !!value && !isChoosableDamageType(value.foundAt) && value.foundAt !== DAMAGE_NOT_MARKED;
+  const typeReady = !!typeOptional || type !== null || legacyType;
+
   const confirm = () => {
+    if (!typeReady) return;
     if (selected === null) {
       setError({ field: 'name', message: t('Pick the damage name', 'खराबी का नाम चुनें') });
       return;
@@ -194,7 +271,7 @@ export function DamageDialog({ open, onOpenChange, takaLabel, foundAt, takaPcs, 
       selected === OTHER
         ? { kind: 'other', name }
         : { kind: 'master', damageId: selected, name: selectedName ?? options.find((o) => o.value === selected)?.label ?? '' };
-    onConfirm({ choice, pcs: parsed.pcs!, images });
+    onConfirm({ type: type ?? (legacyType ? value!.foundAt : DAMAGE_NOT_MARKED), choice, pcs: parsed.pcs!, images });
     onOpenChange(false);
   };
 
@@ -230,16 +307,19 @@ export function DamageDialog({ open, onOpenChange, takaLabel, foundAt, takaPcs, 
           <Button variant="secondary" size="lg" className="h-12" onClick={() => onOpenChange(false)}>
             {label('Cancel', 'रद्द करें')}
           </Button>
-          <Button size="lg" className="h-12 bg-red-600 hover:bg-red-700" onClick={confirm} disabled={uploading}>
+          <Button size="lg" className="h-12 bg-red-600 hover:bg-red-700" onClick={confirm} disabled={uploading || !typeReady}>
             <AlertTriangle /> {existing ? label('Save damage', 'खराबी सेव करें') : label('Mark damaged', 'खराबी लगाएं')}
           </Button>
         </div>
       }
     >
       <div className="space-y-4 pb-1">
-        <p className="inline-flex items-center rounded-full bg-red-50 px-3 py-1 text-[13px] font-semibold text-red-700">
-          {bilingual && foundAt === 'butta' ? 'Butta cutting damage / बुट्टा कटिंग की खराबी' : bilingual && foundAt === 'mill' ? 'Mill damage / मिल की खराबी' : where}
-        </p>
+        <div>
+          <DamageTypeRadio value={type} onChange={setType} optional={typeOptional} bilingual={bilingual} />
+          {!typeReady && (
+            <p className="mt-1.5 text-[13px] font-medium text-red-600">{t('Choose the damage type', 'खराबी का प्रकार चुनें')}</p>
+          )}
+        </div>
         {value?.choice.kind === 'legacy' && (
           <p className="rounded-xl bg-slate-50 px-3.5 py-2.5 text-sm text-slate-600">
             Saved as Machine damage without a name. Pick a name and the damaged pcs to complete it, or keep it as it is (Cancel).
@@ -347,8 +427,6 @@ type Mode = { type: 'add' } | { type: 'edit'; key: number } | { type: 'menu' } |
 interface TakaDamageControlProps {
   entries: DamageEntry[];
   onChange: (entries: DamageEntry[]) => void;
-  /** Where NEW damages are found (machine at taka entry / Edit takas). */
-  foundAt?: DamageType;
   /** "Taka 6245" */
   takaLabel: string;
   takaPcs: number | null;
@@ -366,7 +444,6 @@ interface TakaDamageControlProps {
 export function TakaDamageControl({
   entries,
   onChange,
-  foundAt = 'machine',
   takaLabel,
   takaPcs,
   disabled,
@@ -383,11 +460,11 @@ export function TakaDamageControl({
     ? `Damage${firstName ? ` · ${firstName}` : ''}${first.pcs != null ? ` · ${first.pcs} pcs` : ''}${entries.length > 1 ? ` +${entries.length - 1}` : ''}`
     : 'Damage';
 
-  const confirm = (v: { choice: DamageChoice; pcs: number }) => {
+  const confirm = (v: { type: DamageType; choice: DamageChoice; pcs: number }) => {
     if (mode?.type === 'edit') {
-      onChange(entries.map((e) => (e.key === mode.key ? { ...e, choice: v.choice, pcs: v.pcs } : e)));
+      onChange(entries.map((e) => (e.key === mode.key ? { ...e, foundAt: v.type, choice: v.choice, pcs: v.pcs } : e)));
     } else {
-      onChange([...entries, { key: nextEntryKey(), foundAt, choice: v.choice, pcs: v.pcs }]);
+      onChange([...entries, { key: nextEntryKey(), foundAt: v.type, choice: v.choice, pcs: v.pcs }]);
     }
   };
 
@@ -431,7 +508,6 @@ export function TakaDamageControl({
         open={mode?.type === 'add' || (mode?.type === 'edit' && !!editing)}
         onOpenChange={(o) => !o && setMode(entries.length > 1 && mode?.type === 'edit' ? { type: 'menu' } : null)}
         takaLabel={takaLabel}
-        foundAt={editing?.foundAt ?? foundAt}
         takaPcs={takaPcs}
         value={editing ?? null}
         onConfirm={confirm}

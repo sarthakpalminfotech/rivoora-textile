@@ -205,7 +205,7 @@ export function jobsheetSubStage(status: string, takaCount: number): JobsheetSub
 /* Damage types                                                         */
 /* ------------------------------------------------------------------ */
 
-export const DAMAGE_TYPES = ['machine', 'butta', 'mill', 'godown', 'customer_return'] as const;
+export const DAMAGE_TYPES = ['machine', 'butta', 'mill', 'unmarked', 'godown', 'customer_return'] as const;
 export type DamageType = (typeof DAMAGE_TYPES)[number];
 
 export interface DamageTypeConfig {
@@ -221,8 +221,11 @@ export const DAMAGE_TYPE_CONFIG: readonly DamageTypeConfig[] = [
   // To connect later: a NEW damage found at the QC after butta cutting / after the mill.
   { key: 'butta', label: 'Butta cutting damage', recordedWhen: 'At the QC after butta cutting', connected: true },
   { key: 'mill', label: 'Mill damage', recordedWhen: 'At the QC after the mill', connected: true },
-  { key: 'godown', label: 'Supervisor marked', recordedWhen: 'By the godown supervisor', connected: true },
-  { key: 'customer_return', label: 'Customer return', recordedWhen: 'At goods return (GR)', connected: true },
+  // Sprint 13: nothing chosen at a goods return → "Damage type not marked".
+  { key: 'unmarked', label: 'Damage type not marked', recordedWhen: 'At goods return (GR), no type chosen', connected: true },
+  // Legacy labels: older damages keep them (new damages always carry machine / butta / mill / not marked).
+  { key: 'godown', label: 'Supervisor marked', recordedWhen: 'By the godown supervisor (older damages)', connected: true },
+  { key: 'customer_return', label: 'Customer return', recordedWhen: 'At goods return (older damages)', connected: true },
 ];
 
 export const DAMAGE_TYPE_LABEL = Object.fromEntries(DAMAGE_TYPE_CONFIG.map((d) => [d.key, d.label])) as Record<DamageType, string>;

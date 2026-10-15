@@ -2,6 +2,17 @@ import { and, eq, inArray, sql, type SQL } from 'drizzle-orm';
 import { z } from 'zod';
 import {
   addInventoryPcs,
+  blouseBucket,
+  isBlouseFilter,
+  matchesBlouse,
+  type BlouseCounts,
+  type BlouseFilter,
+  type BlouseOption,
+  type FreeStockFigures,
+  type FreeStockTaka,
+  type ItemFreeStock,
+  type AssignTargetOrder,
+  canReceiveFreeStock,
   type InventoryPcs,
   compareInventoryItems,
   compareTakaNo,
@@ -32,6 +43,7 @@ import { customers, designVariations, designs, jobsheets, materials, orders, tak
 import { badRequest, notFound } from '../lib/errors';
 import { likePattern, paginationSchema } from '../lib/http';
 import { parseDamagesJson, takaDamagesJson } from './taka-shared';
+import { takaNotFree, takaOrderId } from './free-stock';
 
 /**
  * Inventory (Jemish / Gaurang): design-wise pcs. The rows are loaded with a few aggregate queries (one per table,
@@ -51,9 +63,16 @@ interface OrderPcs {
   customerName: string;
   designId: number | null;
   variationId: number | null;
+  blouseOption: BlouseOption | null;
   key: string;
   pcs: InventoryFigures;
 }
+
+/** `?blouse=` - All, With blouse, Without blouse, Not set (anything else = All). */
+const blouseParam = z
+  .string()
+  .optional()
+  .transform((v): BlouseFilter => (isBlouseFilter(v) ? v : 'all'));
 
 /** Orders the role may see, optionally narrowed to one item (design / variation / without design). */
 function orderScope(role: RoleKey, key?: string): SQL {
@@ -82,6 +101,7 @@ async function loadOrderPcs(role: RoleKey, key?: string): Promise<{ list: OrderP
         quantity: orders.quantity,
         designId: orders.designId,
         variationId: orders.variationId,
+        blouseOption: orders.blouseOption,
         customerName: customers.name,
       })
       .from(orders)
@@ -100,7 +120,8 @@ async function loadOrderPcs(role: RoleKey, key?: string): Promise<{ list: OrderP
       .where(and(scope, eq(orders.unit, 'pcs'), eq(jobsheets.isDeleted, false))),
     db
       .select({
-        orderId: takas.orderId,
+        // Sprint 13: a taka counts for the order it is allocated to (else its own); free stock counts for none.
+        orderId: takaOrderId,
         jobsheetId: takas.jobsheetId,
         stage: takas.stage,
         count: sql<number>`COUNT(*)`,
@@ -111,9 +132,9 @@ async function loadOrderPcs(role: RoleKey, key?: string): Promise<{ list: OrderP
       })
       .from(takas)
       .innerJoin(jobsheets, eq(jobsheets.id, takas.jobsheetId))
-      .innerJoin(orders, eq(orders.id, takas.orderId))
-      .where(and(scope, eq(orders.unit, 'pcs'), eq(takas.isDeleted, false), eq(jobsheets.isDeleted, false)))
-      .groupBy(takas.orderId, takas.jobsheetId, takas.stage),
+      .innerJoin(orders, eq(orders.id, takaOrderId))
+      .where(and(scope, takaNotFree, eq(orders.unit, 'pcs'), eq(takas.isDeleted, false), eq(jobsheets.isDeleted, false)))
+      .groupBy(takaOrderId, takas.jobsheetId, takas.stage),
   ]);
 
   const sheetsByOrder = new Map<number, typeof sheetRows>();
@@ -148,6 +169,7 @@ async function loadOrderPcs(role: RoleKey, key?: string): Promise<{ list: OrderP
       customerName: o.customerName,
       designId: o.designId,
       variationId: o.variationId,
+      blouseOption: o.blouseOption,
       key: inventoryKey(o),
       pcs,
     });
@@ -160,6 +182,106 @@ function groupByItem(list: readonly OrderPcs[]): Map<string, InventoryFigures> {
   const map = new Map<string, InventoryFigures>();
   for (const o of list) map.set(o.key, addInventoryPcs(map.get(o.key) ?? EMPTY_INVENTORY_PCS, o.pcs));
   return map;
+}
+
+/* ------------------------------------------------------------------ */
+/* free stock (Sprint 13)                                               */
+/* ------------------------------------------------------------------ */
+
+interface FreeRow extends FreeStockTaka {
+  key: string;
+}
+
+/**
+ * Every free-stock taka of pcs orders (optionally one item). The item and the blouse option come from the ORIGIN order.
+ * Not narrowed by the role's visible order statuses: Dhruvil (Move to inventory) uses it too.
+ */
+async function loadFreeStock(key?: string): Promise<FreeRow[]> {
+  const conds: SQL[] = [];
+  if (key) {
+    const parts = parseInventoryKey(key);
+    if (!parts) throw badRequest('Invalid inventory item');
+    if (parts.kind === 'variation') conds.push(eq(orders.variationId, parts.id));
+    else if (parts.kind === 'design') conds.push(and(eq(orders.designId, parts.id), sql`${orders.variationId} IS NULL`)!);
+    else conds.push(and(sql`${orders.designId} IS NULL`, sql`${orders.variationId} IS NULL`)!);
+  }
+  const rows = await db
+    .select({
+      id: takas.id,
+      takaNo: takas.takaNo,
+      stage: takas.stage,
+      pcs: sql<number | null>`COALESCE(${takas.actualPcs}, ${takas.pcs})`,
+      meters: takas.meters,
+      fromOrderId: orders.id,
+      fromOrderNo: orders.orderNo,
+      reason: takas.freeStockReason,
+      freeStockAt: takas.freeStockAt,
+      isDamaged: takas.isDamaged,
+      damagedPcs: sql<number | null>`(SELECT COALESCE(SUM(MAX(d.pcs - d.resolved_pcs, 0)), 0) FROM taka_damages d WHERE d.taka_id = "takas"."id" AND d.is_deleted = 0 AND d.status = 'open')`,
+      blouseOption: orders.blouseOption,
+      designId: orders.designId,
+      variationId: orders.variationId,
+    })
+    .from(takas)
+    .innerJoin(jobsheets, eq(jobsheets.id, takas.jobsheetId))
+    .innerJoin(orders, eq(orders.id, takas.orderId))
+    .where(and(eq(takas.isFreeStock, true), eq(takas.isDeleted, false), eq(jobsheets.isDeleted, false), eq(orders.unit, 'pcs'), ...conds))
+    .orderBy(takas.id);
+  return rows.map(({ designId, variationId, damagedPcs, ...r }) => ({
+    ...r,
+    key: inventoryKey({ designId, variationId }),
+    damagedPcs: Number(damagedPcs ?? 0),
+  }));
+}
+
+const EMPTY_FREE: FreeStockFigures = { ready: 0, making: 0, damaged: 0, total: 0 };
+
+/** Free figures of some takas: ready = `final`; making = every other stage; damaged = open damaged pcs on the ready ones. */
+function freeFigures(rows: readonly FreeRow[]): FreeStockFigures {
+  const f = { ...EMPTY_FREE };
+  for (const t of rows) {
+    const pcs = t.pcs ?? 0;
+    if (t.stage === 'final') {
+      f.ready += pcs;
+      f.damaged += t.damagedPcs;
+    } else f.making += pcs;
+  }
+  f.total = f.ready + f.making;
+  return f;
+}
+
+const freeByKey = (rows: readonly FreeRow[]): Map<string, FreeRow[]> => {
+  const map = new Map<string, FreeRow[]>();
+  for (const r of rows) map.set(r.key, [...(map.get(r.key) ?? []), r]);
+  return map;
+};
+
+/** pcs of STOCK per blouse bucket (made or being made + free) — the Add order panel's "With blouse 120 · Without 80" line. */
+function blouseStockOf(list: readonly OrderPcs[], free: readonly FreeRow[]): BlouseCounts {
+  const counts: BlouseCounts = {};
+  for (const o of list) {
+    const b = blouseBucket(o.blouseOption);
+    counts[b] = (counts[b] ?? 0) + o.pcs.inMaking + o.pcs.inGodown + o.pcs.readyDispatch + o.pcs.inRefinish;
+  }
+  for (const t of free) {
+    const b = blouseBucket(t.blouseOption);
+    counts[b] = (counts[b] ?? 0) + (t.pcs ?? 0);
+  }
+  return counts;
+}
+
+/** pcs per blouse bucket: ordered pcs of the orders + free pcs (unfiltered - the toggle's counts). */
+function blouseCountsOf(list: readonly OrderPcs[], free: readonly FreeRow[]): BlouseCounts {
+  const counts: BlouseCounts = {};
+  for (const o of list) {
+    const b = blouseBucket(o.blouseOption);
+    counts[b] = (counts[b] ?? 0) + o.pcs.ordered;
+  }
+  for (const t of free) {
+    const b = blouseBucket(t.blouseOption);
+    counts[b] = (counts[b] ?? 0) + (t.pcs ?? 0);
+  }
+  return counts;
 }
 
 /* ------------------------------------------------------------------ */
@@ -235,13 +357,16 @@ const searchMatches = (h: InventoryItemHeader, term: string) => {
 /* ------------------------------------------------------------------ */
 
 /** GET /inventory/summary */
-export async function getInventorySummary(role: RoleKey): Promise<InventorySummary> {
-  const { list, excluded } = await loadOrderPcs(role);
+export async function getInventorySummary(role: RoleKey, query: unknown = {}): Promise<InventorySummary> {
+  const blouse = blouseParam.parse((query as { blouse?: unknown } | null)?.blouse);
+  const [{ list: all, excluded }, freeAll] = await Promise.all([loadOrderPcs(role), loadFreeStock()]);
+  const list = all.filter((o) => matchesBlouse(blouse, o.blouseOption));
+  const free = freeAll.filter((t) => matchesBlouse(blouse, t.blouseOption));
   const totals = list.reduce((sum, o) => addInventoryPcs(sum, o.pcs), EMPTY_INVENTORY_PCS);
-  return { totals, totalInGodown: totalInGodown(totals), excludedOrders: excluded };
+  return { totals, freePcs: freeFigures(free).total, totalInGodown: totalInGodown(totals), excludedOrders: excluded };
 }
 
-export const INVENTORY_KPI_KEYS = ['godown', 'ready', 'making', 'damaged', 'refinish'] as const;
+export const INVENTORY_KPI_KEYS = ['godown', 'ready', 'making', 'damaged', 'refinish', 'free'] as const;
 
 export const inventoryListQuerySchema = paginationSchema.extend({
   /** Comma-separated KPI filters; an item is kept when it has pcs in ANY of them. */
@@ -249,6 +374,7 @@ export const inventoryListQuerySchema = paginationSchema.extend({
     .string()
     .optional()
     .transform((v) => (v ? v.split(',').filter((k) => (INVENTORY_KPI_KEYS as readonly string[]).includes(k)) : [])),
+  blouse: blouseParam,
 });
 
 function paginate<T>(items: T[], page: number, limit: number): Paginated<T> {
@@ -256,13 +382,25 @@ function paginate<T>(items: T[], page: number, limit: number): Paginated<T> {
   return { items: items.slice(start, start + limit), page, limit, total: items.length, hasMore: start + limit < items.length };
 }
 
-const kpiPcs = (p: InventoryPcs, k: string) =>
-  k === 'godown' ? totalInGodown(p) : k === 'ready' ? p.readyDispatch : k === 'making' ? p.inMaking : k === 'damaged' ? p.damaged : p.inRefinish;
+const kpiPcs = (p: InventoryPcs, k: string, freePcs = 0) =>
+  k === 'godown'
+    ? totalInGodown(p)
+    : k === 'ready'
+      ? p.readyDispatch
+      : k === 'making'
+        ? p.inMaking
+        : k === 'damaged'
+          ? p.damaged
+          : k === 'free'
+            ? freePcs
+            : p.inRefinish;
 
 /** GET /inventory/items?search=&page=&limit= */
 export async function listInventoryItems(role: RoleKey, query: unknown): Promise<Paginated<InventoryItemCard>> {
-  const { page, limit, search, kpi } = inventoryListQuerySchema.parse(query);
-  const { list } = await loadOrderPcs(role);
+  const { page, limit, search, kpi, blouse } = inventoryListQuerySchema.parse(query);
+  const [{ list: all }, freeAll] = await Promise.all([loadOrderPcs(role), loadFreeStock()]);
+  const list = all.filter((o) => matchesBlouse(blouse, o.blouseOption));
+  const freeMap = freeByKey(freeAll.filter((t) => matchesBlouse(blouse, t.blouseOption)));
   const grouped = groupByItem(list);
   const headers = await loadHeaders([...grouped.keys()]);
   const cards: InventoryItemCard[] = [];
@@ -270,8 +408,9 @@ export async function listInventoryItems(role: RoleKey, query: unknown): Promise
     const header = headers.get(key);
     if (!header || pcs.ordered <= 0) continue; // items with nothing ordered are not shown
     if (search && !searchMatches(header, search)) continue;
-    if (kpi.length && !kpi.some((k) => kpiPcs(pcs, k) > 0)) continue;
-    cards.push({ ...header, pcs });
+    const freePcs = freeFigures(freeMap.get(key) ?? []).total;
+    if (kpi.length && !kpi.some((k) => kpiPcs(pcs, k, freePcs) > 0)) continue;
+    cards.push({ ...header, pcs, freePcs });
   }
   cards.sort((a, b) =>
     compareInventoryItems(
@@ -283,15 +422,68 @@ export async function listInventoryItems(role: RoleKey, query: unknown): Promise
 }
 
 /** GET /inventory/items/:key */
-export async function getInventoryItem(role: RoleKey, key: string): Promise<InventoryItemDetail> {
+export async function getInventoryItem(role: RoleKey, key: string, query: unknown = {}): Promise<InventoryItemDetail> {
+  const blouse = blouseParam.parse((query as { blouse?: unknown } | null)?.blouse);
   const header = await loadHeader(key);
+  const [{ list: all }, freeAll] = await Promise.all([loadOrderPcs(role, key), loadFreeStock(key)]);
+  const list = all.filter((o) => matchesBlouse(blouse, o.blouseOption));
+  const free = freeAll.filter((t) => matchesBlouse(blouse, t.blouseOption));
+  return {
+    ...header,
+    pcs: groupByItem(list).get(key) ?? EMPTY_INVENTORY_PCS,
+    free: freeFigures(free),
+    blouseCounts: blouseCountsOf(all, freeAll),
+    blouseStock: blouseStockOf(all, freeAll),
+  };
+}
+
+/** GET /inventory/items/:key/free-stock?blouse= - the free takas of an item (also for Dhruvil: Add from free stock). */
+export async function getItemFreeStock(key: string, query: unknown = {}): Promise<ItemFreeStock> {
+  const blouse = blouseParam.parse((query as { blouse?: unknown } | null)?.blouse);
+  await loadHeader(key);
+  const all = await loadFreeStock(key);
+  const free = all.filter((t) => matchesBlouse(blouse, t.blouseOption));
+  const counts: BlouseCounts = {};
+  for (const t of all) {
+    const b = blouseBucket(t.blouseOption);
+    counts[b] = (counts[b] ?? 0) + (t.pcs ?? 0);
+  }
+  return {
+    figures: freeFigures(free),
+    takas: free.sort((a, b) => compareTakaNo(a.takaNo, b.takaNo)).map(({ key: _k, ...t }) => t),
+    blouseCounts: counts,
+  };
+}
+
+/** GET /inventory/items/:key/assign-targets - orders of the item that can receive free stock (Assign to order). */
+export async function listAssignTargets(role: RoleKey, key: string): Promise<AssignTargetOrder[]> {
+  await loadHeader(key);
   const { list } = await loadOrderPcs(role, key);
-  return { ...header, pcs: groupByItem(list).get(key) ?? EMPTY_INVENTORY_PCS };
+  const rows = list.length
+    ? await db
+        .select({ id: orders.id, orderType: orders.orderType })
+        .from(orders)
+        .where(inArray(orders.id, list.map((o) => o.orderId)))
+    : [];
+  const typeOf = new Map(rows.map((r) => [r.id, r.orderType]));
+  return list
+    .filter((o) => canReceiveFreeStock(o.status))
+    .sort((a, b) => b.orderNo - a.orderNo)
+    .map((o) => ({
+      orderId: o.orderId,
+      orderNo: o.orderNo,
+      customerName: o.customerName,
+      orderType: typeOf.get(o.orderId) ?? 'pcs_to_pcs',
+      status: o.status,
+      orderedPcs: o.pcs.ordered,
+      blouseOption: o.blouseOption,
+    }));
 }
 
 export const itemOrdersQuerySchema = z.object({
   /** Only orders that have ready-for-dispatch / in-making pcs of this item. */
   filter: z.enum(['ready', 'making']).optional().catch(undefined),
+  blouse: blouseParam,
   search: z
     .string()
     .trim()
@@ -302,18 +494,19 @@ export const itemOrdersQuerySchema = z.object({
 
 /** GET /inventory/items/:key/orders?search= — newest first; search = order number or taka number. */
 export async function listInventoryItemOrders(role: RoleKey, key: string, query: unknown): Promise<InventoryOrderRow[]> {
-  const { search, filter } = itemOrdersQuerySchema.parse(query);
+  const { search, filter, blouse } = itemOrdersQuerySchema.parse(query);
   await loadHeader(key);
-  const { list } = await loadOrderPcs(role, key);
+  const { list: all } = await loadOrderPcs(role, key);
+  const list = all.filter((o) => matchesBlouse(blouse, o.blouseOption));
   let matching: Set<number> | null = null;
   if (search) {
     const term = search.replace(/^#/, '');
     const ids = list.map((o) => o.orderId);
     const byTaka = ids.length
       ? await db
-          .selectDistinct({ orderId: takas.orderId })
+          .selectDistinct({ orderId: takaOrderId })
           .from(takas)
-          .where(and(inArray(takas.orderId, ids), eq(takas.isDeleted, false), sql`${takas.takaNo} LIKE ${likePattern(term)} ESCAPE '\\'`))
+          .where(and(inArray(takaOrderId, ids), takaNotFree, eq(takas.isDeleted, false), sql`${takas.takaNo} LIKE ${likePattern(term)} ESCAPE '\\'`))
       : [];
     const asNo = /^\d+$/.test(term) ? Number(term) : -1;
     matching = new Set([...byTaka.map((r) => r.orderId), ...list.filter((o) => o.orderNo === asNo).map((o) => o.orderId)]);
@@ -330,6 +523,7 @@ export async function listInventoryItemOrders(role: RoleKey, key: string, query:
       orderedPcs: o.pcs.ordered,
       readyPcs: o.pcs.readyDispatch,
       orderDate: o.orderDate,
+      blouseOption: o.blouseOption,
     }));
 }
 
@@ -340,15 +534,21 @@ export async function listInventoryItemOrders(role: RoleKey, key: string, query:
 /** GET /inventory/damaged?search=&page=&limit= — items with open damaged pcs in the godown or pcs in refinish. */
 export async function listDamagedItems(role: RoleKey, query: unknown): Promise<Paginated<DamagedItemCard>> {
   const { page, limit, search } = inventoryListQuerySchema.parse(query);
-  const { list } = await loadOrderPcs(role);
+  const [{ list }, freeAll] = await Promise.all([loadOrderPcs(role), loadFreeStock()]);
   const grouped = groupByItem(list);
+  // Free stock keeps its damage and refinish pcs: they show here too (an item may have only free damaged pcs).
+  const freeMap = freeByKey(freeAll);
+  for (const key of freeMap.keys()) if (!grouped.has(key)) grouped.set(key, EMPTY_INVENTORY_PCS);
   const headers = await loadHeaders([...grouped.keys()]);
   const cards: DamagedItemCard[] = [];
   for (const [key, pcs] of grouped) {
     const header = headers.get(key);
-    if (!header || (pcs.damaged <= 0 && pcs.inRefinish <= 0)) continue;
+    const free = freeMap.get(key) ?? [];
+    const damaged = pcs.damaged + freeFigures(free).damaged;
+    const inRefinish = pcs.inRefinish + free.filter((t) => t.stage === 'refinish').reduce((n, t) => n + (t.pcs ?? 0), 0);
+    if (!header || (damaged <= 0 && inRefinish <= 0)) continue;
     if (search && !searchMatches(header, search)) continue;
-    cards.push({ ...header, damaged: pcs.damaged, inRefinish: pcs.inRefinish, lastClearedAt: null });
+    cards.push({ ...header, damaged, inRefinish, lastClearedAt: null });
   }
   cards.sort((a, b) => b.damaged - a.damaged || b.inRefinish - a.inRefinish || (a.code ?? '').localeCompare(b.code ?? '', undefined, { numeric: true }));
   return paginate(cards, page, limit);
@@ -368,6 +568,7 @@ async function loadDamagedTakas(role: RoleKey, key: string): Promise<DamagedTaka
       takaNo: takas.takaNo,
       stage: takas.stage,
       createdAt: takas.createdAt,
+      isFreeStock: takas.isFreeStock,
       orderId: orders.id,
       orderNo: orders.orderNo,
       damagesJson: takaDamagesJson,
@@ -398,6 +599,7 @@ async function loadDamagedTakas(role: RoleKey, key: string): Promise<DamagedTaka
       types,
       names: [...new Set(open.map((d) => d.damageName).filter((n): n is string => !!n))],
       isRefinish: r.stage === 'refinish',
+      isFreeStock: r.isFreeStock,
       open: open.length,
     });
   }
@@ -407,12 +609,12 @@ async function loadDamagedTakas(role: RoleKey, key: string): Promise<DamagedTaka
 /** GET /inventory/damaged/:key */
 export async function getDamagedItem(role: RoleKey, key: string): Promise<DamagedItemDetail> {
   const header = await loadHeader(key);
-  const [{ list }, rows] = await Promise.all([loadOrderPcs(role, key), loadDamagedTakas(role, key)]);
+  const [{ list }, rows, freeRows] = await Promise.all([loadOrderPcs(role, key), loadDamagedTakas(role, key), loadFreeStock(key)]);
   const pcs = groupByItem(list).get(key) ?? EMPTY_INVENTORY_PCS;
   return {
     ...header,
-    damaged: pcs.damaged,
-    inRefinish: pcs.inRefinish,
+    damaged: pcs.damaged + freeFigures(freeRows).damaged,
+    inRefinish: pcs.inRefinish + freeRows.filter((t) => t.stage === 'refinish').reduce((n, t) => n + (t.pcs ?? 0), 0),
     lastClearedAt: null,
     typeCounts: DAMAGE_TYPES.map((type) => ({ type, count: rows.filter((r) => r.types.includes(type)).length })),
     totalTakas: rows.length,

@@ -13,6 +13,7 @@ import {
 } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { OrderTypeTag } from "../order-type-tag";
+import { BlouseTag } from '../../free-stock/blouse';
 
 function HeaderItem({
   label,
@@ -215,6 +216,7 @@ export function OrderHeader({
             Order {formatOrderNo(order.orderNo)}
           </h2>
           <OrderTypeTag type={order.orderType} className="text-xs" />
+          <BlouseTag option={order.blouseOption} />
           <StatusBadge status={order.status} />
           {(onUndo || onEdit) && (
             <div className="flex items-center gap-2 md:ml-auto">

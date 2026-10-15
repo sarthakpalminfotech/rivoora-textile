@@ -3,6 +3,7 @@ import { MAX_PASSWORD_LENGTH, MIN_PASSWORD_LENGTH } from './auth';
 import { ROLE_KEYS } from './roles';
 import { normalizeCode } from './codes';
 import { ORDER_TYPES } from './orderTypes';
+import { BLOUSE_FILTERS, BLOUSE_OPTIONS, CHOOSABLE_DAMAGE_TYPES } from './freeStock';
 import { UNITS } from './units';
 import {
   DAMAGE_NAME_MAX_LENGTH,
@@ -148,6 +149,8 @@ export const orderCreateSchema = z
       required_error: 'Pick the order type',
       invalid_type_error: 'Pick the order type',
     }),
+    /** Sprint 13: optional blouse option; null = not set. */
+    blouseOption: z.enum(BLOUSE_OPTIONS).nullish().transform((v) => v ?? null),
     materialId: z.number().int().positive('Select a material'),
     designId: z.number().int().positive().nullish().transform((v) => v ?? null),
     variationId: z.number().int().positive().nullish().transform((v) => v ?? null),
@@ -330,13 +333,21 @@ const damagePcs = z
   .min(1, 'Pcs must be at least 1')
   .max(TAKA_PCS_MAX, `At most ${TAKA_PCS_MAX} pcs`);
 
+/** The damage TYPE chosen with the radio (Machine / Butta cutting / Mill). Required wherever damage is marked. */
+const damageTypeRequired = z.enum(CHOOSABLE_DAMAGE_TYPES, {
+  required_error: 'Choose the damage type',
+  invalid_type_error: 'Choose the damage type',
+});
+/** Goods return: the type is optional — nothing chosen is saved as "Damage type not marked". */
+const damageTypeOptional = z.enum(CHOOSABLE_DAMAGE_TYPES).nullish().transform((v) => v ?? null);
+
 /**
  * One damage of a taka: a Damage master entry or a typed "Other" name (the server finds it case-insensitively or
  * adds it to the master in the same transaction) + the damaged pcs.
  */
 export const takaDamageSchema = z.union([
-  z.object({ damageId: z.number().int().positive(), pcs: damagePcs }).strict(),
-  z.object({ otherName: otherDamageName, pcs: damagePcs }).strict(),
+  z.object({ type: damageTypeRequired, damageId: z.number().int().positive(), pcs: damagePcs }).strict(),
+  z.object({ type: damageTypeRequired, otherName: otherDamageName, pcs: damagePcs }).strict(),
 ]);
 export type TakaDamageInput = z.input<typeof takaDamageSchema>;
 
@@ -350,8 +361,9 @@ const takaDamages = z.array(takaDamageSchema).max(MAX_DAMAGES_PER_TAKA, `At most
  * unchanged). Resolved damages are never sent — they are read-only.
  */
 const takaEditDamage = z.union([
-  z.object({ id: z.number().int().positive().optional(), damageId: z.number().int().positive().nullable(), pcs: damagePcs.nullable() }).strict(),
-  z.object({ id: z.number().int().positive().optional(), otherName: otherDamageName, pcs: damagePcs }).strict(),
+  // `type` is required on NEW rows (no `id`) — the server checks that; an existing damage keeps its type.
+  z.object({ id: z.number().int().positive().optional(), type: damageTypeRequired.optional(), damageId: z.number().int().positive().nullable(), pcs: damagePcs.nullable() }).strict(),
+  z.object({ id: z.number().int().positive().optional(), type: damageTypeRequired.optional(), otherName: otherDamageName, pcs: damagePcs }).strict(),
 ]);
 export type TakaEditDamageInput = z.input<typeof takaEditDamage>;
 
@@ -500,10 +512,17 @@ const damageImages = z.array(damageImageSchema).max(MAX_DAMAGE_IMAGES, `At most 
 
 /** A NEW damage found at the Butta QC: like a taka damage + optional images. */
 export const qcNewDamageSchema = z.union([
-  z.object({ damageId: z.number().int().positive(), pcs: damagePcs, images: damageImages }).strict(),
-  z.object({ otherName: otherDamageName, pcs: damagePcs, images: damageImages }).strict(),
+  z.object({ type: damageTypeRequired, damageId: z.number().int().positive(), pcs: damagePcs, images: damageImages }).strict(),
+  z.object({ type: damageTypeRequired, otherName: otherDamageName, pcs: damagePcs, images: damageImages }).strict(),
 ]);
 export type QcNewDamageInput = z.input<typeof qcNewDamageSchema>;
+
+/** Goods return: the same, but the damage type is optional (saved as "Damage type not marked" when empty). */
+export const grDamageSchema = z.union([
+  z.object({ type: damageTypeOptional, damageId: z.number().int().positive(), pcs: damagePcs, images: damageImages }).strict(),
+  z.object({ type: damageTypeOptional, otherName: otherDamageName, pcs: damagePcs, images: damageImages }).strict(),
+]);
+export type GrDamageInput = z.input<typeof grDamageSchema>;
 
 /** POST /butta-qc/:takaId */
 export const qcSubmitSchema = z.object({
@@ -652,7 +671,7 @@ export const dispatchSchema = z.object({
 export type DispatchInput = z.input<typeof dispatchSchema>;
 
 /** A damage on a returned item: master name or Other, damaged pcs, optional photos (like the QC damages). */
-const grDamage = qcNewDamageSchema;
+const grDamage = grDamageSchema;
 
 /**
  * POST /dispatch/challans/:id/goods-return — lump: the returned takas (each with optional damages);
@@ -677,17 +696,36 @@ export const goodsReturnSchema = z.union([
 ]);
 export type GoodsReturnInput = z.input<typeof goodsReturnSchema>;
 
-/** POST /godown/takas/move */
-export const moveTakasSchema = z.object({
-  takaIds: takaIdList('taka'),
-  targetOrderId: z.number().int().positive('Pick the order'),
-});
-export type MoveTakasInput = z.input<typeof moveTakasSchema>;
+/**
+ * POST /orders/:id/takas/move-to-inventory — lump: the takas that leave the order; pcs to pcs: how many pcs
+ * (the server picks the takas and splits one when needed). Optional note.
+ */
+export const moveToInventorySchema = z.union([
+  z.object({ takaIds: takaIdList('taka'), note: optText(300) }).strict(),
+  z.object({ pcs: z.number({ required_error: 'Enter the pcs', invalid_type_error: 'Enter the pcs' }).int('Use a whole number').min(1, 'At least 1 pcs').max(1_000_000), note: optText(300) }).strict(),
+]);
+export type MoveToInventoryInput = z.input<typeof moveToInventorySchema>;
+
+/** POST /orders/:id/takas/add-from-free-stock — lump: the free takas; pcs to pcs: how many pcs. */
+export const addFromFreeStockSchema = z.union([
+  z.object({ takaIds: takaIdList('taka') }).strict(),
+  z
+    .object({
+      pcs: z.number({ required_error: 'Enter the pcs', invalid_type_error: 'Enter the pcs' }).int('Use a whole number').min(1, 'At least 1 pcs').max(1_000_000),
+      /** Only take free stock with this blouse option (default: any). */
+      blouse: z.enum(BLOUSE_FILTERS).optional(),
+    })
+    .strict(),
+]);
+export type AddFromFreeStockInput = z.input<typeof addFromFreeStockSchema>;
 
 /** GET /dispatched */
+export const DISPATCHED_STATUS_FILTERS = ['partly_dispatched', 'dispatched', 'returned'] as const;
 export const dispatchedListQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(100).default(20),
   search: listSearch,
+  /** Sprint 13: only orders in this status (Partly dispatched / Dispatched / Returned). */
+  status: z.enum(DISPATCHED_STATUS_FILTERS).optional().catch(undefined),
 });
 export type DispatchedListQuery = z.infer<typeof dispatchedListQuerySchema>;

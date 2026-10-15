@@ -1,8 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { defaultPassword, DEFAULT_USERS, resolveActingRole, switchableRoles } from './auth';
 import {
-  canMoveTaka,
-  canReceiveMovedTakas,
   dispatchChallanLabel,
   dispatchLines,
   dispatchTotals,
@@ -147,18 +145,7 @@ describe('goods return maths', () => {
   });
 });
 
-describe('move to order', () => {
-  it('only fresh final takas that are not checked can move', () => {
-    expect(canMoveTaka({ stage: 'final', isDamaged: false, checked: false })).toBe(true);
-    expect(canMoveTaka({ stage: 'final', isDamaged: true, checked: false })).toBe(false);
-    expect(canMoveTaka({ stage: 'final', isDamaged: false, checked: true })).toBe(false);
-    expect(canMoveTaka({ stage: 'ready_dispatch', isDamaged: false, checked: false })).toBe(false);
-  });
-  it('a fully dispatched order can not receive takas', () => {
-    expect(canReceiveMovedTakas('in_mill')).toBe(true);
-    expect(canReceiveMovedTakas('partly_dispatched')).toBe(true);
-    expect(canReceiveMovedTakas('dispatched')).toBe(false);
-  });
+describe('moving stock between orders (totals)', () => {
   it('totals move correctly between two orders', () => {
     const order = { unit: 'pcs', quantity: 100 };
     const takasA = [
@@ -229,7 +216,7 @@ describe('sprint 12 roles', () => {
   it('Dhruvil: the godown Orders module, dispatch, GR, move; sees client and rate', () => {
     expect(ROLES.dhruvil.landing).toBe('/godown/orders');
     expect(ROLES.dhruvil.title).toBe('Dispatch');
-    for (const p of ['canUseGodownOrders', 'canDispatch', 'canGoodsReturn', 'canMoveTakas', 'canSeeClient', 'canSeeRate'] as const) expect(can('dhruvil', p), p).toBe(true);
+    for (const p of ['canUseGodownOrders', 'canDispatch', 'canGoodsReturn', 'canMoveToInventory', 'canSeeClient', 'canSeeRate'] as const) expect(can('dhruvil', p), p).toBe(true);
     for (const p of ['canViewOrders', 'canViewMasters', 'canMarkFresh', 'canReworkTakas', 'canManageUsers', 'canSwitchRoles'] as const) expect(can('dhruvil', p), p).toBe(false);
   });
   it('the godown supervisor lost Orders but keeps butta cutting and mill', () => {
@@ -240,7 +227,7 @@ describe('sprint 12 roles', () => {
   });
   it('Jemish and Gaurang get the owner permissions', () => {
     for (const r of ['jemish', 'gaurang'] as const) {
-      for (const p of ['canReworkTakas', 'canDispatch', 'canGoodsReturn', 'canMoveTakas', 'canMarkFresh', 'canSwitchRoles', 'canManageUsers'] as const) expect(can(r, p), `${r} ${p}`).toBe(true);
+      for (const p of ['canReworkTakas', 'canDispatch', 'canGoodsReturn', 'canMoveToInventory', 'canMarkFresh', 'canSwitchRoles', 'canManageUsers'] as const) expect(can(r, p), `${r} ${p}`).toBe(true);
     }
     for (const r of ['supervisor', 'taka_entry', 'qc', 'godown_supervisor'] as const) {
       for (const p of ['canReworkTakas', 'canDispatch', 'canSwitchRoles', 'canManageUsers'] as const) expect(can(r, p), `${r} ${p}`).toBe(false);

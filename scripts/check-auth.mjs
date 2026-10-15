@@ -22,7 +22,7 @@ for (const p of prefixes) {
   const res = await fetch(`${base}/api/${p}`, { headers: { 'X-Role': 'jemish' } });
   check(res.status === 401, `GET /api/${p} without a session → ${res.status}`);
 }
-for (const [method, p] of [['POST', 'orders'], ['PUT', 'orders/1'], ['POST', 'uploads'], ['POST', 'godown/takas/move'], ['POST', 'users']]) {
+for (const [method, p] of [['POST', 'orders'], ['PUT', 'orders/1'], ['POST', 'uploads'], ['POST', 'orders/1/takas/move-to-inventory'], ['POST', 'users']]) {
   const res = await fetch(`${base}/api/${p}`, { method, headers: { 'Content-Type': 'application/json' }, body: '{}' });
   check(res.status === 401, `${method} /api/${p} without a session → ${res.status}`);
 }

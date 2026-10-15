@@ -204,6 +204,7 @@ describe('buildOrderDashboard — damages (open damages by where they were found
       { type: 'machine', count: 3, pcs: 5, connected: true },
       { type: 'butta', count: 2, pcs: 3, connected: true },
       { type: 'mill', count: 0, pcs: null, connected: true },
+      { type: 'unmarked', count: 0, pcs: null, connected: true },
       { type: 'godown', count: 0, pcs: null, connected: true },
       { type: 'customer_return', count: 0, pcs: null, connected: true },
     ]);

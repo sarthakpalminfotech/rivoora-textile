@@ -1,6 +1,6 @@
 import { SearchX, Truck } from 'lucide-react';
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import type { DispatchedOrderCard } from '@rivoora/shared';
 import { usePageTitle } from '@/components/layout/page-title';
 import { ErrorState, LoadMore, SearchBar } from '@/components/list-parts';
@@ -12,6 +12,15 @@ import { useDebounce } from '@/hooks/useDebounce';
 import { formatDate, formatOrderNo } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { useDispatchedOrders } from './api';
+import { BlouseTag } from '../free-stock/blouse';
+
+/** Status filter of the Dispatched list (Returned = dispatched, then goods came back to stock). */
+const DISPATCHED_FILTERS = [
+  { key: '', label: 'All' },
+  { key: 'partly_dispatched', label: 'Partly dispatched' },
+  { key: 'dispatched', label: 'Dispatched' },
+  { key: 'returned', label: 'Returned' },
+] as const;
 
 function OrderCard({ order }: { order: DispatchedOrderCard }) {
   const navigate = useNavigate();
@@ -49,6 +58,7 @@ function OrderCard({ order }: { order: DispatchedOrderCard }) {
             {order.designCode ? `Design ${order.designCode}` : 'No design'}
             {order.quality && ` · ${order.quality}`}
           </p>
+          {order.blouseOption && <BlouseTag option={order.blouseOption} className="mt-1" />}
           <div className="mt-2.5">
             <p className="text-sm font-semibold tabular-nums text-slate-800">
               {order.dispatchedPcs.toLocaleString('en-IN')} <span className="font-medium text-slate-500">/ {order.orderedPcs.toLocaleString('en-IN')} pcs dispatched</span>
@@ -71,11 +81,40 @@ export default function DispatchedPage() {
   usePageTitle('Dispatched');
   const [search, setSearch] = useState('');
   const debounced = useDebounce(search, 300).trim();
-  const query = useDispatchedOrders(debounced);
+  const [params, setParams] = useSearchParams();
+  const raw = params.get('status');
+  const status = (DISPATCHED_FILTERS.some((f) => f.key === raw) ? raw : '') as string;
+  const query = useDispatchedOrders(debounced, status);
+  const setStatus = (key: string) =>
+    setParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        if (key) next.set('status', key);
+        else next.delete('status');
+        return next;
+      },
+      { replace: true },
+    );
 
   return (
     <div className="page-container space-y-4 pb-28 pt-4 md:py-5">
       <SearchBar value={search} onChange={setSearch} placeholder="Search order no, client, broker, challan (DC-12), taka no, design, quality…" />
+      <div className="flex flex-wrap gap-2" role="group" aria-label="Filter by status">
+        {DISPATCHED_FILTERS.map((f) => (
+          <button
+            key={f.key}
+            type="button"
+            onClick={() => setStatus(f.key)}
+            aria-pressed={status === f.key}
+            className={cn(
+              'min-h-9 rounded-full border px-3.5 text-[13px] font-semibold outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary/40',
+              status === f.key ? 'border-primary bg-primary text-primary-foreground' : 'border-border bg-white text-slate-600 hover:bg-muted',
+            )}
+          >
+            {f.label}
+          </button>
+        ))}
+      </div>
       {query.isPending ? (
         <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(22rem,1fr))]">
           {Array.from({ length: 6 }, (_, i) => (

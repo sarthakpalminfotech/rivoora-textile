@@ -196,17 +196,17 @@ describe('QC decision validation (resolved pcs)', () => {
       meters: 60.5,
       pcs: 12,
       damageDecisions: [{ takaDamageId: 1, resolvedPcs: 2 }],
-      newDamages: [{ otherName: 'Cut', pcs: 1, images: [{ url: '/u/a.webp', thumbUrl: '/u/a-t.webp' }] }],
+      newDamages: [{ type: 'butta', otherName: 'Cut', pcs: 1, images: [{ url: '/u/a.webp', thumbUrl: '/u/a-t.webp' }] }],
     });
     expect(ok.damageDecisions[0].pcs).toBeNull();
     expect(ok.newDamages[0].images).toHaveLength(1);
-    expect(qcSubmitSchema.parse({ pcs: 3, newDamages: [{ damageId: 2, pcs: 1 }] }).newDamages[0].images).toEqual([]);
+    expect(qcSubmitSchema.parse({ pcs: 3, newDamages: [{ type: 'butta', damageId: 2, pcs: 1 }] }).newDamages[0].images).toEqual([]);
     expect(qcSubmitSchema.safeParse({ pcs: 3, damageDecisions: [{ takaDamageId: 1, resolvedPcs: -1 }] }).success).toBe(false);
     expect(qcSubmitSchema.safeParse({ pcs: 3, damageDecisions: [{ takaDamageId: 1, resolved: true }] }).success).toBe(false);
     expect(
       qcSubmitSchema.safeParse({
         pcs: 3,
-        newDamages: [{ damageId: 2, pcs: 1, images: Array.from({ length: 11 }, (_, i) => ({ url: 'u' + i, thumbUrl: 't' + i })) }],
+        newDamages: [{ type: 'butta', damageId: 2, pcs: 1, images: Array.from({ length: 11 }, (_, i) => ({ url: 'u' + i, thumbUrl: 't' + i })) }],
       }).success,
     ).toBe(false);
     expect(qcSubmitSchema.safeParse({ meters: 60, damageDecisions: [], newDamages: [] }).success).toBe(false);

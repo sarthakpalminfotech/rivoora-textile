@@ -34,6 +34,7 @@ import { badRequest, conflict, notFound } from '../lib/errors';
 import { csv, likePattern, paginationSchema } from '../lib/http';
 import { insertDesign } from './designs';
 import { countActiveJobsheets } from './jobsheets';
+import { getOrderReturnSummary } from './dispatch';
 
 const dateString = z
   .string()
@@ -100,6 +101,7 @@ export async function listOrders(role: RoleKey, q: OrderListQuery): Promise<Pagi
         quantity: orders.quantity,
         unit: orders.unit,
         orderType: orders.orderType,
+        blouseOption: orders.blouseOption,
         brokerName: customerBrokers.name,
         status: orders.status,
         orderDate: orders.orderDate,
@@ -140,6 +142,7 @@ export async function getOrder(role: RoleKey, id: number): Promise<OrderDetail> 
         orderNo: orders.orderNo,
         status: orders.status,
         orderType: orders.orderType,
+        blouseOption: orders.blouseOption,
         quantity: orders.quantity,
         unit: orders.unit,
         rate: orders.rate,
@@ -199,6 +202,7 @@ export async function getOrder(role: RoleKey, id: number): Promise<OrderDetail> 
     orderNo: r.orderNo,
     status: r.status,
     orderType: r.orderType,
+    blouseOption: r.blouseOption,
     quantity: r.quantity,
     unit: r.unit,
     orderDate: r.orderDate,
@@ -221,6 +225,8 @@ export async function getOrder(role: RoleKey, id: number): Promise<OrderDetail> 
         : null,
     noteImages,
     history,
+    // Sprint 13: what came back from the customer (only orders that ended up Returned need it).
+    returned: r.status === 'returned' ? await getOrderReturnSummary(r.id) : null,
   };
   if (can(role, 'canSeeRate')) detail.rate = r.rate;
   return detail;
@@ -306,6 +312,7 @@ export async function createOrder(role: RoleKey, input: unknown): Promise<{ id: 
         customerId: data.customerId,
         brokerId: data.brokerId,
         orderType: data.orderType,
+        blouseOption: data.blouseOption,
         materialId: data.materialId,
         designId,
         variationId,
@@ -354,6 +361,7 @@ export async function updateOrder(role: RoleKey, id: number, input: unknown): Pr
         customerId: data.customerId,
         brokerId: data.brokerId,
         orderType: data.orderType,
+        blouseOption: data.blouseOption,
         materialId: data.materialId,
         designId,
         variationId,

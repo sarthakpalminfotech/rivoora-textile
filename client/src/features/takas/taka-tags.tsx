@@ -38,3 +38,13 @@ export function ReturnedTag({ className }: { className?: string }) {
 export function FromOrderTag({ orderNo, className }: { orderNo: number; className?: string }) {
   return <Tag className={cn('bg-slate-100 text-slate-600', className)}>from Order #{orderNo}</Tag>;
 }
+
+/** "Free stock": the taka belongs to no order (Sprint 13). */
+export function FreeStockTag({ className }: { className?: string }) {
+  return <Tag className={cn('bg-indigo-50 text-indigo-700', className)}>Free stock</Tag>;
+}
+
+/** "In Order #31": the taka was assigned from this order's jobsheet to another order (Sprint 13). */
+export function InOrderTag({ orderNo, className }: { orderNo: number; className?: string }) {
+  return <Tag className={cn('bg-indigo-50 text-indigo-700', className)}>In Order #{orderNo}</Tag>;
+}

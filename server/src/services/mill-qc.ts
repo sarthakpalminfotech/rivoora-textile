@@ -17,6 +17,7 @@ import { likePattern } from '../lib/http';
 import { applyQcChanges } from './qc-shared';
 import { takaByNo } from './takas';
 import { recomputeOrdersStatus, refreshIsDamaged, writeTakaEvents, type TakaEventInput } from './taka-ops';
+import { takaOrderId } from './free-stock';
 
 /**
  * Mill QC (bilingual role): the last check of the takas that came back from the mill. A taka is Fresh or has damage;
@@ -54,7 +55,7 @@ export async function listMillQcPending(q: ButtaListQuery): Promise<QcPendingPag
         receivedAt: challanTakas.receivedAt,
       })
       .from(takas)
-      .innerJoin(orders, eq(orders.id, takas.orderId))
+      .innerJoin(orders, eq(orders.id, takaOrderId))
       .leftJoin(challanTakas, and(eq(challanTakas.takaId, takas.id), eq(challanTakas.kind, 'mill'), eq(challanTakas.isActive, true)))
       .leftJoin(challans, eq(challans.id, challanTakas.challanId))
       .where(where)
@@ -64,7 +65,7 @@ export async function listMillQcPending(q: ButtaListQuery): Promise<QcPendingPag
     db
       .select({ total: sql<number>`COUNT(*)` })
       .from(takas)
-      .innerJoin(orders, eq(orders.id, takas.orderId))
+      .innerJoin(orders, eq(orders.id, takaOrderId))
       .leftJoin(challanTakas, and(eq(challanTakas.takaId, takas.id), eq(challanTakas.kind, 'mill'), eq(challanTakas.isActive, true)))
       .leftJoin(challans, eq(challans.id, challanTakas.challanId))
       .where(where),
@@ -124,7 +125,7 @@ export async function submitMillQc(role: RoleKey, takaId: number, input: unknown
       if (!row) throw conflict(`Taka ${taka.takaNo} is not on a mill challan.`);
       const moved = await tx
         .update(takas)
-        .set({ stage: 'mill_qc' })
+        .set({ stage: 'mill_qc', hasBeenToMill: true })
         .where(and(eq(takas.id, takaId), eq(takas.stage, 'at_mill')))
         .returning({ id: takas.id });
       const marked = moved.length
@@ -145,7 +146,7 @@ export async function submitMillQc(role: RoleKey, takaId: number, input: unknown
       role,
       taka,
       data,
-      { foundAt: 'mill', resolvedStage: 'mill_qc', label: 'Mill QC', requireAnswers: !refinish },
+      { recordedAt: 'mill_qc', resolvedStage: 'mill_qc', label: 'Mill QC', requireAnswers: !refinish },
       at,
     );
     events.push(...changes.events);
@@ -154,7 +155,7 @@ export async function submitMillQc(role: RoleKey, takaId: number, input: unknown
     // 3 — the stage.
     const moved = await tx
       .update(takas)
-      .set(refinish ? { stage: 'refinish', refinishCount: sql`${takas.refinishCount} + 1` } : { stage: 'final' })
+      .set(refinish ? { stage: 'refinish', refinishCount: sql`${takas.refinishCount} + 1`, hasBeenToMill: true } : { stage: 'final', hasBeenToMill: true })
       .where(and(eq(takas.id, takaId), eq(takas.stage, 'mill_qc')))
       .returning({ isDamaged: takas.isDamaged, refinishCount: takas.refinishCount });
     if (!moved.length) throw conflict(`Taka ${taka.takaNo} was just changed. Go back and open it again.`);

@@ -1,12 +1,12 @@
 import { sql } from 'drizzle-orm';
-import { compareTakaNo, isDamageType, type ChallanKind, type JobsheetEventKind, type Taka, type TakaDamage } from '@rivoora/shared';
+import { compareTakaNo, isDamageRecordedAt, isDamageType, type ChallanKind, type JobsheetEventKind, type Taka, type TakaDamage } from '@rivoora/shared';
 import { takas } from '../db/schema';
 
 /**
  * The taka's damages as a JSON array (all of them: open and resolved) — one query for a whole list, like
  * `machinesJson`. Outer column written explicitly — see the Drizzle gotcha.
  */
-export const takaDamagesJson = sql<string | null>`(SELECT json_group_array(json_object('id', d.id, 'damageId', d.damage_id, 'damageName', n.name, 'foundAt', d.found_at, 'pcs', d.pcs, 'resolvedPcs', d.resolved_pcs, 'status', d.status, 'resolvedAt', d.resolved_at, 'resolvedBy', d.resolved_by, 'resolvedStage', d.resolved_stage, 'createdAt', d.created_at)) FROM taka_damages d LEFT JOIN damages n ON n.id = d.damage_id WHERE d.taka_id = "takas"."id" AND d.is_deleted = 0)`;
+export const takaDamagesJson = sql<string | null>`(SELECT json_group_array(json_object('id', d.id, 'damageId', d.damage_id, 'damageName', n.name, 'foundAt', d.found_at, 'recordedAt', d.recorded_at, 'pcs', d.pcs, 'resolvedPcs', d.resolved_pcs, 'status', d.status, 'resolvedAt', d.resolved_at, 'resolvedBy', d.resolved_by, 'resolvedStage', d.resolved_stage, 'createdAt', d.created_at)) FROM taka_damages d LEFT JOIN damages n ON n.id = d.damage_id WHERE d.taka_id = "takas"."id" AND d.is_deleted = 0)`;
 
 /** The latest challan the taka is on (the newest active challan row: butta cutting, later the mill), if any. */
 export const takaChallanId = sql<number | null>`(SELECT ct.challan_id FROM challan_takas ct WHERE ct.taka_id = "takas"."id" AND ct.is_active = 1 ORDER BY ct.id DESC LIMIT 1)`;
@@ -16,8 +16,15 @@ export const takaChallanKind = sql<ChallanKind | null>`(SELECT ct.kind FROM chal
 /** The number of the taka this one was split from (outer column written explicitly — see the Drizzle gotcha). */
 export const takaParentNo = sql<string | null>`(SELECT p.taka_no FROM takas p WHERE p.id = "takas"."parent_taka_id")`;
 
-/** The number of the order a moved taka came from (outer column written explicitly — see the Drizzle gotcha). */
-export const takaOriginOrderNo = sql<number | null>`(SELECT oo.order_no FROM orders oo WHERE oo.id = "takas"."origin_order_id")`;
+/**
+ * The number of the order a taka came from ("from Order #A"): the order it was moved from (Sprint 12), or — when it was
+ * allocated from free stock to another order (Sprint 13) — the order it was made for. Outer column written explicitly.
+ */
+export const takaOriginOrderId = sql<number | null>`COALESCE("takas"."origin_order_id", CASE WHEN "takas"."allocated_order_id" IS NOT NULL THEN "takas"."order_id" END)`;
+export const takaOriginOrderNo = sql<number | null>`(SELECT oo.order_no FROM orders oo WHERE oo.id = COALESCE("takas"."origin_order_id", CASE WHEN "takas"."allocated_order_id" IS NOT NULL THEN "takas"."order_id" END))`;
+
+/** Order number a taka was allocated to when that is a DIFFERENT order than the one it was made for (else null). */
+export const takaAllocatedOrderNo = sql<number | null>`(SELECT ao.order_no FROM orders ao WHERE ao.id = "takas"."allocated_order_id" AND "takas"."allocated_order_id" <> "takas"."order_id")`;
 
 /** Columns of a `Taka` DTO (select from `takas`; run the rows through `mapTaka`). */
 export const takaColumns = {
@@ -40,8 +47,11 @@ export const takaColumns = {
   reworkCount: takas.reworkCount,
   isReturnLot: takas.isReturnLot,
   returnedAt: takas.returnedAt,
-  originOrderId: takas.originOrderId,
+  originOrderId: takaOriginOrderId,
   originOrderNo: takaOriginOrderNo,
+  isFreeStock: takas.isFreeStock,
+  freeStockReason: takas.freeStockReason,
+  allocatedOrderNo: takaAllocatedOrderNo,
   enteredBy: takas.enteredBy,
   createdAt: takas.createdAt,
 };
@@ -53,6 +63,7 @@ export function parseDamagesJson(raw: string | null): TakaDamage[] {
     damageId: number | null;
     damageName: string | null;
     foundAt: string | null;
+    recordedAt: string | null;
     pcs: number | null;
     resolvedPcs: number | null;
     status: string;
@@ -69,6 +80,7 @@ export function parseDamagesJson(raw: string | null): TakaDamage[] {
         damageId: d.damageId,
         damageName: d.damageName,
         foundAt: isDamageType(d.foundAt) ? d.foundAt : 'machine',
+        recordedAt: isDamageRecordedAt(d.recordedAt) ? d.recordedAt : null,
         pcs: d.pcs,
         resolvedPcs: d.resolvedPcs ?? 0,
         status: d.status === 'resolved' ? 'resolved' : 'open',

@@ -9,6 +9,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { ApiError } from '@/lib/api';
 import { formatOrderNo } from '@/lib/format';
 import { SupervisorJobsheetList } from './supervisor-jobsheets-page';
+import { BlouseTag } from '../free-stock/blouse';
 
 /**
  * `/jobsheets/order/:orderId` — the supervisor's Order view, level 2: one order's jobsheets with the same tabs,
@@ -61,6 +62,7 @@ export default function SupervisorOrderJobsheetsPage() {
                 <div className="min-w-0">
                   <h2 className="text-2xl font-bold leading-tight text-slate-900 md:text-[28px]">Order {formatOrderNo(order.orderNo)}</h2>
                   <p className="truncate text-sm text-slate-500">{order.designCode ? `Design ${order.designCode}` : 'No design'}</p>
+                  {order.blouseOption && <BlouseTag option={order.blouseOption} className="mt-1" />}
                 </div>
               </>
             ) : (

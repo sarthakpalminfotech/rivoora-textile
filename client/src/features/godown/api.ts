@@ -7,8 +7,6 @@ import {
   type GodownSplitResult,
   type GodownTaka,
   type GodownDamages,
-  type MoveTakasResult,
-  type MoveTarget,
   type QcNewDamageInput,
   type ReadyDispatchResult,
 } from '@rivoora/shared';
@@ -16,7 +14,6 @@ import { toast } from 'sonner';
 import { useInfiniteList } from '@/hooks/useInfiniteList';
 import { api, errorMessage } from '@/lib/api';
 import { invalidateAfterChallanWrite } from '../challans/api';
-import { invalidateAfterDispatch } from '../dispatch/api';
 
 /** Godown Orders module: query keys and hooks. Every write invalidates the godown, mill, dashboard, takas, damages and orders queries. */
 export const godownKeys = {
@@ -133,25 +130,5 @@ export function useResolveGodownDamage() {
     mutationFn: ({ id, takaDamageId }: { id: number; takaDamageId?: number }) =>
       api.post<{ takaId: number; resolved: number }>(`/godown/takas/${id}/resolve`, takaDamageId ? { takaDamageId } : {}),
     onSuccess: () => invalidateAfterChallanWrite(qc),
-  });
-}
-
-/* ---------- Sprint 12: Move to order ---------- */
-
-export function useMoveTargets(orderId: number, enabled: boolean) {
-  return useQuery({
-    queryKey: ['godown', 'move-targets', orderId],
-    queryFn: ({ signal }) => api.get<{ items: MoveTarget[] }>(`/godown/orders/${orderId}/move-targets`, undefined, signal).then((r) => r.items),
-    enabled: enabled && orderId > 0,
-    staleTime: 0,
-  });
-}
-
-export function useMoveTakas() {
-  const qc = useQueryClient();
-  return useMutation({
-    meta: { silentFieldErrors: true },
-    mutationFn: (data: { takaIds: number[]; targetOrderId: number }) => api.post<MoveTakasResult>('/godown/takas/move', data),
-    onSuccess: () => invalidateAfterDispatch(qc),
   });
 }
