@@ -6,7 +6,7 @@ import { EmptyState } from '@/components/ui/empty-state';
 import { Skeleton } from '@/components/ui/skeleton';
 import { formatDate } from '@/lib/format';
 import { cn } from '@/lib/utils';
-import { useChallans } from './api';
+import { useChallans, type FilterQuery } from './api';
 import { ChallanDesigns } from './design-preview';
 import { ReceivedCountControl } from './received-count';
 import { challanDetailsPath } from './kind';
@@ -111,18 +111,36 @@ const EMPTY: Record<ChallanFilter, string> = {
  * A grid of challan cards for one filter + search. `live` (Receive → Challans) refetches every 10 s and on focus.
  * Clicking a card opens the challan details; `from` is where "back" returns to.
  */
-export function ChallanList({ kind, filter, search, live, from, counter }: { kind: ChallanKind; filter: ChallanFilter; search: string; live?: boolean; from: string; counter?: boolean }) {
+export function ChallanList({
+  kind,
+  filter,
+  search,
+  live,
+  from,
+  counter,
+  filters = {},
+}: {
+  kind: ChallanKind;
+  filter: ChallanFilter;
+  search: string;
+  live?: boolean;
+  from: string;
+  counter?: boolean;
+  /** Work filters (party / challan date / loom / quality …) as query params. */
+  filters?: FilterQuery;
+}) {
   const navigate = useNavigate();
-  const query = useChallans(kind, filter, search, live);
+  const query = useChallans(kind, filter, search, live, filters);
+  const filtered = Object.values(filters).some(Boolean);
   if (query.isPending) return <GridSkeleton />;
   if (query.isError) return <ErrorState error={query.error} onRetry={() => void query.refetch()} />;
   if (query.items.length === 0) {
     return (
       <div className="rounded-xl border border-border bg-white shadow-soft">
         <EmptyState
-          icon={search ? SearchX : FileText}
-          title={search ? 'No challans match your search' : EMPTY[filter]}
-          description={search || filter !== 'open' ? undefined : `Challans you create in Send → Pending appear here until their takas are back from ${CHALLAN_KIND_CONFIG[kind].place}.`}
+          icon={search || filtered ? SearchX : FileText}
+          title={search ? 'No challans match your search' : filtered ? 'No challans match the filters' : EMPTY[filter]}
+          description={search || filtered || filter !== 'open' ? undefined : `Challans you create in Send → Pending appear here until their takas are back from ${CHALLAN_KIND_CONFIG[kind].place}.`}
         />
       </div>
     );

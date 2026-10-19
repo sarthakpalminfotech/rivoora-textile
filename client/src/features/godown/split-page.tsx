@@ -1,10 +1,9 @@
 import { AlertTriangle, ArrowDown, ArrowLeft, Plus, RotateCcw, SearchX, Trash2, X } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import {
   cleanPcs,
-  cleanTakaNo,
   formatMeters,
   formatPcs,
   MAX_SPLIT_PARTS,
@@ -12,7 +11,6 @@ import {
   SPLIT_ERROR_TEXT,
   splitMeters,
   takaActualPcs,
-  TAKA_NO_MAX_LENGTH,
   validateSplit,
   type GodownOrder,
   type GodownTaka,
@@ -30,14 +28,13 @@ import { useGodownDamages, useGodownOrder, useSplitTaka } from './api';
 
 interface Part {
   key: number;
-  takaNo: string;
   pcs: string;
   damages: DamageEntry[];
   refinish: boolean;
 }
 
 let partKey = 0;
-const newPart = (takaNo: string): Part => ({ key: ++partKey, takaNo, pcs: '', damages: [], refinish: false });
+const newPart = (): Part => ({ key: ++partKey, pcs: '', damages: [], refinish: false });
 
 const inputClass = (invalid: boolean) =>
   cn(
@@ -49,7 +46,19 @@ function SplitForm({ order, taka }: { order: GodownOrder; taka: GodownTaka }) {
   const navigate = useNavigate();
   const split = useSplitTaka(taka.id);
   const actual = takaActualPcs(taka) ?? 0;
-  const [parts, setParts] = useState<Part[]>(() => [newPart(taka.takaNo), newPart(nextSplitNumber(taka.takaNo, order.orderTakaNos) ?? '')]);
+  const [parts, setParts] = useState<Part[]>(() => [newPart(), newPart()]);
+  // Numbers are not typed: part 1 keeps the original number, the others get the next free letters (1101A, 1101B …).
+  // `skip` = letter numbers the live check found used elsewhere in the system; they are passed over.
+  const [skip, setSkip] = useState<ReadonlySet<string>>(() => new Set());
+  const numbers = useMemo(() => {
+    const taken = [...order.orderTakaNos, ...skip];
+    return parts.map((_, i) => {
+      if (i === 0) return taka.takaNo;
+      const no = nextSplitNumber(taka.takaNo, taken) ?? '';
+      taken.push(no);
+      return no;
+    });
+  }, [parts, skip, order.orderTakaNos, taka.takaNo]);
   const [damageFor, setDamageFor] = useState<number | null>(null);
   // The original taka's open damage names: pre-selected in the Damage popup (one) or listed first (several).
   const originalDamages = useGodownDamages(order.orderId, taka.isDamaged);
@@ -68,31 +77,25 @@ function SplitForm({ order, taka }: { order: GodownOrder; taka: GodownTaka }) {
   const [serverError, setServerError] = useState<string | null>(null);
 
   // Live uniqueness check (numbers are unique across the whole system); the taka's own number is not "used by someone else".
-  const used = useUsedTakaNumbers(
-    parts.map((p) => p.takaNo),
-    new Set([taka.takaNo]),
-  );
+  const used = useUsedTakaNumbers(numbers, new Set([taka.takaNo]));
+  useEffect(() => {
+    const clash = numbers.filter((no, i) => i > 0 && no && used.has(no) && !skip.has(no));
+    if (clash.length) setSkip((prev) => new Set([...prev, ...clash]));
+  }, [numbers, used, skip]);
   const check = validateSplit(
-    parts.map((p) => ({ takaNo: p.takaNo, pcs: /^\d+$/.test(p.pcs) ? Number(p.pcs) : null })),
+    parts.map((p, i) => ({ takaNo: numbers[i], pcs: /^\d+$/.test(p.pcs) ? Number(p.pcs) : null })),
     actual,
     new Set(used.keys()),
   );
-  // The first part keeps the original row; a renamed first part must be free too.
-  const firstUsed = parts[0].takaNo.trim() !== taka.takaNo && used.has(parts[0].takaNo.trim());
-  const rowError = (i: number) => (i === 0 && firstUsed ? 'already_used' : check.rows[i]);
-  const numberErrors = parts.map((_, i) => rowError(i));
-  const canSave = check.ok && !firstUsed;
+  const numberErrors = check.rows;
+  const canSave = check.ok;
   const meters = useMemo(
     () => splitMeters(taka.meters, parts.map((p) => (/^\d+$/.test(p.pcs) ? Number(p.pcs) : 0))),
     [taka.meters, parts],
   );
 
   const update = (key: number, patch: Partial<Part>) => setParts((prev) => prev.map((p) => (p.key === key ? { ...p, ...patch } : p)));
-  const addPart = () =>
-    setParts((prev) => {
-      const next = nextSplitNumber(taka.takaNo, [...order.orderTakaNos, ...prev.map((p) => p.takaNo)]);
-      return next ? [...prev, newPart(next)] : prev;
-    });
+  const addPart = () => setParts((prev) => [...prev, newPart()]);
   const diff = check.diff;
 
   const save = () => {
@@ -101,8 +104,8 @@ function SplitForm({ order, taka }: { order: GodownOrder; taka: GodownTaka }) {
     setServerError(null);
     split.mutate(
       {
-        parts: parts.map((p) => ({
-          takaNo: p.takaNo.trim(),
+        parts: parts.map((p, i) => ({
+          takaNo: numbers[i],
           pcs: Number(p.pcs),
           damages: p.damages.map((e) => ({ ...entryPayload(e), images: [] })),
           refinish: p.refinish,
@@ -119,6 +122,7 @@ function SplitForm({ order, taka }: { order: GodownOrder; taka: GodownTaka }) {
   };
 
   const damagePart = parts.find((p) => p.key === damageFor);
+  const damagePartNo = damagePart ? numbers[parts.indexOf(damagePart)] : '';
 
   return (
     <div className="page-container max-w-2xl space-y-4 pb-6 pt-3 md:pt-5">
@@ -150,25 +154,24 @@ function SplitForm({ order, taka }: { order: GodownOrder; taka: GodownTaka }) {
       {/* 3 — the parts */}
       <ul className="space-y-3">
         {parts.map((p, i) => {
-          const numErr = p.takaNo.trim() && numberErrors[i] !== 'pcs_required' ? numberErrors[i] : null;
+          const takaNo = numbers[i];
+          // A number used elsewhere is skipped automatically (next letter), so that is never shown as an error.
+          const numErr = numberErrors[i] !== 'pcs_required' && numberErrors[i] !== 'already_used' ? numberErrors[i] : null;
           const pcsErr = showErrors && check.rows[i] === 'pcs_required';
           return (
             <li key={p.key} className="rounded-2xl border border-border bg-white p-3.5 shadow-soft">
               <div className="grid grid-cols-[1fr_6.5rem] gap-3">
                 <div>
-                  <label htmlFor={`sp-no-${p.key}`} className="mb-1 block text-[12px] font-semibold text-slate-500">
-                    {i === 0 ? 'Taka no (original)' : 'Taka no'}
-                  </label>
-                  <input
-                    id={`sp-no-${p.key}`}
-                    value={p.takaNo}
-                    onChange={(e) => update(p.key, { takaNo: cleanTakaNo(e.target.value) })}
-                    inputMode="tel"
-                    autoComplete="off"
-                    maxLength={TAKA_NO_MAX_LENGTH}
+                  <p className="mb-1 block text-[12px] font-semibold text-slate-500">{i === 0 ? 'Taka no (original)' : 'Taka no (new)'}</p>
+                  <p
                     aria-invalid={!!numErr || undefined}
-                    className={inputClass(!!numErr)}
-                  />
+                    className={cn(
+                      'flex h-12 items-center rounded-xl border bg-slate-50 px-3 text-lg font-bold tabular-nums text-slate-900',
+                      numErr ? 'border-destructive' : 'border-border',
+                    )}
+                  >
+                    {takaNo || '—'}
+                  </p>
                 </div>
                 <div>
                   <label htmlFor={`sp-pcs-${p.key}`} className="mb-1 block text-[12px] font-semibold text-slate-500">
@@ -188,7 +191,7 @@ function SplitForm({ order, taka }: { order: GodownOrder; taka: GodownTaka }) {
               </div>
               {numErr && (
                 <p role="alert" className="mt-1.5 text-sm font-semibold text-destructive">
-                  {numErr === 'already_used' ? `Taka ${p.takaNo.trim()} is already used${used.get(p.takaNo.trim()) ? ` (Order ${used.get(p.takaNo.trim())})` : ''}` : SPLIT_ERROR_TEXT[numErr]}
+                  {numErr === 'number_required' ? 'No more numbers are free for this taka' : SPLIT_ERROR_TEXT[numErr]}
                 </p>
               )}
               {pcsErr && (
@@ -267,7 +270,7 @@ function SplitForm({ order, taka }: { order: GodownOrder; taka: GodownTaka }) {
       <DamageDialog
         open={damagePart !== undefined}
         onOpenChange={(o) => !o && setDamageFor(null)}
-        takaLabel={damagePart ? `Taka ${damagePart.takaNo || '—'}` : ''}
+        takaLabel={damagePart ? `Taka ${damagePartNo || '—'}` : ''}
         suggestedNames={suggestedNames}
         takaPcs={damagePart && /^\d+$/.test(damagePart.pcs) ? Number(damagePart.pcs) : null}
         value={null}

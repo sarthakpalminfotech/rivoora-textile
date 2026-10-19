@@ -69,24 +69,20 @@ function JobsheetTile({ js, tab, onOpen }: { js: TakaJobsheetItem; tab: TakaTab;
       aria-label={bi(`Open ${jobsheetRef(js.orderNo, js.jobsheetNo)}`, `ऑर्डर #${js.orderNo} (${js.jobsheetNo}) खोलें`)}
       className="flex h-full cursor-pointer flex-col overflow-hidden rounded-xl border border-border bg-white shadow-soft outline-none transition hover:border-primary/30 hover:shadow-pop focus-visible:ring-2 focus-visible:ring-primary/40"
     >
-      {/* Clicks inside the lightbox bubble through the React portal — keep them from opening the card. */}
-      <div onClick={js.thumbUrl ? (e) => e.stopPropagation() : undefined}>
-        <ImageThumb
-          thumbUrl={js.thumbUrl}
-          fullUrl={js.imageUrl}
-          alt={js.designCode ? `Design ${js.designCode}` : 'No design'}
-          className="aspect-[16/10] w-full"
-          rounded="rounded-none"
-        />
-      </div>
       <div className="flex flex-1 flex-col gap-3 p-4">
-        <div className="flex items-start justify-between gap-2">
-          <p className="min-w-0 text-2xl font-bold leading-tight text-slate-900">
-            <JobsheetRef orderNo={js.orderNo} jobsheetNo={js.jobsheetNo} />
-          </p>
-          <StatusBadge kind="jobsheet" status={js.status} className="mt-1 shrink-0 text-[13px]" />
+        <div className="flex items-start gap-3">
+          {/* The design as a small thumbnail; clicks inside the lightbox bubble through the portal — keep them from the card. */}
+          <div className="shrink-0" onClick={js.thumbUrl ? (e) => e.stopPropagation() : undefined}>
+            <ImageThumb thumbUrl={js.thumbUrl} fullUrl={js.imageUrl} alt={js.designCode ? `Design ${js.designCode}` : 'No design'} className="size-16" rounded="rounded-lg" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-xl font-bold leading-tight text-slate-900">
+              <JobsheetRef orderNo={js.orderNo} jobsheetNo={js.jobsheetNo} />
+            </p>
+            <p className="truncate text-sm text-slate-500">{js.designCode ? `Design ${js.designCode}` : 'No design'}</p>
+            <StatusBadge kind="jobsheet" status={js.status} className="mt-1.5 text-[13px]" />
+          </div>
         </div>
-        <p className="-mt-1.5 truncate text-sm text-slate-500">{js.designCode ? `Design ${js.designCode}` : 'No design'}</p>
 
         <dl className="grid grid-cols-2 gap-2 border-t border-border pt-3">
           <Fact en="Frames" hi="फ्रेम">
@@ -129,13 +125,15 @@ function GridSkeleton() {
     <div className={GRID}>
       {Array.from({ length: 8 }, (_, i) => (
         <div key={i} className="overflow-hidden rounded-xl border border-border bg-white shadow-soft">
-          <Skeleton className="aspect-[16/10] w-full rounded-none" />
           <div className="space-y-3 p-4">
-            <div className="flex justify-between">
-              <Skeleton className="h-7 w-32" />
-              <Skeleton className="h-6 w-20 rounded-full" />
+            <div className="flex gap-3">
+              <Skeleton className="size-16 shrink-0 rounded-lg" />
+              <div className="flex-1 space-y-2">
+                <Skeleton className="h-6 w-32" />
+                <Skeleton className="h-4 w-2/3" />
+                <Skeleton className="h-5 w-20 rounded-full" />
+              </div>
             </div>
-            <Skeleton className="h-4 w-2/3" />
             <Skeleton className="h-10" />
           </div>
           <div className="border-t border-border p-3">

@@ -481,8 +481,8 @@ export async function listAssignTargets(role: RoleKey, key: string): Promise<Ass
 }
 
 export const itemOrdersQuerySchema = z.object({
-  /** Only orders that have ready-for-dispatch / in-making pcs of this item. */
-  filter: z.enum(['ready', 'making']).optional().catch(undefined),
+  /** Only orders that have ready-for-dispatch / in-making / ready-for-order (final, in the godown) pcs of this item. */
+  filter: z.enum(['ready', 'making', 'godown']).optional().catch(undefined),
   blouse: blouseParam,
   search: z
     .string()
@@ -513,7 +513,7 @@ export async function listInventoryItemOrders(role: RoleKey, key: string, query:
   }
   return list
     .filter((o) => !matching || matching.has(o.orderId))
-    .filter((o) => !filter || (filter === 'ready' ? o.pcs.readyDispatch : o.pcs.inMaking) > 0)
+    .filter((o) => !filter || (filter === 'ready' ? o.pcs.readyDispatch : filter === 'godown' ? o.pcs.inGodown : o.pcs.inMaking) > 0)
     .sort((a, b) => b.orderNo - a.orderNo)
     .map((o) => ({
       orderId: o.orderId,
@@ -522,6 +522,8 @@ export async function listInventoryItemOrders(role: RoleKey, key: string, query:
       status: o.status,
       orderedPcs: o.pcs.ordered,
       readyPcs: o.pcs.readyDispatch,
+      godownPcs: o.pcs.inGodown,
+      makingPcs: o.pcs.inMaking,
       orderDate: o.orderDate,
       blouseOption: o.blouseOption,
     }));

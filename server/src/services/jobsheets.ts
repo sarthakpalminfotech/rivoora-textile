@@ -51,6 +51,7 @@ import {
   type SupervisorOrderListQuery,
   type SupervisorOrderPage,
   type Unit,
+  workFiltersOf,
 } from '@rivoora/shared';
 import { db, type DbOrTx, type Tx } from '../db/client';
 import {
@@ -73,6 +74,7 @@ import { badRequest, conflict, notFound } from '../lib/errors';
 import { likePattern } from '../lib/http';
 import { mapTaka, sortTakas, TAKA_EVENTS, takaColumns } from './taka-shared';
 import { takaInOrder } from './free-stock';
+import { rowFilters } from './work-filters';
 
 const JOBSHEET_COUNTER = 'jobsheet_no';
 export const now = () => new Date().toISOString();
@@ -762,6 +764,8 @@ export async function listSupervisorJobsheets(role: RoleKey, q: JobsheetListQuer
   if (q.orderId) scope.push(eq(jobsheets.orderId, q.orderId));
   const base = [...scope];
   if (q.search) base.push(jobsheetSearch(q.search));
+  // Filters modal: loom / quality / order type / blouse / sent date.
+  base.push(rowFilters(workFiltersOf(q), jobsheets.sentAt));
   const listWhere = and(...base, q.tab === 'all' ? undefined : eq(jobsheets.status, TAB_STATUS[q.tab]));
 
   // The Order view: the order's header (number + design only). 404 when it has no jobsheets he can see.
@@ -892,6 +896,8 @@ export async function listSupervisorOrders(role: RoleKey, q: SupervisorOrderList
     if (/^\d+$/.test(term)) parts.push(sql`CAST(${orders.orderNo} AS TEXT) LIKE ${likePattern(term, 'prefix')} ESCAPE '\\'`);
     where.push(or(...parts));
   }
+  // Filters modal: an order is listed (and counted) by its jobsheets that match.
+  where.push(rowFilters(workFiltersOf(q), jobsheets.sentAt));
 
   const pending = sql<number>`SUM(CASE WHEN ${jobsheets.status} = 'sent' THEN 1 ELSE 0 END)`;
   const ongoing = sql<number>`SUM(CASE WHEN ${jobsheets.status} = 'ongoing' THEN 1 ELSE 0 END)`;

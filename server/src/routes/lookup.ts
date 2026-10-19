@@ -71,17 +71,19 @@ lookupRouter.get(
 
 lookupRouter.get(
   '/materials',
-  requirePermission('canViewMasters', 'canViewProductionOrders'),
+  // + the godown supervisor: the Quality filter of Butta cutting / Mill (names only).
+  requirePermission('canViewMasters', 'canViewProductionOrders', 'canUseButtaModule', 'canUseMillModule'),
   ah(async (req, res) => {
     res.set('Cache-Control', 'private, max-age=10');
     res.json(await lookupMaterials(querySchema.parse(req.query).search));
   }),
 );
 
-// Machine pickers: jobsheet forms (office) and Start / Change machine (supervisor). Not the Taka entry role.
+// Machine pickers: jobsheet forms (office), Start / Change machine (supervisor) and the Loom filter of Butta cutting /
+// Mill (godown supervisor). Not the Taka entry role.
 lookupRouter.get(
   '/machines',
-  requirePermission('canViewMasters', 'canRunJobsheets'),
+  requirePermission('canViewMasters', 'canRunJobsheets', 'canUseButtaModule', 'canUseMillModule'),
   ah(async (req, res) => {
     res.set('Cache-Control', 'private, max-age=10');
     res.json(await lookupMachines(querySchema.parse(req.query).search));

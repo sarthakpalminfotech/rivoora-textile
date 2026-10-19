@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
   CHALLAN_KIND_CONFIG,
+  WORK_FILTER_PARAM_KEYS,
   type ChallanFilter,
   type ChallanKind,
 } from "@rivoora/shared";
@@ -15,6 +16,18 @@ import { KpiTile } from "../inventory/parts";
 import { useKindCounts } from "./api";
 import { ChallanList } from "./challan-cards";
 import { ReceiveTakaNumber } from "./receive-screen";
+import {
+  FiltersButton,
+  useWorkFilters,
+  WorkFilterChips,
+  WorkFiltersDialog,
+  type WorkFilterField,
+} from "../filters/work-filters";
+
+/** Send → Pending / Refinish: takas are filtered loom-wise, by quality, order type and blouse. */
+const PENDING_FIELDS: readonly WorkFilterField[] = ["loom", "quality", "type", "blouse"];
+/** Challan lists: also the party and the challan date. */
+const CHALLAN_FIELDS: readonly WorkFilterField[] = ["party", "date", "loom", "quality", "type", "blouse"];
 import { SendPending } from "./send-pending";
 
 type Tab = "send" | "receive";
@@ -78,10 +91,14 @@ export default function ChallanModulePage({ kind }: { kind: ChallanKind }) {
   const { can } = useRole();
   const showKpis = can("canViewInventory"); // Jenish + Gaurang
 
+  const work = useWorkFilters();
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  // A new tab / sub-tab starts without filters (the lists have different filter fields).
   const update = (patch: Record<string, string | null>) =>
     setParams(
       (prev) => {
         const next = new URLSearchParams(prev);
+        if ("tab" in patch || "sub" in patch) for (const k of WORK_FILTER_PARAM_KEYS) next.delete(k);
         for (const [k, v] of Object.entries(patch)) {
           if (v === null) next.delete(k);
           else next.set(k, v);
@@ -97,6 +114,9 @@ export default function ChallanModulePage({ kind }: { kind: ChallanKind }) {
   useEffect(() => setSearchText(""), [tab, sub]);
 
   const showSearch = tab === "send" || receiveSub === "challans";
+  const onChallanList = (tab === "send" && sendSub === "sent") || (tab === "receive" && receiveSub === "challans");
+  // The list remounts when the filters change (a selection made under other filters is dropped).
+  const fk = JSON.stringify(work.query);
   const from = `${cfg.route}?${params.toString()}`;
 
   const sendOptions: { value: string; label: React.ReactNode }[] = [
@@ -214,26 +234,41 @@ export default function ChallanModulePage({ kind }: { kind: ChallanKind }) {
       </div>
 
       {showSearch && (
-        <SearchBar
-          value={searchText}
-          onChange={setSearchText}
-          placeholder={
-            tab === "send" && sendSub !== "sent"
-              ? "Search by order no, design code or taka no…"
-              : "Search by challan no, party, order no or taka no…"
-          }
-        />
+        <div className="flex items-center gap-2">
+          <SearchBar
+            value={searchText}
+            onChange={setSearchText}
+            placeholder={
+              tab === "send" && sendSub !== "sent"
+                ? "Search by order no, design code or taka no…"
+                : "Search by challan no, party, order no or taka no…"
+            }
+          />
+          <FiltersButton count={work.count} onClick={() => setFiltersOpen(true)} />
+        </div>
       )}
+      {showSearch && <WorkFilterChips value={work.filters} onChange={work.setFilters} partyKind={kind} />}
+      <WorkFiltersDialog
+        open={filtersOpen}
+        onOpenChange={setFiltersOpen}
+        value={work.filters}
+        onApply={work.setFilters}
+        fields={onChallanList ? CHALLAN_FIELDS : PENDING_FIELDS}
+        title={onChallanList ? "Filter challans" : "Filter takas"}
+        partyKind={kind}
+        dateLabel="Challan date"
+      />
 
       {tab === "send" && sendSub === "pending" && (
-        <SendPending key={`${kind}-pending`} kind={kind} search={search} />
+        <SendPending key={`${kind}-pending-${fk}`} kind={kind} search={search} filters={work.query} />
       )}
       {tab === "send" && sendSub === "refinish" && (
         <SendPending
-          key={`${kind}-refinish`}
+          key={`${kind}-refinish-${fk}`}
           kind={kind}
           search={search}
           mode="refinish"
+          filters={work.query}
         />
       )}
       {tab === "send" && sendSub === "sent" && (
@@ -243,6 +278,7 @@ export default function ChallanModulePage({ kind }: { kind: ChallanKind }) {
           filter={filter}
           search={search}
           from={from}
+          filters={work.query}
         />
       )}
       {tab === "receive" && receiveSub === "taka" && (
@@ -256,6 +292,7 @@ export default function ChallanModulePage({ kind }: { kind: ChallanKind }) {
           search={search}
           live
           from={from}
+          filters={work.query}
           counter={kind === "mill"}
         />
       )}

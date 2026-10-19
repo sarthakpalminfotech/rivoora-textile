@@ -12,3 +12,6 @@ server/uploads/*
 
 .vercel
 .env*
+
+.vercel
+.env*

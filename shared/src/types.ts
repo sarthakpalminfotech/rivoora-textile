@@ -1306,6 +1306,10 @@ export interface InventoryOrderRow {
   orderedPcs: number;
   /** Ready for dispatch pcs. */
   readyPcs: number;
+  /** Ready for order pcs (final takas in the godown, not yet ready for dispatch). */
+  godownPcs: number;
+  /** In making pcs. */
+  makingPcs: number;
   orderDate: string;
   blouseOption: BlouseOption | null;
 }

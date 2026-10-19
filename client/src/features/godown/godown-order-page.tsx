@@ -1,5 +1,5 @@
-import { ArrowLeft, Boxes, Check, CheckCircle2, Loader2, MoreHorizontal, PackagePlus, Scissors, SearchX, TriangleAlert, Truck } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { ArrowLeft, Boxes, CheckCircle2, Loader2, MoreHorizontal, PackagePlus, Pencil, Scissors, SearchX, TriangleAlert, Truck } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import {
@@ -9,7 +9,6 @@ import {
   dispatchTotals,
   moveToInventorySelectable,
   formatMeters,
-  formatPcsDiff,
   takaActualPcs,
   type GodownOrder,
   type GodownTaka,
@@ -130,10 +129,16 @@ function Summary({ order }: { order: GodownOrder }) {
 /* taka row                                                             */
 /* ------------------------------------------------------------------ */
 
+// Column widths shared by the header and the rows: from 640px the taka column has a fixed width, so the actual pcs sit
+// just beside the taka number (not at the far right); phones let the taka column take the free space.
+const TAKA_COL = 'sm:w-72 sm:flex-none';
+const PCS_COL = 'w-14 sm:w-28';
+
 function TakaRow({
   taka,
   disabled,
   onPatch,
+  onEditPcs,
   onSplit,
   onDamage,
   onRefinish,
@@ -145,44 +150,18 @@ function TakaRow({
   select?: { on: boolean; allowed: boolean; reason: string | null; onToggle: () => void };
   disabled?: boolean;
   onPatch: (patch: { checked?: boolean; actualPcs?: number }) => Promise<unknown>;
+  onEditPcs: () => void;
   onSplit: () => void;
   onDamage: () => void;
   onRefinish: () => void;
   onResolve: () => void;
 }) {
   const actual = takaActualPcs(taka);
-  const [text, setText] = useState(actual != null ? String(actual) : '');
-  const [saved, setSaved] = useState(false);
-  const timer = useRef<ReturnType<typeof setTimeout>>();
-  // Follow the server value (after a split, a refresh, or a failed save).
-  useEffect(() => {
-    setText(actual != null ? String(actual) : '');
-  }, [actual]);
-  useEffect(() => () => clearTimeout(timer.current), []);
-
-  const commit = async () => {
-    const n = /^\d+$/.test(text) ? Number(text) : NaN;
-    if (!Number.isFinite(n) || n < 1) {
-      setText(actual != null ? String(actual) : '');
-      return;
-    }
-    if (n === actual) return;
-    try {
-      await onPatch({ actualPcs: n });
-      setSaved(true);
-      clearTimeout(timer.current);
-      timer.current = setTimeout(() => setSaved(false), 1600);
-    } catch {
-      setText(actual != null ? String(actual) : '');
-    }
-  };
-
-  const typed = /^\d+$/.test(text) ? Number(text) : actual;
-  const diff = taka.pcs != null && typed != null ? typed - taka.pcs : 0;
 
   return (
-    <li className={cn('flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2.5 md:flex-nowrap', disabled && 'bg-slate-50/70')}>
-      <div className="flex min-w-0 flex-1 items-center gap-3 md:basis-1/3">
+    // One row, three columns (never wraps): taka · actual pcs right beside it · the ⋯ menu at the end.
+    <li className={cn('flex items-center gap-3 px-3 py-2.5', disabled && 'bg-slate-50/70')}>
+      <div className={cn('flex min-w-0 flex-1 items-center gap-3', TAKA_COL)}>
         {select && (
           <span title={select.reason ?? undefined} className={cn(!select.allowed && 'opacity-40')}>
             <TickBox size="lg" checked={select.on} disabled={!select.allowed} onCheckedChange={select.onToggle} aria-label={`Select taka ${taka.takaNo} to move to inventory`} />
@@ -220,37 +199,12 @@ function TakaRow({
         </div>
       </div>
 
-      <div className="flex w-full items-center justify-between gap-3 pl-10 md:w-auto md:flex-1 md:justify-end md:pl-0">
-        <div className="text-center md:w-24">
-          <p className="text-[11px] font-medium text-slate-400 md:hidden">Expected</p>
-          <p className="text-lg font-semibold tabular-nums text-slate-600">{taka.pcs ?? '—'}</p>
-        </div>
-        <div className="flex items-center gap-2 md:w-[16.5rem]">
-          <div className="relative">
-            <p className="text-[11px] font-medium text-slate-400 md:hidden">Actual</p>
-            <input
-              value={text}
-              onChange={(e) => setText(cleanPcs(e.target.value))}
-              onBlur={() => void commit()}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') e.currentTarget.blur();
-              }}
-              inputMode="numeric"
-              autoComplete="off"
-              disabled={disabled}
-              aria-label={`Actual pcs of taka ${taka.takaNo}`}
-              className="h-12 w-24 rounded-xl border border-input bg-white px-3 text-center text-lg font-bold tabular-nums text-slate-900 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15 disabled:bg-transparent disabled:text-slate-500"
-            />
-            
-          </div>
-          {saved && diff === 0 && <Check className="size-4 text-emerald-600" aria-label="Saved" />}
-          {diff !== 0 && <span className="w-9 text-sm font-bold tabular-nums text-amber-600">{formatPcsDiff(diff)}</span>}
-          {diff !== 0 && !disabled && (typed ?? 0) >= 2 && (
-            <Button variant="secondary" size="sm" className="h-12 px-3.5" onClick={onSplit}>
-              <Scissors /> Split
-            </Button>
-          )}
-        </div>
+      <div className={cn('shrink-0 text-center', PCS_COL)}>
+        <p className="text-[11px] font-medium leading-tight text-slate-400 sm:hidden">pcs</p>
+        <p className={cn('text-xl font-bold tabular-nums', disabled ? 'text-slate-500' : 'text-slate-900')}>{actual ?? '—'}</p>
+      </div>
+
+      <div className="ml-auto flex w-12 shrink-0 justify-end">
         {!disabled ? (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -259,7 +213,10 @@ function TakaRow({
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              {(typed ?? 0) >= 2 && (
+              <DropdownMenuItem onSelect={onEditPcs}>
+                <Pencil className="size-4 text-slate-600" /> Edit pcs
+              </DropdownMenuItem>
+              {(actual ?? 0) >= 2 && (
                 <DropdownMenuItem onSelect={onSplit}>
                   <Scissors className="size-4 text-slate-600" /> Split
                 </DropdownMenuItem>
@@ -278,12 +235,99 @@ function TakaRow({
             </DropdownMenuContent>
           </DropdownMenu>
         ) : (
-          <span className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full bg-emerald-100 px-3 py-1.5 text-xs font-bold text-emerald-800">
-            <CheckCircle2 className="size-3.5" aria-hidden /> Ready for dispatch
+          // Same width as the ⋯ button, so the pcs column lines up (the section heading says "Ready for dispatch").
+          <span className="flex size-12 items-center justify-center text-emerald-600" title="Ready for dispatch" aria-label="Ready for dispatch">
+            <CheckCircle2 className="size-6" />
           </span>
         )}
       </div>
     </li>
+  );
+}
+
+/** ⋯ → Edit pcs: the actual pcs of one taka (the only place they can be changed). */
+function EditPcsDialog({ taka, onClose, onSave }: { taka: GodownTaka | null; onClose: () => void; onSave: (actualPcs: number) => Promise<unknown> }) {
+  const [text, setText] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const actual = taka ? takaActualPcs(taka) : null;
+  useEffect(() => {
+    if (!taka) return;
+    setText(actual != null ? String(actual) : '');
+    setError(null);
+    // reset only when another taka is opened
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [taka?.id]);
+
+  const save = async () => {
+    const n = /^\d+$/.test(text) ? Number(text) : NaN;
+    if (!Number.isFinite(n) || n < 1) return setError('Enter the pcs (at least 1)');
+    if (n === actual) return onClose();
+    setSaving(true);
+    try {
+      await onSave(n);
+      toast.success(`Taka ${taka!.takaNo}: ${n.toLocaleString('en-IN')} pcs`);
+      onClose();
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <ResponsiveModal
+      open={taka !== null}
+      onOpenChange={(o) => !o && !saving && onClose()}
+      title={taka ? `Edit pcs · Taka ${taka.takaNo}` : 'Edit pcs'}
+      desktopVariant="center"
+      mobileVariant="bottom"
+      size="sm"
+      dismissible={!saving}
+      footer={
+        <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto">
+          <Button variant="secondary" size="lg" className="h-12" onClick={onClose} disabled={saving}>
+            Cancel
+          </Button>
+          <Button size="lg" className="h-12" onClick={() => void save()} loading={saving}>
+            Save
+          </Button>
+        </div>
+      }
+    >
+      <form
+        className="space-y-2 pb-1"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void save();
+        }}
+      >
+        <label htmlFor="edit-actual-pcs" className="block text-sm font-semibold text-slate-600">
+          Actual pcs
+        </label>
+        <input
+          id="edit-actual-pcs"
+          value={text}
+          onChange={(e) => {
+            setText(cleanPcs(e.target.value));
+            setError(null);
+          }}
+          inputMode="numeric"
+          autoComplete="off"
+          autoFocus
+          aria-invalid={!!error || undefined}
+          className={cn(
+            'h-14 w-full rounded-xl border bg-white px-3 text-center text-2xl font-bold tabular-nums text-slate-900 focus:outline-none focus:ring-2',
+            error ? 'border-destructive focus:ring-destructive/20' : 'border-input focus:border-primary focus:ring-primary/15',
+          )}
+        />
+        {error && (
+          <p role="alert" className="text-sm font-semibold text-destructive">
+            {error}
+          </p>
+        )}
+      </form>
+    </ResponsiveModal>
   );
 }
 
@@ -302,6 +346,7 @@ function FinalTakasTab({ order }: { order: GodownOrder }) {
   const [dispatchOpen, setDispatchOpen] = useState(false);
   const [damageFor, setDamageFor] = useState<GodownTaka | null>(null);
   const [refinishFor, setRefinishFor] = useState<GodownTaka | null>(null);
+  const [pcsFor, setPcsFor] = useState<GodownTaka | null>(null);
   const { can } = useRole();
   const [dispatchModal, setDispatchModal] = useState(false);
   const [selecting, setSelecting] = useState(false);
@@ -380,13 +425,10 @@ function FinalTakasTab({ order }: { order: GodownOrder }) {
               </div>
             </div>
           )}
-          <div className="hidden items-center gap-3 border-b border-border bg-slate-50 px-3 py-2 text-[12px] font-semibold uppercase tracking-wide text-slate-500 md:flex">
-            <span className="basis-1/3">Taka</span>
-            <span className="flex flex-1 items-center justify-end gap-3">
-              <span className="w-24 text-center">Expected pcs</span>
-              <span className="w-[16.5rem] text-left">Actual pcs</span>
-              <span className="w-12" />
-            </span>
+          <div className="hidden items-center gap-3 border-b border-border bg-slate-50 px-3 py-2 text-[12px] font-semibold uppercase tracking-wide text-slate-500 sm:flex">
+            <span className={cn('flex-1', TAKA_COL)}>Taka</span>
+            <span className={cn('shrink-0 text-center', PCS_COL)}>Actual pcs</span>
+            <span className="ml-auto w-12 shrink-0" />
           </div>
           {finals.length === 0 ? (
             <p className="px-4 py-6 text-center text-sm text-slate-500">All final takas are ready to dispatch.</p>
@@ -398,6 +440,7 @@ function FinalTakasTab({ order }: { order: GodownOrder }) {
                   taka={t}
                   select={selecting ? rowSelect(t) : undefined}
                   onPatch={onPatch(t.id)}
+                  onEditPcs={() => setPcsFor(t)}
                   onSplit={() => navigate(`/godown/orders/${order.orderId}/split/${t.id}`)}
                   onDamage={() => setDamageFor(t)}
                   onRefinish={() => setRefinishFor(t)}
@@ -417,6 +460,7 @@ function FinalTakasTab({ order }: { order: GodownOrder }) {
                     disabled
                     select={selecting ? rowSelect(t) : undefined}
                     onPatch={async () => undefined}
+                    onEditPcs={() => undefined}
                     onSplit={() => undefined}
                     onDamage={() => undefined}
                     onRefinish={() => undefined}
@@ -511,6 +555,12 @@ function FinalTakasTab({ order }: { order: GodownOrder }) {
           )}
         </div>
       </ResponsiveModal>
+
+      <EditPcsDialog
+        taka={pcsFor}
+        onClose={() => setPcsFor(null)}
+        onSave={(actualPcs) => patch.mutateAsync({ id: pcsFor!.id, actualPcs })}
+      />
 
       <DamageDialog
         open={damageFor !== null}

@@ -53,8 +53,11 @@ export function invalidateAfterChallanWrite(qc: QueryClient) {
 
 /* ---------- Send ---------- */
 
-export const usePendingOrders = (kind: ChallanKind, search: string, mode: SendMode = 'send') =>
-  useInfiniteList<ChallanPendingOrder>(challanKeys.pending(kind, mode), `${base(kind)}/${listPath(mode)}`, { search });
+/** Work filters (loom / quality / …) as query params — see features/filters/work-filters.tsx. */
+export type FilterQuery = Record<string, string | undefined>;
+
+export const usePendingOrders = (kind: ChallanKind, search: string, mode: SendMode = 'send', filters: FilterQuery = {}) =>
+  useInfiniteList<ChallanPendingOrder>(challanKeys.pending(kind, mode), `${base(kind)}/${listPath(mode)}`, { search, ...filters });
 
 /** The Send tab counts: takas ready to send · takas currently with the party (the pills on the sub-tabs). */
 export function useKindCounts(kind: ChallanKind) {
@@ -66,20 +69,20 @@ export function useKindCounts(kind: ChallanKind) {
   });
 }
 
-export function usePendingOrderTakas(kind: ChallanKind, orderId: number | null, mode: SendMode = 'send') {
+export function usePendingOrderTakas(kind: ChallanKind, orderId: number | null, mode: SendMode = 'send', filters: FilterQuery = {}) {
   return useQuery({
-    queryKey: challanKeys.pendingTakas(kind, orderId ?? 0, mode),
-    queryFn: ({ signal }) => api.get<ChallanPendingOrderTakas>(`${base(kind)}/${listPath(mode)}/${orderId}/takas`, undefined, signal),
+    queryKey: [...challanKeys.pendingTakas(kind, orderId ?? 0, mode), filters],
+    queryFn: ({ signal }) => api.get<ChallanPendingOrderTakas>(`${base(kind)}/${listPath(mode)}/${orderId}/takas`, filters, signal),
     enabled: orderId !== null && orderId > 0,
     staleTime: 0,
   });
 }
 
 /** Fetches an order's not-yet-sent takas on demand (ticking an order's checkbox selects all its READY ones). */
-export const fetchPendingOrderTakas = (qc: QueryClient, kind: ChallanKind, orderId: number, mode: SendMode = 'send') =>
+export const fetchPendingOrderTakas = (qc: QueryClient, kind: ChallanKind, orderId: number, mode: SendMode = 'send', filters: FilterQuery = {}) =>
   qc.fetchQuery({
-    queryKey: challanKeys.pendingTakas(kind, orderId, mode),
-    queryFn: ({ signal }) => api.get<ChallanPendingOrderTakas>(`${base(kind)}/${listPath(mode)}/${orderId}/takas`, undefined, signal),
+    queryKey: [...challanKeys.pendingTakas(kind, orderId, mode), filters],
+    queryFn: ({ signal }) => api.get<ChallanPendingOrderTakas>(`${base(kind)}/${listPath(mode)}/${orderId}/takas`, filters, signal),
     staleTime: 0,
   });
 
@@ -95,8 +98,8 @@ export function useCreateChallan(kind: ChallanKind) {
 /* ---------- challans ---------- */
 
 /** `live` = the Receive screen: refetch every 10 s and on focus (it is also invalidated after any receive). */
-export function useChallans(kind: ChallanKind, filter: ChallanFilter, search: string, live = false) {
-  return useInfiniteList<ChallanListItem>(challanKeys.list(kind), `${base(kind)}/challans`, { filter, search }, true, {
+export function useChallans(kind: ChallanKind, filter: ChallanFilter, search: string, live = false, filters: FilterQuery = {}) {
+  return useInfiniteList<ChallanListItem>(challanKeys.list(kind), `${base(kind)}/challans`, { filter, search, ...filters }, true, {
     refetchInterval: live ? 10_000 : undefined,
     refetchOnWindowFocus: true,
   });

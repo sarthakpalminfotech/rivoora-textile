@@ -24,8 +24,20 @@ import { BackLink, ExpandingSearch, ItemHeader, KpiSkeleton, KpiTile, pcsText } 
 
 const KPI_GRID = 'grid grid-cols-2 gap-2.5 sm:grid-cols-4 lg:grid-cols-7';
 
-function OrderRow({ order }: { order: InventoryOrderRow }) {
-  const share = order.orderedPcs > 0 ? Math.min(100, (order.readyPcs / order.orderedPcs) * 100) : 0;
+type ItemFilter = '' | 'ready' | 'making' | 'godown' | 'free';
+const ITEM_FILTERS: readonly ItemFilter[] = ['ready', 'making', 'godown', 'free'];
+
+/** The figure an order row shows: the one of the active KPI filter (Ready for dispatch by default). */
+const ROW_FIGURE = {
+  ready: { label: 'ready for dispatch', bar: 'bg-teal-500', pcs: (o: InventoryOrderRow) => o.readyPcs },
+  making: { label: 'in making', bar: 'bg-sky-400', pcs: (o: InventoryOrderRow) => o.makingPcs },
+  godown: { label: 'ready for order', bar: 'bg-emerald-500', pcs: (o: InventoryOrderRow) => o.godownPcs },
+} as const;
+
+function OrderRow({ order, figure }: { order: InventoryOrderRow; figure: keyof typeof ROW_FIGURE }) {
+  const f = ROW_FIGURE[figure];
+  const value = f.pcs(order);
+  const share = order.orderedPcs > 0 ? Math.min(100, (value / order.orderedPcs) * 100) : 0;
   return (
     <li>
       <Link
@@ -47,10 +59,10 @@ function OrderRow({ order }: { order: InventoryOrderRow }) {
           </div>
           <div className="min-w-0 flex-1">
             <p className="whitespace-nowrap text-[12px] font-medium tabular-nums text-slate-500">
-              <b className="text-slate-800">{pcsText(order.readyPcs)}</b> / {pcsText(order.orderedPcs)} ready
+              <b className="text-slate-800">{pcsText(value)}</b> / {pcsText(order.orderedPcs)} {f.label}
             </p>
             <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
-              <div className="h-full rounded-full bg-emerald-500" style={{ width: `${share}%` }} />
+              <div className={cn('h-full rounded-full', f.bar)} style={{ width: `${share}%` }} />
             </div>
           </div>
         </div>
@@ -88,7 +100,7 @@ function FreeTakaRow({ t, selectable, on, onToggle }: { t: FreeStockTaka; select
 }
 
 /** Free stock of the item (belongs to no order): the figures and the free takas; Assign to order puts them on an order. */
-function FreeStockSection({ itemKey, designCode, blouse }: { itemKey: string; designCode: string | null; blouse: BlouseFilter }) {
+function FreeStockSection({ itemKey, designCode, blouse, showEmpty }: { itemKey: string; designCode: string | null; blouse: BlouseFilter; showEmpty?: boolean }) {
   const { can } = useRole();
   const free = useItemFreeStock(itemKey, blouse);
   const [picked, setPicked] = useState<number[]>([]);
@@ -96,8 +108,15 @@ function FreeStockSection({ itemKey, designCode, blouse }: { itemKey: string; de
   const canAssign = can('canMoveToInventory');
   const data = free.data;
   if (free.isPending) return <Skeleton className="h-28 rounded-xl" />;
-  if (free.isError || !data) return null;
-  if (data.takas.length === 0) return null;
+  if (free.isError || !data) return showEmpty ? <ErrorState error={free.error} onRetry={() => void free.refetch()} /> : null;
+  if (data.takas.length === 0) {
+    // Free stock KPI filter on: say so instead of an empty page.
+    return showEmpty ? (
+      <div className="rounded-xl border border-border bg-white shadow-soft">
+        <EmptyState icon={Boxes} title="No free stock" description="Takas moved to inventory or returned by a customer show here." className="py-10" />
+      </div>
+    ) : null;
+  }
   const f = data.figures;
   const toggle = (id: number) => setPicked((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
   return (
@@ -170,10 +189,12 @@ export default function InventoryItemDetailsPage() {
     );
   const item = useInventoryItem(key, blouse);
   const navigate = useNavigate();
-  const filter = params.get('filter') === 'ready' ? 'ready' : params.get('filter') === 'making' ? 'making' : '';
-  const orders = useInventoryItemOrders(key, debounced, filter, blouse);
-  // In making / Ready for dispatch filter the order list (click again to clear).
-  const toggleFilter = (f: 'ready' | 'making') =>
+  const filterParam = params.get('filter') as ItemFilter | null;
+  const filter: ItemFilter = filterParam && ITEM_FILTERS.includes(filterParam) ? filterParam : '';
+  // Free stock belongs to no order: that filter shows only the free stock section (no order list).
+  const orders = useInventoryItemOrders(key, debounced, filter === 'free' ? '' : filter, blouse);
+  // In making / Ready for order / Ready for dispatch filter the order list; Free stock shows the free takas (click again to clear).
+  const toggleFilter = (f: Exclude<ItemFilter, ''>) =>
     setParams(
       (prev) => {
         const next = new URLSearchParams(prev);
@@ -206,17 +227,18 @@ export default function InventoryItemDetailsPage() {
               <>
                 <KpiTile label="Ordered" value={pcsText(pcs.ordered)} />
                 <KpiTile label="In making" value={pcsText(pcs.inMaking)} dot="#38BDF8" onClick={() => toggleFilter('making')} active={filter === 'making'} />
-                <KpiTile label="Ready for order" value={pcsText(pcs.inGodown)} dot="#10B981" />
+                <KpiTile label="Ready for order" value={pcsText(pcs.inGodown)} dot="#10B981" onClick={() => toggleFilter('godown')} active={filter === 'godown'} />
                 <KpiTile label="Ready for dispatch" value={pcsText(pcs.readyDispatch)} dot="#14B8A6" onClick={() => toggleFilter('ready')} active={filter === 'ready'} />
                 <KpiTile label="Damaged" value={pcsText(pcs.damaged)} dot="#EF4444" tone={pcs.damaged > 0 ? 'danger' : undefined} onClick={() => openDamaged(false)} />
                 <KpiTile label="In refinish" value={pcsText(pcs.inRefinish)} dot="#F59E0B" onClick={() => openDamaged(true)} />
-                <KpiTile label="Free stock" value={pcsText(item.data?.free.total ?? 0)} dot="#6366F1" />
+                <KpiTile label="Free stock" value={pcsText(item.data?.free.total ?? 0)} dot="#6366F1" onClick={() => toggleFilter('free')} active={filter === 'free'} />
               </>
             ) : (
               <KpiSkeleton count={7} />
             )}
           </div>
 
+          {filter !== 'free' && (
           <section className="overflow-hidden rounded-xl border border-border bg-white shadow-soft">
             <div className="flex items-center justify-between gap-2 border-b border-border px-4 py-1.5">
               <h2 className={cn('text-[15px] font-semibold text-slate-900', search && 'hidden sm:block')}>
@@ -242,13 +264,14 @@ export default function InventoryItemDetailsPage() {
             ) : (
               <ul className="divide-y divide-border">
                 {orders.data.map((o) => (
-                  <OrderRow key={o.orderId} order={o} />
+                  <OrderRow key={o.orderId} order={o} figure={filter === 'making' || filter === 'godown' ? filter : 'ready'} />
                 ))}
               </ul>
             )}
           </section>
+          )}
 
-          <FreeStockSection itemKey={key} designCode={item.data?.code ?? null} blouse={blouse} />
+          <FreeStockSection itemKey={key} designCode={item.data?.code ?? null} blouse={blouse} showEmpty={filter === 'free'} />
         </>
       )}
     </div>

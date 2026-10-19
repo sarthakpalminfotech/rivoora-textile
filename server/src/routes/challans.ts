@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { buttaListQuerySchema, challanListQuerySchema, type ChallanKind } from '@rivoora/shared';
+import { buttaListQuerySchema, challanListQuerySchema, pendingTakasQuerySchema, workFiltersOf, type ChallanKind } from '@rivoora/shared';
 import { ah, parseId } from '../lib/http';
 import { requirePermission } from '../middleware/role';
 import {
@@ -43,7 +43,7 @@ export function challansRouter(kind: ChallanKind): Router {
     '/pending-orders/:orderId/takas',
     ah(async (req, res) => {
       res.set('Cache-Control', 'no-store');
-      res.json(await listPendingOrderTakas(kind, parseId(req.params.orderId, 'order id')));
+      res.json(await listPendingOrderTakas(kind, parseId(req.params.orderId, 'order id'), 'send', workFiltersOf(pendingTakasQuerySchema.parse(req.query))));
     }),
   );
 
@@ -60,7 +60,7 @@ export function challansRouter(kind: ChallanKind): Router {
       '/refinish-orders/:orderId/takas',
       ah(async (req, res) => {
         res.set('Cache-Control', 'no-store');
-        res.json(await listPendingOrderTakas(kind, parseId(req.params.orderId, 'order id'), 'refinish'));
+        res.json(await listPendingOrderTakas(kind, parseId(req.params.orderId, 'order id'), 'refinish', workFiltersOf(pendingTakasQuerySchema.parse(req.query))));
       }),
     );
   }

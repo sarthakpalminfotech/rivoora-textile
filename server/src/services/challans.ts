@@ -35,6 +35,8 @@ import {
   type RoleKey,
   type TakaEventKind,
   type TakaStage,
+  workFiltersOf,
+  type WorkFilters,
 } from '@rivoora/shared';
 import { db, type Tx } from '../db/client';
 import {
@@ -56,6 +58,7 @@ import { badRequest, conflict, notFound } from '../lib/errors';
 import { likePattern } from '../lib/http';
 import { chunk, recomputeOrdersStatus, writeTakaEvents, type TakaEventInput } from './taka-ops';
 import { takaOrderId } from './free-stock';
+import { challanFilters, rowFilters } from './work-filters';
 
 /**
  * Butta cutting AND the mill: Send (pending orders → challan), the challan list / details / print data, Receive.
@@ -193,6 +196,8 @@ export async function listPendingOrders(kind: ChallanKind, q: ButtaListQuery, mo
     search = sql`(${orders.orderNo} = ${orderNo ?? -1} OR ${designCodeSql} LIKE ${p} ESCAPE '\\' OR ${orders.id} IN (SELECT t2.order_id FROM takas t2 WHERE t2.is_deleted = 0 AND t2.stage IN (${sql.raw(stages)}) AND t2.taka_no LIKE ${p} ESCAPE '\\'))`;
   }
   const hasReady = sql`SUM(CASE WHEN ${isReadySql(kind, mode)} THEN 1 ELSE 0 END) > 0`;
+  // Filters modal: loom / quality / order type / blouse — only the matching takas count (and can be sent from the drawer).
+  const filters = rowFilters(workFiltersOf(q));
   const [items, [{ total }]] = await db.batch([
     db
       .select(pendingOrderColumns(kind, mode))
@@ -202,7 +207,7 @@ export async function listPendingOrders(kind: ChallanKind, q: ButtaListQuery, mo
       .innerJoin(materials, eq(materials.id, orders.materialId))
       .leftJoin(designs, eq(designs.id, orders.designId))
       .leftJoin(designVariations, eq(designVariations.id, orders.variationId))
-      .where(and(notSentWhere(kind, mode), search))
+      .where(and(notSentWhere(kind, mode), search, filters))
       .groupBy(orders.id)
       .having(hasReady)
       .orderBy(asc(orders.orderNo))
@@ -215,7 +220,7 @@ export async function listPendingOrders(kind: ChallanKind, q: ButtaListQuery, mo
       .innerJoin(orders, eq(orders.id, takaOrderId))
       .leftJoin(designs, eq(designs.id, orders.designId))
       .leftJoin(designVariations, eq(designVariations.id, orders.variationId))
-      .where(and(notSentWhere(kind, mode), isReadySql(kind, mode), search)),
+      .where(and(notSentWhere(kind, mode), isReadySql(kind, mode), search, filters)),
   ]);
   const count = Number(total);
   const more = await expectedMoreByOrder(kind, mode, items.map((i) => i.orderId));
@@ -226,7 +231,13 @@ export async function listPendingOrders(kind: ChallanKind, q: ButtaListQuery, mo
  * GET /<kind>/pending-orders/:orderId/takas — EVERY not-yet-sent taka of the order with its stage and a `ready` flag
  * (not-ready takas are shown greyed out and can't be selected).
  */
-export async function listPendingOrderTakas(kind: ChallanKind, orderId: number, mode: SendMode = 'send'): Promise<ChallanPendingOrderTakas> {
+export async function listPendingOrderTakas(
+  kind: ChallanKind,
+  orderId: number,
+  mode: SendMode = 'send',
+  workFilters?: WorkFilters,
+): Promise<ChallanPendingOrderTakas> {
+  const filters = workFilters ? rowFilters(workFilters) : undefined;
   const [orderRows, takaRows] = await db.batch([
     db
       .select(pendingOrderColumns(kind, mode))
@@ -236,7 +247,7 @@ export async function listPendingOrderTakas(kind: ChallanKind, orderId: number, 
       .innerJoin(materials, eq(materials.id, orders.materialId))
       .leftJoin(designs, eq(designs.id, orders.designId))
       .leftJoin(designVariations, eq(designVariations.id, orders.variationId))
-      .where(and(notSentWhere(kind, mode), eq(orders.id, orderId)))
+      .where(and(notSentWhere(kind, mode), eq(orders.id, orderId), filters))
       .groupBy(orders.id),
     db
       .select({
@@ -253,7 +264,8 @@ export async function listPendingOrderTakas(kind: ChallanKind, orderId: number, 
       })
       .from(takas)
       .innerJoin(jobsheets, eq(jobsheets.id, takas.jobsheetId))
-      .where(and(notSentWhere(kind, mode), eq(takaOrderId, orderId))),
+      .innerJoin(orders, eq(orders.id, takaOrderId))
+      .where(and(notSentWhere(kind, mode), eq(takaOrderId, orderId), filters)),
   ]);
   if (!orderRows[0]) throw notFound(`Order with takas waiting for ${CHALLAN_KIND_CONFIG[kind].place}`);
   const ready = modeStages(kind, mode).ready;
@@ -430,7 +442,7 @@ const totalMetersSql = sql<number>`(SELECT COALESCE(SUM(ct.meters), 0) ${rowsOf}
 const receivedSql = sql<number>`MAX("challans"."received_count", (SELECT COUNT(*) ${rowsOf} AND ct.received_at IS NOT NULL))`;
 
 export async function listChallans(kind: ChallanKind, q: ChallanListQuery): Promise<ChallanPage> {
-  const conds: (SQL | undefined)[] = [eq(challans.kind, kind)];
+  const conds: (SQL | undefined)[] = [eq(challans.kind, kind), challanFilters(workFiltersOf(q))];
   if (q.filter === 'open') conds.push(eq(challans.status, 'active'), sql`${receivedSql} < ${totalTakasSql}`);
   if (q.filter === 'received') conds.push(eq(challans.status, 'active'), sql`${totalTakasSql} > 0 AND ${receivedSql} = ${totalTakasSql}`);
   if (q.search) {

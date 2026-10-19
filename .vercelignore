@@ -7,3 +7,5 @@ server/uploads
 **/dist
 .vercel
 .netlify
+**/*.db
+**/*.db-*

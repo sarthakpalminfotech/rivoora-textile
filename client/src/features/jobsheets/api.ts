@@ -86,15 +86,15 @@ export function useJobsheetPrint(ids: number[]) {
  * The supervisor's Jobsheets module: one tab + search, paginated, with tab counts on every page. With `orderId`:
  * one order's jobsheets (Order view), plus the order's header (number + design).
  */
-export function useSupervisorJobsheets(tab: JobsheetTab, search: string, orderId?: number) {
-  const q = useInfiniteList<SupervisorJobsheetItem>(jobsheetKeys.list, '/jobsheets', { tab, search, orderId });
+export function useSupervisorJobsheets(tab: JobsheetTab, search: string, orderId?: number, filters: Record<string, string | undefined> = {}) {
+  const q = useInfiniteList<SupervisorJobsheetItem>(jobsheetKeys.list, '/jobsheets', { tab, search, orderId, ...filters });
   const first = q.data?.pages[0] as SupervisorJobsheetPage | undefined;
   return { ...q, counts: first?.counts, order: first?.order ?? null };
 }
 
 /** The supervisor's Order view: orders with their jobsheet counts (Pending / On-loom first). */
-export const useSupervisorOrders = (search: string) =>
-  useInfiniteList<SupervisorOrderItem>(jobsheetKeys.supervisorOrders, '/jobsheets/orders', { search });
+export const useSupervisorOrders = (search: string, filters: Record<string, string | undefined> = {}) =>
+  useInfiniteList<SupervisorOrderItem>(jobsheetKeys.supervisorOrders, '/jobsheets/orders', { search, ...filters });
 
 export function useMachineView() {
   return useQuery({

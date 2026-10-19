@@ -5,6 +5,7 @@ import { normalizeCode } from './codes';
 import { ORDER_TYPES } from './orderTypes';
 import { BLOUSE_FILTERS, BLOUSE_OPTIONS, CHOOSABLE_DAMAGE_TYPES } from './freeStock';
 import { UNITS } from './units';
+import { workFilterQueryFields } from './workFilters';
 import {
   DAMAGE_NAME_MAX_LENGTH,
   MAX_TAKAS_PER_JOBSHEET,
@@ -293,6 +294,7 @@ export const jobsheetListQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(20),
   search: listSearch,
   orderId: z.coerce.number().int().positive().optional(),
+  ...workFilterQueryFields,
 });
 export type JobsheetListQuery = z.infer<typeof jobsheetListQuerySchema>;
 
@@ -301,6 +303,7 @@ export const supervisorOrderListQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(100).default(20),
   search: listSearch,
+  ...workFilterQueryFields,
 });
 export type SupervisorOrderListQuery = z.infer<typeof supervisorOrderListQuerySchema>;
 
@@ -477,11 +480,13 @@ const pageQuery = {
 };
 
 /** GET /butta/pending-orders and GET /butta-qc/pending */
-export const buttaListQuerySchema = z.object(pageQuery);
+export const buttaListQuerySchema = z.object({ ...pageQuery, ...workFilterQueryFields });
 export type ButtaListQuery = z.infer<typeof buttaListQuerySchema>;
 
 /** GET /butta/challans */
-export const challanListQuerySchema = z.object({ filter: z.enum(CHALLAN_FILTERS).default('open'), ...pageQuery });
+export const challanListQuerySchema = z.object({ filter: z.enum(CHALLAN_FILTERS).default('open'), ...pageQuery, ...workFilterQueryFields });
+/** GET /<kind>/pending-orders/:orderId/takas — the same work filters as the list (loom / quality …). */
+export const pendingTakasQuerySchema = z.object(workFilterQueryFields);
 export type ChallanListQuery = z.infer<typeof challanListQuerySchema>;
 
 /** GET /takas/check?no= */

@@ -12,6 +12,8 @@ import {
   type SupervisorJobsheetItem,
   type SupervisorOrderHeader,
   type SupervisorOrderItem,
+  EMPTY_WORK_FILTERS,
+  WORK_FILTER_PARAM_KEYS,
 } from '@rivoora/shared';
 import { usePageTitle } from '@/components/layout/page-title';
 import { ErrorState, FetchingIndicator, LoadMore, SearchBar } from '@/components/list-parts';
@@ -33,6 +35,10 @@ import { printUrl, useSupervisorJobsheets, useSupervisorOrders } from './api';
 import { FramesValue, machineNumbers } from './parts';
 import { JobsheetRunDialogs, type RunAction, type RunJobsheet } from './run-dialogs';
 import { BlouseTag } from '../free-stock/blouse';
+import { FiltersButton, useWorkFilters, WorkFilterChips, WorkFiltersDialog, workFilterSearch, type WorkFilterField } from '../filters/work-filters';
+
+/** The supervisor's Filters modal: loom-wise, quality, order type, blouse and the date the jobsheet was sent. */
+const JOBSHEET_FILTER_FIELDS: readonly WorkFilterField[] = ['loom', 'quality', 'type', 'blouse', 'date'];
 
 // The supervisor's labels: Sent = "Pending", Ongoing = "On-loom" (from the status config's roleLabels).
 const TAB_LABEL: Record<JobsheetTab, string> = {
@@ -84,17 +90,14 @@ function Fact({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
-/** The design image at the top of a card; clicks in the lightbox bubble through the portal — keep them from the card. */
-function CardImage({ thumbUrl, imageUrl, code }: { thumbUrl: string | null; imageUrl: string | null; code: string | null }) {
+/**
+ * The design as a small thumbnail beside the card title (like the Orders cards); tapping it opens the full image.
+ * Clicks in the lightbox bubble through the portal — keep them from the card.
+ */
+export function CardThumb({ thumbUrl, imageUrl, code }: { thumbUrl: string | null; imageUrl: string | null; code: string | null }) {
   return (
-    <div onClick={thumbUrl ? (e) => e.stopPropagation() : undefined}>
-      <ImageThumb
-        thumbUrl={thumbUrl}
-        fullUrl={imageUrl}
-        alt={code ? `Design ${code}` : 'No design'}
-        className="aspect-[16/10] w-full"
-        rounded="rounded-none"
-      />
+    <div className="shrink-0" onClick={thumbUrl ? (e) => e.stopPropagation() : undefined}>
+      <ImageThumb thumbUrl={thumbUrl} fullUrl={imageUrl} alt={code ? `Design ${code}` : 'No design'} className="size-16" rounded="rounded-lg" />
     </div>
   );
 }
@@ -123,36 +126,38 @@ function JobsheetTile({ js, now, onOpen, onAction }: { js: SupervisorJobsheetIte
       aria-label={`Open ${jobsheetRef(js.orderNo, js.jobsheetNo)}`}
       className="flex h-full cursor-pointer flex-col overflow-hidden rounded-xl border border-border bg-white shadow-soft outline-none transition hover:border-primary/30 hover:shadow-pop focus-visible:ring-2 focus-visible:ring-primary/40"
     >
-      <div className="relative">
-        <CardImage thumbUrl={js.thumbUrl} imageUrl={js.imageUrl} code={js.designCode} />
-        {can('canPrintJobsheets') && (
-          <Tooltip content="Print jobsheet">
-            <button
-              type="button"
-              title="Print jobsheet"
-              aria-label={`Print ${jobsheetRef(js.orderNo, js.jobsheetNo)}`}
-              onClick={(e) => {
-                e.stopPropagation();
-                navigate(printUrl([js.id]));
-              }}
-              className="absolute right-2 top-2 flex size-10 items-center justify-center rounded-full bg-white text-slate-800 shadow-pop ring-1 ring-black/10 transition hover:bg-slate-50 active:scale-95"
-            >
-              <Printer className="size-5" />
-            </button>
-          </Tooltip>
-        )}
-      </div>
       <div className="flex flex-1 flex-col gap-3 p-4">
-        <div className="flex items-start justify-between gap-2">
-          <p className="min-w-0 text-2xl font-bold leading-tight text-slate-900">
-            <JobsheetRef orderNo={js.orderNo} jobsheetNo={js.jobsheetNo} />
-          </p>
-          <StatusBadge kind="jobsheet" status={js.status} className="mt-1 shrink-0 text-[13px]" />
+        <div className="flex items-start gap-3">
+          <CardThumb thumbUrl={js.thumbUrl} imageUrl={js.imageUrl} code={js.designCode} />
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-xl font-bold leading-tight text-slate-900">
+              <JobsheetRef orderNo={js.orderNo} jobsheetNo={js.jobsheetNo} />
+            </p>
+            <p className="truncate text-sm text-slate-500">
+              {js.designCode ? `Design ${js.designCode}` : 'No design'} · {js.quality}
+            </p>
+            <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+              <StatusBadge kind="jobsheet" status={js.status} className="text-[13px]" />
+              {js.blouseOption && <BlouseTag option={js.blouseOption} />}
+            </div>
+          </div>
+          {can('canPrintJobsheets') && (
+            <Tooltip content="Print jobsheet">
+              <button
+                type="button"
+                title="Print jobsheet"
+                aria-label={`Print ${jobsheetRef(js.orderNo, js.jobsheetNo)}`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  navigate(printUrl([js.id]));
+                }}
+                className="-mr-1 -mt-1 flex size-11 shrink-0 items-center justify-center rounded-full text-slate-600 ring-1 ring-border transition hover:bg-slate-50 hover:text-slate-900 active:scale-95"
+              >
+                <Printer className="size-5" />
+              </button>
+            </Tooltip>
+          )}
         </div>
-        <p className="-mt-1.5 truncate text-sm text-slate-500">
-          {js.designCode ? `Design ${js.designCode}` : 'No design'} · {js.quality}
-        </p>
-        {js.blouseOption && <BlouseTag option={js.blouseOption} className="-mt-1.5 w-fit" />}
 
         <dl className="grid grid-cols-2 gap-2 border-t border-border pt-3">
           <Fact label={js.status === JOBSHEET_STATUS.COMPLETED ? 'Frames made' : 'Frames'}>
@@ -229,13 +234,15 @@ function GridSkeleton() {
     <div className={GRID}>
       {Array.from({ length: 8 }, (_, i) => (
         <div key={i} className="overflow-hidden rounded-xl border border-border bg-white shadow-soft">
-          <Skeleton className="aspect-[16/10] w-full rounded-none" />
           <div className="space-y-3 p-4">
-            <div className="flex justify-between">
-              <Skeleton className="h-7 w-32" />
-              <Skeleton className="h-6 w-20 rounded-full" />
+            <div className="flex gap-3">
+              <Skeleton className="size-16 shrink-0 rounded-lg" />
+              <div className="flex-1 space-y-2">
+                <Skeleton className="h-6 w-32" />
+                <Skeleton className="h-4 w-2/3" />
+                <Skeleton className="h-5 w-20 rounded-full" />
+              </div>
             </div>
-            <Skeleton className="h-4 w-2/3" />
             <Skeleton className="h-10" />
           </div>
           <div className="border-t border-border p-3">
@@ -285,6 +292,8 @@ export function SupervisorJobsheetList({
   const tab: JobsheetTab = isTab(params.get('tab')) ? (params.get('tab') as JobsheetTab) : 'all';
   const { searchText, setSearchText, search } = useUrlSearch();
   const [run, setRun] = useState<RunAction | null>(null);
+  const work = useWorkFilters();
+  const [filtersOpen, setFiltersOpen] = useState(false);
 
   const setTab = (t: string) =>
     setParams(
@@ -297,14 +306,19 @@ export function SupervisorJobsheetList({
       { replace: true },
     );
 
-  const query = useSupervisorJobsheets(tab, search, orderId);
+  const query = useSupervisorJobsheets(tab, search, orderId, work.query);
   const { items, total, counts, order, isPending, isError, error, refetch } = query;
   useEffect(() => {
     onOrder?.(order, isError ? error : null);
   }, [order, isError, error, onOrder]);
-  const empty = search
-    ? { title: 'No jobsheets match your search', description: 'Try an order number, a jobsheet number or a design code.', icon: SearchX }
-    : EMPTY[tab];
+  const empty =
+    search || work.count
+      ? {
+          title: search ? 'No jobsheets match your search' : 'No jobsheets match the filters',
+          description: search ? 'Try an order number, a jobsheet number or a design code.' : 'Change or clear the filters.',
+          icon: SearchX,
+        }
+      : EMPTY[tab];
 
   return (
     <div className="space-y-4">
@@ -316,7 +330,18 @@ export function SupervisorJobsheetList({
           className="md:max-w-md"
         />
         <FetchingIndicator show={query.isFetching && !isPending && !query.isFetchingNextPage} />
+        <FiltersButton count={work.count} onClick={() => setFiltersOpen(true)} />
       </div>
+      <WorkFilterChips value={work.filters} onChange={work.setFilters} />
+      <WorkFiltersDialog
+        open={filtersOpen}
+        onOpenChange={setFiltersOpen}
+        value={work.filters}
+        onApply={work.setFilters}
+        fields={JOBSHEET_FILTER_FIELDS}
+        title="Filter jobsheets"
+        dateLabel="Sent date"
+      />
 
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList className="md:max-w-2xl" aria-label="Jobsheet status">
@@ -347,6 +372,10 @@ export function SupervisorJobsheetList({
               search ? (
                 <Button variant="secondary" onClick={() => setSearchText('')}>
                   Clear search
+                </Button>
+              ) : work.count ? (
+                <Button variant="secondary" onClick={() => work.setFilters(EMPTY_WORK_FILTERS)}>
+                  Clear filters
                 </Button>
               ) : undefined
             }
@@ -413,12 +442,14 @@ function OrderTile({ order, onOpen }: { order: SupervisorOrderItem; onOpen: () =
       aria-label={`Open the jobsheets of order ${formatOrderNo(order.orderNo)}`}
       className="flex h-full cursor-pointer flex-col overflow-hidden rounded-xl border border-border bg-white shadow-soft outline-none transition hover:border-primary/30 hover:shadow-pop focus-visible:ring-2 focus-visible:ring-primary/40"
     >
-      <CardImage thumbUrl={order.designThumbUrl} imageUrl={order.designImageUrl} code={order.designCode} />
       <div className="flex flex-1 flex-col gap-3 p-4">
-        <div>
-          <p className="text-2xl font-bold leading-tight text-slate-900">Order {formatOrderNo(order.orderNo)}</p>
-          <p className="truncate text-sm text-slate-500">{order.designCode ? `Design ${order.designCode}` : 'No design'}</p>
-          {order.blouseOption && <BlouseTag option={order.blouseOption} className="mt-1" />}
+        <div className="flex items-start gap-3">
+          <CardThumb thumbUrl={order.designThumbUrl} imageUrl={order.designImageUrl} code={order.designCode} />
+          <div className="min-w-0">
+            <p className="text-xl font-bold leading-tight text-slate-900">Order {formatOrderNo(order.orderNo)}</p>
+            <p className="truncate text-sm text-slate-500">{order.designCode ? `Design ${order.designCode}` : 'No design'}</p>
+            {order.blouseOption && <BlouseTag option={order.blouseOption} className="mt-1" />}
+          </div>
         </div>
         <div className="flex flex-wrap gap-1.5" aria-label="Jobsheets per status">
           <CountPill status="sent" n={counts.pending} />
@@ -462,7 +493,9 @@ function OrderTile({ order, onOpen }: { order: SupervisorOrderItem; onOpen: () =
 function SupervisorOrdersList() {
   const navigate = useNavigate();
   const { searchText, setSearchText, search } = useUrlSearch();
-  const query = useSupervisorOrders(search);
+  const work = useWorkFilters();
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const query = useSupervisorOrders(search, work.query);
   const { items, total, isPending, isError, error, refetch } = query;
 
   return (
@@ -470,7 +503,18 @@ function SupervisorOrdersList() {
       <div className="flex items-center gap-2">
         <SearchBar value={searchText} onChange={setSearchText} placeholder="Search order no or design…" className="md:max-w-md" />
         <FetchingIndicator show={query.isFetching && !isPending && !query.isFetchingNextPage} />
+        <FiltersButton count={work.count} onClick={() => setFiltersOpen(true)} />
       </div>
+      <WorkFilterChips value={work.filters} onChange={work.setFilters} />
+      <WorkFiltersDialog
+        open={filtersOpen}
+        onOpenChange={setFiltersOpen}
+        value={work.filters}
+        onApply={work.setFilters}
+        fields={JOBSHEET_FILTER_FIELDS}
+        title="Filter orders"
+        dateLabel="Jobsheet sent date"
+      />
       {isPending ? (
         <GridSkeleton />
       ) : isError ? (
@@ -488,6 +532,17 @@ function SupervisorOrdersList() {
                 </Button>
               }
             />
+          ) : work.count ? (
+            <EmptyState
+              icon={SearchX}
+              title="No orders match the filters"
+              description="Change or clear the filters."
+              action={
+                <Button variant="secondary" onClick={() => work.setFilters(EMPTY_WORK_FILTERS)}>
+                  Clear filters
+                </Button>
+              }
+            />
           ) : (
             <EmptyState icon={ClipboardCheck} title="No jobsheets yet" description="Jobsheets sent by the office appear here, grouped by order." />
           )}
@@ -497,7 +552,8 @@ function SupervisorOrdersList() {
           <ul className={cn(GRID, query.isPlaceholderData && 'opacity-60 transition-opacity')}>
             {items.map((o) => (
               <li key={o.orderId} className="min-w-0">
-                <OrderTile order={o} onOpen={() => navigate(`/jobsheets/order/${o.orderId}`)} />
+                {/* The filters go along: the order's jobsheets open filtered the same way. */}
+                <OrderTile order={o} onOpen={() => navigate(`/jobsheets/order/${o.orderId}${workFilterSearch(work.filters)}`)} />
               </li>
             ))}
           </ul>
@@ -522,10 +578,14 @@ export default function SupervisorJobsheetsPage() {
   const view: View = params.get('view') === 'all' ? 'all' : 'order';
   const setView = (v: View) =>
     setParams(
-      () => {
-        // Each view has its own search / tab — start clean.
+      (prev) => {
+        // Each view has its own search / tab — start clean; the filters stay.
         const next = new URLSearchParams();
         if (v === 'all') next.set('view', 'all');
+        for (const k of WORK_FILTER_PARAM_KEYS) {
+          const val = prev.get(k);
+          if (val) next.set(k, val);
+        }
         return next;
       },
       { replace: true },

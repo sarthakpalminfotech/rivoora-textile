@@ -29,7 +29,7 @@ import { ApiError, errorMessage } from '@/lib/api';
 import { formatOrderNo, toApiDate } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { usePartyLookup } from '../masters/api';
-import { fetchPendingOrderTakas, useCreateChallan, usePendingOrders, usePendingOrderTakas, type SendMode } from './api';
+import { fetchPendingOrderTakas, useCreateChallan, usePendingOrders, usePendingOrderTakas, type FilterQuery, type SendMode } from './api';
 import { ReButtaTag, ReMillTag } from '../takas/taka-tags';
 import { challanPrintPath } from './kind';
 
@@ -121,15 +121,8 @@ function OrderCard({
         selectedCount > 0 ? 'border-primary ring-1 ring-primary/30' : 'border-border hover:border-primary/30',
       )}
     >
-      <div className="relative">
-        <ImageThumb
-          thumbUrl={order.thumbUrl}
-          fullUrl={order.imageUrl}
-          alt={order.designCode ? `Design ${order.designCode}` : 'No design'}
-          className="aspect-[4/3] w-full"
-          rounded="rounded-none"
-        />
-        <div className="absolute left-2.5 top-2.5 flex items-center gap-2 rounded-lg bg-white/95 p-1.5 shadow-soft">
+      <div className="flex items-start gap-3 p-4 pb-0">
+        <div className="flex shrink-0 flex-col items-center gap-1 pt-0.5" onClick={(e) => e.stopPropagation()}>
           {busy ? (
             <Loader2 className="size-7 animate-spin text-primary" aria-label="Selecting" />
           ) : (
@@ -142,19 +135,31 @@ function OrderCard({
               className="before:absolute before:-inset-2 before:content-['']"
             />
           )}
+        </div>
+        {/* The design as a small thumbnail (tap = full image); the lightbox's clicks must not open the drawer. */}
+        <div className="shrink-0" onClick={order.thumbUrl ? (e) => e.stopPropagation() : undefined}>
+          <ImageThumb
+            thumbUrl={order.thumbUrl}
+            fullUrl={order.imageUrl}
+            alt={order.designCode ? `Design ${order.designCode}` : 'No design'}
+            className="size-16"
+            rounded="rounded-lg"
+          />
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="text-xl font-bold leading-tight text-slate-900">Order {formatOrderNo(order.orderNo)}</p>
+          <p className="truncate text-sm text-slate-500">
+            {order.designCode ? `Design ${order.designCode}` : 'No design'}
+            {order.quality && ` · ${order.quality}`}
+          </p>
           {partial && (
-            <span className="pr-1 text-xs font-bold text-primary">
-              {selectedCount} of {order.takaCount}
-            </span>
+            <p className="mt-0.5 text-xs font-bold text-primary">
+              {selectedCount} of {order.takaCount} selected
+            </p>
           )}
         </div>
       </div>
-      <div className="flex flex-1 flex-col gap-1 p-4">
-        <p className="text-2xl font-bold leading-tight text-slate-900">Order {formatOrderNo(order.orderNo)}</p>
-        <p className="truncate text-sm text-slate-500">
-          {order.designCode ? `Design ${order.designCode}` : 'No design'}
-          {order.quality && ` · ${order.quality}`}
-        </p>
+      <div className="flex flex-1 flex-col gap-1 px-4 pb-4">
         {mode === 'refinish' ? (
           <p className="mt-auto flex items-center gap-2 pt-2 text-[15px] font-semibold text-slate-800">
             <span className="rounded-full bg-pink-100 px-2 py-0.5 text-[11px] font-bold text-pink-700">Refinish</span>
@@ -186,16 +191,18 @@ function TakasDrawer({
   onSelected,
   onLoaded,
   onClose,
+  filters,
 }: {
   kind: ChallanKind;
   mode: SendMode;
+  filters: FilterQuery;
   order: ChallanPendingOrder | null;
   selected: Set<number> | undefined;
   onSelected: (orderId: number, ids: Set<number>) => void;
   onLoaded: (orderId: number, takas: ChallanPendingTaka[]) => void;
   onClose: () => void;
 }) {
-  const query = usePendingOrderTakas(kind, order?.orderId ?? null, mode);
+  const query = usePendingOrderTakas(kind, order?.orderId ?? null, mode, filters);
   const takas = query.data?.takas;
   const initialised = useRef<number | null>(null);
 
@@ -567,7 +574,7 @@ function GridSkeleton() {
   return (
     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
       {Array.from({ length: 8 }, (_, i) => (
-        <Skeleton key={i} className="h-72 rounded-xl" />
+        <Skeleton key={i} className="h-40 rounded-xl" />
       ))}
     </div>
   );
@@ -578,10 +585,12 @@ function GridSkeleton() {
  * then send them on one challan. Takas that are not ready yet are shown (greyed) in the drawer; sending with some of
  * them left over asks first ("Send ready takas only").
  */
-export function SendPending({ kind, search, mode = 'send' }: { kind: ChallanKind; search: string; mode?: SendMode }) {
+export function SendPending({ kind, search, mode = 'send', filters = {} }: { kind: ChallanKind; search: string; mode?: SendMode; filters?: FilterQuery }) {
   const qc = useQueryClient();
   const navigate = useNavigate();
-  const query = usePendingOrders(kind, search, mode);
+  // Filters (loom / quality / …): only the matching takas are listed, counted and selected.
+  const query = usePendingOrders(kind, search, mode, filters);
+  const filtered = Object.values(filters).some(Boolean);
   const [selection, setSelection] = useState<Selection>(new Map());
   /** Every taka we have seen per order (to total the selection and to find the not-ready ones). */
   const [known, setKnown] = useState<Map<number, ChallanPendingTaka[]>>(new Map());
@@ -618,7 +627,7 @@ export function SendPending({ kind, search, mode = 'send' }: { kind: ChallanKind
     }
     setBusy((b) => new Set(b).add(order.orderId));
     try {
-      const res = await fetchPendingOrderTakas(qc, kind, order.orderId, mode);
+      const res = await fetchPendingOrderTakas(qc, kind, order.orderId, mode, filters);
       rememberTakas(order.orderId, res.takas);
       setOrderSelection(order.orderId, readyIds(res.takas));
     } catch (err) {
@@ -681,10 +690,10 @@ export function SendPending({ kind, search, mode = 'send' }: { kind: ChallanKind
       {orders.length === 0 ? (
         <div className="rounded-xl border border-border bg-white shadow-soft">
           <EmptyState
-            icon={search ? SearchX : PackageOpen}
-            title={search ? 'No orders match your search' : mode === 'refinish' ? 'No takas to refinish' : kind === 'butta' ? 'Nothing waiting for butta cutting' : 'Nothing ready for the mill'}
+            icon={search || filtered ? SearchX : PackageOpen}
+            title={search ? 'No orders match your search' : filtered ? 'No orders match the filters' : mode === 'refinish' ? 'No takas to refinish' : kind === 'butta' ? 'Nothing waiting for butta cutting' : 'Nothing ready for the mill'}
             description={
-              search
+              search || filtered
                 ? undefined
                 : mode === 'refinish'
                   ? 'Takas that Mill QC or the godown marks for refinish wait here to go back to the mill.'
@@ -746,6 +755,7 @@ export function SendPending({ kind, search, mode = 'send' }: { kind: ChallanKind
         kind={kind}
         mode={mode}
         order={openOrder}
+        filters={filters}
         selected={openOrder ? selection.get(openOrder.orderId) : undefined}
         onSelected={setOrderSelection}
         onLoaded={rememberTakas}

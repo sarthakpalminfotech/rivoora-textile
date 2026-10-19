@@ -22,3 +22,4 @@ export * from './freeStock';
 export * from './orderFilters';
 export * from './orderDocs';
 export * from './orderMilestones';
+export * from './workFilters';
