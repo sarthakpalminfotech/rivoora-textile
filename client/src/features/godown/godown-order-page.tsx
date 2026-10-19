@@ -167,14 +167,16 @@ function TakaRow({
             <TickBox size="lg" checked={select.on} disabled={!select.allowed} onCheckedChange={select.onToggle} aria-label={`Select taka ${taka.takaNo} to move to inventory`} />
           </span>
         )}
-        <TickBox
-          size="lg"
-          checked={taka.checked || taka.stage === 'ready_dispatch'}
-          disabled={disabled}
-          onCheckedChange={(c) => void onPatch({ checked: c }).catch(() => undefined)}
-          aria-label={`I have checked taka ${taka.takaNo} and it's okay`}
-          className="before:absolute before:-inset-2.5 before:content-[''] relative"
-        />
+        {!select && (
+          <TickBox
+            size="lg"
+            checked={taka.checked || taka.stage === 'ready_dispatch'}
+            disabled={disabled}
+            onCheckedChange={(c) => void onPatch({ checked: c }).catch(() => undefined)}
+            aria-label={`I have checked taka ${taka.takaNo} and it's okay`}
+            className="before:absolute before:-inset-2.5 before:content-[''] relative"
+          />
+        )}
         <div className="min-w-0">
           <p className={cn('flex flex-wrap items-center gap-x-2 text-xl font-bold tabular-nums', disabled ? 'text-slate-500' : 'text-slate-900')}>
             {taka.takaNo}
@@ -474,7 +476,7 @@ function FinalTakasTab({ order }: { order: GodownOrder }) {
       )}
 
       {/* Sticky action: above the phone bottom nav, at the bottom of the window on md+. */}
-      <div className="sticky bottom-[calc(4rem+env(safe-area-inset-bottom))] z-20 -mx-4 border-t border-border bg-white/95 px-4 py-3 backdrop-blur md:bottom-0 md:mx-0 md:rounded-t-2xl md:border-x">
+      <div className="sticky bottom-[calc(4rem+env(safe-area-inset-bottom))] z-20 -mx-4 border-t border-border bg-white/95 px-4 py-3 backdrop-blur lg:bottom-0 lg:mx-0 lg:rounded-t-2xl lg:border-x">
         {selecting ? (
           <div className="flex items-center justify-between gap-3">
             <p className="text-[15px] font-semibold tabular-nums text-slate-800">{picked.length} {picked.length === 1 ? 'taka' : 'takas'} selected</p>

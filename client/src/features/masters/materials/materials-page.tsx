@@ -124,7 +124,7 @@ export default function MaterialsPage() {
   const openForm = (material: Material | null) => setForm({ open: true, material });
 
   return (
-    <div className="page-container space-y-4 pb-24 pt-5 md:pb-5">
+    <div className="page-container space-y-4 pb-24 pt-5 lg:pb-5">
       <MasterToolbar
         search={search}
         onSearch={setSearch}

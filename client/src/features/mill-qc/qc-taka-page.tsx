@@ -454,7 +454,7 @@ function QcForm({ taka, notReceived }: { taka: TakaDetail; notReceived: boolean 
       )}
 
       {touched && (
-        <div className="sticky bottom-[calc(4rem+env(safe-area-inset-bottom))] z-20 -mx-4 border-t border-border bg-white/95 px-4 py-3 backdrop-blur md:bottom-0 md:mx-0 md:rounded-t-2xl md:border-x">
+        <div className="sticky bottom-[calc(4rem+env(safe-area-inset-bottom))] z-20 -mx-4 border-t border-border bg-white/95 px-4 py-3 backdrop-blur lg:bottom-0 lg:mx-0 lg:rounded-t-2xl lg:border-x">
           <Button size="lg" className="h-14 w-full text-lg" onClick={() => tryConfirm('done')}>
             <Bi en="Done" hi="पूरा" className="items-center" />
           </Button>

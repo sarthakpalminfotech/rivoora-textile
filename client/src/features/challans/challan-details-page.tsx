@@ -291,7 +291,7 @@ function Body({ challan }: { challan: ChallanDetail }) {
       </div>
 
       {canReceive && tickedNow.length > 0 && (
-        <div className="fixed inset-x-0 bottom-[calc(4rem+env(safe-area-inset-bottom))] z-30 border-t border-border bg-white/95 px-4 py-3 shadow-pop backdrop-blur md:sticky md:inset-x-auto md:bottom-4 md:rounded-xl md:border">
+        <div className="fixed inset-x-0 bottom-[calc(4rem+env(safe-area-inset-bottom))] z-30 border-t border-border bg-white/95 px-4 py-3 shadow-pop backdrop-blur lg:sticky lg:inset-x-auto lg:bottom-4 lg:rounded-xl lg:border">
           <div className="mx-auto flex flex-wrap items-center gap-2">
             <p className="mr-auto text-sm font-semibold text-slate-800">{tickedNow.length} selected</p>
             <Button variant="secondary" size="lg" className="h-12" onClick={() => setTicked(new Set())}>

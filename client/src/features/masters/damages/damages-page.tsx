@@ -122,7 +122,7 @@ export default function DamagesPage() {
   const openForm = (damage: Damage | null) => setForm({ open: true, damage });
 
   return (
-    <div className="page-container space-y-4 pb-24 pt-5 md:pb-5">
+    <div className="page-container space-y-4 pb-24 pt-5 lg:pb-5">
       <MasterToolbar
         search={search}
         onSearch={setSearch}

@@ -20,6 +20,7 @@ const OrdersPage = lazy(() => import('@/features/orders/orders-page'));
 const OrderDetailsPage = lazy(() => import('@/features/orders/order-details-page'));
 const AddOrderPage = lazy(() => import('@/features/orders/add-order-page'));
 const EditOrderPage = lazy(() => import('@/features/orders/edit-order-page'));
+const MastersPage = lazy(() => import('@/features/masters/masters-page'));
 const CustomersPage = lazy(() => import('@/features/masters/customers/customers-page'));
 const MaterialsPage = lazy(() => import('@/features/masters/materials/materials-page'));
 const DesignsPage = lazy(() => import('@/features/masters/designs/designs-page'));
@@ -147,6 +148,7 @@ const router = createBrowserRouter([
           { path: 'login', element: <LandingRedirect /> },
           { path: 'orders', element: guard(['canViewOrders', 'canViewProductionOrders'], <OrdersPage />) },
           { path: 'orders/:id', element: guard(['canViewOrders', 'canViewProductionOrders'], <OrderDetailsPage />) },
+          { path: 'masters', element: guard('canViewMasters', <MastersPage />) },
           { path: 'customers', element: guard('canViewMasters', <CustomersPage />) },
           { path: 'materials', element: guard('canViewMasters', <MaterialsPage />) },
           { path: 'designs', element: guard('canViewMasters', <DesignsPage />) },

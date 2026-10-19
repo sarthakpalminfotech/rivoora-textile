@@ -732,7 +732,7 @@ export function SendPending({ kind, search, mode = 'send', filters = {} }: { kin
 
       {/* Selection action bar (above the phone bottom nav, sticky on md+) */}
       {totals.takas > 0 && (
-        <div className="fixed inset-x-0 bottom-[calc(4rem+env(safe-area-inset-bottom))] z-30 border-t border-border bg-white/95 px-4 py-3 shadow-pop backdrop-blur md:sticky md:inset-x-auto md:bottom-4 md:rounded-xl md:border">
+        <div className="fixed inset-x-0 bottom-[calc(4rem+env(safe-area-inset-bottom))] z-30 border-t border-border bg-white/95 px-4 py-3 shadow-pop backdrop-blur lg:sticky lg:inset-x-auto lg:bottom-4 lg:rounded-xl lg:border">
           <div className="mx-auto flex flex-wrap items-center gap-2">
             <p className="mr-auto text-sm font-semibold text-slate-800">
               {totals.takas} {totals.takas === 1 ? 'taka' : 'takas'} · {formatPcs(totals.pcs)} · {formatMeters(totals.meters)} selected

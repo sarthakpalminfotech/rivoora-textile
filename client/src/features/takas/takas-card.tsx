@@ -351,7 +351,7 @@ export function OrderTakasCard({ order }: { order: OrderDetail }) {
     >
       {body}
       {selecting && (
-        <div className="sticky bottom-20 z-10 mt-4 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border bg-white p-3 shadow-card md:bottom-4">
+        <div className="sticky bottom-20 z-10 mt-4 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border bg-white p-3 shadow-card lg:bottom-4">
           <p className="text-[15px] font-semibold tabular-nums text-slate-900">
             {picked.size} taka{picked.size === 1 ? '' : 's'} selected
           </p>
