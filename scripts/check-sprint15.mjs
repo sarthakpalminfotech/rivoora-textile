@@ -188,5 +188,38 @@ const party = async (kind, name) => (await ok('jemish', 'POST', `/${kind}-partie
   check((await call('qc', 'POST', `/butta-qc/${sent[0]}`, { damageDecisions: [], newDamages: [] })).status === 200, 'after release QC works again');
 }
 
+// ---------------------------------------------------------------- 6. godown supervisor: Orders (read-only, butta onwards)
+{
+  const inProduction = await newOrder(60); // no takas yet → not in his module
+  await ok('jemish', 'POST', `/orders/${inProduction.id}/jobsheets/generate`, { pieces: 60, framesPerJobsheet: 10, machineIds });
+  const withTakas = await newOrder(60);
+  const { takaIds } = await produce(withTakas.id, 60, 10, 2, 15);
+  const bp = await party('butta', 'GodownButta');
+  await ok('godown', 'POST', '/butta/challans', { takaIds: takaIds.slice(0, 2), partyId: bp, challanDate: today });
+
+  const list = await ok('godown', 'GET', '/orders?limit=100');
+  check(list.items.some((i) => i.id === withTakas.id), 'godown Orders: an order with takas is listed');
+  check(!list.items.some((i) => i.id === inProduction.id), 'godown Orders: an order still only in production is not');
+  check(list.items.every((i) => i.customerName === '' && i.brokerName === null), 'godown Orders: no client / broker names in the list');
+  const detail = await ok('godown', 'GET', `/orders/${withTakas.id}`);
+  check(detail.customer.name === '' && detail.customer.phone === null && !('rate' in detail), 'godown Orders: no client, phone or rate on the order');
+  check((await call('godown', 'GET', `/orders/${inProduction.id}`)).status === 404, 'godown Orders: an order without takas → 404');
+  const dash = await ok('godown', 'GET', `/orders/${withTakas.id}/dashboard`);
+  check(!dash.mainStages.some((s) => s.key === 'production') && dash.mainStages.map((s) => s.key).join() === 'butta,mill,ready', 'godown dashboard: Butta cutting, Mill and Ready only', dash.mainStages.map((s) => s.key));
+  check(dash.alerts.length === 0 && dash.production.jobsheets === 0, 'godown dashboard: no jobsheet KPIs or alerts');
+  check((await call('godown', 'GET', `/orders/${withTakas.id}/dashboard/items?sub=on_loom`)).status === 404, 'godown dashboard: no jobsheet lists');
+  check((await call('godown', 'GET', `/orders/${withTakas.id}/dashboard/items?sub=at_butta`)).status === 200, 'godown dashboard: butta takas open');
+  for (const tab of ['takas', 'damages', 'challans', 'milestones']) {
+    check((await call('godown', 'GET', `/orders/${withTakas.id}/${tab}`)).status === 200, `godown Orders: ${tab} tab data`);
+  }
+  check((await call('godown', 'GET', `/orders/${withTakas.id}/jobsheets`)).status === 403, 'godown Orders: no Jobsheets tab data');
+  check((await call('godown', 'PUT', `/orders/${withTakas.id}`, {})).status === 403, 'godown Orders: read only (edit → 403)');
+  check((await call('godown', 'POST', `/orders/${withTakas.id}/takas/send-back`, { takaIds: [takaIds[2]], target: 'butta' })).status === 403, 'godown Orders: no send-back');
+  check((await call('godown', 'GET', `/jobsheets/${(await jobsheetsOf(withTakas.id)).jobsheets[0].id}`)).status === 403, 'godown: jobsheet details stay closed');
+  await ok('jemish', 'POST', `/orders/${withTakas.id}/hold`, {});
+  check(!(await ok('godown', 'GET', '/orders?limit=100')).items.some((i) => i.id === withTakas.id), 'godown Orders: a held order is hidden');
+  await ok('jemish', 'POST', `/orders/${withTakas.id}/release`);
+}
+
 console.log(failed ? `\n${failed} check(s) FAILED` : '\nAll checks passed');
 process.exit(failed ? 1 : 0);

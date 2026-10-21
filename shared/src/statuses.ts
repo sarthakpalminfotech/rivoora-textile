@@ -18,10 +18,19 @@ export interface StatusConfig {
 }
 
 const FROM_READY: readonly RoleKey[] = ['jemish', 'gaurang'];
-/** The dispatch statuses are also visible to Dhruvil (dispatch). */
-const DISPATCH_VISIBLE: readonly RoleKey[] = ['jemish', 'gaurang', 'dhruvil'];
+/**
+ * Sprint 15: the godown supervisor's read-only Orders module lists orders with takas at butta cutting or later, so he
+ * also sees the statuses from "In production" on (an order whose first jobsheets are woven is already In production).
+ */
+const GODOWN: RoleKey = 'godown_supervisor';
+/** In butta cutting → Ready for dispatch. */
+const FROM_BUTTA: readonly RoleKey[] = [...FROM_READY, GODOWN];
+/** The dispatch statuses are also visible to Dhruvil (dispatch) and the godown supervisor. */
+const DISPATCH_VISIBLE: readonly RoleKey[] = ['jemish', 'gaurang', 'dhruvil', GODOWN];
 /** Production phase (Jobsheet created → Taka entry done): the supervisor can view these orders too (read only). */
 const IN_PRODUCTION: readonly RoleKey[] = ['jemish', 'gaurang', 'supervisor'];
+/** In production → Taka entry done: also the godown supervisor (his orders have takas, so never "Jobsheet created"). */
+const IN_PRODUCTION_WITH_TAKAS: readonly RoleKey[] = [...IN_PRODUCTION, GODOWN];
 
 export const ORDER_STATUSES = [
   {
@@ -51,63 +60,63 @@ export const ORDER_STATUSES = [
     label: 'In production',
     sequence: 40,
     badge: { bg: '#E0F2FE', text: '#075985', dot: '#0EA5E9' },
-    visibleTo: IN_PRODUCTION,
+    visibleTo: IN_PRODUCTION_WITH_TAKAS,
   },
   {
     key: 'production_completed',
     label: 'Production completed',
     sequence: 50,
     badge: { bg: '#CCFBF1', text: '#115E59', dot: '#14B8A6' },
-    visibleTo: IN_PRODUCTION,
+    visibleTo: IN_PRODUCTION_WITH_TAKAS,
   },
   {
     key: 'taka_entry_done',
     label: 'Taka entry done',
     sequence: 60,
     badge: { bg: '#F3E8FF', text: '#6B21A8', dot: '#A855F7' },
-    visibleTo: IN_PRODUCTION,
+    visibleTo: IN_PRODUCTION_WITH_TAKAS,
   },
   {
     key: 'in_butta_cutting',
     label: 'In butta cutting',
     sequence: 70,
     badge: { bg: '#FFEDD5', text: '#9A3412', dot: '#F97316' },
-    visibleTo: FROM_READY,
+    visibleTo: FROM_BUTTA,
   },
   {
     key: 'ready_for_mill',
     label: 'Ready for mill',
     sequence: 80,
     badge: { bg: '#FAE8FF', text: '#86198F', dot: '#D946EF' },
-    visibleTo: FROM_READY,
+    visibleTo: FROM_BUTTA,
   },
   {
     key: 'in_mill',
     label: 'In mill',
     sequence: 90,
     badge: { bg: '#EDE9FE', text: '#5B21B6', dot: '#8B5CF6' },
-    visibleTo: FROM_READY,
+    visibleTo: FROM_BUTTA,
   },
   {
     key: 'received_from_mill',
     label: 'Received from mill',
     sequence: 100,
     badge: { bg: '#CFFAFE', text: '#155E75', dot: '#06B6D4' },
-    visibleTo: FROM_READY,
+    visibleTo: FROM_BUTTA,
   },
   {
     key: 'mill_qc_done',
     label: 'Mill QC done',
     sequence: 110,
     badge: { bg: '#DCFCE7', text: '#166534', dot: '#22C55E' },
-    visibleTo: FROM_READY,
+    visibleTo: FROM_BUTTA,
   },
   {
     key: 'ready_for_dispatch',
     label: 'Ready for dispatch',
     sequence: 120,
     badge: { bg: '#D1FAE5', text: '#065F46', dot: '#059669' },
-    visibleTo: FROM_READY,
+    visibleTo: FROM_BUTTA,
   },
   {
     key: 'partly_dispatched',

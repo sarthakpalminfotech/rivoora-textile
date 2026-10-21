@@ -4,6 +4,7 @@ import { orderOnHoldMessage, seesHeldOrders } from '@rivoora/shared';
 import { db } from '../db/client';
 import { challanTakas, dispatchChallans, jobsheets, orders, takas } from '../db/schema';
 import { conflict, notFound } from '../lib/errors';
+import { isGodownOrdersOnly, orderInGodownScope } from '../services/godown-scope';
 
 /**
  * Hold order (Sprint 15) — the ONE place that decides what a held order blocks.
@@ -148,6 +149,9 @@ export const holdGuard: RequestHandler = (req, _res, next) => {
   const path = req.path.replace(/\/+$/, '') || '/';
   const run = async () => {
     if (method === 'GET' || method === 'HEAD') {
+      // Sprint 15: the godown supervisor's Orders — only orders with takas at the butta stage or later.
+      const scoped = isGodownOrdersOnly(req.role) ? path.match(/^\/orders\/(\d+)(?:\/.*)?$/) : null;
+      if (scoped && !(await orderInGodownScope(Number(scoped[1])))) throw notFound('Order');
       if (seesHeldOrders(req.role)) return;
       const hit = match(READ_MESSAGE_RULES, method, path, req) ?? match(READ_HIDDEN_RULES, method, path, req);
       if (!hit) return;

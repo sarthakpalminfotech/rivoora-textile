@@ -43,7 +43,7 @@ ordersRouter.post(
 );
 
 
-ordersRouter.use(requirePermission('canViewOrders', 'canViewProductionOrders'));
+ordersRouter.use(requirePermission('canViewOrders', 'canViewProductionOrders', 'canViewGodownOrders'));
 
 ordersRouter.get(
   '/',
@@ -122,6 +122,8 @@ ordersRouter.post(
 
 ordersRouter.get(
   '/:id/jobsheets',
+  // Not for the godown supervisor: his Orders start at butta cutting (no Jobsheets tab).
+  requirePermission('canViewOrders', 'canViewProductionOrders'),
   ah(async (req, res) => {
     res.json(await listOrderJobsheets(req.role, parseId(req.params.id)));
   }),

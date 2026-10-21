@@ -43,7 +43,7 @@ takasRouter.get(
 /** The damage details screen: every damage of the taka with pcs, photos and its own timeline (Jenish / Gaurang). */
 takasRouter.get(
   '/:id/damages',
-  requirePermission('canEditTakas', 'canUseGodownOrders', 'canViewProductionOrders'),
+  requirePermission('canEditTakas', 'canUseGodownOrders', 'canViewProductionOrders', 'canViewGodownOrders'),
   ah(async (req, res) => {
     res.set('Cache-Control', 'no-store');
     res.json(await getTakaDamagesDetail(req.role, parseId(req.params.id)));
@@ -53,7 +53,7 @@ takasRouter.get(
 /** Taka details + damages + history (the taka drawer on the order's Takas tab). */
 takasRouter.get(
   '/:id',
-  requirePermission('canEditTakas', 'canViewProductionOrders'),
+  requirePermission('canEditTakas', 'canViewProductionOrders', 'canViewGodownOrders'),
   ah(async (req, res) => {
     res.json(await getTakaDetail(req.role, parseId(req.params.id)));
   }),

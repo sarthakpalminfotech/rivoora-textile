@@ -278,7 +278,7 @@ describe('order status: butta cutting + ready for mill', () => {
     expect(orderStatusForJobsheets(done, [])).toBe('taka_entry_done');
   });
 
-  it('the new statuses have their own order, badge and are visible to Jenish and Gaurang only', () => {
+  it('the new statuses have their own order, badge and are visible to Jenish, Gaurang and (Sprint 15, read-only Orders) the godown supervisor', () => {
     expect(getStatus('in_butta_cutting')).toMatchObject({ label: 'In butta cutting', sequence: 70 });
     expect(getStatus('ready_for_mill')).toMatchObject({ label: 'Ready for mill', sequence: 80 });
     expect(getStatus('in_butta_cutting').badge.dot).not.toBe(getStatus('ready_for_mill').badge.dot);
@@ -287,7 +287,10 @@ describe('order status: butta cutting + ready for mill', () => {
       expect(canRoleSeeStatus(role, 'in_butta_cutting')).toBe(true);
       expect(canRoleSeeStatus(role, 'ready_for_mill')).toBe(true);
     }
-    expect(statusesForRole('godown_supervisor')).toEqual([]);
+    expect(canRoleSeeStatus('godown_supervisor', 'in_butta_cutting')).toBe(true);
+    // Sprint 15: from "In production" on (never the pre-taka statuses); QC and Taka entry still see none.
+    expect(statusesForRole('godown_supervisor').map((s) => s.sequence)[0]).toBe(40);
+    expect(canRoleSeeStatus('godown_supervisor', 'jobsheet_created')).toBe(false);
     expect(statusesForRole('qc')).toEqual([]);
   });
 });
@@ -355,7 +358,7 @@ describe('order status: mill', () => {
     expect(orderStatusForJobsheets([{ status: 'completed', takaCount: 3 }, { status: 'completed', takaCount: 0 }], ['at_mill'])).toBe('production_completed');
   });
 
-  it('new statuses: own order and colours, visible to Jenish and Gaurang only', () => {
+  it('new statuses: own order and colours, visible to Jenish, Gaurang and the godown supervisor only', () => {
     expect(getStatus('in_mill')).toMatchObject({ label: 'In mill', sequence: 90 });
     expect(getStatus('received_from_mill')).toMatchObject({ label: 'Received from mill', sequence: 100 });
     const dots = ['ready_for_mill', 'in_mill', 'received_from_mill', 'in_butta_cutting'].map((k) => getStatus(k).badge.dot);
@@ -364,7 +367,8 @@ describe('order status: mill', () => {
       expect(canRoleSeeStatus(role, 'in_mill')).toBe(true);
       expect(canRoleSeeStatus(role, 'received_from_mill')).toBe(true);
     }
-    for (const role of ['supervisor', 'taka_entry', 'godown_supervisor', 'qc'] as const) {
+    expect(canRoleSeeStatus('godown_supervisor', 'in_mill')).toBe(true);
+    for (const role of ['supervisor', 'taka_entry', 'qc'] as const) {
       expect(canRoleSeeStatus(role, 'in_mill')).toBe(false);
     }
   });

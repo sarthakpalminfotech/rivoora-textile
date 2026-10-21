@@ -40,6 +40,7 @@ import { liveJobsheetPieces } from './jobsheet-live';
 import { getOrderReturnSummary } from './dispatch';
 import { assertOrderVisibleFor, orderNotHeldFor } from './hold';
 import { listHoldEvents } from './hold-order';
+import { isGodownOrdersOnly, orderHasGodownTakas } from './godown-scope';
 
 const dateString = z
   .string()
@@ -71,7 +72,8 @@ export async function listOrders(role: RoleKey, q: OrderListQuery): Promise<Pagi
   if (statuses.length === 0) return emptyPage(q.page, q.limit);
 
   // Sprint 15: a held order is visible to Jenish / Gaurang only.
-  const conditions: (SQL | undefined)[] = [inArray(orders.status, statuses), orderNotHeldFor(role)];
+  // Sprint 15: the godown supervisor only lists orders that have takas at the butta stage or later.
+  const conditions: (SQL | undefined)[] = [inArray(orders.status, statuses), orderNotHeldFor(role), isGodownOrdersOnly(role) ? orderHasGodownTakas : undefined];
   if (q.from) conditions.push(gte(orders.orderDate, q.from));
   if (q.to) conditions.push(lte(orders.orderDate, q.to));
   if (q.material.length) conditions.push(inArray(orders.materialId, q.material));

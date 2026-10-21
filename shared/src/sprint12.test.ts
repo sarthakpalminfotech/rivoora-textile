@@ -82,8 +82,8 @@ describe('order status with rework + dispatch', () => {
   it('dispatch statuses: sequence + visibility', () => {
     expect(getStatus('partly_dispatched')).toMatchObject({ label: 'Partly dispatched', sequence: 130 });
     expect(getStatus('dispatched')).toMatchObject({ label: 'Dispatched', sequence: 140 });
-    for (const r of ['jemish', 'gaurang', 'dhruvil'] as const) expect(canRoleSeeStatus(r, 'dispatched'), r).toBe(true);
-    for (const r of ['supervisor', 'taka_entry', 'qc', 'godown_supervisor'] as const) expect(canRoleSeeStatus(r, 'dispatched'), r).toBe(false);
+    for (const r of ['jemish', 'gaurang', 'dhruvil', 'godown_supervisor'] as const) expect(canRoleSeeStatus(r, 'dispatched'), r).toBe(true);
+    for (const r of ['supervisor', 'taka_entry', 'qc'] as const) expect(canRoleSeeStatus(r, 'dispatched'), r).toBe(false);
   });
   it('earlier statuses are unchanged', () => {
     expect(orderStatusForJobsheets(js, ['ready_dispatch', 'ready_dispatch', 'ready_dispatch'])).toBe('ready_for_dispatch');

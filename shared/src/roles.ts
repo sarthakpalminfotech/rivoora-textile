@@ -314,7 +314,8 @@ export const ROLES: Record<RoleKey, RoleConfig> = {
     landing: '/butta',
     // Restricted view: order numbers, design and quality only (no client, rate or other order details).
     // Sprint 12: the godown Orders module moved to Dhruvil — he keeps Butta cutting and Mill.
-    permissions: { ...NOTHING, canUseButtaModule: true, canUseMillModule: true, canViewGodownOrders: true },
+    // Sprint 15: + the read-only Orders module (butta cutting onwards): order, takas, damages, docs — no client, no rate.
+    permissions: { ...NOTHING, canUseButtaModule: true, canUseMillModule: true, canViewGodownOrders: true, canViewTakas: true },
   },
   // One person does both QCs: the Butta QC and the Mill QC share this role and one screen (/qc).
   qc: {
