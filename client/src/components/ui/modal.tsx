@@ -7,13 +7,14 @@ import { cn } from '@/lib/utils';
 export type ModalVariant = 'center' | 'right' | 'bottom' | 'fullscreen';
 
 const variantClass: Record<ModalVariant, string> = {
+  // `kb-modal-*`: lifted above the on-screen keyboard (index.css, hooks/useKeyboardInset.ts).
   center:
-    'left-1/2 top-1/2 w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 max-h-[calc(100dvh-2rem)] rounded-xl border border-border data-[state=open]:zoom-in-95 data-[state=closed]:zoom-out-95 data-[state=open]:fade-in-0 data-[state=closed]:fade-out-0',
+    'kb-modal-center left-1/2 top-1/2 w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 max-h-[calc(100dvh-2rem)] rounded-xl border border-border data-[state=open]:zoom-in-95 data-[state=closed]:zoom-out-95 data-[state=open]:fade-in-0 data-[state=closed]:fade-out-0',
   right:
-    'inset-y-0 right-0 h-[100dvh] w-full border-l border-border md:max-w-[540px] data-[state=open]:slide-in-from-right data-[state=closed]:slide-out-to-right',
+    'kb-modal-full inset-y-0 right-0 h-[100dvh] w-full border-l border-border md:max-w-[540px] data-[state=open]:slide-in-from-right data-[state=closed]:slide-out-to-right',
   bottom:
-    'inset-x-0 bottom-0 max-h-[92dvh] rounded-t-2xl data-[state=open]:slide-in-from-bottom data-[state=closed]:slide-out-to-bottom',
-  fullscreen: 'inset-0 h-[100dvh] w-full data-[state=open]:fade-in-0 data-[state=open]:slide-in-from-bottom-4',
+    'kb-modal-bottom inset-x-0 bottom-0 max-h-[92dvh] rounded-t-2xl data-[state=open]:slide-in-from-bottom data-[state=closed]:slide-out-to-bottom',
+  fullscreen: 'kb-modal-full inset-0 h-[100dvh] w-full data-[state=open]:fade-in-0 data-[state=open]:slide-in-from-bottom-4',
 };
 
 const sizeClass = { sm: 'max-w-md', md: 'max-w-lg', lg: 'max-w-2xl', xl: 'max-w-4xl' } as const;

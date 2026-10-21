@@ -98,7 +98,7 @@ export function Fab({ onClick, label, icon }: { onClick: () => void; label: stri
       type="button"
       onClick={onClick}
       aria-label={label}
-      className="fixed bottom-[calc(5rem+env(safe-area-inset-bottom))] right-4 z-30 flex size-14 items-center justify-center rounded-2xl bg-primary text-primary-foreground shadow-pop transition hover:bg-primary-hover active:scale-95 md:hidden"
+      className="kb-hide-on-keyboard fixed bottom-[calc(5rem+env(safe-area-inset-bottom))] right-4 z-30 flex size-14 items-center justify-center rounded-2xl bg-primary text-primary-foreground shadow-pop transition hover:bg-primary-hover active:scale-95 md:hidden"
     >
       {icon ?? <Plus className="size-6" />}
     </button>

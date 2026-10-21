@@ -336,7 +336,7 @@ export default function OrdersPage() {
 
       {/* Selection action bar */}
       {selecting && (
-        <div className="fixed inset-x-0 bottom-[calc(4rem+env(safe-area-inset-bottom))] z-30 border-t border-border bg-white/95 px-4 py-3 shadow-pop backdrop-blur lg:sticky lg:inset-x-auto lg:bottom-4 lg:rounded-xl lg:border">
+        <div className="kb-bar fixed inset-x-0 bottom-[calc(4rem+env(safe-area-inset-bottom))] z-30 border-t border-border bg-white/95 px-4 py-3 shadow-pop backdrop-blur lg:sticky lg:inset-x-auto lg:bottom-4 lg:rounded-xl lg:border">
           <div className="mx-auto flex flex-wrap items-center gap-2">
             <p className="mr-auto hidden text-sm font-medium text-slate-700 sm:block">
               {count} of {pendingLoaded.length} pending selected

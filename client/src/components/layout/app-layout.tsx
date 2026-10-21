@@ -156,7 +156,7 @@ function BottomNav() {
   return (
     <nav
       aria-label="Main"
-      className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-white/95 pb-safe backdrop-blur lg:hidden"
+      className="kb-hide-on-keyboard fixed inset-x-0 bottom-0 z-40 border-t border-border bg-white/95 pb-safe backdrop-blur lg:hidden"
     >
       <div className="grid h-16" style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}>
         {main.map(({ to, label, hi, icon }) => (

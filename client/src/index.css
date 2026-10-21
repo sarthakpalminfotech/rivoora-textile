@@ -109,3 +109,27 @@
     --rdp-day_button-width: 34px;
   }
 }
+
+/* ---- On-screen keyboard (Sprint 15) — see hooks/useKeyboardInset.ts ----
+   `--kb-inset` = pixels of the layout viewport the keyboard covers. Sticky / fixed Save bars (`.kb-bar`) and modals
+   (`.kb-modal-*`) are lifted by it; the bottom navigation and the FAB get out of the way. Touch layouts only. */
+@media (max-width: 1023px), (pointer: coarse) {
+  html[data-kb] .kb-bar {
+    bottom: var(--kb-inset, 0px) !important;
+  }
+  html[data-kb] .kb-hide-on-keyboard {
+    display: none !important;
+  }
+  html[data-kb] .kb-modal-full {
+    height: calc(100dvh - var(--kb-inset, 0px)) !important;
+    max-height: calc(100dvh - var(--kb-inset, 0px)) !important;
+  }
+  html[data-kb] .kb-modal-bottom {
+    bottom: var(--kb-inset, 0px) !important;
+    max-height: calc(100dvh - var(--kb-inset, 0px) - 0.5rem) !important;
+  }
+  html[data-kb] .kb-modal-center {
+    top: calc((100dvh - var(--kb-inset, 0px)) / 2) !important;
+    max-height: calc(100dvh - var(--kb-inset, 0px) - 1rem) !important;
+  }
+}

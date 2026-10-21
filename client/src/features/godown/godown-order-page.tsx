@@ -476,7 +476,7 @@ function FinalTakasTab({ order }: { order: GodownOrder }) {
       )}
 
       {/* Sticky action: above the phone bottom nav, at the bottom of the window on md+. */}
-      <div className="sticky bottom-[calc(4rem+env(safe-area-inset-bottom))] z-20 -mx-4 border-t border-border bg-white/95 px-4 py-3 backdrop-blur lg:bottom-0 lg:mx-0 lg:rounded-t-2xl lg:border-x">
+      <div className="kb-bar sticky bottom-[calc(4rem+env(safe-area-inset-bottom))] z-20 -mx-4 border-t border-border bg-white/95 px-4 py-3 backdrop-blur lg:bottom-0 lg:mx-0 lg:rounded-t-2xl lg:border-x">
         {selecting ? (
           <div className="flex items-center justify-between gap-3">
             <p className="text-[15px] font-semibold tabular-nums text-slate-800">{picked.length} {picked.length === 1 ? 'taka' : 'takas'} selected</p>

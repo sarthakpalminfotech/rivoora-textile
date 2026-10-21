@@ -333,7 +333,7 @@ export function OrderJobsheetsSection({ order }: { order: OrderDetail }) {
 
       {/* Selection action bar: fixed above the bottom nav on phones, sticky at the bottom of the card on md+. */}
       {selecting && (
-        <div className="fixed inset-x-0 bottom-[calc(4rem+env(safe-area-inset-bottom))] z-30 border-t border-border bg-white/95 px-4 py-3 shadow-pop backdrop-blur lg:sticky lg:inset-x-auto lg:bottom-4 lg:mt-4 lg:rounded-xl lg:border">
+        <div className="kb-bar fixed inset-x-0 bottom-[calc(4rem+env(safe-area-inset-bottom))] z-30 border-t border-border bg-white/95 px-4 py-3 shadow-pop backdrop-blur lg:sticky lg:inset-x-auto lg:bottom-4 lg:mt-4 lg:rounded-xl lg:border">
           <div className="flex flex-wrap items-center gap-2">
             <p className="mr-auto text-sm font-medium text-slate-700">{count} selected</p>
             <Button

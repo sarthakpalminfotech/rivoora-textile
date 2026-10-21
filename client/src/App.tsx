@@ -9,6 +9,7 @@ import { LandingRedirect, NotFoundOrLanding, RequirePermission } from '@/compone
 import { TooltipProvider } from '@/components/ui/tooltip';
 import type { RolePermissions } from '@/config/roles';
 import { Button } from '@/components/ui/button';
+import { useKeyboardInsetVar } from '@/hooks/useKeyboardInset';
 import { useRole } from '@/hooks/useRole';
 import { loadSession } from '@/features/auth/api';
 import { authStore } from '@/lib/auth-store';
@@ -248,6 +249,8 @@ function AuthGate() {
 }
 
 export default function App() {
+  // Sprint 15: one place that keeps Save bars and modal footers above the on-screen keyboard.
+  useKeyboardInsetVar();
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider delayDuration={150}>

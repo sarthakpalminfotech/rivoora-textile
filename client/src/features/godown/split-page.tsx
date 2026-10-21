@@ -261,7 +261,7 @@ function SplitForm({ order, taka }: { order: GodownOrder; taka: GodownTaka }) {
         </p>
       )}
 
-      <div className="sticky bottom-[calc(4rem+env(safe-area-inset-bottom))] z-20 -mx-4 border-t border-border bg-white/95 px-4 py-3 backdrop-blur lg:bottom-0 lg:mx-0 lg:rounded-t-2xl lg:border-x">
+      <div className="kb-bar sticky bottom-[calc(4rem+env(safe-area-inset-bottom))] z-20 -mx-4 border-t border-border bg-white/95 px-4 py-3 backdrop-blur lg:bottom-0 lg:mx-0 lg:rounded-t-2xl lg:border-x">
         <Button size="lg" className="h-14 w-full text-base" onClick={save} disabled={!canSave} loading={split.isPending}>
           Save split
         </Button>

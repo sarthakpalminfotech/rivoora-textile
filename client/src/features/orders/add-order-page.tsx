@@ -700,7 +700,7 @@ export function OrderForm({ order }: { order?: OrderDetail }) {
       </form>
 
       {/* Sticky bottom bar */}
-      <div className="sticky bottom-0 z-30 border-t border-border bg-white/95 backdrop-blur">
+      <div className="kb-bar sticky bottom-0 z-30 border-t border-border bg-white/95 backdrop-blur">
         <div className="mx-auto grid max-w-3xl grid-cols-2 gap-2 px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] sm:flex sm:justify-end">
           <Button variant="secondary" onClick={close} disabled={saving}>
             Cancel
