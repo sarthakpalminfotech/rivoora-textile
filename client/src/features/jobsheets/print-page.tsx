@@ -180,7 +180,8 @@ function FrontPage({ js, qrSvg }: { js: JobsheetPrintItem; qrSvg: string | undef
             <div className="jsp-pf jsp-b">
               <div className="jsp-pfrow">
                 <span className="jsp-lbl">Picks:</span>
-                <div className="jsp-vbox jsp-val">{js.picks ?? ''}</div>
+                {/* Always blank: the picks are written by hand. */}
+                <div className="jsp-vbox jsp-val" />
               </div>
               <div className="jsp-pfrow">
                 <span className="jsp-lbl">Frame:</span>

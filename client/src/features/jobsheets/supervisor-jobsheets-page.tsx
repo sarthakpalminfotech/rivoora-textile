@@ -180,9 +180,7 @@ function JobsheetTile({ js, now, onOpen, onAction }: { js: SupervisorJobsheetIte
                 `Machine ${js.runningMachine.machineNo}`
               )}
             </Fact>
-          ) : (
-            <Fact label="Picks">{js.picks || '—'}</Fact>
-          )}
+          ) : null}
           <div className="col-span-2">
             <Fact label="Assigned looms">{machineNumbers(js.machines)}</Fact>
           </div>
@@ -451,6 +449,16 @@ function OrderTile({ order, onOpen }: { order: SupervisorOrderItem; onOpen: () =
             {order.blouseOption && <BlouseTag option={order.blouseOption} className="mt-1" />}
           </div>
         </div>
+        <dl className="grid gap-1 text-sm">
+          <div className="flex gap-1.5">
+            <dt className="shrink-0 text-slate-500">Quality:</dt>
+            <dd className="min-w-0 truncate font-semibold text-slate-800">{order.quality}</dd>
+          </div>
+          <div className="flex gap-1.5">
+            <dt className="shrink-0 text-slate-500">Machines:</dt>
+            <dd className="min-w-0 font-semibold text-slate-800">{order.machineNos.length ? order.machineNos.join(', ') : '—'}</dd>
+          </div>
+        </dl>
         <div className="flex flex-wrap gap-1.5" aria-label="Jobsheets per status">
           <CountPill status="sent" n={counts.pending} />
           <CountPill status="ongoing" n={counts.ongoing} />

@@ -1,4 +1,4 @@
-import { coverageWarnings, effectiveFrames, coverageFrames, jobsheetRef, type CoverageWarningKind } from './jobsheets';
+import { coverageWarnings, effectiveFrames, coverageFrames, jobsheetRef, orderJobsheetPlan, type CoverageWarningKind } from './jobsheets';
 import {
   ALERT_NOT_STARTED_HOURS,
   DAMAGE_TYPE_CONFIG,
@@ -33,10 +33,6 @@ export interface DashboardOrderInput {
   orderNo: number;
   unit: string;
   quantity: number;
-  /** `orders.jobsheet_pieces` */
-  jobsheetPieces: number;
-  /** `orders.target_frames` */
-  targetFrames: number;
 }
 
 export interface DashboardJobsheetInput {
@@ -332,15 +328,14 @@ export function buildOrderDashboard(input: DashboardInput, now: Date = new Date(
   const oldestHours = hoursSince(waiting.oldestSince, now);
   waiting.overdue = oldestHours !== null && oldestHours > ALERT_NOT_STARTED_HOURS;
 
+  // Live jobsheet figures (Sprint 15): from the active jobsheets, never from stored order counters.
+  const livePlan = orderJobsheetPlan(
+    order.quantity,
+    jobsheets.map((j) => ({ frames: j.frames, status: j.status as JobsheetStatusKey, completedFrames: j.completedFrames })),
+  );
   // Rule 2: the coverage warnings (frames short / over, jobsheet quantity less / more), texts unchanged.
   if (isPcs && jobsheets.length > 0) {
-    const warnings = coverageWarnings({
-      orderedPieces: order.quantity,
-      jobsheetPieces: order.jobsheetPieces,
-      targetFrames: order.targetFrames,
-      totalFrames: coverageFrames(jobsheets.map((j) => ({ frames: j.frames, status: j.status as JobsheetStatusKey, completedFrames: j.completedFrames }))),
-      jobsheetCount: jobsheets.length,
-    });
+    const warnings = coverageWarnings(livePlan);
     for (const w of warnings) alerts.push({ rule: 'coverage', kind: w.kind, message: w.message });
   }
 
@@ -387,7 +382,7 @@ export function buildOrderDashboard(input: DashboardInput, now: Date = new Date(
   });
 
   const wovenPcs = wovenFrames * SECTIONS_PER_BEAM;
-  const targetPcs = jobsheets.length > 0 ? order.jobsheetPieces : order.quantity;
+  const targetPcs = jobsheets.length > 0 ? livePlan.jobsheetPieces : order.quantity;
   const damageCounts = new Map<DamageType, { count: number; pcs: number | null }>();
   for (const d of openDamages) {
     const n = d.count ?? 1;

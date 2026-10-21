@@ -110,11 +110,10 @@ function JobsheetCard({ js, selecting, checked, onClick, onToggle }: CardProps) 
             <CornerDownRight className="size-3.5 shrink-0" aria-hidden /> continued from #{js.orderNo} ({js.parentJobsheetNo})
           </p>
         )}
-        <dl className="mt-auto grid w-full grid-cols-3 gap-2 border-t border-border pt-3">
+        <dl className="mt-auto grid w-full grid-cols-2 gap-2 border-t border-border pt-3">
           <Detail label="Frames">
             <FramesValue status={js.status} frames={js.frames} completedFrames={js.completedFrames} />
           </Detail>
-          <Detail label="Picks">{js.picks ?? <span className="font-normal text-slate-400">—</span>}</Detail>
           {machineDetail}
         </dl>
       </div>

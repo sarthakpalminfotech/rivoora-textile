@@ -371,7 +371,6 @@ function JobsheetRows({ items }: { items: DashboardJobsheetItem[] }) {
                 <span>
                   <FramesValue status={j.status} frames={j.frames} completedFrames={j.completedFrames} withUnit className="font-semibold text-slate-800" />
                 </span>
-                {j.picks && <span>Picks {j.picks}</span>}
                 <span>{machineText(j)}</span>
               </span>
             </Link>
@@ -385,7 +384,6 @@ function JobsheetRows({ items }: { items: DashboardJobsheetItem[] }) {
             <tr>
               <th className="py-2 pr-4 font-semibold">Order (jobsheet)</th>
               <th className="py-2 pr-4 font-semibold">Frames</th>
-              <th className="py-2 pr-4 font-semibold">Picks</th>
               <th className="py-2 pr-4 font-semibold">Machine(s)</th>
               <th className="py-2 font-semibold">Time in stage</th>
             </tr>
@@ -412,7 +410,6 @@ function JobsheetRows({ items }: { items: DashboardJobsheetItem[] }) {
                 <td className="py-2.5 pr-4 font-semibold text-slate-800">
                   <FramesValue status={j.status} frames={j.frames} completedFrames={j.completedFrames} />
                 </td>
-                <td className="py-2.5 pr-4 text-slate-700">{j.picks ?? <span className="text-slate-400">—</span>}</td>
                 <td className="py-2.5 pr-4 text-slate-700">{machineText(j)}</td>
                 <td className="py-2.5 text-slate-600">{time(j)}</td>
               </tr>

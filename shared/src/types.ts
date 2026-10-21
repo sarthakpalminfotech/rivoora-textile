@@ -164,7 +164,7 @@ export interface OrderDetail {
   sentToProductionAt: string | null;
   /** Active jobsheets of this order (undo send-for-production is only allowed at 0). */
   jobsheetCount: number;
-  /** Pieces planned in the jobsheets (`orders.jobsheet_pieces`; 0 while there are none). */
+  /** Pieces planned in the jobsheets (live: frames in the active jobsheets × 3; 0 while there are none). */
   jobsheetPieces: number;
   createdAt: string;
   updatedAt: string;
@@ -249,7 +249,6 @@ export interface JobsheetListItem {
   frames: number;
   /** Actual frames made (Completed only). */
   completedFrames: number | null;
-  picks: string | null;
   machines: JobsheetMachine[];
   /** The machine it was started on (Ongoing / Completed). */
   runningMachine: MachineRef | null;
@@ -332,7 +331,6 @@ export interface JobsheetDetail {
   status: JobsheetStatusKey;
   frames: number;
   completedFrames: number | null;
-  picks: string | null;
   createdBy: RoleKey;
   createdAt: string;
   updatedAt: string;
@@ -423,7 +421,6 @@ export interface SupervisorJobsheetItem {
   status: JobsheetStatusKey;
   frames: number;
   completedFrames: number | null;
-  picks: string | null;
   orderNo: number;
   /** The order's quality (material name). */
   quality: string;
@@ -461,6 +458,10 @@ export interface SupervisorOrderHeader {
 
 /** One card of the supervisor's Order view (only Sent / Ongoing / Completed jobsheets count). */
 export interface SupervisorOrderItem extends SupervisorOrderHeader {
+  /** Sprint 15: the order's quality (material name). */
+  quality: string;
+  /** Sprint 15: every machine assigned to the order's visible jobsheets — merged, unique, sorted. */
+  machineNos: number[];
   counts: { pending: number; ongoing: number; completed: number; total: number };
   lastCompletedAt: string | null;
 }
@@ -472,7 +473,6 @@ export interface JobsheetPrintItem {
   jobsheetNo: number;
   orderNo: number;
   frames: number;
-  picks: string | null;
   machineNos: number[];
   /** The order's jobsheet quantity (pcs). */
   jobsheetPieces: number;
@@ -693,7 +693,6 @@ export interface DashboardJobsheetItem {
   status: JobsheetStatusKey;
   frames: number;
   completedFrames: number | null;
-  picks: string | null;
   machines: JobsheetMachine[];
   runningMachine: MachineRef | null;
   parentJobsheetNo: number | null;

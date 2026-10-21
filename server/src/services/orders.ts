@@ -36,6 +36,7 @@ import { badRequest, conflict, notFound } from '../lib/errors';
 import { csv, likePattern, paginationSchema } from '../lib/http';
 import { insertDesign } from './designs';
 import { countActiveJobsheets } from './jobsheets';
+import { liveJobsheetPieces } from './jobsheet-live';
 import { getOrderReturnSummary } from './dispatch';
 
 const dateString = z
@@ -152,7 +153,7 @@ export async function getOrder(role: RoleKey, id: number): Promise<OrderDetail> 
         notes: orders.notes,
         sentToProductionAt: orders.sentToProductionAt,
         jobsheetCount: sql<number>`(SELECT COUNT(*) FROM jobsheets j WHERE j.order_id = "orders"."id" AND j.is_deleted = 0)`,
-        jobsheetPieces: orders.jobsheetPieces,
+        jobsheetPieces: liveJobsheetPieces,
         createdAt: orders.createdAt,
         updatedAt: orders.updatedAt,
         customer: { id: customers.id, name: customers.name, phone: customers.phone, city: customers.city },
@@ -211,7 +212,7 @@ export async function getOrder(role: RoleKey, id: number): Promise<OrderDetail> 
     notes: r.notes,
     sentToProductionAt: r.sentToProductionAt,
     jobsheetCount: Number(r.jobsheetCount),
-    jobsheetPieces: r.jobsheetPieces,
+    jobsheetPieces: Number(r.jobsheetPieces),
     createdAt: r.createdAt,
     updatedAt: r.updatedAt,
     customer: can(role, 'canSeeClient') ? r.customer : { id: r.customer.id, name: '', phone: null, city: null },

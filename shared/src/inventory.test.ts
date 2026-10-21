@@ -90,7 +90,7 @@ describe('orderInventoryPcs', () => {
     ];
     const inv = orderInventoryPcs(order, jobsheets, takas)!;
     const dash = buildOrderDashboard({
-      order: { orderNo: 1, unit: 'pcs', quantity: 300, jobsheetPieces: 300, targetFrames: 22 },
+      order: { orderNo: 1, unit: 'pcs', quantity: 300 },
       jobsheets: jobsheets.map((j) => ({ ...j, jobsheetNo: j.id, sentAt: null, startedAt: null, completedAt: null, runningMachineId: null })),
       takas: takas.map((t) => ({ jobsheetId: t.jobsheetId, stage: t.stage, isDamaged: false, count: t.count, pcs: t.pcs })),
     });

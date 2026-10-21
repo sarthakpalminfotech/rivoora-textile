@@ -168,9 +168,9 @@ export const orders = sqliteTable(
     notes: text('notes'),
     status: text('status').$type<OrderStatusKey>().notNull(),
     sentToProductionAt: text('sent_to_production_at'),
-    /** Jobsheet plan: total pieces planned across all jobsheet runs ("jobsheet quantity"). */
+    /** DEPRECATED (Sprint 15): no longer read or written — the figures are computed live from the active jobsheets. */
     jobsheetPieces: integer('jobsheet_pieces').notNull().default(0),
-    /** Jobsheet plan: total frames the jobsheets should cover. */
+    /** DEPRECATED (Sprint 15): see above. */
     targetFrames: integer('target_frames').notNull().default(0),
     /** Jobsheet plan: frames per jobsheet of the latest multi-jobsheet run (used when splitting). */
     framesPerJobsheet: integer('frames_per_jobsheet'),
@@ -248,6 +248,7 @@ export const jobsheets = sqliteTable(
       .references(() => orders.id),
     /** Assigned frames. */
     frames: integer('frames').notNull(),
+    /** DEPRECATED (Sprint 15): picks are no longer entered, read or written (printed blank for handwriting). */
     picks: text('picks'),
     createdBy: text('created_by').$type<RoleKey>().notNull(),
     /** pending → sent → ongoing → completed (see JOBSHEET_STATUSES in shared). */

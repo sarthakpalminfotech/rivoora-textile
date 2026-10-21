@@ -210,7 +210,6 @@ export const machineInputSchema = z.object({
 });
 export type MachineInput = z.input<typeof machineInputSchema>;
 
-const picks = optText(20);
 const machineIds = z
   .array(z.number().int().positive(), { required_error: 'Select at least one machine' })
   .min(1, 'Select at least one machine')
@@ -222,7 +221,6 @@ export const MAX_JOBSHEETS_PER_RUN = 500;
 
 export const jobsheetGenerateSchema = z.object({
   pieces: posInt('the number of pieces', 10_000_000),
-  picks,
   framesPerJobsheet: posInt('frames per jobsheet', 100_000),
   machineIds,
 });
@@ -230,15 +228,12 @@ export type JobsheetGenerateInput = z.input<typeof jobsheetGenerateSchema>;
 
 export const jobsheetSingleSchema = z.object({
   frames: posInt('the frames', 100_000),
-  pieces: posInt('the pieces', 10_000_000),
-  picks,
   machineIds,
 });
 export type JobsheetSingleInput = z.input<typeof jobsheetSingleSchema>;
 
 export const jobsheetUpdateSchema = z.object({
   frames: posInt('the frames', 100_000),
-  picks,
   machineIds,
 });
 export type JobsheetUpdateInput = z.input<typeof jobsheetUpdateSchema>;

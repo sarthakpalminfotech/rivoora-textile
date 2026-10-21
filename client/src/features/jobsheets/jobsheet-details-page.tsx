@@ -233,7 +233,6 @@ export default function JobsheetDetailsPage() {
               <Item label={isCompleted ? 'Frames (made / assigned)' : 'Frames'}>
                 <FramesValue status={js.status} frames={js.frames} completedFrames={js.completedFrames} withUnit />
               </Item>
-              <Item label="Picks">{js.picks ?? <Muted>—</Muted>}</Item>
               <Item label="Machines">
                 {machineNumbers(js.machines)}
                 {js.machines.some((m) => !m.isActive) && (

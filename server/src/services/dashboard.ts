@@ -39,8 +39,6 @@ const orderColumns = {
   status: orders.status,
   unit: orders.unit,
   quantity: orders.quantity,
-  jobsheetPieces: orders.jobsheetPieces,
-  targetFrames: orders.targetFrames,
 };
 
 const activeJobsheetOf = (orderId: number) => and(eq(jobsheets.orderId, orderId), eq(jobsheets.isDeleted, false));
@@ -140,7 +138,6 @@ export async function getDashboardItems(role: RoleKey, orderId: number, query: u
           status: jobsheets.status,
           frames: jobsheets.frames,
           completedFrames: jobsheets.completedFrames,
-          picks: jobsheets.picks,
           createdAt: jobsheets.createdAt,
           sentAt: jobsheets.sentAt,
           startedAt: jobsheets.startedAt,
@@ -165,7 +162,6 @@ export async function getDashboardItems(role: RoleKey, orderId: number, query: u
         status: r.status,
         frames: r.frames,
         completedFrames: r.completedFrames,
-        picks: r.picks,
         machines: parseMachinesJson(r.machinesJson),
         runningMachine: toMachineRef(r),
         parentJobsheetNo: r.parentJobsheetNo,

@@ -1,12 +1,13 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Calculator } from 'lucide-react';
-import { useEffect, useRef } from 'react';
+import { useEffect } from 'react';
 import { Controller, useForm, useWatch } from 'react-hook-form';
 import { toast } from 'sonner';
 import { z } from 'zod';
 import {
   describeFrameGroups,
   formatExactFrames,
+  framesForPieces,
   jobsheetQuantityWarning,
   jobsheetRefShort,
   MAX_JOBSHEETS_PER_RUN,
@@ -18,7 +19,7 @@ import {
 } from '@rivoora/shared';
 import { Button } from '@/components/ui/button';
 import { Field } from '@/components/ui/field';
-import { Input, NumberInput } from '@/components/ui/input';
+import { NumberInput } from '@/components/ui/input';
 import { ResponsiveModal } from '@/components/ui/modal';
 import { errorMessage } from '@/lib/api';
 import { formatOrderNo } from '@/lib/format';
@@ -33,7 +34,6 @@ interface FormDialogProps {
   data: OrderJobsheets;
 }
 
-const picksField = z.string().trim().max(20, 'Picks must be at most 20 characters');
 const machinesField = z.array(z.number()).min(1, 'Select at least one machine');
 
 function FormFooter({ formId, onCancel, pending, disabled, label }: { formId: string; onCancel: () => void; pending: boolean; disabled: boolean; label: string }) {
@@ -56,7 +56,6 @@ function FormFooter({ formId, onCancel, pending, disabled, label }: { formId: st
 const multiSchema = z
   .object({
     pieces: intField('the number of pieces'),
-    picks: picksField,
     framesPerJobsheet: intField('the frames per jobsheet', 100_000),
     machineIds: machinesField,
   })
@@ -89,7 +88,6 @@ export function CreateJobsheetsDialog({ open, onOpenChange, data }: FormDialogPr
     const prefill = remainingPieces(coverage.orderedPieces, coverage.jobsheetPieces);
     reset({
       pieces: prefill ? String(prefill) : '',
-      picks: '',
       framesPerJobsheet: data.framesPerJobsheet ? String(data.framesPerJobsheet) : '',
       machineIds: [],
     });
@@ -100,11 +98,12 @@ export function CreateJobsheetsDialog({ open, onOpenChange, data }: FormDialogPr
   const [piecesText, fpjText] = useWatch({ control, name: ['pieces', 'framesPerJobsheet'] });
   const pieces = parseIntOrNull(piecesText);
   const plan = pieces && parseIntOrNull(fpjText) ? planJobsheets(pieces, Number(fpjText)) : null;
-  const qtyWarning = pieces ? jobsheetQuantityWarning(coverage.orderedPieces, coverage.jobsheetPieces, pieces) : null;
+  // Live: the frames already in the active jobsheets + the frames of this run (Sprint 15).
+  const qtyWarning = pieces ? jobsheetQuantityWarning(coverage.orderedPieces, coverage.totalFrames, framesForPieces(pieces)) : null;
 
   const onSubmit = handleSubmit((v) =>
     generate.mutate(
-      { pieces: Number(v.pieces), picks: v.picks, framesPerJobsheet: Number(v.framesPerJobsheet), machineIds: v.machineIds },
+      { pieces: Number(v.pieces), framesPerJobsheet: Number(v.framesPerJobsheet), machineIds: v.machineIds },
       {
         onSuccess: ({ created, orderNo }) => {
           const first = created[0]?.jobsheetNo;
@@ -117,7 +116,7 @@ export function CreateJobsheetsDialog({ open, onOpenChange, data }: FormDialogPr
           onOpenChange(false);
         },
         onError: (err) => {
-          if (!applyServerFieldError(err, setError, ['pieces', 'picks', 'framesPerJobsheet', 'machineIds'])) {
+          if (!applyServerFieldError(err, setError, ['pieces', 'framesPerJobsheet', 'machineIds'])) {
             toast.error(errorMessage(err));
           }
         },
@@ -152,9 +151,6 @@ export function CreateJobsheetsDialog({ open, onOpenChange, data }: FormDialogPr
             hint={`Order quantity: ${coverage.orderedPieces} pcs`}
           >
             <NumberInput id="js-pieces" inputMode="numeric" autoFocus placeholder="e.g. 300" suffix={<span className="pr-1.5 text-sm text-slate-400">pcs</span>} invalid={!!errors.pieces} {...register('pieces')} />
-          </Field>
-          <Field label="Picks" htmlFor="js-picks" error={errors.picks?.message} hint="Printed on every jobsheet">
-            <Input id="js-picks" placeholder="e.g. 72" invalid={!!errors.picks} {...register('picks')} />
           </Field>
           <Field
             label="Number of frames per jobsheet"
@@ -229,8 +225,6 @@ export function CreateJobsheetsDialog({ open, onOpenChange, data }: FormDialogPr
 
 const singleSchema = z.object({
   frames: intField('the frames', 100_000),
-  pieces: intField('the pieces'),
-  picks: picksField,
   machineIds: machinesField,
 });
 type SingleValues = z.infer<typeof singleSchema>;
@@ -238,45 +232,35 @@ type SingleValues = z.infer<typeof singleSchema>;
 export function AddJobsheetDialog({ open, onOpenChange, data }: FormDialogProps) {
   const add = useAddJobsheet(data.orderId);
   const { coverage } = data;
-  // Pieces follow frames × sections until the user edits pieces.
-  const piecesEdited = useRef(false);
   const {
     register,
     control,
     handleSubmit,
     reset,
-    setValue,
     setError,
     formState: { errors, isDirty, isValid },
   } = useForm<SingleValues>({ resolver: zodResolver(singleSchema), mode: 'onChange' });
 
   useEffect(() => {
     if (!open) return;
-    piecesEdited.current = false;
-    reset({ frames: '', pieces: '', picks: '', machineIds: [] });
+    reset({ frames: '', machineIds: [] });
   }, [open, reset]);
 
-  const [framesText, piecesText] = useWatch({ control, name: ['frames', 'pieces'] });
-  useEffect(() => {
-    if (piecesEdited.current) return;
-    const f = parseIntOrNull(framesText);
-    setValue('pieces', f ? String(piecesForFrames(f)) : '', { shouldValidate: !!f, shouldDirty: true });
-  }, [framesText, setValue]);
-
-  const pieces = parseIntOrNull(piecesText);
-  const qtyWarning = pieces ? jobsheetQuantityWarning(coverage.orderedPieces, coverage.jobsheetPieces, pieces) : null;
-  const piecesReg = register('pieces');
+  // Pieces are read-only: frames × sections per beam, so the stored numbers can never disagree.
+  const framesText = useWatch({ control, name: 'frames' });
+  const frames = parseIntOrNull(framesText);
+  const qtyWarning = frames ? jobsheetQuantityWarning(coverage.orderedPieces, coverage.totalFrames, frames) : null;
 
   const onSubmit = handleSubmit((v) =>
     add.mutate(
-      { frames: Number(v.frames), pieces: Number(v.pieces), picks: v.picks, machineIds: v.machineIds },
+      { frames: Number(v.frames), machineIds: v.machineIds },
       {
         onSuccess: ({ created, orderNo }) => {
           toast.success(`Jobsheet ${jobsheetRefShort(orderNo, created[0]?.jobsheetNo)} created`);
           onOpenChange(false);
         },
         onError: (err) => {
-          if (!applyServerFieldError(err, setError, ['frames', 'pieces', 'picks', 'machineIds'])) toast.error(errorMessage(err));
+          if (!applyServerFieldError(err, setError, ['frames', 'machineIds'])) toast.error(errorMessage(err));
         },
       },
     ),
@@ -303,28 +287,16 @@ export function AddJobsheetDialog({ open, onOpenChange, data }: FormDialogProps)
           <Field label="Frames" htmlFor="js1-frames" required error={errors.frames?.message}>
             <NumberInput id="js1-frames" inputMode="numeric" autoFocus placeholder="e.g. 10" invalid={!!errors.frames} {...register('frames')} />
           </Field>
-          <Field
-            label="Pieces"
-            htmlFor="js1-pieces"
-            required
-            error={errors.pieces?.message}
-            hint={`Defaults to frames × ${SECTIONS_PER_BEAM}`}
-          >
+          <Field label="Pieces" htmlFor="js1-pieces" hint={`Frames × ${SECTIONS_PER_BEAM}`}>
             <NumberInput
               id="js1-pieces"
-              inputMode="numeric"
-              placeholder="e.g. 30"
+              readOnly
+              tabIndex={-1}
+              value={frames ? String(piecesForFrames(frames)) : ''}
+              placeholder="—"
               suffix={<span className="pr-1.5 text-sm text-slate-400">pcs</span>}
-              invalid={!!errors.pieces}
-              {...piecesReg}
-              onChange={(e) => {
-                piecesEdited.current = true;
-                void piecesReg.onChange(e);
-              }}
+              className="bg-slate-50 text-slate-600"
             />
-          </Field>
-          <Field label="Picks" htmlFor="js1-picks" error={errors.picks?.message} className="sm:col-span-2">
-            <Input id="js1-picks" placeholder="e.g. 72" invalid={!!errors.picks} {...register('picks')} />
           </Field>
           <Field label="Machines" htmlFor="js1-machines" required error={errors.machineIds?.message} className="sm:col-span-2">
             <Controller

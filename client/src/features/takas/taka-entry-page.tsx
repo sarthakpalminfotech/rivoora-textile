@@ -132,7 +132,6 @@ function DetailsCard({ js }: { js: JobsheetDetail }) {
           {item('Order', 'ऑर्डर', formatOrderNo(js.orderNo))}
           {item('Jobsheet', 'जॉबशीट', js.jobsheetNo)}
           {item('Frames', 'फ्रेम', <FramesValue status={js.status} frames={js.frames} completedFrames={js.completedFrames} withUnit />)}
-          {item('Picks', 'पिक', js.picks ?? '—')}
           {item('Machines', 'मशीन', machineNumbers(js.machines))}
           {js.runningMachine && item('Made on', 'बनी मशीन', `Machine ${js.runningMachine.machineNo}`)}
           {js.startedAt && item('Started', 'शुरू', formatDateTime(js.startedAt))}

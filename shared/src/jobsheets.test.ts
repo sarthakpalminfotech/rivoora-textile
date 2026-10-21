@@ -14,6 +14,7 @@ import {
   jobsheetQuantityWarning,
   jobsheetRef,
   jobsheetRefShort,
+  orderJobsheetPlan,
   planFramesEdit,
   planJobsheets,
   remainingPieces,
@@ -171,6 +172,8 @@ describe('coverage (7.5)', () => {
   it('no warnings when everything matches or there are no jobsheets', () => {
     expect(coverageWarnings({ orderedPieces: 300, jobsheetPieces: 300, targetFrames: 100, totalFrames: 100, jobsheetCount: 10 })).toEqual([]);
     expect(coverageWarnings({ orderedPieces: 300, jobsheetPieces: 0, targetFrames: 0, totalFrames: 0, jobsheetCount: 0 })).toEqual([]);
+    // 200 pcs needs 67 frames = 201 pcs: on target, no "extra pcs" noise.
+    expect(coverageWarnings(orderJobsheetPlan(200, [{ frames: 67 }]))).toEqual([]);
   });
 
   it('pieces and frames messages', () => {
@@ -186,14 +189,14 @@ describe('coverage (7.5)', () => {
     ]);
   });
 
-  it('jobsheet quantity warning in the forms', () => {
-    expect(jobsheetQuantityWarning(300, 0, 290)).toBe(
-      'This makes the jobsheet quantity 290 pcs — 10 less than the order (300 pcs).',
-    );
-    expect(jobsheetQuantityWarning(300, 300, 4)).toBe(
-      'This makes the jobsheet quantity 304 pcs — 4 more than the order (300 pcs).',
-    );
-    expect(jobsheetQuantityWarning(300, 100, 200)).toBeNull();
+  it('jobsheet quantity warning in the forms (frames based)', () => {
+    // 97 frames = 291 pcs against 300.
+    expect(jobsheetQuantityWarning(300, 0, 97)).toBe('This makes the jobsheet quantity 291 pcs — 9 less than the order (300 pcs).');
+    // already 100 frames (300 pcs) + 1 frame = 303 pcs.
+    expect(jobsheetQuantityWarning(300, 100, 1)).toBe('This makes the jobsheet quantity 303 pcs — 3 more than the order (300 pcs).');
+    expect(jobsheetQuantityWarning(300, 40, 60)).toBeNull();
+    // 200 pcs → 67 frames is exactly right even though 67 × 3 = 201.
+    expect(jobsheetQuantityWarning(200, 0, 67)).toBeNull();
   });
 
   it('remaining pieces prefill', () => {
@@ -203,6 +206,47 @@ describe('coverage (7.5)', () => {
   });
 });
 
+describe('orderJobsheetPlan — live numbers (Sprint 15)', () => {
+  const list = (frames: number[]) => sheets(frames);
+
+  it('create → delete: the numbers drop with the jobsheets', () => {
+    const before = orderJobsheetPlan(300, list([10, 10, 10, 10, 10, 10, 10, 10, 10, 10]));
+    expect(before).toMatchObject({ targetFrames: 100, totalFrames: 100, jobsheetPieces: 300 });
+    const afterDelete = orderJobsheetPlan(300, list([10, 10, 10, 10, 10, 10, 10, 10, 10]));
+    expect(afterDelete).toMatchObject({ totalFrames: 90, jobsheetPieces: 270, jobsheetCount: 9 });
+    expect(coverageWarnings(afterDelete).map((w) => w.kind)).toEqual(['pieces_less', 'frames_short']);
+  });
+
+  it('deleting the last jobsheet leaves nothing to warn about', () => {
+    const none = orderJobsheetPlan(300, []);
+    expect(none).toMatchObject({ totalFrames: 0, jobsheetPieces: 0, targetFrames: 100, jobsheetCount: 0 });
+    expect(coverageWarnings(none)).toEqual([]);
+  });
+
+  it('edit +/−: follows the new frames of the plan', () => {
+    const plan = planFramesEdit({ jobsheets: sheets([10, 10, 10]), editedId: 1, newFrames: 12, framesPerJobsheet: 10 });
+    expect(plan.totalFramesAfter).toBe(30);
+    const edited = sheets([10, 10, 10]);
+    edited[2].frames = 7;
+    expect(orderJobsheetPlan(90, edited)).toMatchObject({ totalFrames: 27, jobsheetPieces: 81 });
+  });
+
+  it('single add preview: no false "extra pcs" when the frames fit', () => {
+    const current = orderJobsheetPlan(300, list([30, 30]));
+    expect(jobsheetQuantityWarning(300, current.totalFrames, 40)).toBeNull();
+    expect(jobsheetQuantityWarning(300, current.totalFrames, 41)).toBe(
+      'This makes the jobsheet quantity 303 pcs — 3 more than the order (300 pcs).',
+    );
+  });
+
+  it('a Completed jobsheet counts its actual (fewer) frames', () => {
+    const plan = orderJobsheetPlan(300, [
+      { frames: 10, status: 'completed', completedFrames: 7 },
+      { frames: 10, status: 'ongoing', completedFrames: null },
+    ]);
+    expect(plan).toMatchObject({ totalFrames: 17, jobsheetPieces: 51 });
+  });
+});
 /* ------------------------------------------------------------------ */
 /* Sprint 3                                                             */
 /* ------------------------------------------------------------------ */

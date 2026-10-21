@@ -130,7 +130,7 @@ export interface AdjustChange {
 export interface AdjustPlan {
   /** Frame changes to existing jobsheets (the edited one first). */
   updated: AdjustChange[];
-  /** New jobsheets to create (numbers come from the counter); they copy the last jobsheet's picks + machines. */
+  /** New jobsheets to create (numbers come from the counter); they copy the last jobsheet's machines. */
   created: { frames: number }[];
   /** Jobsheets to soft-delete. */
   removed: { id: number; jobsheetNo: number; frames: number }[];
@@ -200,13 +200,32 @@ export function planFramesEdit({ jobsheets, editedId, newFrames, framesPerJobshe
 
 export interface Coverage {
   orderedPieces: number;
-  /** `order.jobsheet_pieces` */
+  /** Live: frames in the active jobsheets × SECTIONS_PER_BEAM (see `orderJobsheetPlan`). */
   jobsheetPieces: number;
-  /** `order.target_frames` */
+  /** Live: frames the order needs = ceil(ordered pieces ÷ SECTIONS_PER_BEAM). */
   targetFrames: number;
   /** Sum of the active jobsheets' frames (actual frames for Completed ones — see `coverageFrames`). */
   totalFrames: number;
   jobsheetCount: number;
+}
+
+/**
+ * The order's jobsheet figures, computed LIVE from its active jobsheets (never from stored counters, which used to
+ * go stale on delete / edit). Frames needed = ceil(pieces ÷ 3); frames in jobsheets = `coverageFrames`;
+ * jobsheet quantity = frames in jobsheets × 3.
+ */
+export function orderJobsheetPlan(
+  orderedPieces: number,
+  list: Pick<AdjustJobsheet, 'frames' | 'status' | 'completedFrames'>[],
+): Coverage {
+  const totalFrames = coverageFrames(list);
+  return {
+    orderedPieces,
+    jobsheetPieces: piecesForFrames(totalFrames),
+    targetFrames: framesForPieces(orderedPieces),
+    totalFrames,
+    jobsheetCount: list.length,
+  };
 }
 
 export type CoverageWarningKind = 'pieces_less' | 'pieces_more' | 'frames_short' | 'frames_over';
@@ -218,9 +237,12 @@ export interface CoverageWarning {
 
 const fmt = (n: number) => n.toLocaleString('en-IN', { maximumFractionDigits: 3 });
 
-/** Amber, non-blocking warnings. Nothing to warn about while an order has no jobsheets. */
+/**
+ * Amber, non-blocking warnings. Nothing to warn about while an order has no jobsheets, and nothing when the frames
+ * match the frames needed (the jobsheet quantity is frames × 3, so a 200 pcs order with 67 frames is on target).
+ */
 export function coverageWarnings(c: Coverage): CoverageWarning[] {
-  if (c.jobsheetCount === 0) return [];
+  if (c.jobsheetCount === 0 || c.totalFrames === c.targetFrames) return [];
   const out: CoverageWarning[] = [];
   if (c.jobsheetPieces < c.orderedPieces) {
     out.push({
@@ -238,7 +260,7 @@ export function coverageWarnings(c: Coverage): CoverageWarning[] {
       kind: 'frames_short',
       message: `Jobsheets cover ${fmt(c.totalFrames)} frames, but ${fmt(c.targetFrames)} frames are needed (${fmt(c.targetFrames - c.totalFrames)} short).`,
     });
-  } else if (c.totalFrames > c.targetFrames) {
+  } else {
     out.push({
       kind: 'frames_over',
       message: `Jobsheets cover ${fmt(c.totalFrames)} frames, which is ${fmt(c.totalFrames - c.targetFrames)} more than the ${fmt(c.targetFrames)} needed.`,
@@ -247,12 +269,17 @@ export function coverageWarnings(c: Coverage): CoverageWarning[] {
   return out;
 }
 
-/** Live warning in the create forms: what the jobsheet quantity becomes after adding `addPieces`. */
-export function jobsheetQuantityWarning(orderedPieces: number, jobsheetPieces: number, addPieces: number): string | null {
-  if (!isPositiveInt(addPieces)) return null;
-  const after = jobsheetPieces + addPieces;
-  if (after === orderedPieces) return null;
+/**
+ * Live warning in the create forms: what the jobsheet quantity becomes after adding `addFrames` frames to the
+ * `currentFrames` already in the active jobsheets. Null when the frames then match what the order needs.
+ */
+export function jobsheetQuantityWarning(orderedPieces: number, currentFrames: number, addFrames: number): string | null {
+  if (!isPositiveInt(addFrames)) return null;
+  const framesAfter = currentFrames + addFrames;
+  if (framesAfter === framesForPieces(orderedPieces)) return null;
+  const after = piecesForFrames(framesAfter);
   const diff = Math.abs(after - orderedPieces);
+  if (diff === 0) return null;
   return `This makes the jobsheet quantity ${fmt(after)} pcs — ${fmt(diff)} ${after < orderedPieces ? 'less' : 'more'} than the order (${fmt(orderedPieces)} pcs).`;
 }
 

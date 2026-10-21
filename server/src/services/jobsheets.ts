@@ -7,6 +7,7 @@ import {
   canRoleSeeStatus,
   coverageFrames,
   coverageWarnings,
+  orderJobsheetPlan,
   isReadyOrLater,
   JOBSHEET_STATUS,
   jobsheetChangeMachineSchema,
@@ -74,6 +75,7 @@ import { badRequest, conflict, notFound } from '../lib/errors';
 import { likePattern } from '../lib/http';
 import { mapTaka, sortTakas, TAKA_EVENTS, takaColumns } from './taka-shared';
 import { takaInOrder } from './free-stock';
+import { liveJobsheetPieces } from './jobsheet-live';
 import { rowFilters } from './work-filters';
 
 const JOBSHEET_COUNTER = 'jobsheet_no';
@@ -98,8 +100,6 @@ interface OrderPlanRow {
   status: OrderStatusKey;
   unit: Unit;
   quantity: number;
-  jobsheetPieces: number;
-  targetFrames: number;
   framesPerJobsheet: number | null;
 }
 
@@ -109,8 +109,6 @@ const orderPlanColumns = {
   status: orders.status,
   unit: orders.unit,
   quantity: orders.quantity,
-  jobsheetPieces: orders.jobsheetPieces,
-  targetFrames: orders.targetFrames,
   framesPerJobsheet: orders.framesPerJobsheet,
 };
 
@@ -197,7 +195,6 @@ async function insertJobsheets(
   role: RoleKey,
   orderId: number,
   frames: number[],
-  picks: string | null,
   machineIds: number[],
   opts: InsertOptions = {},
 ): Promise<JobsheetRef[]> {
@@ -212,7 +209,6 @@ async function insertJobsheets(
         jobsheetNo: numbers[i],
         orderId,
         frames: f,
-        picks,
         createdBy: role,
         status,
         sentAt,
@@ -291,7 +287,6 @@ async function activeJobsheets(tx: DbOrTx, orderId: number) {
       id: jobsheets.id,
       jobsheetNo: jobsheets.jobsheetNo,
       frames: jobsheets.frames,
-      picks: jobsheets.picks,
       status: jobsheets.status,
       completedFrames: jobsheets.completedFrames,
     })
@@ -302,14 +297,9 @@ async function activeJobsheets(tx: DbOrTx, orderId: number) {
 
 type CoverageSheet = Parameters<typeof coverageFrames>[0][number];
 
-function coverageOf(order: Pick<OrderPlanRow, 'quantity' | 'jobsheetPieces' | 'targetFrames'>, list: CoverageSheet[]): Coverage {
-  return {
-    orderedPieces: order.quantity,
-    jobsheetPieces: order.jobsheetPieces,
-    targetFrames: order.targetFrames,
-    totalFrames: coverageFrames(list),
-    jobsheetCount: list.length,
-  };
+/** Live figures from the active jobsheets (Sprint 15) — never from the deprecated order counters. */
+function coverageOf(order: Pick<OrderPlanRow, 'quantity'>, list: CoverageSheet[]): Coverage {
+  return orderJobsheetPlan(order.quantity, list);
 }
 
 /** Rows of (jobsheet, machine) → machines per jobsheet id. */
@@ -383,15 +373,8 @@ export async function generateJobsheets(role: RoleKey, orderId: number, input: u
     const order = await loadVisibleOrder(tx, role, orderId);
     assertJobsheetsAllowed(order);
     await assertMachines(tx, data.machineIds);
-    const created = await insertJobsheets(tx, role, orderId, plan.frames, data.picks, data.machineIds);
-    await tx
-      .update(orders)
-      .set({
-        jobsheetPieces: sql`${orders.jobsheetPieces} + ${data.pieces}`,
-        targetFrames: sql`${orders.targetFrames} + ${plan.totalFrames}`,
-        framesPerJobsheet: data.framesPerJobsheet,
-      })
-      .where(eq(orders.id, orderId));
+    const created = await insertJobsheets(tx, role, orderId, plan.frames, data.machineIds);
+    await tx.update(orders).set({ framesPerJobsheet: data.framesPerJobsheet }).where(eq(orders.id, orderId));
     const statusChanged = await recomputeOrderStatus(orderId, role, tx);
     return { orderNo: order.orderNo, created, statusChanged };
   });
@@ -404,14 +387,7 @@ export async function addSingleJobsheet(role: RoleKey, orderId: number, input: u
     const order = await loadVisibleOrder(tx, role, orderId);
     assertJobsheetsAllowed(order);
     await assertMachines(tx, data.machineIds);
-    const created = await insertJobsheets(tx, role, orderId, [data.frames], data.picks, data.machineIds);
-    await tx
-      .update(orders)
-      .set({
-        jobsheetPieces: sql`${orders.jobsheetPieces} + ${data.pieces}`,
-        targetFrames: sql`${orders.targetFrames} + ${data.frames}`,
-      })
-      .where(eq(orders.id, orderId));
+    const created = await insertJobsheets(tx, role, orderId, [data.frames], data.machineIds);
     const statusChanged = await recomputeOrderStatus(orderId, role, tx);
     return { orderNo: order.orderNo, created, statusChanged };
   });
@@ -431,7 +407,6 @@ export async function listOrderJobsheets(role: RoleKey, orderId: number): Promis
         status: jobsheets.status,
         frames: jobsheets.frames,
         completedFrames: jobsheets.completedFrames,
-        picks: jobsheets.picks,
         sentAt: jobsheets.sentAt,
         startedAt: jobsheets.startedAt,
         completedAt: jobsheets.completedAt,
@@ -464,7 +439,6 @@ export async function listOrderJobsheets(role: RoleKey, orderId: number): Promis
         status: r.status,
         frames: r.frames,
         completedFrames: r.completedFrames,
-        picks: r.picks,
         machines: [],
         runningMachine: toMachineRef(r),
         parentJobsheetNo: r.parentJobsheetNo,
@@ -502,7 +476,6 @@ export async function getJobsheet(role: RoleKey, id: number): Promise<JobsheetDe
         status: jobsheets.status,
         frames: jobsheets.frames,
         completedFrames: jobsheets.completedFrames,
-        picks: jobsheets.picks,
         createdBy: jobsheets.createdBy,
         isDeleted: jobsheets.isDeleted,
         createdAt: jobsheets.createdAt,
@@ -598,7 +571,6 @@ export async function getJobsheet(role: RoleKey, id: number): Promise<JobsheetDe
     status: r.status,
     frames: r.frames,
     completedFrames: r.completedFrames,
-    picks: r.picks,
     createdBy: r.createdBy,
     createdAt: r.createdAt,
     updatedAt: r.updatedAt,
@@ -621,7 +593,10 @@ export async function getJobsheet(role: RoleKey, id: number): Promise<JobsheetDe
           thumbUrl: r.variationCode ? r.variationThumbUrl : r.designThumbUrl,
         }
       : null,
-    order: restricted ? null : { ...r.order, customer: r.customer, material: r.material },
+    order:
+      restricted || !coverage
+        ? null
+        : { ...r.order, jobsheetPieces: coverage.jobsheetPieces, targetFrames: coverage.targetFrames, customer: r.customer, material: r.material },
     siblings: restricted ? [] : siblings,
     coverage,
     warnings: coverage ? coverageWarnings(coverage) : [],
@@ -660,11 +635,10 @@ export async function printJobsheets(role: RoleKey, ids: number[]): Promise<Jobs
         id: jobsheets.id,
         jobsheetNo: jobsheets.jobsheetNo,
         frames: jobsheets.frames,
-        picks: jobsheets.picks,
         status: jobsheets.status,
         orderNo: orders.orderNo,
         orderStatus: orders.status,
-        jobsheetPieces: orders.jobsheetPieces,
+        jobsheetPieces: liveJobsheetPieces,
         orderType: orders.orderType,
         blouseOption: orders.blouseOption,
         designCode: sql<string | null>`COALESCE(${designVariations.code}, ${designs.code})`,
@@ -696,7 +670,6 @@ export async function printJobsheets(role: RoleKey, ids: number[]): Promise<Jobs
       jobsheetNo: r.jobsheetNo,
       orderNo: r.orderNo,
       frames: r.frames,
-      picks: r.picks,
       machineNos: (machinesById.get(r.id) ?? []).map((m) => m.machineNo),
       jobsheetPieces: r.jobsheetPieces,
       designCode: r.designCode,
@@ -798,7 +771,6 @@ export async function listSupervisorJobsheets(role: RoleKey, q: JobsheetListQuer
         status: jobsheets.status,
         frames: jobsheets.frames,
         completedFrames: jobsheets.completedFrames,
-        picks: jobsheets.picks,
         orderNo: orders.orderNo,
         quality: materials.name,
         blouseOption: orders.blouseOption,
@@ -854,7 +826,6 @@ export async function listSupervisorJobsheets(role: RoleKey, q: JobsheetListQuer
         status: r.status,
         frames: r.frames,
         completedFrames: r.completedFrames,
-        picks: r.picks,
         orderNo: r.orderNo,
         quality: r.quality,
         blouseOption: r.blouseOption,
@@ -903,6 +874,9 @@ export async function listSupervisorOrders(role: RoleKey, q: SupervisorOrderList
   const ongoing = sql<number>`SUM(CASE WHEN ${jobsheets.status} = 'ongoing' THEN 1 ELSE 0 END)`;
   const completed = sql<number>`SUM(CASE WHEN ${jobsheets.status} = 'completed' THEN 1 ELSE 0 END)`;
   const lastCompletedAt = sql<string | null>`MAX(${jobsheets.completedAt})`;
+  // Sprint 15: all machines assigned across the order's visible jobsheets (same aggregate query, no per-card queries).
+  const visibleStatuses = supervisorStatuses(role);
+  const machineNosJson = sql<string | null>`(SELECT json_group_array(DISTINCT m.machine_no) FROM jobsheet_machines jm JOIN jobsheets j ON j.id = jm.jobsheet_id JOIN machines m ON m.id = jm.machine_id WHERE j.order_id = "orders"."id" AND j.is_deleted = 0 AND j.status IN (${sql.join(visibleStatuses.map((s) => sql`${s}`), sql`, `)}))`;
   const from = () =>
     db
       .select({
@@ -912,6 +886,8 @@ export async function listSupervisorOrders(role: RoleKey, q: SupervisorOrderList
         designThumbUrl: designThumbCol,
         designImageUrl: designImageCol,
         blouseOption: orders.blouseOption,
+        quality: materials.name,
+        machineNosJson,
         pending,
         ongoing,
         completed,
@@ -920,6 +896,7 @@ export async function listSupervisorOrders(role: RoleKey, q: SupervisorOrderList
       })
       .from(jobsheets)
       .innerJoin(orders, eq(orders.id, jobsheets.orderId))
+      .innerJoin(materials, eq(materials.id, orders.materialId))
       .leftJoin(designs, eq(designs.id, orders.designId))
       .leftJoin(designVariations, eq(designVariations.id, orders.variationId))
       .where(and(...where))
@@ -952,6 +929,8 @@ export async function listSupervisorOrders(role: RoleKey, q: SupervisorOrderList
       designThumbUrl: r.designThumbUrl,
       designImageUrl: r.designImageUrl,
       blouseOption: r.blouseOption,
+      quality: r.quality,
+      machineNos: (JSON.parse(r.machineNosJson ?? '[]') as number[]).filter((n) => n !== null).sort((a, b) => a - b),
       counts: {
         pending: Number(r.pending),
         ongoing: Number(r.ongoing),
@@ -996,7 +975,6 @@ export async function updateJobsheet(role: RoleKey, id: number, input: unknown):
     const { js, orderId, order } = await loadJobsheetForWrite(tx, role, id);
     assertPending(js.status);
     const active = await activeJobsheets(tx, orderId);
-    const current = active.find((j) => j.id === id)!;
     const currentMachines = await tx
       .select({ machineId: jobsheetMachines.machineId })
       .from(jobsheetMachines)
@@ -1014,12 +992,12 @@ export async function updateJobsheet(role: RoleKey, id: number, input: unknown):
     });
     const pendingIds = active.filter((j) => j.status === JOBSHEET_STATUS.PENDING).map((j) => j.id);
 
-    // The edited jobsheet: frames + picks + machines.
+    // The edited jobsheet: frames + machines.
     const sameMachines =
       currentIds.length === data.machineIds.length && currentIds.every((m) => data.machineIds.includes(m));
-    const detailsChanged = (current.picks ?? null) !== data.picks || !sameMachines;
+    const detailsChanged = !sameMachines;
     if (detailsChanged || plan.updated.some((u) => u.id === id)) {
-      await tx.update(jobsheets).set({ frames: data.frames, picks: data.picks }).where(eq(jobsheets.id, id));
+      await tx.update(jobsheets).set({ frames: data.frames }).where(eq(jobsheets.id, id));
     }
     if (!sameMachines) {
       await tx.delete(jobsheetMachines).where(eq(jobsheetMachines.jobsheetId, id));
@@ -1045,9 +1023,8 @@ export async function updateJobsheet(role: RoleKey, id: number, input: unknown):
     }
     let created: JobsheetRef[] = [];
     if (plan.created.length) {
-      // New jobsheets copy the picks and machines of the last Pending jobsheet (after this edit).
+      // New jobsheets copy the machines of the last Pending jobsheet (after this edit).
       const last = plan.last;
-      const lastPicks = last.id === id ? data.picks : (active.find((j) => j.id === last.id)?.picks ?? null);
       const lastMachines =
         last.id === id
           ? data.machineIds
@@ -1062,7 +1039,6 @@ export async function updateJobsheet(role: RoleKey, id: number, input: unknown):
         role,
         orderId,
         plan.created.map((c) => c.frames),
-        lastPicks,
         lastMachines,
       );
     }
@@ -1098,11 +1074,8 @@ export async function deleteJobsheet(role: RoleKey, id: number): Promise<Jobshee
     if (!deleted.length) throw conflict('This jobsheet was just sent to the supervisor. Refresh and try again.');
     const remaining = await activeJobsheets(tx, orderId);
     if (remaining.length === 0) {
-      // That was the last one: reset the jobsheet plan (the status moves back below).
-      await tx
-        .update(orders)
-        .set({ jobsheetPieces: 0, targetFrames: 0, framesPerJobsheet: null })
-        .where(eq(orders.id, orderId));
+      // That was the last one: forget the split size (the figures are live; the status moves back below).
+      await tx.update(orders).set({ framesPerJobsheet: null }).where(eq(orders.id, orderId));
     }
     await recomputeOrderStatus(orderId, role, tx);
     return { orderId, orderReset: remaining.length === 0 };
@@ -1183,7 +1156,6 @@ async function loadJobsheetForRun(tx: Tx, role: RoleKey, id: number) {
       orderId: jobsheets.orderId,
       status: jobsheets.status,
       frames: jobsheets.frames,
-      picks: jobsheets.picks,
       runningMachineId: jobsheets.runningMachineId,
       isDeleted: jobsheets.isDeleted,
       orderNo: orders.orderNo,
@@ -1288,7 +1260,6 @@ export async function changeMachine(role: RoleKey, id: number, input: unknown): 
       role,
       js.orderId,
       [data.nextFrames],
-      js.picks,
       allActive.map((m) => m.id),
       {
         status: JOBSHEET_STATUS.SENT,

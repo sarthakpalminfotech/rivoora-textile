@@ -5,7 +5,7 @@ import { ALERT_NOT_STARTED_HOURS, getSubStage, jobsheetSubStage, takaStageColour
 const NOW = new Date('2026-09-30T12:00:00.000Z');
 const hoursAgo = (h: number) => new Date(NOW.getTime() - h * 3_600_000).toISOString();
 
-const order = { orderNo: 26, unit: 'pcs', quantity: 90, jobsheetPieces: 90, targetFrames: 30 };
+const order = { orderNo: 26, unit: 'pcs', quantity: 90 };
 
 let nextId = 1;
 function js(p: Partial<DashboardJobsheetInput> & Pick<DashboardJobsheetInput, 'status'>): DashboardJobsheetInput {
@@ -74,7 +74,7 @@ describe('buildOrderDashboard — sub-stages', () => {
 
     expect(main(d0, 'production')).toMatchObject({ count: 8, takas: 3, damaged: 1, hasWork: true });
     expect(d0.production).toEqual({ jobsheets: 8, frames: 80, wovenFrames: 18, wovenPcs: 54, onLoomFrames: 30, takas: 3, takaPcs: null });
-    expect(d0.progress).toMatchObject({ wovenFrames: 18, wovenPcs: 54, targetPcs: 90, percent: 60 });
+    expect(d0.progress).toMatchObject({ wovenFrames: 18, wovenPcs: 54, targetPcs: 240, percent: 22.5 });
     expect(d0.defaultStage).toBe('production');
   });
 
@@ -156,12 +156,12 @@ describe('buildOrderDashboard — alerts', () => {
   it(`raises "not started" only after ${ALERT_NOT_STARTED_HOURS}h`, () => {
     const early = js({ status: 'sent', jobsheetNo: 327, sentAt: hoursAgo(23) });
     const late = js({ status: 'sent', jobsheetNo: 328, sentAt: hoursAgo(25) });
-    const d1 = buildOrderDashboard({ order: { ...order, jobsheetPieces: 30, targetFrames: 10, quantity: 30 }, jobsheets: [early], takas: [] }, NOW);
+    const d1 = buildOrderDashboard({ order: { ...order, quantity: 30 }, jobsheets: [early], takas: [] }, NOW);
     expect(d1.alerts).toEqual([]);
     expect(sub(d1, 'with_supervisor').overdue).toBe(false);
 
     const d2 = buildOrderDashboard(
-      { order: { ...order, jobsheetPieces: 60, targetFrames: 20, quantity: 60 }, jobsheets: [early, late], takas: [] },
+      { order: { ...order, quantity: 60 }, jobsheets: [early, late], takas: [] },
       NOW,
     );
     expect(d2.alerts).toEqual([
@@ -177,8 +177,8 @@ describe('buildOrderDashboard — alerts', () => {
 
   it('includes the coverage warnings with their existing texts', () => {
     const a = js({ status: 'pending', frames: 10 });
-    const d = buildOrderDashboard({ order: { orderNo: 26, unit: 'pcs', quantity: 90, jobsheetPieces: 30, targetFrames: 10 }, jobsheets: [a], takas: [] }, NOW);
-    expect(d.alerts.map((a) => a.kind)).toEqual(['pieces_less']);
+    const d = buildOrderDashboard({ order: { orderNo: 26, unit: 'pcs', quantity: 90 }, jobsheets: [a], takas: [] }, NOW);
+    expect(d.alerts.map((a) => a.kind)).toEqual(['pieces_less', 'frames_short']);
     expect(d.alerts[0]!.message).toBe('Jobsheet quantity (30 pcs) is less than the order (90 pcs).');
   });
 });
@@ -255,7 +255,7 @@ describe('buildOrderDashboard — butta cutting is connected (Sprint 7)', () => 
 
 describe('buildOrderDashboard — no jobsheets', () => {
   it('returns zeros and falls back to the order quantity', () => {
-    const d = buildOrderDashboard({ order: { orderNo: 26, unit: 'pcs', quantity: 304, jobsheetPieces: 0, targetFrames: 0 }, jobsheets: [], takas: [] }, NOW);
+    const d = buildOrderDashboard({ order: { orderNo: 26, unit: 'pcs', quantity: 304 }, jobsheets: [], takas: [] }, NOW);
     expect(d.hasJobsheets).toBe(false);
     expect(d.progress).toEqual({ wovenFrames: 0, wovenPcs: 0, targetPcs: 304, percent: 0 });
     expect(d.mainStages.every((m) => m.count === 0 && !m.hasWork)).toBe(true);
@@ -266,7 +266,7 @@ describe('buildOrderDashboard — no jobsheets', () => {
   });
 
   it('non-pcs orders are flagged', () => {
-    const d = buildOrderDashboard({ order: { orderNo: 26, unit: 'kg', quantity: 50, jobsheetPieces: 0, targetFrames: 0 }, jobsheets: [], takas: [] }, NOW);
+    const d = buildOrderDashboard({ order: { orderNo: 26, unit: 'kg', quantity: 50 }, jobsheets: [], takas: [] }, NOW);
     expect(d.isPcs).toBe(false);
     expect(d.progress.targetPcs).toBe(50);
   });

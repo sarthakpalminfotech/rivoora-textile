@@ -4,11 +4,11 @@ import { useMemo } from 'react';
 import { Controller, useForm, useWatch } from 'react-hook-form';
 import { toast } from 'sonner';
 import { z } from 'zod';
-import { coverageWarnings, jobsheetRefShort, planFramesEdit, type JobsheetDetail, type JobsheetUpdateResult } from '@rivoora/shared';
+import { coverageWarnings, jobsheetRefShort, piecesForFrames, planFramesEdit, type JobsheetDetail, type JobsheetUpdateResult } from '@rivoora/shared';
 import { ErrorState } from '@/components/list-parts';
 import { Button } from '@/components/ui/button';
 import { Field } from '@/components/ui/field';
-import { Input, NumberInput } from '@/components/ui/input';
+import { NumberInput } from '@/components/ui/input';
 import { ResponsiveModal } from '@/components/ui/modal';
 import { Skeleton } from '@/components/ui/skeleton';
 import { errorMessage } from '@/lib/api';
@@ -18,7 +18,6 @@ import { intField, MachinesSelect, parseIntOrNull, WarningList } from './parts';
 
 const schema = z.object({
   frames: intField('the frames', 100_000),
-  picks: z.string().trim().max(20, 'Picks must be at most 20 characters'),
   machineIds: z.array(z.number()).min(1, 'Select at least one machine'),
 });
 type FormValues = z.infer<typeof schema>;
@@ -44,6 +43,7 @@ export function describeFramesEdit(js: JobsheetDetail, newFrames: number | null)
   const warnings = coverageWarnings({
     ...js.coverage,
     totalFrames: plan.totalFramesAfter,
+    jobsheetPieces: piecesForFrames(plan.totalFramesAfter),
     jobsheetCount: js.siblings.length + plan.created.length - plan.removed.length,
   })
     // Editing the last jobsheet upwards is fine — no "more than needed" warning there.
@@ -74,7 +74,7 @@ function EditForm({ js, onDone, formId, update }: { js: JobsheetDetail; onDone: 
     formState: { errors },
   } = useForm<FormValues>({
     resolver: zodResolver(schema),
-    defaultValues: { frames: String(js.frames), picks: js.picks ?? '', machineIds: js.machines.map((m) => m.id) },
+    defaultValues: { frames: String(js.frames), machineIds: js.machines.map((m) => m.id) },
   });
 
   const framesText = useWatch({ control, name: 'frames' });
@@ -82,14 +82,14 @@ function EditForm({ js, onDone, formId, update }: { js: JobsheetDetail; onDone: 
 
   const onSubmit = handleSubmit((v) =>
     update.mutate(
-      { frames: Number(v.frames), picks: v.picks, machineIds: v.machineIds },
+      { frames: Number(v.frames), machineIds: v.machineIds },
       {
         onSuccess: (res) => {
           toastUpdateResult(res, js.jobsheetNo);
           onDone();
         },
         onError: (err) => {
-          if (!applyServerFieldError(err, setError, ['frames', 'picks', 'machineIds'])) toast.error(errorMessage(err));
+          if (!applyServerFieldError(err, setError, ['frames', 'machineIds'])) toast.error(errorMessage(err));
         },
       },
     ),
@@ -101,15 +101,12 @@ function EditForm({ js, onDone, formId, update }: { js: JobsheetDetail; onDone: 
         <Field label="Frames" htmlFor="jse-frames" required error={errors.frames?.message}>
           <NumberInput id="jse-frames" inputMode="numeric" autoFocus invalid={!!errors.frames} {...register('frames')} />
         </Field>
-        <Field label="Picks" htmlFor="jse-picks" error={errors.picks?.message}>
-          <Input id="jse-picks" placeholder="e.g. 72" invalid={!!errors.picks} {...register('picks')} />
-        </Field>
         <Field
           label="Machines"
           htmlFor="jse-machines"
           required
           error={errors.machineIds?.message}
-          hint="Picks and machines only change this jobsheet."
+          hint="Machines only change this jobsheet."
           className="sm:col-span-2"
         >
           <Controller
