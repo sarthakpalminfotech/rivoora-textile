@@ -12,6 +12,6 @@ takaRouter.use(requirePermission('canUseTakaModules'));
 takaRouter.get(
   '/jobsheets',
   ah(async (req, res) => {
-    res.json(await listTakaJobsheets(takaListQuerySchema.parse(req.query)));
+    res.json(await listTakaJobsheets(req.role, takaListQuerySchema.parse(req.query)));
   }),
 );

@@ -118,11 +118,24 @@ export interface OrderListItem {
   blouseOption: BlouseOption | null;
   brokerName: string | null;
   status: OrderStatusKey;
+  /** Sprint 15: on hold (only Jenish / Gaurang ever receive a held order). */
+  isOnHold: boolean;
   orderDate: string;
   /** Variation code if the order uses one, otherwise the design code. */
   designCode: string | null;
   /** Thumbnail of the variation (or design) — the list never returns full images. */
   designThumbUrl: string | null;
+}
+
+/** Sprint 15: a "Put on hold" / "Released from hold" entry of the History tab. */
+export interface OrderHoldEvent {
+  id: number;
+  event: 'held' | 'released';
+  note: string | null;
+  role: RoleKey;
+  /** Name of the real user, when known. */
+  userName: string | null;
+  createdAt: string;
 }
 
 export interface OrderStatusHistoryEntry {
@@ -176,6 +189,11 @@ export interface OrderDetail {
   variation: { id: number; code: string; imageUrl: string | null; thumbUrl: string | null } | null;
   noteImages: OrderImage[];
   history: OrderStatusHistoryEntry[];
+  /** Sprint 15: hold state + its timeline entries (empty / false for roles that never see held orders). */
+  isOnHold: boolean;
+  heldAt: string | null;
+  holdNote: string | null;
+  holdEvents: OrderHoldEvent[];
   /** Sprint 13: set once goods came back (the order shows "Returned"); only for roles that see the dispatch statuses. */
   returned: OrderReturnSummary | null;
 }
@@ -328,6 +346,8 @@ export interface JobsheetDesign {
 export interface JobsheetDetail {
   id: number;
   jobsheetNo: number;
+  /** Sprint 15: the order is on hold (only Jenish / Gaurang can open such a jobsheet). */
+  orderOnHold: boolean;
   status: JobsheetStatusKey;
   frames: number;
   completedFrames: number | null;
@@ -1185,6 +1205,8 @@ export interface GodownOrderCard {
   customerName: string | null;
   /** Sprint 12: takas ready for dispatch (the Dispatch button is enabled when > 0). */
   readyDispatchCount: number;
+  /** Sprint 15: on hold (only Jenish / Gaurang ever receive held orders). */
+  isOnHold: boolean;
 }
 
 export type GodownOrderPage = Paginated<GodownOrderCard>;
@@ -1231,6 +1253,8 @@ export interface GodownOrder {
   /** Sprint 13: the order's blouse option (null = not set). */
   blouseOption: BlouseOption | null;
   status: OrderStatusKey;
+  /** Sprint 15: on hold. */
+  isOnHold: boolean;
   kpis: import('./godown').GodownKpis;
   /** Sprint 10: pcs tiles (ready for dispatch / refinish / damaged). */
   pcsKpis: GodownPcsKpis;
@@ -1319,6 +1343,8 @@ export interface InventoryOrderRow {
   makingPcs: number;
   orderDate: string;
   blouseOption: BlouseOption | null;
+  /** Sprint 15: on hold. */
+  isOnHold: boolean;
 }
 
 /** One card of the Damaged grid. */
@@ -1482,6 +1508,8 @@ export interface DispatchChallanListItem {
 export interface DispatchedOrderCard {
   orderId: number;
   orderNo: number;
+  /** Sprint 15: on hold (shown with a badge to Jenish / Gaurang). */
+  isOnHold: boolean;
   /** Sprint 13: the order's blouse option (null = not set). */
   blouseOption: BlouseOption | null;
   customerName: string;
@@ -1501,6 +1529,8 @@ export type DispatchedOrderPage = Paginated<DispatchedOrderCard>;
 export interface DispatchedOrderDetail {
   orderId: number;
   orderNo: number;
+  /** Sprint 15: on hold. */
+  isOnHold: boolean;
   orderType: OrderType;
   /** Sprint 13: the order's blouse option (null = not set). */
   blouseOption: BlouseOption | null;

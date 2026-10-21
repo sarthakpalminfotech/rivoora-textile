@@ -21,7 +21,8 @@ export async function listQcPending(q: ButtaListQuery): Promise<QcPendingPage> {
     const p = likePattern(term);
     search = sql`(${takas.takaNo} LIKE ${p} ESCAPE '\\' OR ${orders.orderNo} = ${/^\d+$/.test(term) ? Number(term) : -1})`;
   }
-  const where = and(eq(takas.stage, 'butta_qc'), eq(takas.isDeleted, false), search);
+  // Sprint 15: a held order's takas wait (hidden) until the order is released.
+  const where = and(eq(takas.stage, 'butta_qc'), eq(takas.isDeleted, false), eq(orders.isOnHold, false), search);
   const [items, [{ total }]] = await db.batch([
     db
       .select({

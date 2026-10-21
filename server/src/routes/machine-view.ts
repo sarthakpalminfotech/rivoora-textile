@@ -8,8 +8,8 @@ export const machineViewRouter = Router();
 machineViewRouter.get(
   '/',
   requirePermission('canViewMachineView'),
-  ah(async (_req, res) => {
+  ah(async (req, res) => {
     res.set('Cache-Control', 'no-store');
-    res.json(await getMachineView());
+    res.json(await getMachineView(req.role));
   }),
 );

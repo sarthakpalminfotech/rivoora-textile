@@ -79,6 +79,7 @@ import {
   type TakaEventInput,
 } from './taka-ops';
 import { takaInOrder, takaOrderId } from './free-stock';
+import { orderNotHeldFor } from './hold';
 
 /* ------------------------------------------------------------------ */
 /* helpers                                                              */
@@ -840,8 +841,9 @@ const lastTakaAt = sql<string | null>`(SELECT MAX(t.created_at) FROM takas t WHE
  * Every jobsheet in every status. Taka pending = no active takas yet: Completed first (most recently completed
  * first), then Ongoing, Sent, Pending (by number). Done = at least one taka, most recent taka entry first.
  */
-export async function listTakaJobsheets(q: TakaListQuery): Promise<TakaJobsheetPage> {
-  const base: (SQL | undefined)[] = [eq(jobsheets.isDeleted, false)];
+export async function listTakaJobsheets(role: RoleKey, q: TakaListQuery): Promise<TakaJobsheetPage> {
+  // Sprint 15: jobsheets of a held order are hidden from Taka entry.
+  const base: (SQL | undefined)[] = [eq(jobsheets.isDeleted, false), orderNotHeldFor(role)];
   if (q.search) base.push(jobsheetSearch(q.search));
   const tabWhere = q.tab === 'pending' ? sql`${activeTakaCount} = 0` : sql`${activeTakaCount} > 0`;
   const order =

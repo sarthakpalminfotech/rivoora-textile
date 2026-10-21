@@ -13,6 +13,7 @@ import { formatDate, formatOrderNo } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { useDispatchedOrders } from './api';
 import { BlouseTag } from '../free-stock/blouse';
+import { OnHoldBadge } from '../orders/hold/hold-order';
 
 /** Status filter of the Dispatched list (Returned = dispatched, then goods came back to stock). */
 const DISPATCHED_FILTERS = [
@@ -51,7 +52,10 @@ function OrderCard({ order }: { order: DispatchedOrderCard }) {
         <div className="min-w-0 flex-1">
           <div className="flex items-start justify-between gap-2">
             <p className="whitespace-nowrap text-2xl font-extrabold leading-tight tracking-tight text-slate-900">Order {formatOrderNo(order.orderNo)}</p>
-            <StatusBadge status={order.status} />
+            <span className="flex flex-wrap items-center justify-end gap-1">
+              <StatusBadge status={order.status} />
+              {order.isOnHold && <OnHoldBadge />}
+            </span>
           </div>
           <p className="truncate text-[15px] font-semibold text-slate-700">{order.customerName}</p>
           <p className="truncate text-sm text-slate-500">

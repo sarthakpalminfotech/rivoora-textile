@@ -76,6 +76,7 @@ import { likePattern } from '../lib/http';
 import { mapTaka, sortTakas, TAKA_EVENTS, takaColumns } from './taka-shared';
 import { takaInOrder } from './free-stock';
 import { liveJobsheetPieces } from './jobsheet-live';
+import { orderNotHeldFor } from './hold';
 import { rowFilters } from './work-filters';
 
 const JOBSHEET_COUNTER = 'jobsheet_no';
@@ -190,7 +191,7 @@ interface InsertOptions {
   note?: string;
 }
 
-async function insertJobsheets(
+export async function insertJobsheets(
   tx: Tx,
   role: RoleKey,
   orderId: number,
@@ -488,6 +489,7 @@ export async function getJobsheet(role: RoleKey, id: number): Promise<JobsheetDe
         parentJobsheetNo,
         takaNote: jobsheets.takaNote,
         blouseOption: orders.blouseOption,
+        orderOnHold: orders.isOnHold,
         ...runningMachineColumns,
         order: orderPlanColumns,
         customer: { id: customers.id, name: customers.name, city: customers.city },
@@ -568,6 +570,7 @@ export async function getJobsheet(role: RoleKey, id: number): Promise<JobsheetDe
     id: r.id,
     jobsheetNo: r.jobsheetNo,
     blouseOption: r.blouseOption,
+    orderOnHold: r.orderOnHold,
     status: r.status,
     frames: r.frames,
     completedFrames: r.completedFrames,
@@ -733,7 +736,8 @@ const supervisorStatuses = (role: RoleKey) => jobsheetStatusesForRole(role).filt
 export async function listSupervisorJobsheets(role: RoleKey, q: JobsheetListQuery): Promise<SupervisorJobsheetPage> {
   // Never Pending (not yet sent) — the visible set comes from the status config.
   const visible = supervisorStatuses(role);
-  const scope: (SQL | undefined)[] = [eq(jobsheets.isDeleted, false), inArray(jobsheets.status, visible)];
+  // Sprint 15: jobsheets of a held order are hidden from the supervisor.
+  const scope: (SQL | undefined)[] = [eq(jobsheets.isDeleted, false), inArray(jobsheets.status, visible), orderNotHeldFor(role)];
   if (q.orderId) scope.push(eq(jobsheets.orderId, q.orderId));
   const base = [...scope];
   if (q.search) base.push(jobsheetSearch(q.search));
@@ -856,7 +860,7 @@ export async function listSupervisorJobsheets(role: RoleKey, q: JobsheetListQuer
  * first). Never returns the client or other order details.
  */
 export async function listSupervisorOrders(role: RoleKey, q: SupervisorOrderListQuery): Promise<SupervisorOrderPage> {
-  const where: (SQL | undefined)[] = [eq(jobsheets.isDeleted, false), inArray(jobsheets.status, supervisorStatuses(role))];
+  const where: (SQL | undefined)[] = [eq(jobsheets.isDeleted, false), inArray(jobsheets.status, supervisorStatuses(role)), orderNotHeldFor(role)];
   if (q.search) {
     const term = searchTerm(q.search);
     const codeP = likePattern(normalizeCode(term));

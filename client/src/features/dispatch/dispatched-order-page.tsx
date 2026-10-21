@@ -13,6 +13,7 @@ import { formatDate, formatOrderNo } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { useDispatchedOrder } from './api';
 import { BlouseTag } from '../free-stock/blouse';
+import { OnHoldBadge } from '../orders/hold/hold-order';
 
 /** `/dispatched/:orderId` — the order header and every dispatch challan (all revisions) with Print and GR. */
 export default function DispatchedOrderPage() {
@@ -44,6 +45,7 @@ export default function DispatchedOrderPage() {
               <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
                 <h1 className="text-3xl font-extrabold leading-tight tracking-tight text-slate-900">Order {formatOrderNo(o.orderNo)}</h1>
                 <StatusBadge status={o.status} />
+                {o.isOnHold && <OnHoldBadge />}
               </div>
               <p className="truncate text-[15px] font-semibold text-slate-700">{o.customerName}</p>
               <p className="truncate text-sm text-slate-500">

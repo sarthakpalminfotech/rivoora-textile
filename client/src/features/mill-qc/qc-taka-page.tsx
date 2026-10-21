@@ -28,6 +28,7 @@ import { IdentityCard, ResolveDialog, Section, fieldBox } from '../butta-qc/qc-t
 import { DamageDialog, entryLabel, nextEntryKey, qcEntryPayload, type DamageEntry } from '../takas/damage-dialog';
 import { FreshTag } from '../takas/taka-chip';
 import { useMillQcTaka, useSubmitMillQc } from './api';
+import { HoldNotice, isOnHoldError } from '../orders/hold/hold-notice';
 
 type Confirm = 'fresh' | 'done' | 'refinish' | null;
 
@@ -526,6 +527,13 @@ export default function MillQcTakaPage() {
       <div className="page-container max-w-2xl space-y-4 py-4">
         <Skeleton className="h-44 rounded-2xl" />
         <Skeleton className="h-40 rounded-2xl" />
+      </div>
+    );
+  }
+  if (query.isError && isOnHoldError(query.error)) {
+    return (
+      <div className="page-container max-w-2xl py-4">
+        <HoldNotice error={query.error} bilingual backTo="/qc" backLabel="QC" backLabelHi="क्यूसी" />
       </div>
     );
   }

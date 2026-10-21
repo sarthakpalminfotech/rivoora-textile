@@ -18,6 +18,7 @@ import { useEffect, useState } from 'react';
 import { AddFromFreeStockDialog } from '../free-stock/add-from-free-stock-dialog';
 import { useItemFreeStock } from '../free-stock/api';
 import { BlouseTag, BlouseToggle } from '../free-stock/blouse';
+import { OnHoldBadge } from '../orders/hold/hold-order';
 import { StageDot } from '../takas/taka-chip';
 import { useInventoryItem, useInventoryItemOrders } from './api';
 import { BackLink, ExpandingSearch, ItemHeader, KpiSkeleton, KpiTile, pcsText } from './parts';
@@ -50,6 +51,7 @@ function OrderRow({ order, figure }: { order: InventoryOrderRow; figure: keyof t
           <p className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[13px] text-slate-500">
             <span className="truncate">{order.customerName}</span>
             <BlouseTag option={order.blouseOption} />
+            {order.isOnHold && <OnHoldBadge />}
           </p>
         </div>
         <div className="flex min-w-[14rem] flex-[2] items-center gap-4">

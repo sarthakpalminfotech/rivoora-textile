@@ -1,10 +1,12 @@
 import { and, asc, eq, sql } from 'drizzle-orm';
+import type { RoleKey } from '@rivoora/shared';
+import { orderNotHeldFor } from './hold';
 import { JOBSHEET_STATUS, type MachineViewData, type MachineViewJobsheet, type MachineViewMachine } from '@rivoora/shared';
 import { db } from '../db/client';
 import { designVariations, designs, jobsheets, machines, orders } from '../db/schema';
 
 /** The machine floor board: every machine with its ongoing jobsheets, in one round trip (two queries). */
-export async function getMachineView(): Promise<MachineViewData> {
+export async function getMachineView(role: RoleKey): Promise<MachineViewData> {
   const [machineRows, ongoingRows] = await db.batch([
     db
       .select({
@@ -33,7 +35,8 @@ export async function getMachineView(): Promise<MachineViewData> {
       .innerJoin(orders, eq(orders.id, jobsheets.orderId))
       .leftJoin(designs, eq(designs.id, orders.designId))
       .leftJoin(designVariations, eq(designVariations.id, orders.variationId))
-      .where(and(eq(jobsheets.status, JOBSHEET_STATUS.ONGOING), eq(jobsheets.isDeleted, false)))
+      // Sprint 15: a held order's jobsheets are completed when it is put on hold; this also hides any leftover from the supervisor.
+      .where(and(eq(jobsheets.status, JOBSHEET_STATUS.ONGOING), eq(jobsheets.isDeleted, false), orderNotHeldFor(role)))
       .orderBy(asc(jobsheets.startedAt), asc(jobsheets.jobsheetNo)),
   ]);
 

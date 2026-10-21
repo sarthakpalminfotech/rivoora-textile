@@ -14,6 +14,7 @@ import {
 import { cn } from "@/lib/utils";
 import { OrderTypeTag } from "../order-type-tag";
 import { BlouseTag } from '../../free-stock/blouse';
+import { HoldButtons, ON_HOLD_HINT, OnHoldBadge } from '../hold/hold-order';
 
 function HeaderItem({
   label,
@@ -92,10 +93,15 @@ export function OrderHeader({
   order,
   onUndo,
   onEdit,
+  onHold,
+  onRelease,
 }: {
   order: OrderDetail;
   onUndo?: () => void;
   onEdit?: () => void;
+  /** Sprint 15 (Jenish): Hold order / Release hold. */
+  onHold?: () => void;
+  onRelease?: () => void;
 }) {
   const [more, setMore] = useState(false);
   const { can } = useRole();
@@ -218,10 +224,12 @@ export function OrderHeader({
           <OrderTypeTag type={order.orderType} className="text-xs" />
           <BlouseTag option={order.blouseOption} />
           <StatusBadge status={order.status} />
-          {(onUndo || onEdit) && (
+          {order.isOnHold && <OnHoldBadge />}
+          {(onUndo || onEdit || onHold || onRelease) && (
             <div className="flex items-center gap-2 md:ml-auto">
+              <HoldButtons held={order.isOnHold} canHold={!!(onHold && onRelease)} onHold={() => onHold?.()} onRelease={() => onRelease?.()} />
               {onUndo && (
-                <Button variant="secondary" size="sm" onClick={onUndo}>
+                <Button variant="secondary" size="sm" onClick={onUndo} disabled={order.isOnHold} title={order.isOnHold ? ON_HOLD_HINT : undefined}>
                   <Undo2 /> Undo send for production
                 </Button>
               )}
@@ -230,8 +238,9 @@ export function OrderHeader({
                   variant="secondary"
                   size="icon-sm"
                   onClick={onEdit}
+                  disabled={order.isOnHold}
                   aria-label="Edit order"
-                  title="Edit order"
+                  title={order.isOnHold ? ON_HOLD_HINT : 'Edit order'}
                 >
                   <Pencil />
                 </Button>

@@ -10,6 +10,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { useDebounce } from '@/hooks/useDebounce';
 import { formatOrderNo } from '@/lib/format';
 import { cn } from '@/lib/utils';
+import { OnHoldBadge } from '../orders/hold/hold-order';
 import { useGodownOrders } from './api';
 
 function OrderCard({ order }: { order: GodownOrderCard }) {
@@ -39,6 +40,7 @@ function OrderCard({ order }: { order: GodownOrderCard }) {
         />
         <div className="min-w-0 flex-1">
           <p className="whitespace-nowrap text-2xl font-extrabold leading-tight tracking-tight text-slate-900">Order {formatOrderNo(order.orderNo)}</p>
+          {order.isOnHold && <OnHoldBadge className="mt-0.5" />}
           {order.customerName && <p className="truncate text-[15px] font-semibold text-slate-800">{order.customerName}</p>}
           <p className="truncate text-[15px] font-semibold text-slate-600">{order.designCode ? `Design ${order.designCode}` : 'No design'}</p>
           <p className="mt-0.5 whitespace-nowrap text-sm font-medium tabular-nums text-slate-500">{order.orderedPcs.toLocaleString('en-IN')} pcs ordered</p>

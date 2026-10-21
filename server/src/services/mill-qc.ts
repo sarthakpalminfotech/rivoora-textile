@@ -40,6 +40,8 @@ export async function listMillQcPending(q: ButtaListQuery): Promise<QcPendingPag
   const where = and(
     or(eq(takas.stage, 'mill_qc'), and(eq(takas.stage, 'at_mill'), sql`${challans.receivedCount} > 0`)),
     eq(takas.isDeleted, false),
+    // Sprint 15: a held order's takas wait (hidden) until the order is released.
+    eq(orders.isOnHold, false),
     search,
   );
   const [items, [{ total }]] = await db.batch([

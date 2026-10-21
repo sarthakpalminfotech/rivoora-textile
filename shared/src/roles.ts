@@ -78,6 +78,12 @@ export interface RolePermissions {
   canSwitchRoles: boolean;
   /** The Users master. */
   canManageUsers: boolean;
+  /** Sprint 15: put an order on hold / release it (Jenish only). */
+  canHoldOrder: boolean;
+  /** Sprint 15: still sees orders that are on hold (Jenish + Gaurang); every other role has them hidden. */
+  canSeeHeldOrders: boolean;
+  /** Sprint 15: the godown supervisor's read-only Orders module (butta cutting onwards, no client / rate). */
+  canViewGodownOrders: boolean;
 }
 
 export interface RoleConfig {
@@ -103,6 +109,9 @@ const NO_SPRINT12 = {
   canMarkFresh: false,
   canSwitchRoles: false,
   canManageUsers: false,
+  canHoldOrder: false,
+  canSeeHeldOrders: false,
+  canViewGodownOrders: false,
 };
 /** Jenish + Gaurang: all the Sprint 12 owner permissions. */
 const OWNER_SPRINT12 = {
@@ -113,6 +122,9 @@ const OWNER_SPRINT12 = {
   canMarkFresh: true,
   canSwitchRoles: true,
   canManageUsers: true,
+  canHoldOrder: false,
+  canSeeHeldOrders: true,
+  canViewGodownOrders: false,
 };
 
 const NO_TAKAS = { canUseTakaModules: false, canEnterTakas: false, canEditTakas: false, canViewTakas: false };
@@ -187,6 +199,7 @@ export const ROLES: Record<RoleKey, RoleConfig> = {
       canViewInventory: true,
       canViewProductionOrders: false,
       ...OWNER_SPRINT12,
+      canHoldOrder: true,
     },
   },
   gaurang: {
@@ -301,7 +314,7 @@ export const ROLES: Record<RoleKey, RoleConfig> = {
     landing: '/butta',
     // Restricted view: order numbers, design and quality only (no client, rate or other order details).
     // Sprint 12: the godown Orders module moved to Dhruvil — he keeps Butta cutting and Mill.
-    permissions: { ...NOTHING, canUseButtaModule: true, canUseMillModule: true },
+    permissions: { ...NOTHING, canUseButtaModule: true, canUseMillModule: true, canViewGodownOrders: true },
   },
   // One person does both QCs: the Butta QC and the Mill QC share this role and one screen (/qc).
   qc: {

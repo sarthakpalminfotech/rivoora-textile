@@ -38,6 +38,8 @@ import { insertDesign } from './designs';
 import { countActiveJobsheets } from './jobsheets';
 import { liveJobsheetPieces } from './jobsheet-live';
 import { getOrderReturnSummary } from './dispatch';
+import { assertOrderVisibleFor, orderNotHeldFor } from './hold';
+import { listHoldEvents } from './hold-order';
 
 const dateString = z
   .string()
@@ -68,7 +70,8 @@ export async function listOrders(role: RoleKey, q: OrderListQuery): Promise<Pagi
   const statuses = requested.length ? requested.filter((s) => visible.includes(s)) : visible;
   if (statuses.length === 0) return emptyPage(q.page, q.limit);
 
-  const conditions: (SQL | undefined)[] = [inArray(orders.status, statuses)];
+  // Sprint 15: a held order is visible to Jenish / Gaurang only.
+  const conditions: (SQL | undefined)[] = [inArray(orders.status, statuses), orderNotHeldFor(role)];
   if (q.from) conditions.push(gte(orders.orderDate, q.from));
   if (q.to) conditions.push(lte(orders.orderDate, q.to));
   if (q.material.length) conditions.push(inArray(orders.materialId, q.material));
@@ -107,6 +110,7 @@ export async function listOrders(role: RoleKey, q: OrderListQuery): Promise<Pagi
         blouseOption: orders.blouseOption,
         brokerName: customerBrokers.name,
         status: orders.status,
+        isOnHold: orders.isOnHold,
         orderDate: orders.orderDate,
         designCode: sql<string | null>`COALESCE(${designVariations.code}, ${designs.code})`,
         designThumbUrl: sql<string | null>`COALESCE(${designVariations.thumbUrl}, ${designs.thumbUrl})`,
@@ -154,6 +158,9 @@ export async function getOrder(role: RoleKey, id: number): Promise<OrderDetail> 
         sentToProductionAt: orders.sentToProductionAt,
         jobsheetCount: sql<number>`(SELECT COUNT(*) FROM jobsheets j WHERE j.order_id = "orders"."id" AND j.is_deleted = 0)`,
         jobsheetPieces: liveJobsheetPieces,
+        isOnHold: orders.isOnHold,
+        heldAt: orders.heldAt,
+        holdNote: orders.holdNote,
         createdAt: orders.createdAt,
         updatedAt: orders.updatedAt,
         customer: { id: customers.id, name: customers.name, phone: customers.phone, city: customers.city },
@@ -199,6 +206,7 @@ export async function getOrder(role: RoleKey, id: number): Promise<OrderDetail> 
   const r = rows[0];
   // Orders in statuses the role can't see behave as if they don't exist.
   if (!r || !canRoleSeeStatus(role, r.status)) throw notFound('Order');
+  assertOrderVisibleFor(role, r);
 
   const detail: OrderDetail = {
     id: r.id,
@@ -228,6 +236,10 @@ export async function getOrder(role: RoleKey, id: number): Promise<OrderDetail> 
         : null,
     noteImages,
     history,
+    isOnHold: r.isOnHold,
+    heldAt: r.heldAt,
+    holdNote: r.holdNote,
+    holdEvents: await listHoldEvents(r.id),
     // Sprint 13: what came back from the customer (only orders that ended up Returned need it).
     returned: r.status === 'returned' ? await getOrderReturnSummary(r.id) : null,
   };

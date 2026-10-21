@@ -13,6 +13,7 @@ import { EmptyState } from '@/components/ui/empty-state';
 import { ImageThumb } from '@/components/ui/image-thumb';
 import { Skeleton } from '@/components/ui/skeleton';
 import { StatusBadge } from '@/components/ui/status-badge';
+import { OnHoldBadge } from './hold/hold-order';
 import { useDebounce } from '@/hooks/useDebounce';
 import { useRole } from '@/hooks/useRole';
 import { formatDate, formatOrderNo, formatQuantity } from '@/lib/format';
@@ -278,7 +279,10 @@ export default function OrdersPage() {
                     <div className="flex min-w-0 flex-1 flex-col">
                       <div className="flex items-center justify-between gap-2">
                         <span className="text-sm font-bold text-slate-900">{formatOrderNo(o.orderNo)}</span>
-                        <StatusBadge status={o.status} className="min-w-0" />
+                        <span className="flex min-w-0 flex-wrap items-center justify-end gap-1">
+                          <StatusBadge status={o.status} className="min-w-0" />
+                          {o.isOnHold && <OnHoldBadge />}
+                        </span>
                       </div>
                       <div className="mt-3 flex items-center gap-3">
                         <ImageThumb

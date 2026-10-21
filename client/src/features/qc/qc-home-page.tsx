@@ -5,6 +5,8 @@ import { cleanTakaNo, takaNoError, TAKA_NO_MAX_LENGTH } from '@rivoora/shared';
 import { usePageTitle } from '@/components/layout/page-title';
 import { Button } from '@/components/ui/button';
 import { ApiError, errorMessage } from '@/lib/api';
+import { holdOrderNo, isOnHoldError } from '../orders/hold/hold-notice';
+import { ORDER_ON_HOLD_HI } from '@rivoora/shared';
 import { Bi, bi } from '@/lib/bilingual';
 import { cn } from '@/lib/utils';
 import { fetchTakaByNo } from '../butta-qc/api';
@@ -46,7 +48,8 @@ export default function QcHomePage() {
         navigate(millPath(taka.takaNo));
       }
     } catch (err) {
-      if (err instanceof ApiError && err.status === 404) setAlert({ en: 'Taka not found', hi: 'टाका नहीं मिला' });
+      if (isOnHoldError(err)) setAlert({ en: `Order #${holdOrderNo(err) ?? ''} is on hold`, hi: ORDER_ON_HOLD_HI });
+      else if (err instanceof ApiError && err.status === 404) setAlert({ en: 'Taka not found', hi: 'टाका नहीं मिला' });
       else setAlert({ en: errorMessage(err), hi: '' });
     } finally {
       setOpening(false);

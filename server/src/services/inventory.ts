@@ -64,6 +64,8 @@ interface OrderPcs {
   designId: number | null;
   variationId: number | null;
   blouseOption: BlouseOption | null;
+  /** Sprint 15: on hold (shown with a badge; cannot receive free stock). */
+  isOnHold: boolean;
   key: string;
   pcs: InventoryFigures;
 }
@@ -102,6 +104,7 @@ async function loadOrderPcs(role: RoleKey, key?: string): Promise<{ list: OrderP
         designId: orders.designId,
         variationId: orders.variationId,
         blouseOption: orders.blouseOption,
+        isOnHold: orders.isOnHold,
         customerName: customers.name,
       })
       .from(orders)
@@ -170,6 +173,7 @@ async function loadOrderPcs(role: RoleKey, key?: string): Promise<{ list: OrderP
       designId: o.designId,
       variationId: o.variationId,
       blouseOption: o.blouseOption,
+      isOnHold: o.isOnHold,
       key: inventoryKey(o),
       pcs,
     });
@@ -467,7 +471,7 @@ export async function listAssignTargets(role: RoleKey, key: string): Promise<Ass
     : [];
   const typeOf = new Map(rows.map((r) => [r.id, r.orderType]));
   return list
-    .filter((o) => canReceiveFreeStock(o.status))
+    .filter((o) => canReceiveFreeStock(o.status) && !o.isOnHold)
     .sort((a, b) => b.orderNo - a.orderNo)
     .map((o) => ({
       orderId: o.orderId,
@@ -526,6 +530,7 @@ export async function listInventoryItemOrders(role: RoleKey, key: string, query:
       makingPcs: o.pcs.inMaking,
       orderDate: o.orderDate,
       blouseOption: o.blouseOption,
+      isOnHold: o.isOnHold,
     }));
 }
 

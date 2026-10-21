@@ -51,6 +51,7 @@ import { likePattern } from '../lib/http';
 import { addNewDamages, assertNewDamages } from './qc-shared';
 import { allocateTakaNumbers, chunk, recomputeOrdersStatus, refreshIsDamaged, writeTakaEvents, type TakaEventInput } from './taka-ops';
 import { freeStockFields, takaInOrder, takaInOrderRaw } from './free-stock';
+import { orderNotHeldFor } from './hold';
 
 /**
  * Dispatch (Dhruvil): a dispatch takes ALL the takas of an order that are ready for dispatch onto one challan (DC-n),
@@ -244,6 +245,7 @@ export async function listDispatchedOrders(role: RoleKey, q: DispatchedListQuery
       orderId: orders.id,
       orderNo: orders.orderNo,
       blouseOption: orders.blouseOption,
+      isOnHold: orders.isOnHold,
       customerName: customers.name,
       designCode: designCodeSql,
       thumbUrl: designThumbSql,
@@ -260,7 +262,8 @@ export async function listDispatchedOrders(role: RoleKey, q: DispatchedListQuery
     .leftJoin(customerBrokers, eq(customerBrokers.id, orders.brokerId))
     .leftJoin(designs, eq(designs.id, orders.designId))
     .leftJoin(designVariations, eq(designVariations.id, orders.variationId))
-    .where(and(sql`EXISTS (SELECT 1 FROM dispatch_challans c WHERE c.order_id = "orders"."id")`, statusFilter, search));
+    // Sprint 15: Dhruvil does not see held orders (Jenish / Gaurang do, with an "On hold" badge).
+    .where(and(sql`EXISTS (SELECT 1 FROM dispatch_challans c WHERE c.order_id = "orders"."id")`, statusFilter, orderNotHeldFor(role), search));
   const [items, [{ total }]] = await db.batch([
     base.orderBy(desc(latestChallanId)).limit(parsed.limit).offset((parsed.page - 1) * parsed.limit),
     db
@@ -271,7 +274,7 @@ export async function listDispatchedOrders(role: RoleKey, q: DispatchedListQuery
       .leftJoin(customerBrokers, eq(customerBrokers.id, orders.brokerId))
       .leftJoin(designs, eq(designs.id, orders.designId))
       .leftJoin(designVariations, eq(designVariations.id, orders.variationId))
-      .where(and(sql`EXISTS (SELECT 1 FROM dispatch_challans c WHERE c.order_id = "orders"."id")`, statusFilter, search)),
+      .where(and(sql`EXISTS (SELECT 1 FROM dispatch_challans c WHERE c.order_id = "orders"."id")`, statusFilter, orderNotHeldFor(role), search)),
   ]);
   const ids = items.map((i) => i.latestId);
   const latest = ids.length
@@ -305,6 +308,7 @@ export async function getDispatchedOrder(role: RoleKey, orderId: number): Promis
         orderNo: orders.orderNo,
         orderType: orders.orderType,
         blouseOption: orders.blouseOption,
+        isOnHold: orders.isOnHold,
         status: orders.status,
         customerName: customers.name,
         designCode: designCodeSql,

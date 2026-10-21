@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { useRole } from '@/hooks/useRole';
 import { ApiError } from '@/lib/api';
 import { Bi, bi, useBilingual } from '@/lib/bilingual';
+import { HoldNotice, isOnHoldError } from '../orders/hold/hold-notice';
 import { useJobsheetByNo } from './api';
 
 /**
@@ -32,6 +33,19 @@ export default function JobsheetQrPage() {
         ) : (
           <p>Opening jobsheet {raw}…</p>
         )}
+      </div>
+    );
+  }
+  if (isError && isOnHoldError(error)) {
+    return (
+      <div className="page-container py-6">
+        <HoldNotice
+          error={error}
+          bilingual={bilingual}
+          backTo={bilingual ? '/scan' : config.landing}
+          backLabel={bilingual ? 'Scan again' : 'Go back'}
+          backLabelHi={bilingual ? 'फिर से स्कैन करें' : undefined}
+        />
       </div>
     );
   }

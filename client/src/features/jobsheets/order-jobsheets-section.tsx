@@ -183,6 +183,9 @@ export function OrderJobsheetsSection({ order }: { order: OrderDetail }) {
   }
 
   const canManage = can('canManageJobsheets');
+  // Sprint 15: nothing can be changed while the order is on hold.
+  const held = order.isOnHold;
+  const holdTitle = held ? 'Order is on hold' : undefined;
   const canPrint = can('canPrintJobsheets');
   const data = query.data;
   const count = selected.size;
@@ -224,19 +227,19 @@ export function OrderJobsheetsSection({ order }: { order: OrderDetail }) {
 
   const actions = selecting ? null : canManage ? (
     <>
-      <Button size="sm" className="flex-1 sm:flex-none" onClick={() => setDialog('create')} disabled={!data}>
+      <Button size="sm" className="flex-1 sm:flex-none" onClick={() => setDialog('create')} disabled={!data || held} title={holdTitle}>
         <Plus /> Create jobsheets
       </Button>
-      <Button variant="secondary" size="sm" className="flex-1 sm:flex-none" onClick={() => setDialog('single')} disabled={!data}>
+      <Button variant="secondary" size="sm" className="flex-1 sm:flex-none" onClick={() => setDialog('single')} disabled={!data || held} title={holdTitle}>
         <FilePlus2 /> Add single jobsheet
       </Button>
-      <Tooltip content={pendingList.length ? 'Send to supervisor' : 'No pending jobsheets to send'}>
+      <Tooltip content={held ? 'Order is on hold' : pendingList.length ? 'Send to supervisor' : 'No pending jobsheets to send'}>
         <span className="inline-flex">
           <Button
             variant="secondary"
             size="icon-sm"
             aria-label="Send to supervisor"
-            disabled={pendingList.length === 0}
+            disabled={pendingList.length === 0 || held}
             onClick={() => {
               // Start with every Pending jobsheet selected; the user unticks the ones to keep back.
               setSelected(new Set(pendingList.map((j) => j.id)));
@@ -301,7 +304,7 @@ export function OrderJobsheetsSection({ order }: { order: OrderDetail }) {
               className="py-10"
               action={
                 canManage ? (
-                  <Button onClick={() => setDialog('create')}>
+                  <Button onClick={() => setDialog('create')} disabled={held} title={holdTitle}>
                     <Plus /> Create jobsheets
                   </Button>
                 ) : undefined

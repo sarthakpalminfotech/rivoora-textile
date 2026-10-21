@@ -26,6 +26,7 @@ import { OrderHeader } from './dashboard/order-header';
 import { useOrderView, type OrderTab } from './dashboard/view-state';
 import { BlouseTag } from '../free-stock/blouse';
 import { HistoryTab } from './history-tab';
+import { HoldOrderDialog, OnHoldBanner, ReleaseHoldDialog } from './hold/hold-order';
 
 function Card({ title, children, action, className }: { title: string; children: ReactNode; action?: ReactNode; className?: string }) {
   return (
@@ -189,6 +190,8 @@ export default function OrderDetailsPage() {
   const dashboard = useOrderDashboard(id, ready);
   const undo = useUndoProduction(id);
   const [confirmUndo, setConfirmUndo] = useState(false);
+  const [holdOpen, setHoldOpen] = useState(false);
+  const [releaseOpen, setReleaseOpen] = useState(false);
   usePageTitle(order ? `Order ${formatOrderNo(order.orderNo)}` : 'Order details');
 
   const goBack = () => {
@@ -250,10 +253,14 @@ export default function OrderDetailsPage() {
     <div className="page-container space-y-4 py-5">
       {back}
 
+      {order.isOnHold && <OnHoldBanner note={order.holdNote} canRelease={can('canHoldOrder')} />}
+
       <OrderHeader
         order={order}
         onUndo={canUndo ? () => setConfirmUndo(true) : undefined}
         onEdit={can('canEditOrder') ? () => navigate(`/orders/${order.id}/edit`) : undefined}
+        onHold={can('canHoldOrder') ? () => setHoldOpen(true) : undefined}
+        onRelease={can('canHoldOrder') ? () => setReleaseOpen(true) : undefined}
       />
 
       <Tabs value={tab} onValueChange={(v) => view.setTab(v as OrderTab)}>
@@ -316,6 +323,9 @@ export default function OrderDetailsPage() {
           </TabsContent>
         )}
       </Tabs>
+
+      <HoldOrderDialog orderId={order.id} orderNo={order.orderNo} open={holdOpen} onOpenChange={setHoldOpen} />
+      <ReleaseHoldDialog orderId={order.id} orderNo={order.orderNo} open={releaseOpen} onOpenChange={setReleaseOpen} />
 
       <ConfirmDialog
         open={confirmUndo}

@@ -48,6 +48,7 @@ import { damageImagesOf } from './takas';
 import { takaOriginOrderNo, takaParentNo } from './taka-shared';
 import { recomputeOrdersStatus, refreshIsDamaged, usedTakaNumbers, usedMessage, writeTakaEvents, type TakaEventInput } from './taka-ops';
 import { takaInOrder, takaNotFree, takaOrderId } from './free-stock';
+import { orderNotHeldFor } from './hold';
 
 /**
  * Godown supervisor → Orders (also open to Jenish / Gaurang): the order's final takas, ticked one by one, with the
@@ -94,6 +95,7 @@ export async function listGodownOrders(role: RoleKey, q: GodownListQuery): Promi
       imageUrl: designImageSql,
       orderedPcs: orders.quantity,
       blouseOption: orders.blouseOption,
+      isOnHold: orders.isOnHold,
       uncheckedCount: unchecked,
       readyDispatchCount: sql<number>`SUM(CASE WHEN ${takas.stage} = 'ready_dispatch' THEN 1 ELSE 0 END)`,
       customerName: customers.name,
@@ -104,7 +106,8 @@ export async function listGodownOrders(role: RoleKey, q: GodownListQuery): Promi
     .innerJoin(customers, eq(customers.id, orders.customerId))
     .leftJoin(designs, eq(designs.id, orders.designId))
     .leftJoin(designVariations, eq(designVariations.id, orders.variationId))
-    .where(and(takaNotFree, eq(takas.isDeleted, false), eq(jobsheets.isDeleted, false), search))
+    // Sprint 15: Dhruvil does not see held orders (Jenish / Gaurang do, with an "On hold" badge).
+    .where(and(takaNotFree, eq(takas.isDeleted, false), eq(jobsheets.isDeleted, false), orderNotHeldFor(role), search))
     .groupBy(orders.id)
     .having(hasPostQc);
   const [items, [{ total }]] = await db.batch([
@@ -118,7 +121,7 @@ export async function listGodownOrders(role: RoleKey, q: GodownListQuery): Promi
       .innerJoin(jobsheets, eq(jobsheets.id, takas.jobsheetId))
       .innerJoin(orders, eq(orders.id, takaOrderId))
       .innerJoin(customers, eq(customers.id, orders.customerId))
-      .where(and(takaNotFree, eq(takas.isDeleted, false), eq(jobsheets.isDeleted, false), inArray(takas.stage, [...POST_QC]), search)),
+      .where(and(takaNotFree, eq(takas.isDeleted, false), eq(jobsheets.isDeleted, false), inArray(takas.stage, [...POST_QC]), orderNotHeldFor(role), search)),
   ]);
   const count = Number(total);
   return {
@@ -154,6 +157,7 @@ export async function getGodownOrder(role: RoleKey, orderId: number): Promise<Go
         rate: orders.rate,
         orderType: orders.orderType,
         blouseOption: orders.blouseOption,
+        isOnHold: orders.isOnHold,
         designId: orders.designId,
         variationId: orders.variationId,
         status: orders.status,

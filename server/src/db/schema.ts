@@ -174,11 +174,18 @@ export const orders = sqliteTable(
     targetFrames: integer('target_frames').notNull().default(0),
     /** Jobsheet plan: frames per jobsheet of the latest multi-jobsheet run (used when splitting). */
     framesPerJobsheet: integer('frames_per_jobsheet'),
+    /** Sprint 15: Hold order (Jenish only). A held order is hidden from every role except Jenish / Gaurang. */
+    isOnHold: integer('is_on_hold', { mode: 'boolean' }).notNull().default(false),
+    heldAt: text('held_at'),
+    heldByUserId: integer('held_by_user_id'),
+    holdNote: text('hold_note'),
+    releasedAt: text('released_at'),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
   (t) => [
     uniqueIndex('orders_order_no_unique').on(t.orderNo),
+    index('orders_is_on_hold_idx').on(t.isOnHold),
     index('orders_status_idx').on(t.status),
     index('orders_order_date_idx').on(t.orderDate),
     index('orders_customer_idx').on(t.customerId),
@@ -201,6 +208,24 @@ export const orderNoteImages = sqliteTable(
     updatedAt: updatedAt(),
   },
   (t) => [index('order_note_images_order_idx').on(t.orderId)],
+);
+
+/** Sprint 15: "Put on hold" / "Released from hold" entries of the order History tab. */
+export const orderHoldEvents = sqliteTable(
+  'order_hold_events',
+  {
+    id: id(),
+    orderId: integer('order_id')
+      .notNull()
+      .references(() => orders.id, { onDelete: 'cascade' }),
+    event: text('event').$type<'held' | 'released'>().notNull(),
+    note: text('note'),
+    role: text('role').$type<RoleKey>().notNull(),
+    userId: integer('user_id'),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index('order_hold_events_order_idx').on(t.orderId)],
 );
 
 export const orderStatusHistory = sqliteTable(

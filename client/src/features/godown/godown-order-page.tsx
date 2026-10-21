@@ -37,6 +37,7 @@ import { DamageDialog } from '../takas/damage-dialog';
 import { entryPayload, nextEntryKey } from '../takas/damage-dialog';
 import { useGodownDamages, useGodownOrder, useGodownRefinish, useMarkGodownDamage, usePatchGodownTaka, useReadyDispatch, useResolveGodownDamage } from './api';
 import { GodownDamagesTab } from './godown-damages-tab';
+import { ON_HOLD_HINT, OnHoldBadge } from '../orders/hold/hold-order';
 
 type Tab = 'takas' | 'damage';
 
@@ -55,7 +56,10 @@ function Header({ order }: { order: GodownOrder }) {
         rounded="rounded-xl"
       />
       <div className="min-w-0">
-        <h1 className="text-3xl font-extrabold leading-tight tracking-tight text-slate-900">Order {formatOrderNo(order.orderNo)}</h1>
+        <h1 className="text-3xl font-extrabold leading-tight tracking-tight text-slate-900">
+          Order {formatOrderNo(order.orderNo)}
+          {order.isOnHold && <OnHoldBadge className="ml-2 align-middle" />}
+        </h1>
         <p className="truncate text-[15px] font-semibold text-slate-600">
           {order.designCode ? `Design ${order.designCode}` : 'No design'}
           {order.quality && <span className="font-medium text-slate-500"> · {order.quality}</span>}
@@ -361,7 +365,9 @@ function FinalTakasTab({ order }: { order: GodownOrder }) {
   const k = order.kpis;
   const dispatchSum = dispatchTotals(ready.map((t) => ({ meters: t.meters, pcs: takaActualPcs(t) })));
   const lump = order.orderType === 'lump';
-  const canMoveStock = can('canMoveToInventory');
+  // Sprint 15: a held order allows no changes (Jenish / Gaurang only ever see it here).
+  const held = order.isOnHold;
+  const canMoveStock = can('canMoveToInventory') && !held;
   const godownPcs = order.takas.reduce((n, t) => n + (takaActualPcs(t) ?? 0), 0);
   const rowSelect = (t: GodownTaka) => {
     const sel = moveToInventorySelectable(t.stage);
@@ -491,11 +497,11 @@ function FinalTakasTab({ order }: { order: GodownOrder }) {
           </div>
         ) : (
           <div className={cn('grid gap-2', can('canDispatch') && 'sm:grid-cols-2')}>
-            <Button size="lg" variant={can('canDispatch') ? 'secondary' : 'primary'} className="h-14 w-full text-base" disabled={k.readyCount === 0} onClick={() => setDispatchOpen(true)}>
+            <Button size="lg" variant={can('canDispatch') ? 'secondary' : 'primary'} className="h-14 w-full text-base" disabled={k.readyCount === 0 || held} title={held ? ON_HOLD_HINT : undefined} onClick={() => setDispatchOpen(true)}>
               <CheckCircle2 /> Ready to dispatch ({k.readyCount})
             </Button>
             {can('canDispatch') && (
-              <Button size="lg" className="h-14 w-full text-base" disabled={ready.length === 0} onClick={() => setDispatchModal(true)}>
+              <Button size="lg" className="h-14 w-full text-base" disabled={ready.length === 0 || held} title={held ? ON_HOLD_HINT : undefined} onClick={() => setDispatchModal(true)}>
                 <Truck /> Dispatch ({ready.length})
               </Button>
             )}

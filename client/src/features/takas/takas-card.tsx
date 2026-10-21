@@ -252,10 +252,12 @@ export function OrderTakasCard({ order }: { order: OrderDetail }) {
   const [sendTarget, setSendTarget] = useState<SendBackTarget | null>(null);
   const [moveOpen, setMoveOpen] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
-  const canEdit = can('canEditTakas');
-  const canRework = can('canReworkTakas');
+  // Sprint 15: a held order allows no changes (the page banner explains why; the server answers 409 anyway).
+  const held = order.isOnHold;
+  const canEdit = can('canEditTakas') && !held;
+  const canRework = can('canReworkTakas') && !held;
   // Sprint 13: Move to inventory (free stock) and Add from free stock.
-  const canStock = can('canMoveToInventory') && order.unit === 'pcs';
+  const canStock = can('canMoveToInventory') && order.unit === 'pcs' && !held;
   const lump = order.orderType === 'lump';
   const stopSelecting = () => {
     setSelecting(false);

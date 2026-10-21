@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { env } from './env';
 import { errorHandler, notFoundHandler } from './middleware/error';
 import { authMiddleware } from './middleware/role';
+import { holdGuard } from './middleware/hold-guard';
 import { authRouter } from './routes/auth';
 import { usersRouter } from './routes/users';
 import { buttaQcRouter } from './routes/butta-qc';
@@ -54,6 +55,8 @@ api.get('/health', (_req, res) => {
 // Public: /health and /auth/login. Everything below needs a valid session (cookie).
 api.use('/auth', authRouter);
 api.use(authMiddleware);
+// Sprint 15: a held order blocks every write (except receiving) and is hidden from all roles but Jenish / Gaurang.
+api.use(holdGuard);
 api.use('/users', usersRouter);
 api.use('/orders', ordersRouter);
 api.use('/customers', customersRouter);

@@ -59,6 +59,7 @@ import { badRequest, conflict, notFound } from '../lib/errors';
 import { likePattern } from '../lib/http';
 import { chunk, recomputeOrdersStatus, writeTakaEvents, type TakaEventInput } from './taka-ops';
 import { takaOrderId } from './free-stock';
+import { takaOrderNotHeld } from './hold';
 import { challanFilters, rowFilters } from './work-filters';
 
 /**
@@ -124,8 +125,9 @@ function modeStages(kind: ChallanKind, mode: SendMode): { notSent: TakaStage[]; 
 }
 
 /** Takas not yet sent on a challan of this kind (ready ones included) whose jobsheet is active. */
+// Sprint 15: takas of a held order are not offered (nothing new can be sent for them); the query joins `orders`.
 const notSentWhere = (kind: ChallanKind, mode: SendMode = 'send') =>
-  and(inArray(takas.stage, modeStages(kind, mode).notSent), eq(takas.isDeleted, false), eq(jobsheets.isDeleted, false));
+  and(inArray(takas.stage, modeStages(kind, mode).notSent), eq(takas.isDeleted, false), eq(jobsheets.isDeleted, false), eq(orders.isOnHold, false));
 
 const isReadySql = (kind: ChallanKind, mode: SendMode = 'send') => sql`${inArray(takas.stage, modeStages(kind, mode).ready)}`;
 
@@ -294,10 +296,10 @@ export async function getKindCounts(kind: ChallanKind): Promise<KindCounts> {
   const pcsOf = sql`COALESCE(${takas.actualPcs}, ${takas.pcs}, 0)`;
   const [row] = await db
     .select({
-      pending: sql<number>`COALESCE(SUM(CASE WHEN ${inArray(takas.stage, readyStagesOf(kind))} THEN 1 ELSE 0 END), 0)`,
+      pending: sql<number>`COALESCE(SUM(CASE WHEN ${inArray(takas.stage, readyStagesOf(kind))} AND ${takaOrderNotHeld} THEN 1 ELSE 0 END), 0)`,
       inKind: sql<number>`COALESCE(SUM(CASE WHEN ${takas.stage} = ${cfg.sentStage} THEN 1 ELSE 0 END), 0)`,
-      refinish: sql<number>`COALESCE(SUM(CASE WHEN ${takas.stage} = ${cfg.refinishStage ?? '-'} THEN 1 ELSE 0 END), 0)`,
-      pendingPcs: sql<number>`COALESCE(SUM(CASE WHEN ${inArray(takas.stage, readyStagesOf(kind))} THEN ${pcsOf} ELSE 0 END), 0)`,
+      refinish: sql<number>`COALESCE(SUM(CASE WHEN ${takas.stage} = ${cfg.refinishStage ?? '-'} AND ${takaOrderNotHeld} THEN 1 ELSE 0 END), 0)`,
+      pendingPcs: sql<number>`COALESCE(SUM(CASE WHEN ${inArray(takas.stage, readyStagesOf(kind))} AND ${takaOrderNotHeld} THEN ${pcsOf} ELSE 0 END), 0)`,
       inKindPcs: sql<number>`COALESCE(SUM(CASE WHEN ${takas.stage} = ${cfg.sentStage} THEN ${pcsOf} ELSE 0 END), 0)`,
     })
     .from(takas)

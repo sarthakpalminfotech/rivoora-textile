@@ -23,6 +23,7 @@ import { EditJobsheetDialog } from './edit-jobsheet-form';
 import { FramesValue, machineNumbers, WarningList } from './parts';
 import { JobsheetRunDialogs, type RunAction, type RunJobsheet } from './run-dialogs';
 import { JobsheetTakasCard } from '../takas/takas-card';
+import { HoldNotice, isOnHoldError } from '../orders/hold/hold-notice';
 
 function Card({ title, children, action }: { title: string; children: ReactNode; action?: ReactNode }) {
   return (
@@ -101,6 +102,18 @@ export default function JobsheetDetailsPage() {
       </div>
     );
   }
+  if (isError && isOnHoldError(error)) {
+    return (
+      <div className="page-container py-5">
+        {back}
+        <HoldNotice
+          error={error}
+          backTo={restricted ? '/jobsheets' : '/orders'}
+          backLabel={restricted ? 'Back to jobsheets' : 'Back to orders'}
+        />
+      </div>
+    );
+  }
   if (isError || !js) {
     const notFound = error instanceof ApiError && error.status === 404;
     return (
@@ -121,7 +134,8 @@ export default function JobsheetDetailsPage() {
     );
   }
 
-  const canManage = can('canManageJobsheets');
+  // Sprint 15: nothing can be changed on a jobsheet of a held order.
+  const canManage = can('canManageJobsheets') && !js.orderOnHold;
   const canRun = can('canRunJobsheets');
   const { order, design } = js;
   const isPendingJs = js.status === JOBSHEET_STATUS.PENDING;

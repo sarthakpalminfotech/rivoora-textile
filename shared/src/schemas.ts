@@ -186,6 +186,25 @@ export type OrderCreateInput = z.input<typeof orderCreateSchema>;
 
 /** Editing an order sends the same fields as creating one (note images = the full new set). */
 export const orderUpdateSchema = orderCreateSchema;
+
+/** POST /orders/:id/hold (Sprint 15) — an optional note + "Frames completed" for every jobsheet that is on the loom. */
+export const orderHoldSchema = z.object({
+  note: optText(300),
+  ongoing: z
+    .array(
+      z.object({
+        jobsheetId: z.number().int().positive(),
+        completedFrames: z
+          .number({ required_error: 'Enter the frames completed', invalid_type_error: 'Enter the frames completed' })
+          .int('Use a whole number')
+          .min(0, 'Cannot be negative')
+          .max(100_000, 'Must be at most 1,00,000'),
+      }),
+    )
+    .max(500)
+    .default([]),
+});
+export type OrderHoldInput = z.input<typeof orderHoldSchema>;
 export type OrderUpdateInput = z.input<typeof orderUpdateSchema>;
 
 export const sendToProductionSchema = z.object({

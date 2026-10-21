@@ -17,6 +17,7 @@ import { getOrderMilestones } from '../services/order-milestones';
 import { listOrderTakas } from '../services/takas';
 import { sendBackTakas } from '../services/rework';
 import { addFromFreeStock, moveToInventory } from '../services/inventory-moves';
+import { holdOrder, releaseOrder } from '../services/hold-order';
 import { getDashboardItems, getOrderDamages, getOrderDashboard } from '../services/dashboard';
 
 export const ordersRouter = Router();
@@ -99,6 +100,23 @@ ordersRouter.post(
     const id = parseId(req.params.id);
     await undoSendToProduction(req.role, id);
     res.json(await getOrder(req.role, id));
+  }),
+);
+
+/** Sprint 15: put an order on hold / release it (Jenish only). The hold guard lets both through. */
+ordersRouter.post(
+  '/:id/hold',
+  requirePermission('canHoldOrder'),
+  ah(async (req, res) => {
+    res.json(await holdOrder(req.role, parseId(req.params.id), req.body));
+  }),
+);
+
+ordersRouter.post(
+  '/:id/release',
+  requirePermission('canHoldOrder'),
+  ah(async (req, res) => {
+    res.json(await releaseOrder(req.role, parseId(req.params.id)));
   }),
 );
 

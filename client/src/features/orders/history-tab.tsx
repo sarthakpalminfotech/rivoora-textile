@@ -1,6 +1,6 @@
-import { Ban, Check, Clock } from 'lucide-react';
+import { Ban, Check, Clock, PauseCircle, PlayCircle } from 'lucide-react';
 import { useMemo } from 'react';
-import { mainStepsOfHistory, orderMilestones, type Milestone, type MilestoneKey, type OrderDetail } from '@rivoora/shared';
+import { HOLD_EVENT_LABEL, mainStepsOfHistory, orderMilestones, type Milestone, type MilestoneKey, type OrderDetail, type OrderHoldEvent } from '@rivoora/shared';
 import { Segmented } from '@/components/ui/segmented';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ROLES } from '@/config/roles';
@@ -16,6 +16,32 @@ function TimePill({ text }: { text: string }) {
     <span className="inline-flex items-center gap-1 rounded-full border border-primary/20 bg-primary-soft px-2.5 py-0.5 text-xs font-semibold text-primary">
       <Clock className="size-3" aria-hidden /> {text}
     </span>
+  );
+}
+
+/** "Put on hold" / "Released from hold" (Sprint 15) — an amber / green row in the timeline. */
+function HoldRow({ e }: { e: OrderHoldEvent }) {
+  const held = e.event === 'held';
+  const Icon = held ? PauseCircle : PlayCircle;
+  return (
+    <li className="relative">
+      <span
+        className={cn(
+          'absolute -left-6 top-1 flex size-4 items-center justify-center rounded-full border-[3px] border-white shadow',
+          held ? 'bg-amber-500' : 'bg-green-500',
+        )}
+        aria-hidden
+      />
+      <div className={cn('-my-1.5 rounded-lg px-3 py-1.5', held ? 'bg-amber-50' : 'bg-green-50')}>
+        <p className={cn('flex items-center gap-1.5 text-[15px] font-semibold', held ? 'text-amber-900' : 'text-green-800')}>
+          <Icon className="size-4" aria-hidden /> {HOLD_EVENT_LABEL[e.event]}
+        </p>
+        <p className="text-sm text-slate-500">
+          {formatDateTime(e.createdAt)} · by {e.userName ?? ROLES[e.role]?.name ?? e.role}
+        </p>
+        {e.note && <p className="mt-0.5 text-sm font-medium text-slate-700">Note: {e.note}</p>}
+      </div>
+    </li>
   );
 }
 
@@ -65,12 +91,20 @@ function Overview({ steps }: { steps: Milestone[] }) {
 
 /** Detailed: every status change. Main steps get a stronger dot, a soft tint and the "time since previous step" pill. */
 function Detailed({ order, steps }: { order: OrderDetail; steps: Milestone[] | null }) {
-  const entries = [...order.history].reverse();
+  // Status changes and hold events in one timeline, newest first.
+  const entries = [
+    ...order.history.map((h) => ({ at: h.changedAt, kind: 'status' as const, h })),
+    ...order.holdEvents.map((e) => ({ at: e.createdAt, kind: 'hold' as const, e })),
+  ].sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0));
+  const firstStatusId = order.history.length ? order.history[order.history.length - 1].id : null;
   const mainOf = useMemo(() => mainStepsOfHistory(order.history), [order.history]);
   const stepByKey = useMemo(() => new Map<MilestoneKey, Milestone>((steps ?? []).map((m) => [m.key, m])), [steps]);
   return (
     <ol className="relative space-y-5 pl-6 before:absolute before:bottom-2 before:left-[7px] before:top-2 before:w-0.5 before:bg-slate-200">
-      {entries.map((h, i) => {
+      {entries.map((entry) => {
+        if (entry.kind === 'hold') return <HoldRow key={`hold-${entry.e.id}`} e={entry.e} />;
+        const h = entry.h;
+        const i = h.id === firstStatusId ? 0 : 1;
         const to = getStatus(h.toStatus);
         const isUndo = h.fromStatus !== null && getStatus(h.fromStatus).sequence > to.sequence;
         const title = h.fromStatus === null ? 'Order created' : isUndo ? `Moved back to ${to.label}` : `Moved to ${to.label}`;

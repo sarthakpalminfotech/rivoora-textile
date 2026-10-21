@@ -39,6 +39,7 @@ import { useEnterTakas, useNextTakaNumbers } from './api';
 import { entryLabel, entryPayload, TakaDamageControl, type DamageEntry } from './damage-dialog';
 import { TakaChip } from './taka-chip';
 import { BlouseTag } from '../free-stock/blouse';
+import { HoldNotice, isOnHoldError } from '../orders/hold/hold-notice';
 
 interface Row {
   key: number;
@@ -287,6 +288,14 @@ export default function TakaEntryPage() {
         {back}
         <Skeleton className="h-44 rounded-2xl" />
         <Skeleton className="h-96 rounded-2xl" />
+      </div>
+    );
+  }
+  if (isError && isOnHoldError(error)) {
+    return (
+      <div className="page-container max-w-2xl py-4">
+        {back}
+        <HoldNotice error={error} bilingual backTo="/scan" backLabel="Scan jobsheet" backLabelHi="जॉबशीट स्कैन करें" />
       </div>
     );
   }
