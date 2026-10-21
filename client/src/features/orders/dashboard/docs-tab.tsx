@@ -9,6 +9,7 @@ import { formatDate } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { useOrderChallans } from '../../challans/api';
 import { challanDetailsPath, challanPrintPath } from '../../challans/kind';
+import { RefinishTag } from '../../takas/taka-tags';
 
 /** Delivery (dispatch) challan: DC-12 / DC-12 R1 with its Active / Revised state. Opens the order's dispatch screen. */
 function DeliveryRow({ c, onOpen }: { c: OrderDeliveryChallan; onOpen: () => void }) {
@@ -108,6 +109,7 @@ function ChallanRow({ c, onOpen }: { c: OrderChallan; onOpen: () => void }) {
           </p>
           <p className="truncate text-[15px] font-semibold text-slate-700">{c.partyName}</p>
           <p className="text-sm text-slate-500">{formatDate(c.challanDate)}</p>
+          {c.isRefinish && <RefinishTag className="mt-1" />}
         </div>
         <div className="flex shrink-0 items-center gap-1.5">
           <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-white px-2.5 py-1 text-xs font-semibold text-slate-600">
@@ -148,17 +150,17 @@ function ChallanRow({ c, onOpen }: { c: OrderChallan; onOpen: () => void }) {
             aria-valuemin={0}
             aria-valuemax={c.totalTakas}
             aria-valuenow={c.receivedCount}
-            aria-label={`${c.receivedCount} of ${c.totalTakas} received`}
+            aria-label={`Sent ${c.totalTakas} takas, received ${c.receivedCount}`}
           >
             <div className={cn('h-full rounded-full', done ? 'bg-green-500' : 'bg-amber-500')} style={{ width: `${share * 100}%` }} />
           </div>
           {done ? (
             <p className="inline-flex items-center gap-1 text-sm font-bold text-green-700">
-              <CheckCircle2 className="size-4" aria-hidden /> All {c.totalTakas} / {c.totalTakas} received
+              <CheckCircle2 className="size-4" aria-hidden /> Sent {c.totalTakas} {c.totalTakas === 1 ? 'taka' : 'takas'} · Received {c.receivedCount}
             </p>
           ) : (
             <p className="text-sm font-semibold text-amber-700">
-              {c.receivedCount} / {c.totalTakas} received
+              Sent {c.totalTakas} {c.totalTakas === 1 ? 'taka' : 'takas'} · Received {c.receivedCount}
             </p>
           )}
         </div>

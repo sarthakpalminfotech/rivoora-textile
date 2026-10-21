@@ -7,6 +7,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { formatDate } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { useChallans, type FilterQuery } from './api';
+import { RefinishTag } from '@/features/takas/taka-tags';
 import { ChallanDesigns } from './design-preview';
 import { ReceivedCountControl } from './received-count';
 import { challanDetailsPath } from './kind';
@@ -40,6 +41,7 @@ export function ChallanCard({ challan, onOpen, counter }: { challan: ChallanList
           </p>
           <p className="truncate text-[15px] font-semibold text-slate-700">{challan.partyName}</p>
           <p className="text-sm text-slate-500">{formatDate(challan.challanDate)}</p>
+          {challan.isRefinish && <RefinishTag className="mt-1" />}
         </div>
         <ChallanDesigns designs={challan.designs} />
         {cancelled && (
@@ -66,17 +68,17 @@ export function ChallanCard({ challan, onOpen, counter }: { challan: ChallanList
             aria-valuemin={0}
             aria-valuemax={challan.totalTakas}
             aria-valuenow={challan.receivedCount}
-            aria-label={`${challan.receivedCount} of ${challan.totalTakas} received`}
+            aria-label={`Sent ${challan.totalTakas} takas, received ${challan.receivedCount}`}
           >
             <div className={cn('h-full rounded-full', done ? 'bg-green-500' : 'bg-amber-500')} style={{ width: `${share * 100}%` }} />
           </div>
           {done ? (
             <p className="inline-flex items-center gap-1 text-sm font-bold text-green-700">
-              <CheckCircle2 className="size-4" aria-hidden /> All {challan.totalTakas} / {challan.totalTakas} received
+              <CheckCircle2 className="size-4" aria-hidden /> Sent {challan.totalTakas} {challan.totalTakas === 1 ? 'taka' : 'takas'} · Received {challan.receivedCount}
             </p>
           ) : (
             <p className="text-sm font-semibold text-amber-700">
-              {challan.receivedCount} / {challan.totalTakas} received
+              Sent {challan.totalTakas} {challan.totalTakas === 1 ? 'taka' : 'takas'} · Received {challan.receivedCount}
             </p>
           )}
         </div>

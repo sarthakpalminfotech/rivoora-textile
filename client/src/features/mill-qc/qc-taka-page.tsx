@@ -2,18 +2,13 @@ import { AlertTriangle, ArrowLeft, CheckCircle2, Plus, RotateCcw, SearchX, Trash
 import { useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import {
-  cleanMeters,
   cleanPcs,
   damageLabelOf,
   damageOpenPcs,
   damageResolvedText,
   damageResolveSummary,
   formatMeters,
-  METERS_ERROR_TEXT,
   MILL_QC_TEXT,
-  parseMeters,
-  parsePcs,
-  PCS_ERROR_TEXT,
   validateQcDecisions,
   type MillQcSubmitInput,
   type QcResult,
@@ -159,8 +154,6 @@ function QcForm({ taka, notReceived }: { taka: TakaDetail; notReceived: boolean 
   const navigate = useNavigate();
   const submitQc = useSubmitMillQc(taka.id);
   const open = useMemo(() => taka.damages.filter((d) => d.status === 'open'), [taka]);
-  const [meters, setMeters] = useState(taka.meters != null ? String(taka.meters) : '');
-  const [pcs, setPcs] = useState(taka.pcs != null ? String(taka.pcs) : '');
   /** damage id → pcs resolved now. No entry = not resolved (it stays open). */
   const [decisions, setDecisions] = useState<Map<number, number>>(new Map());
   const [resolving, setResolving] = useState<number | null>(null);
@@ -173,9 +166,7 @@ function QcForm({ taka, notReceived }: { taka: TakaDetail; notReceived: boolean 
   const [serverError, setServerError] = useState<string | null>(null);
   const [saved, setSaved] = useState<QcResult | null>(null);
 
-  const metersParsed = parseMeters(meters);
-  const pcsParsed = parsePcs(pcs);
-  const takaPcs = pcsParsed.pcs ?? taka.pcs ?? null;
+  const takaPcs = taka.pcs ?? null;
   const typedPcs = (id: number) => {
     const raw = damagePcs.get(id) ?? '';
     return /^\d+$/.test(raw) && Number(raw) >= 1 ? Number(raw) : null;
@@ -189,7 +180,7 @@ function QcForm({ taka, notReceived }: { taka: TakaDetail; notReceived: boolean 
     takaPcs ?? 9999,
   );
   const newTooBig = added.some((e) => takaPcs !== null && (e.pcs ?? 0) > takaPcs);
-  const fieldsOk = metersParsed.error === null && pcsParsed.error === null && !newTooBig;
+  const fieldsOk = !newTooBig;
   const stillOpen = open.filter((d) => (decisions.get(d.id) ?? 0) < pcsOpen(d));
   const willBeFresh = stillOpen.length === 0 && added.length === 0;
   const touched = open.length > 0 || added.length > 0;
@@ -197,8 +188,6 @@ function QcForm({ taka, notReceived }: { taka: TakaDetail; notReceived: boolean 
   const resolvedN = open.filter((d) => (decisions.get(d.id) ?? 0) > 0 && decisions.get(d.id) === pcsOpen(d)).length;
   const partialN = open.filter((d) => (decisions.get(d.id) ?? 0) > 0 && decisions.get(d.id)! < pcsOpen(d)).length;
   const keptN = open.length - resolvedN - partialN;
-  const metersChanged = (metersParsed.meters ?? null) !== taka.meters;
-  const pcsChanged = pcsParsed.pcs !== null && pcsParsed.pcs !== taka.pcs;
 
   const tryConfirm = (kind: Exclude<Confirm, null>) => {
     setShowErrors(true);
@@ -209,8 +198,6 @@ function QcForm({ taka, notReceived }: { taka: TakaDetail; notReceived: boolean 
   const submit = () => {
     const refinish = confirm === 'refinish';
     const body: MillQcSubmitInput = {
-      meters: metersParsed.meters,
-      pcs: pcsParsed.pcs!,
       damageDecisions: refinish ? allDecisions.filter((d) => d.resolvedPcs > 0) : allDecisions,
       newDamages: added.map(qcEntryPayload),
       result: refinish ? 'refinish' : 'final',
@@ -240,54 +227,24 @@ function QcForm({ taka, notReceived }: { taka: TakaDetail; notReceived: boolean 
 
       {/* meters and pcs, prefilled */}
       <Section title={<Bi en="Meters and pcs" hi="मीटर और पीस" layout="inline" />}>
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label htmlFor="mqc-meters" className="mb-1 block text-sm font-semibold text-slate-600">
+        {/* Read-only for QC (Sprint 15): the numbers come from taka entry / Edit takas. */}
+        <dl className="grid grid-cols-2 gap-3">
+          <div className="rounded-xl bg-slate-50 px-3 py-2.5">
+            <dt className="text-sm font-semibold text-slate-500">
               Meters / <span lang="hi">मीटर</span>
-            </label>
-            <div className="relative">
-              <input
-                id="mqc-meters"
-                value={meters}
-                onChange={(e) => setMeters(cleanMeters(e.target.value))}
-                inputMode="decimal"
-                autoComplete="off"
-                aria-invalid={!!metersParsed.error || undefined}
-                className={cn(fieldBox(!!metersParsed.error), 'pl-3 pr-8 text-[22px] font-bold')}
-                placeholder="0.0"
-              />
-              <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-base font-semibold text-slate-400" aria-hidden>
-                m
-              </span>
-            </div>
-            {metersParsed.error && (
-              <p role="alert" className="mt-1 text-sm font-semibold text-destructive">
-                {METERS_ERROR_TEXT[metersParsed.error].en} / <span lang="hi">{METERS_ERROR_TEXT[metersParsed.error].hi}</span>
-              </p>
-            )}
+            </dt>
+            <dd id="mqc-meters" className="text-[22px] font-bold tabular-nums text-slate-900">
+              {taka.meters != null ? formatMeters(taka.meters) : '—'}
+              {taka.meters != null && <span className="ml-1 text-base font-semibold text-slate-400">m</span>}
+            </dd>
           </div>
-          <div>
-            <label htmlFor="mqc-pcs" className="mb-1 block text-sm font-semibold text-slate-600">
+          <div className="rounded-xl bg-slate-50 px-3 py-2.5">
+            <dt className="text-sm font-semibold text-slate-500">
               Pcs / <span lang="hi">पीस</span>
-              <span className="text-destructive">*</span>
-            </label>
-            <input
-              id="mqc-pcs"
-              value={pcs}
-              onChange={(e) => setPcs(cleanPcs(e.target.value))}
-              inputMode="numeric"
-              autoComplete="off"
-              aria-invalid={(showErrors && !!pcsParsed.error) || undefined}
-              className={cn(fieldBox(showErrors && !!pcsParsed.error), 'px-3 text-[22px] font-bold')}
-              placeholder="0"
-            />
-            {showErrors && pcsParsed.error && (
-              <p role="alert" className="mt-1 text-sm font-semibold text-destructive">
-                {PCS_ERROR_TEXT[pcsParsed.error].en} / <span lang="hi">{PCS_ERROR_TEXT[pcsParsed.error].hi}</span>
-              </p>
-            )}
+            </dt>
+            <dd id="mqc-pcs" className="text-[22px] font-bold tabular-nums text-slate-900">{taka.pcs ?? '—'}</dd>
           </div>
-        </div>
+        </dl>
       </Section>
 
       {/* open damages: Resolve each one */}
@@ -510,20 +467,6 @@ function QcForm({ taka, notReceived }: { taka: TakaDetail; notReceived: boolean 
             Taka {taka.takaNo} <span lang="hi" className="text-lg font-semibold text-slate-500">/ टाका {taka.takaNo}</span>
           </p>
           <ul className="space-y-1.5 text-[15px] font-semibold text-slate-700">
-            {(metersChanged || pcsChanged) && (
-              <li>
-                {metersChanged && (
-                  <span className="block">
-                    Meters / मीटर: {taka.meters != null ? formatMeters(taka.meters) : '—'} → {metersParsed.meters != null ? formatMeters(metersParsed.meters) : '—'}
-                  </span>
-                )}
-                {pcsChanged && (
-                  <span className="block">
-                    Pcs / पीस: {taka.pcs ?? '—'} → {pcsParsed.pcs}
-                  </span>
-                )}
-              </li>
-            )}
             {resolvedN > 0 && (
               <li className="text-green-700">
                 Resolved / <span lang="hi">ठीक हुई</span>: {resolvedN}

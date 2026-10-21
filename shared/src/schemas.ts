@@ -524,10 +524,11 @@ export const grDamageSchema = z.union([
 ]);
 export type GrDamageInput = z.input<typeof grDamageSchema>;
 
-/** POST /butta-qc/:takaId */
+/**
+ * POST /butta-qc/:takaId. Sprint 15: meters and pcs are read-only for QC — they are not part of the body any more
+ * (an old client that still sends them is ignored; the taka keeps the values it was entered with).
+ */
 export const qcSubmitSchema = z.object({
-  meters: takaMeters,
-  pcs: takaPcs,
   damageDecisions: z.array(qcDecisionSchema).max(50).default([]),
   newDamages: z.array(qcNewDamageSchema).max(MAX_DAMAGES_PER_TAKA, `At most ${MAX_DAMAGES_PER_TAKA} new damages`).default([]),
 });

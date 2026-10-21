@@ -3,7 +3,6 @@ import {
   applyResolve,
   damageLabel,
   MAX_DAMAGE_IMAGES,
-  takaEditNote,
   validateQcDecisions,
   DAMAGE_NOT_MARKED,
   DAMAGE_RECORDED_AT_LABEL,
@@ -12,7 +11,7 @@ import {
   type RoleKey,
 } from '@rivoora/shared';
 import type { Tx } from '../db/client';
-import { damages as damageMaster, takaDamageImages, takaDamages, takas } from '../db/schema';
+import { damages as damageMaster, takaDamageImages, takaDamages } from '../db/schema';
 import { badRequest, conflict } from '../lib/errors';
 import { insertTakaDamages, resolveDamageNames, type TakaEventInput } from './taka-ops';
 
@@ -86,8 +85,6 @@ export async function addNewDamages(
 }
 
 export interface QcChangesInput {
-  meters: number | null;
-  pcs: number;
   damageDecisions: { takaDamageId: number; resolvedPcs: number; pcs?: number | null }[];
   newDamages: readonly NewDamageInput[];
 }
@@ -100,7 +97,7 @@ export interface QcChangesResult {
 }
 
 /**
- * Meters / pcs edit, a decision per open damage (pcs resolved now; 0 = not resolved) and the new damages, in the
+ * A decision per open damage (pcs resolved now; 0 = not resolved) and the new damages, in the
  * caller's transaction. `requireAnswers` = every open damage must be answered (false when the taka goes to refinish:
  * unanswered damages simply stay open). `label` = "Butta QC" / "Mill QC" for the `edited` event.
  */
@@ -113,7 +110,9 @@ export async function applyQcChanges(
   at: string,
 ): Promise<QcChangesResult> {
   const takaId = taka.id;
-  assertNewDamages(data.newDamages, data.pcs);
+  // Meters / pcs are read-only for QC (Sprint 15): the taka's own pcs bound the damages (older takas without pcs: no bound).
+  const takaPcs = taka.pcs ?? Number.MAX_SAFE_INTEGER;
+  assertNewDamages(data.newDamages, takaPcs);
   const open = await tx
     .select({
       id: takaDamages.id,
@@ -131,20 +130,15 @@ export async function applyQcChanges(
   const issues = validateQcDecisions(
     opts.requireAnswers ? open : open.filter((o) => answered.has(o.id)),
     data.damageDecisions,
-    data.pcs,
+    takaPcs,
   );
   if (issues.unknown.length) throw conflict('This taka was just changed by someone else. Go back and open it again.');
   if (issues.unanswered.length) throw badRequest('Answer every damage: resolved or not resolved.', 'damageDecisions');
   if (issues.pcsMissing.length) throw badRequest('Enter how many pcs are damaged.', 'damageDecisions');
-  if (issues.pcsTooBig.length) throw badRequest(`A damage can't have more pcs than the taka (${data.pcs}).`, 'damageDecisions');
+  if (issues.pcsTooBig.length) throw badRequest(`A damage can't have more pcs than the taka (${takaPcs}).`, 'damageDecisions');
   if (issues.resolvedTooBig.length) throw badRequest("You can't resolve more pcs than are still damaged.", 'damageDecisions');
 
   const events: TakaEventInput[] = [];
-  const editNote = takaEditNote({ meters: taka.meters, pcs: taka.pcs }, { meters: data.meters, pcs: data.pcs });
-  if (editNote) {
-    await tx.update(takas).set({ meters: data.meters, pcs: data.pcs }).where(eq(takas.id, takaId));
-    events.push({ takaId, event: 'edited', note: `${opts.label} · ${editNote}` });
-  }
 
   const byId = new Map(data.damageDecisions.map((d) => [d.takaDamageId, d]));
   let resolved = 0;

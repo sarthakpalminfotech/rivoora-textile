@@ -63,7 +63,8 @@ const CSS = `
 .chp-prr > span { white-space: nowrap; padding: 0 2.5mm; height: 100%; display: flex; align-items: center; }
 .chp-prr > span:last-child { border-left: 1.2px solid var(--ink); }
 .chp-prr .chp-chno { background: #d9d9d9; font-size: 15pt; font-weight: 800; justify-content: center; }
-.chp-quality { padding: 1.2mm 3mm; font-size: 11pt; }
+.chp-quality { padding: 1.2mm 3mm; font-size: 11pt; display: flex; justify-content: space-between; align-items: baseline; gap: 6mm; }
+.chp-refinish { font-weight: 800; letter-spacing: 0.04em; white-space: nowrap; }
 
 .chp-tablewrap { border-bottom: 1.2px solid var(--ink); }
 .chp-spacer { flex: 1; }
@@ -153,7 +154,10 @@ function ChallanSheet({ data, page, total }: { data: ChallanPrintData; page: Cha
           </div>
         </div>
       </div>
-      <div className="chp-quality chp-row">Quality Name : {data.qualities.join(', ')}</div>
+      <div className="chp-quality chp-row">
+        <span>Quality Name : {data.qualities.join(', ')}</span>
+        {data.isRefinish && <span className="chp-refinish">FOR REFINISH</span>}
+      </div>
       <div className="chp-tablewrap">
         <table className="chp-table">
           <colgroup>

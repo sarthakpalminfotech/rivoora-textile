@@ -127,3 +127,11 @@ export function splitReadyTakas<T extends SendableTaka>(takas: readonly T[], kin
   for (const t of takas) (isTakaReady(t.stage, kind) ? ready : notReady).push(t);
   return { ready, notReady };
 }
+
+/**
+ * Sprint 15: refinish takas always go on their OWN mill challan. True when a selection mixes refinish trips with
+ * normal takas (`isRefinish` per taka) — the server answers 409 then.
+ */
+export function mixesRefinishAndNormal(isRefinish: readonly boolean[]): boolean {
+  return isRefinish.some(Boolean) && !isRefinish.every(Boolean);
+}

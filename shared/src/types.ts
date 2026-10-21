@@ -987,6 +987,8 @@ export interface ChallanListItem {
   totalTakas: number;
   totalMeters: number;
   receivedCount: number;
+  /** Sprint 15: a mill challan whose takas are ALL refinish trips ("For refinish"). Never mixed with normal takas. */
+  isRefinish: boolean;
   createdAt: string;
 }
 
@@ -1035,6 +1037,8 @@ export interface ChallanDetail {
   totalMeters: number;
   receivedCount: number;
   pendingCount: number;
+  /** Sprint 15: all takas are refinish trips (mill challans only). */
+  isRefinish: boolean;
   /** Cancel is allowed while nothing was received (and the challan is active). */
   canCancel: boolean;
   orders: ChallanOrderGroup[];
@@ -1048,6 +1052,8 @@ export interface ChallanPrintData {
   challanDate: string;
   ewayNo: string | null;
   party: { name: string; address: string | null; mobile: string | null; gstin: string | null };
+  /** Sprint 15: printed "FOR REFINISH" at the right end of the Quality Name row. */
+  isRefinish: boolean;
   /** The qualities (materials) of the takas, in order. */
   qualities: string[];
   /** By order, then taka number — meters at the time of sending. */
@@ -1126,6 +1132,8 @@ export interface OrderChallan {
   /** The whole challan. */
   totalTakas: number;
   receivedCount: number;
+  /** Sprint 15: a refinish challan (mill). */
+  isRefinish: boolean;
 }
 
 /** A delivery (dispatch) challan on the Docs tab: every revision is its own row (DC-12, DC-12 R1). */

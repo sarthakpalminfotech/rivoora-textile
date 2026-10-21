@@ -18,6 +18,7 @@ import { ErrorState } from '@/components/list-parts';
 import { Button } from '@/components/ui/button';
 import { TickBox as Checkbox } from '@/components/ui/tick-box';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { RefinishTag } from '@/features/takas/taka-tags';
 import { EmptyState } from '@/components/ui/empty-state';
 import { ImageThumb } from '@/components/ui/image-thumb';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -193,6 +194,7 @@ function Body({ challan }: { challan: ChallanDetail }) {
           <div className="min-w-0">
             <h1 className="flex flex-wrap items-center gap-2 text-3xl font-extrabold tracking-tight text-slate-900">
               <span className={cn(cancelled && 'text-slate-400 line-through')}>{challanLabel(challan.challanNo, kind)}</span>
+              {challan.isRefinish && <RefinishTag />}
               <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-white px-2.5 py-1 text-xs font-semibold text-slate-600">
                 <span className="size-2 rounded-full" style={{ backgroundColor: cfg.colour }} aria-hidden />
                 {cfg.label}
@@ -245,13 +247,13 @@ function Body({ challan }: { challan: ChallanDetail }) {
 
       {/* Summary tiles */}
       <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
-        <StatTile label="Total takas" value={challan.totalTakas} />
+        <StatTile label="Sent (takas)" value={challan.totalTakas} />
         <StatTile label="Total meters" value={formatMeters(challan.totalMeters)} />
         <StatTile
-          label="Received"
+          label="Received (takas)"
           value={
             <span className={cn(!cancelled && challan.receivedCount === challan.totalTakas && 'text-green-700')}>
-              {challan.receivedCount} / {challan.totalTakas}
+              {challan.receivedCount}
             </span>
           }
         />

@@ -13,6 +13,7 @@ import {
   compareTakaNo,
   parseChallanNo,
   isTakaReady,
+  mixesRefinishAndNormal,
   readyStagesOf,
   sendableStages,
   takaStageLabel,
@@ -366,6 +367,13 @@ export async function createChallan(kind: ChallanKind, role: RoleKey, input: unk
       );
     }
 
+    // Sprint 15: refinish takas go on their OWN challan — never mixed with normal ones (mill).
+    if (kind === 'mill') {
+      if (mixesRefinishAndNormal(rows.map((r) => r.stage === retripStage))) {
+        throw conflict('Refinish takas need their own challan. Send the refinish takas and the normal takas separately.');
+      }
+    }
+
     const at = now();
     const challanNo = await allocateChallanNo(tx, kind);
     const [challan] = await tx
@@ -439,6 +447,8 @@ const rowsOf = sql`FROM challan_takas ct WHERE ct.challan_id = "challans"."id"`;
 const totalTakasSql = sql<number>`(SELECT COUNT(*) ${rowsOf})`;
 const totalMetersSql = sql<number>`(SELECT COALESCE(SUM(ct.meters), 0) ${rowsOf})`;
 // Received = the larger of the count the godown supervisor entered (mill challans) and the takas actually marked received.
+// Sprint 15: a mill challan whose takas are ALL refinish trips ("For refinish"); the server never mixes them with normal takas.
+const isRefinishSql = sql<number>`CASE WHEN "challans"."kind" = 'mill' AND EXISTS (SELECT 1 ${rowsOf}) AND NOT EXISTS (SELECT 1 ${rowsOf} AND ct.is_refinish = 0) THEN 1 ELSE 0 END`;
 const receivedSql = sql<number>`MAX("challans"."received_count", (SELECT COUNT(*) ${rowsOf} AND ct.received_at IS NOT NULL))`;
 
 export async function listChallans(kind: ChallanKind, q: ChallanListQuery): Promise<ChallanPage> {
@@ -471,6 +481,7 @@ export async function listChallans(kind: ChallanKind, q: ChallanListQuery): Prom
         totalTakas: totalTakasSql,
         totalMeters: totalMetersSql,
         receivedCount: receivedSql,
+        isRefinish: isRefinishSql,
         createdAt: challans.createdAt,
       })
       .from(challans)
@@ -516,6 +527,7 @@ export async function listChallans(kind: ChallanKind, q: ChallanListQuery): Prom
     items: items.map((r) => ({
       ...r,
       designs: designsByChallan.get(r.id) ?? [],
+      isRefinish: Boolean(r.isRefinish),
       totalTakas: Number(r.totalTakas),
       totalMeters: round2(Number(r.totalMeters)),
       receivedCount: Number(r.receivedCount),
@@ -562,6 +574,7 @@ async function loadChallan(kind: ChallanKind, id: number) {
         isDamaged: takas.isDamaged,
         meters: challanTakas.meters,
         pcs: challanTakas.pcs,
+        rowIsRefinish: challanTakas.isRefinish,
         receivedAt: challanTakas.receivedAt,
         qcDoneAt: challanTakas.qcDoneAt,
         orderId: orders.id,
@@ -635,6 +648,7 @@ export async function getChallan(kind: ChallanKind, id: number): Promise<Challan
     totalTakas: rows.length,
     totalMeters: round2(rows.reduce((s, r) => s + (r.meters ?? 0), 0)),
     receivedCount,
+    isRefinish: challan.kind === 'mill' && rows.length > 0 && rows.every((r) => r.rowIsRefinish),
     pendingCount: challan.status === 'cancelled' ? 0 : rows.length - receivedCount,
     canCancel: challan.status === 'active' && receivedCount === 0,
     orders: orderGroups,
@@ -652,6 +666,7 @@ export async function getChallanPrint(kind: ChallanKind, id: number): Promise<Ch
     challanDate: challan.challanDate,
     ewayNo: challan.ewayNo,
     party: { name: challan.partyName, address: challan.partyAddress, mobile: challan.partyMobile, gstin: challan.partyGstin },
+    isRefinish: challan.kind === 'mill' && rows.length > 0 && rows.every((r) => r.rowIsRefinish),
     qualities: [...new Set(sorted.map((r) => r.quality))],
     takas: sorted.map((r) => ({ takaNo: r.takaNo, meters: r.meters })),
   };
@@ -904,6 +919,7 @@ export async function listOrderChallans(role: RoleKey, orderId: number): Promise
         orderMeters: sql<number>`COALESCE(SUM(${challanTakas.meters}), 0)`,
         totalTakas: totalTakasSql,
         receivedCount: receivedSql,
+        isRefinish: isRefinishSql,
         createdAt: challans.createdAt,
       })
       .from(challanTakas)
@@ -937,6 +953,7 @@ export async function listOrderChallans(role: RoleKey, orderId: number): Promise
     orderMeters: round2(Number(r.orderMeters)),
     totalTakas: Number(r.totalTakas),
     receivedCount: Number(r.receivedCount),
+    isRefinish: Boolean(r.isRefinish),
   }));
   const deliveries: (OrderDeliveryChallan & { createdAt: string })[] = deliveryRows.map((r) => ({
     id: r.id,

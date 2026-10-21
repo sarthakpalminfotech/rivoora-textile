@@ -123,6 +123,7 @@ describe('mergeOrderChallans (Docs tab)', () => {
     orderMeters: 1,
     totalTakas: 1,
     receivedCount: 0,
+    isRefinish: false,
     createdAt,
   });
   const delivery = (id: number, revision: number, createdAt: string): OrderDeliveryChallan & { createdAt: string } => ({
@@ -142,5 +143,17 @@ describe('mergeOrderChallans (Docs tab)', () => {
     const items = mergeOrderChallans([challan(1, '2026-10-02T00:00:00.000Z')], [delivery(7, 0, '2026-10-10T00:00:00.000Z'), delivery(8, 1, '2026-10-11T00:00:00.000Z')]);
     expect(items.map((i) => (i.kind === 'delivery' ? i.label : `b${i.id}`))).toEqual(['DC-12 R1', 'DC-12', 'b1']);
     expect(items.every((i) => !('createdAt' in i))).toBe(true);
+  });
+});
+
+/* ---------------- Sprint 15: refinish challans are never mixed ---------------- */
+import { mixesRefinishAndNormal } from './challans';
+
+describe('mixesRefinishAndNormal (Sprint 15)', () => {
+  it('all refinish or all normal is fine, a mix is not', () => {
+    expect(mixesRefinishAndNormal([true, true])).toBe(false);
+    expect(mixesRefinishAndNormal([false, false, false])).toBe(false);
+    expect(mixesRefinishAndNormal([])).toBe(false);
+    expect(mixesRefinishAndNormal([true, false])).toBe(true);
   });
 });

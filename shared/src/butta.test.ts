@@ -191,13 +191,16 @@ describe('QC decision validation (resolved pcs)', () => {
     expect(takaEditNote({ meters: 1, pcs: 1 }, { meters: 1, pcs: 1 })).toBe('');
   });
 
-  it('QC body schema: pcs required, decisions + new damages with pcs', () => {
+  it('QC body schema: no meters / pcs (read-only for QC), decisions + new damages with pcs', () => {
     const ok = qcSubmitSchema.parse({
       meters: 60.5,
       pcs: 12,
       damageDecisions: [{ takaDamageId: 1, resolvedPcs: 2 }],
       newDamages: [{ type: 'butta', otherName: 'Cut', pcs: 1, images: [{ url: '/u/a.webp', thumbUrl: '/u/a-t.webp' }] }],
     });
+    // Meters / pcs sent by an old client are ignored (stripped), never applied.
+    expect('meters' in ok).toBe(false);
+    expect('pcs' in ok).toBe(false);
     expect(ok.damageDecisions[0].pcs).toBeNull();
     expect(ok.newDamages[0].images).toHaveLength(1);
     expect(qcSubmitSchema.parse({ pcs: 3, newDamages: [{ type: 'butta', damageId: 2, pcs: 1 }] }).newDamages[0].images).toEqual([]);
@@ -209,7 +212,7 @@ describe('QC decision validation (resolved pcs)', () => {
         newDamages: [{ type: 'butta', damageId: 2, pcs: 1, images: Array.from({ length: 11 }, (_, i) => ({ url: 'u' + i, thumbUrl: 't' + i })) }],
       }).success,
     ).toBe(false);
-    expect(qcSubmitSchema.safeParse({ meters: 60, damageDecisions: [], newDamages: [] }).success).toBe(false);
+    expect(qcSubmitSchema.safeParse({ damageDecisions: [], newDamages: [] }).success).toBe(true);
     expect(qcSubmitSchema.safeParse({ pcs: 3, newDamages: [{ damageId: 2 }] }).success).toBe(false);
     expect(qcSubmitSchema.parse({ pcs: 3 }).newDamages).toEqual([]);
   });

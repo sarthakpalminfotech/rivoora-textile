@@ -24,6 +24,11 @@ export function ReMillTag({ className }: { className?: string }) {
   );
 }
 
+/** "Refinish": a mill challan that carries only refinish trips (Sprint 15). */
+export function RefinishTag({ className }: { className?: string }) {
+  return <Tag className={cn('bg-violet-100 text-violet-800', className)}>Refinish</Tag>;
+}
+
 /** "Return lot": the taka made for a pcs-to-pcs goods return. */
 export function ReturnLotTag({ className }: { className?: string }) {
   return <Tag className={cn('bg-sky-100 text-sky-800', className)}>Return lot</Tag>;
