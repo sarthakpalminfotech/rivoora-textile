@@ -1092,4 +1092,4 @@ Live jobsheet numbers, picks removed, supervisor Order view quality + machines, 
 
 - Verified: `npm run typecheck` clean, `npm test` 274 passing, `node scripts/check-sprint15.mjs` all checks pass on a local file DB.
 - **Turso changes when you run `npm run db:migrate`** (migration `0014_sprint15_hold_order.sql`, additive only): new table `order_hold_events`; `orders` gets `is_on_hold` (default 0), `held_at`, `held_by_user_id`, `hold_note`, `released_at`; index `orders_is_on_hold_idx`. Needs 0010–0013 applied first. No data is changed or removed.
-- Not done: no real-phone check (keyboard + Save bar, share sheet with image), no 360 / 768 / 1280 px screenshot pass, Mill Send → Pending drawer not clicked in a browser.
+- Not done: no real-phone check (keyboard + Save bar, share sheet with image), no 360 / 768 / 1280 px screenshot pass, Mill Send → Pending drawer checked in the browser at desktop width only.
