@@ -4,6 +4,7 @@ import {
   CHALLAN_KIND_CONFIG,
   challanLabel,
   damageLabelOf,
+  damageShareMessage,
   damageResolveSummary,
   damageResolvedText,
   formatMeters,
@@ -145,7 +146,11 @@ function Body({ takaId }: { takaId: number }) {
                   {!r && damageResolveSummary(d) && <span className="block text-xs font-semibold text-amber-700">{damageResolveSummary(d)}</span>}
                   {!!d.images?.length && (
                     <div className="mt-2">
-                      <DamageGallery images={d.images} alt={damageLabelOf(d)} />
+                      <DamageGallery
+                        images={d.images}
+                        alt={damageLabelOf(d)}
+                        shareText={damageShareMessage({ damage: damageLabelOf(d), takaNo: t.takaNo, orderNo: t.orderNo, jobsheetNo: t.jobsheetNo })}
+                      />
                     </div>
                   )}
                   {r && (

@@ -79,3 +79,13 @@ describe('orderHoldSchema', () => {
     expect(orderHoldSchema.safeParse({ ongoing: [{ jobsheetId: 3, completedFrames: -1 }] }).success).toBe(false);
   });
 });
+
+import { damageShareMessage, whatsappShareUrl } from './takas';
+
+describe('damageShareMessage (Sprint 15)', () => {
+  it('builds the WhatsApp text', () => {
+    expect(damageShareMessage({ damage: 'Mill damage · Hole · 2 pcs', takaNo: '1101', orderNo: 26 })).toBe('Damage: Mill damage · Hole · 2 pcs | Taka 1101 | Order #26');
+    expect(damageShareMessage({ damage: 'Machine damage', takaNo: '12A', orderNo: 3, jobsheetNo: 319 })).toBe('Damage: Machine damage | Taka 12A | Order #3 (319)');
+    expect(whatsappShareUrl('a b|c')).toBe('https://wa.me/?text=a%20b%7Cc');
+  });
+});

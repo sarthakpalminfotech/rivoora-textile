@@ -6,7 +6,9 @@ import {
   challanLabel,
   DAMAGE_RECORDED_AT_LABEL,
   DAMAGE_TYPE_LABEL,
+  damageLabelOf,
   damageOpenPcs,
+  damageShareMessage,
   formatMeters,
   formatPcs,
   ROLES,
@@ -70,7 +72,7 @@ function Timeline({ events }: { events: TakaEvent[] }) {
   );
 }
 
-function DamageSection({ d }: { d: TakaDamageFull }) {
+function DamageSection({ d, taka }: { d: TakaDamageFull; taka: { takaNo: string; orderNo: number; jobsheetNo: number } }) {
   const resolved = d.status === 'resolved';
   const open = damageOpenPcs(d);
   const name = d.damageName ?? 'Damage (no name)';
@@ -120,7 +122,12 @@ function DamageSection({ d }: { d: TakaDamageFull }) {
       {d.images.length > 0 && (
         <div className="mt-4">
           <h3 className="mb-2 text-sm font-semibold text-slate-700">Photos</h3>
-          <DamageGallery images={d.images} alt={`${name} photo`} thumbClassName="size-20" />
+          <DamageGallery
+            images={d.images}
+            alt={`${name} photo`}
+            thumbClassName="size-20"
+            shareText={damageShareMessage({ damage: damageLabelOf(d), takaNo: taka.takaNo, orderNo: taka.orderNo, jobsheetNo: taka.jobsheetNo })}
+          />
         </div>
       )}
 
@@ -263,7 +270,7 @@ export default function DamageDetailsPage() {
               <EmptyState icon={CheckCircle2} title="No damage on this taka" className="py-10" />
             </div>
           ) : (
-            query.data.damages.map((d) => <DamageSection key={d.id} d={d} />)
+            query.data.damages.map((d) => <DamageSection key={d.id} d={d} taka={query.data.taka} />)
           )}
         </>
       )}

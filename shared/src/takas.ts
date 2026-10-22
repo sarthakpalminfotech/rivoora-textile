@@ -475,3 +475,15 @@ export const SPLIT_ERROR_TEXT: Record<SplitRowError, string> = {
   duplicate: 'Typed twice',
   already_used: 'Already used',
 };
+
+/**
+ * Sprint 15: the text sent with a shared damage photo (WhatsApp):
+ * "Damage: Mill damage · Hole · 2 pcs | Taka 1101 | Order #26" (+ " (319)" when the jobsheet number is known).
+ */
+export function damageShareMessage(p: { damage: string; takaNo: string; orderNo: number; jobsheetNo?: number | null }): string {
+  const order = `Order #${p.orderNo}${p.jobsheetNo != null ? ` (${p.jobsheetNo})` : ''}`;
+  return `Damage: ${p.damage} | Taka ${p.takaNo} | ${order}`;
+}
+
+/** wa.me fallback link for desktops / browsers that cannot share files. */
+export const whatsappShareUrl = (text: string): string => `https://wa.me/?text=${encodeURIComponent(text)}`;
