@@ -1085,3 +1085,11 @@ Eleven small client-feedback changes (spec: rivoora-sprint14-small-changes-promp
 - Verified: `npm run typecheck` clean, `npm test` 249 passing (new `sprint14.test.ts`, `orderFilters.test.ts`); API checked against a local file DB (milestones, challan list designs, Docs incl. delivery challans, `party` filter, owner login shows "Jenish").
 - **No schema change.** One optional Turso step, to run only when you decide: `npm run db:rename-owner` (renames the default owner user to Jenish; touches only phone 9999999999 + name 'Jemish').
 - Not done: no 360 / 768 / 1280px screenshot pass and no real-phone check (design preview swipe, Taka entry order, History Overview, Dispatch notice were typechecked + logic-tested, not clicked through); nothing is committed.
+
+## Sprint 15 (done, committed) — current as of 2026-10-22
+
+Live jobsheet numbers, picks removed, supervisor Order view quality + machines, keyboard-safe Save bars, QC meters/pcs read-only, takas-only challan counts, refinish challan flag + FOR REFINISH print, **Hold order** (Jenish), godown supervisor read-only **Orders**, **share damage photos**, **split damage picker**. Details in the "Sprint 15" section of CLAUDE.md.
+
+- Verified: `npm run typecheck` clean, `npm test` 274 passing, `node scripts/check-sprint15.mjs` all checks pass on a local file DB.
+- **Turso changes when you run `npm run db:migrate`** (migration `0014_sprint15_hold_order.sql`, additive only): new table `order_hold_events`; `orders` gets `is_on_hold` (default 0), `held_at`, `held_by_user_id`, `hold_note`, `released_at`; index `orders_is_on_hold_idx`. Needs 0010–0013 applied first. No data is changed or removed.
+- Not done: no real-phone check (keyboard + Save bar, share sheet with image), no 360 / 768 / 1280 px screenshot pass, Mill Send → Pending drawer not clicked in a browser.
