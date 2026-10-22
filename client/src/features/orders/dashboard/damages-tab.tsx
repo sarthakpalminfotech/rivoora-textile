@@ -1,6 +1,6 @@
 import { AlertTriangle, Pencil, ShieldCheck } from 'lucide-react';
 import { useState } from 'react';
-import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import {
   damageLabelOf,
   DAMAGE_TYPE_CONFIG,
@@ -19,6 +19,7 @@ import { JobsheetRef } from '@/components/ui/jobsheet-ref';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Switch } from '@/components/ui/switch';
 import { useRole } from '@/hooks/useRole';
+import { JobsheetLink } from '../../jobsheets/js-link';
 import { formatDateTime } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { useOrderTakas } from '../../takas/api';
@@ -183,9 +184,9 @@ export function DamagesTab({ order, view }: { order: OrderDetail; view: OrderVie
                   <div className="min-w-0">
                     <dt className="text-[12px] text-muted-foreground">Order (jobsheet)</dt>
                     <dd>
-                      <Link to={`/jobsheets/${t.jobsheetId}`} className="rounded font-semibold text-primary hover:underline">
+                      <JobsheetLink id={t.jobsheetId} className="rounded font-semibold text-primary hover:underline">
                         <JobsheetRef orderNo={t.orderNo} jobsheetNo={t.jobsheetNo} variant="short" bracketClassName="text-primary/60" />
-                      </Link>
+                      </JobsheetLink>
                     </dd>
                   </div>
                   <div className="min-w-0">

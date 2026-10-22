@@ -309,9 +309,13 @@ describe('sprint 7 roles', () => {
     expect(landingRoute('godown_supervisor')).toBe('/butta');
     expect(ROLES.godown_supervisor.initials).toBe('GS');
     expect(can('godown_supervisor', 'canUseButtaModule')).toBe(true);
-    for (const p of ['canCancelChallan', 'canManageButtaParties', 'canButtaQc', 'canViewOrders', 'canViewMasters', 'canSeeRate', 'canEditTakas', 'canViewTakas'] as const) {
+    for (const p of ['canCancelChallan', 'canManageButtaParties', 'canButtaQc', 'canViewOrders', 'canViewMasters', 'canSeeRate', 'canEditTakas'] as const) {
       expect(can('godown_supervisor', p), p).toBe(false);
     }
+    // Sprint 15: the read-only Orders module (butta cutting onwards) – takas visible, nothing else.
+    expect(can('godown_supervisor', 'canViewGodownOrders')).toBe(true);
+    expect(can('godown_supervisor', 'canViewTakas')).toBe(true);
+    expect(can('godown_supervisor', 'canSeeClient')).toBe(false);
   });
 
   it('QC (butta + mill): bilingual, only QC, lands on /qc', () => {

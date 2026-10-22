@@ -17,6 +17,7 @@ import { ErrorState } from '@/components/list-parts';
 import { Modal } from '@/components/ui/modal';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useRole } from '@/hooks/useRole';
+import { JobsheetLink } from '../jobsheets/js-link';
 import { formatDateTime } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { challanDetailsPath, kindPermission } from '../challans/kind';
@@ -81,9 +82,9 @@ function Body({ takaId }: { takaId: number }) {
     <div className="space-y-5">
       <dl className="grid grid-cols-2 gap-x-4 gap-y-3">
         <Row label="Order / Jobsheet">
-          <Link to={`/jobsheets/${t.jobsheetId}`} className="text-primary hover:underline">
+          <JobsheetLink id={t.jobsheetId} className="text-primary hover:underline">
             {jobsheetRefShort(t.orderNo, t.jobsheetNo)}
-          </Link>
+          </JobsheetLink>
         </Row>
         <Row label="Quality">{t.quality ?? '—'}</Row>
         <Row label="Meters">{t.meters != null ? formatMeters(t.meters) : '—'}</Row>

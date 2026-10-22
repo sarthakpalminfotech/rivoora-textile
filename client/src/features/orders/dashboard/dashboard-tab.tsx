@@ -34,6 +34,7 @@ import { cn } from '@/lib/utils';
 import { useOrderJobsheets } from '../../jobsheets/api';
 import { CreateJobsheetsDialog } from '../../jobsheets/jobsheet-forms';
 import { FramesValue, machineNumbers } from '../../jobsheets/parts';
+import { JobsheetLink } from '../../jobsheets/js-link';
 import { TakaChips } from '../../takas/takas-card';
 import { useSendToProduction } from '../api';
 import { useDashboardItems, useOrderDashboard } from './api';
@@ -191,7 +192,7 @@ function MainStageCard({ stage, data, selected, onSelect }: { stage: MainStageCo
 
 function MainStages({ data, selected, onSelect }: { data: OrderDashboard; selected: MainStageKey; onSelect: (k: MainStageKey) => void }) {
   return (
-    <ol className="grid grid-cols-2 gap-3 md:grid-cols-4 md:gap-6" aria-label="Order stages">
+    <ol className={cn('grid grid-cols-2 gap-3 md:gap-6', data.mainStages.length === 3 ? 'md:grid-cols-3' : 'md:grid-cols-4')} aria-label="Order stages">
       {data.mainStages.map((s, i) => (
         <li key={s.key} className="relative min-w-0">
           <MainStageCard stage={s} data={data} selected={selected === s.key} onSelect={() => onSelect(s.key)} />
@@ -474,8 +475,8 @@ function DetailBody({ orderId, sub }: { orderId: number; sub: SubStageKey }) {
         <div className="space-y-3">
           {d.groups.map((g) => (
             <div key={g.jobsheetId} className="rounded-xl border border-border p-3.5">
-              <Link
-                to={`/jobsheets/${g.jobsheetId}`}
+              <JobsheetLink
+                id={g.jobsheetId}
                 className="mb-2.5 inline-flex items-center gap-1 rounded text-[15px] font-semibold text-primary outline-none hover:underline focus-visible:ring-2 focus-visible:ring-primary/40"
               >
                 <JobsheetRef orderNo={g.orderNo} jobsheetNo={g.jobsheetNo} bracketClassName="text-primary/60" />
@@ -483,7 +484,7 @@ function DetailBody({ orderId, sub }: { orderId: number; sub: SubStageKey }) {
                   {' · '}
                   <FramesValue status={g.status} frames={g.frames} completedFrames={g.completedFrames} withUnit />
                 </span>
-              </Link>
+              </JobsheetLink>
               <TakaChips takas={g.takas} showChallan={['at_butta', 'butta_qc', 'at_mill', 'mill_qc', 'refinish'].includes(sub)} />
             </div>
           ))}

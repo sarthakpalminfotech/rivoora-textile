@@ -231,7 +231,9 @@ export default function OrderDetailsPage() {
   const canTakas = can('canViewTakas');
   const counts = dashboard.data;
 
-  const tabs: { key: OrderTab; label: string; count?: number; danger?: boolean }[] = [
+  // Sprint 15: the godown supervisor's Orders — Dashboard · Takas · Damages · Docs · History (no Jobsheets, no Order details).
+  const godownOnly = can('canViewGodownOrders') && !can('canViewOrders');
+  const allTabs: { key: OrderTab; label: string; count?: number; danger?: boolean }[] = [
     { key: 'dashboard', label: 'Dashboard' },
     { key: 'jobsheets', label: 'Jobsheets', count: ready ? order.jobsheetCount : undefined },
     ...(canTakas
@@ -244,6 +246,7 @@ export default function OrderDetailsPage() {
     { key: 'history', label: 'History' },
     ...(canTakas ? [{ key: 'docs' as const, label: 'Docs' }] : []),
   ];
+  const tabs = godownOnly ? allTabs.filter((t) => t.key !== 'jobsheets' && t.key !== 'details') : allTabs;
   // Roles with `jobsheetsTabWhenPending` (Gaurang) land on Jobsheets while the order is Jobsheet pending.
   const defaultTab: OrderTab = config.jobsheetsTabWhenPending && order.status === STATUS.READY_PRODUCTION ? 'jobsheets' : 'dashboard';
   const wanted = view.tabInUrl ? view.tab : defaultTab;

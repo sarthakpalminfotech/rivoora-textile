@@ -169,7 +169,8 @@ export function OrderHeader({
         </>
       ),
     },
-    ...(order.unit === "pcs"
+    // Sprint 15: the godown supervisor's Orders start at butta cutting — no production fields.
+    ...(order.unit === "pcs" && !can("canViewGodownOrders")
       ? [
           {
             label: "Jobsheet quantity",

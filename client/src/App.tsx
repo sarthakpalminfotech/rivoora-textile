@@ -147,8 +147,8 @@ const router = createBrowserRouter([
           { index: true, element: <LandingRedirect /> },
           // Logged-in users who open /login go to their landing page.
           { path: 'login', element: <LandingRedirect /> },
-          { path: 'orders', element: guard(['canViewOrders', 'canViewProductionOrders'], <OrdersPage />) },
-          { path: 'orders/:id', element: guard(['canViewOrders', 'canViewProductionOrders'], <OrderDetailsPage />) },
+          { path: 'orders', element: guard(['canViewOrders', 'canViewProductionOrders', 'canViewGodownOrders'], <OrdersPage />) },
+          { path: 'orders/:id', element: guard(['canViewOrders', 'canViewProductionOrders', 'canViewGodownOrders'], <OrderDetailsPage />) },
           { path: 'masters', element: guard('canViewMasters', <MastersPage />) },
           { path: 'customers', element: guard('canViewMasters', <CustomersPage />) },
           { path: 'materials', element: guard('canViewMasters', <MaterialsPage />) },
@@ -156,7 +156,7 @@ const router = createBrowserRouter([
           { path: 'designs/:id', element: guard('canViewMasters', <DesignDetailPage />) },
           { path: 'machines', element: guard('canViewMasters', <MachinesPage />) },
           { path: 'damages', element: guard('canViewMasters', <DamagesPage />) },
-          { path: 'orders/:orderId/takas/:takaId/damages', element: guard(['canEditTakas', 'canViewProductionOrders'], <DamageDetailsPage />) },
+          { path: 'orders/:orderId/takas/:takaId/damages', element: guard(['canEditTakas', 'canViewProductionOrders', 'canViewGodownOrders'], <DamageDetailsPage />) },
           { path: 'butta-parties', element: guard('canManageButtaParties', <PartiesPage kind="butta" />) },
           { path: 'mill-parties', element: guard('canManageMillParties', <PartiesPage kind="mill" />) },
           // Butta cutting + Mill modules (Jenish, Gaurang, Godown supervisor) and the Butta QC role.

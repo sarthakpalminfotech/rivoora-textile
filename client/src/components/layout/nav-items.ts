@@ -41,6 +41,8 @@ export const NAV_ITEMS: NavItem[] = [
   { to: '/orders', label: 'Orders', icon: ClipboardList, permission: 'canViewOrders', group: 'main', phoneOrder: 1 },
   // The supervisor's Orders: the orders in production, view only (no client or money).
   { to: '/orders', label: 'Orders', icon: ClipboardList, permission: 'canViewProductionOrders', group: 'main' },
+  // Sprint 15: the godown supervisor's read-only Orders (butta cutting onwards, no client or money).
+  { to: '/orders', label: 'Orders', icon: ClipboardList, permission: 'canViewGodownOrders', group: 'main' },
   { to: '/scan', label: 'Scan jobsheet', hi: 'जॉबशीट स्कैन करें', icon: ScanLine, permission: 'canUseTakaModules', group: 'main' },
   // Same path, different module: the supervisor's list or the Taka entry list (a role only ever has one).
   { to: '/jobsheets', label: 'Jobsheets', icon: ClipboardCheck, permission: 'canViewJobsheetsModule', group: 'main' },

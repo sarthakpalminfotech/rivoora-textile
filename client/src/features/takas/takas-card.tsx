@@ -1,6 +1,5 @@
 import { Boxes, CornerUpLeft, PackageCheck, PackagePlus, Pencil } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
-import { Link } from 'react-router-dom';
 import {
   canReceiveFreeStock,
   formatMeters,
@@ -28,6 +27,7 @@ import { cn } from '@/lib/utils';
 import { AddFromFreeStockDialog, itemKeyOf } from '../free-stock/add-from-free-stock-dialog';
 import { MoveToInventoryDialog } from '../free-stock/move-to-inventory-dialog';
 import { FramesValue, machineNumbers, StatTile } from '../jobsheets/parts';
+import { JobsheetLink } from '../jobsheets/js-link';
 import { useOrderTakas } from './api';
 import { EditTakasDialog, type EditTakasTarget } from './edit-takas-dialog';
 import { SendBackDialog, type SendBackTarget } from './send-back-dialog';
@@ -174,9 +174,9 @@ function TakaGroup({
           {header ? (
             <div className="min-w-0">
               <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[15px] font-semibold text-slate-900">
-                <Link to={`/jobsheets/${group.jobsheetId}`} className="text-primary hover:underline">
+                <JobsheetLink id={group.jobsheetId} className="text-primary hover:underline">
                   <JobsheetRef orderNo={group.orderNo} jobsheetNo={group.jobsheetNo} bracketClassName="text-primary/60" />
-                </Link>
+                </JobsheetLink>
                 <StatusBadge kind="jobsheet" status={group.status} className="py-0.5" />
               </p>
               <p className="mt-0.5 text-sm text-slate-500">
