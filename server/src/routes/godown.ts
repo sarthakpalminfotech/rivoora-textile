@@ -12,6 +12,7 @@ import {
   patchGodownTaka,
   resolveGodownDamage,
   sendGodownRefinish,
+  listSplitDamageOptions,
   splitTaka,
 } from '../services/godown';
 
@@ -62,6 +63,14 @@ godownRouter.patch(
   '/takas/:id',
   ah(async (req, res) => {
     res.json(await patchGodownTaka(req.role, parseId(req.params.id, 'taka id'), req.body));
+  }),
+);
+
+/** Sprint 15: the order's open damages for the Split screen's picker. */
+godownRouter.get(
+  '/takas/:id/split-damages',
+  ah(async (req, res) => {
+    res.json(await listSplitDamageOptions(req.role, parseId(req.params.id)));
   }),
 );
 

@@ -2,6 +2,8 @@ import { and, desc, eq, inArray, sql, type SQL } from 'drizzle-orm';
 import {
   compareTakaNo,
   DAMAGE_TYPES,
+  duplicateMovedDamages,
+  type SplitDamageOption,
   godownKpis,
   inventoryKey,
   godownListQuerySchema,
@@ -37,13 +39,14 @@ import {
   jobsheets,
   materials,
   orders,
+  takaDamageImages,
   takaDamages,
   takas,
 } from '../db/schema';
 import { badRequest, conflict, notFound } from '../lib/errors';
 import { likePattern } from '../lib/http';
 import { getOrderDamages } from './dashboard';
-import { addNewDamages, assertNewDamages } from './qc-shared';
+import { addNewDamages, assertNewDamages, type NewDamageInput } from './qc-shared';
 import { damageImagesOf } from './takas';
 import { takaOriginOrderNo, takaParentNo } from './taka-shared';
 import { recomputeOrdersStatus, refreshIsDamaged, usedTakaNumbers, usedMessage, writeTakaEvents, type TakaEventInput } from './taka-ops';
@@ -452,7 +455,51 @@ export async function splitTaka(role: RoleKey, id: number, input: unknown): Prom
     }
 
     const first = data.parts[0];
-    data.parts.forEach((p, i) => assertNewDamages(p.damages, p.pcs, `parts.${i}.damages`));
+    // Sprint 15: a part's damages are NEW ones or EARLIER open damages of the order moved onto it.
+    const isMoved = (d: (typeof data.parts)[number]['damages'][number]): d is { fromTakaDamageId: number; pcs: number } => 'fromTakaDamageId' in d;
+    const newOf = (p: (typeof data.parts)[number]) => p.damages.filter((d) => !isMoved(d)) as NewDamageInput[];
+    const movedOf = (p: (typeof data.parts)[number]) => p.damages.filter(isMoved);
+    if (duplicateMovedDamages(data.parts.map((p) => movedOf(p).map((m) => m.fromTakaDamageId))).length) {
+      throw conflict('Each earlier damage can be moved to one part only.', 'parts');
+    }
+    data.parts.forEach((p, i) => {
+      assertNewDamages(newOf(p), p.pcs, `parts.${i}.damages`);
+      movedOf(p).forEach((m, j) => {
+        if (m.pcs > p.pcs) throw badRequest(`Damaged pcs can't be more than the part's ${p.pcs} pcs.`, `parts.${i}.damages.${j}.pcs`);
+      });
+    });
+    // The earlier damages must be open and belong to takas of this same order.
+    const movedIds = data.parts.flatMap((p) => movedOf(p).map((m) => m.fromTakaDamageId));
+    const parentOrder = parent.allocatedOrderId ?? parent.orderId;
+    const sources = movedIds.length
+      ? await tx
+          .select({
+            id: takaDamages.id,
+            takaId: takaDamages.takaId,
+            takaNo: takas.takaNo,
+            damageId: takaDamages.damageId,
+            foundAt: takaDamages.foundAt,
+            recordedAt: takaDamages.recordedAt,
+            createdAt: takaDamages.createdAt,
+            name: damageMaster.name,
+          })
+          .from(takaDamages)
+          .innerJoin(takas, eq(takas.id, takaDamages.takaId))
+          .leftJoin(damageMaster, eq(damageMaster.id, takaDamages.damageId))
+          .where(
+            and(
+              inArray(takaDamages.id, movedIds),
+              eq(takaDamages.status, 'open'),
+              eq(takaDamages.isDeleted, false),
+              eq(takas.isDeleted, false),
+              takaInOrder(parentOrder),
+            ),
+          )
+      : [];
+    const srcById = new Map(sources.map((s) => [s.id, s]));
+    if (movedIds.some((mid) => !srcById.has(mid))) {
+      throw conflict('One of the earlier damages was just changed by someone else. Go back and open the split again.', 'parts');
+    }
 
     const at = now();
     const meters = splitMeters(parent.meters, data.parts.map((p) => p.pcs));
@@ -461,6 +508,38 @@ export async function splitTaka(role: RoleKey, id: number, input: unknown): Prom
 
     // A split starts clean: the damage the taka had before is cleared, only the damage marked on the parts counts.
     events.push(...(await clearOpenDamages(tx, role, id, undefined, 'split', at)));
+    // Earlier damages of OTHER takas that move to a part are closed there (this taka's were cleared just above).
+    for (const s of sources) {
+      if (s.takaId === id) continue;
+      events.push(...(await clearOpenDamages(tx, role, s.takaId, s.id, 'split', at)));
+      touched.push(s.takaId);
+    }
+    /** The moved damages arrive on the part with the same type, name, marked date, place and photos. */
+    const moveDamagesTo = async (partTakaId: number, partNo: string, part: (typeof data.parts)[number]) => {
+      for (const m of movedOf(part)) {
+        const src = srcById.get(m.fromTakaDamageId)!;
+        const [row] = await tx
+          .insert(takaDamages)
+          .values({
+            takaId: partTakaId,
+            damageId: src.damageId,
+            pcs: m.pcs,
+            foundAt: src.foundAt,
+            recordedAt: src.recordedAt,
+            status: 'open' as const,
+            createdBy: role,
+            createdAt: src.createdAt,
+            updatedAt: at,
+          })
+          .returning({ id: takaDamages.id });
+        const pics = await tx.select().from(takaDamageImages).where(eq(takaDamageImages.takaDamageId, src.id));
+        if (pics.length) {
+          await tx.insert(takaDamageImages).values(pics.map((p) => ({ takaDamageId: row.id, imageUrl: p.imageUrl, thumbUrl: p.thumbUrl, createdBy: p.createdBy, createdAt: at })));
+        }
+        events.push({ takaId: src.takaId, event: 'edited', takaDamageId: src.id, note: `${damageLabel(src.foundAt, src.name)} · moved to ${partNo}` });
+        events.push({ takaId: partTakaId, event: 'damage_added', takaDamageId: row.id, note: `${damageLabel(src.foundAt, src.name, m.pcs)} · moved from Taka ${src.takaNo}` });
+      }
+    };
 
     // Part 1 keeps the original row (a renamed number goes through a temporary value, nothing else uses it).
     const renamed = first.takaNo !== parent.takaNo;
@@ -475,7 +554,8 @@ export async function splitTaka(role: RoleKey, id: number, input: unknown): Prom
     if (!firstMoved.length) throw conflict(`Taka ${parent.takaNo} was just changed. Refresh and try again.`);
     if (renamed) events.push({ takaId: id, event: 'edited', note: `number ${parent.takaNo} → ${first.takaNo} (split)` });
     if (first.refinish) events.push({ takaId: id, event: 'sent_refinish', note: 'Godown · split' });
-    events.push(...(await addNewDamages(tx, role, id, first.damages, 'split', at, 'parts.0.damages')));
+    events.push(...(await addNewDamages(tx, role, id, newOf(first), 'split', at, 'parts.0.damages')));
+    await moveDamagesTo(id, first.takaNo, first);
 
     // The other parts are new takas of the same jobsheet.
     const created: GodownSplitResult['parts'] = [{ id, takaNo: first.takaNo, pcs: first.pcs, meters: meters[0], stage: first.refinish ? 'refinish' : 'final' }];
@@ -509,7 +589,8 @@ export async function splitTaka(role: RoleKey, id: number, input: unknown): Prom
       created.push({ id: row.id, takaNo: p.takaNo, pcs: p.pcs, meters: meters[i], stage: p.refinish ? 'refinish' : 'final' });
       events.push({ takaId: row.id, event: 'split', note: `split from ${first.takaNo}` });
       if (p.refinish) events.push({ takaId: row.id, event: 'sent_refinish', note: 'Godown · split' });
-      events.push(...(await addNewDamages(tx, role, row.id, p.damages, 'split', at, `parts.${i}.damages`)));
+      events.push(...(await addNewDamages(tx, role, row.id, newOf(p), 'split', at, `parts.${i}.damages`)));
+      await moveDamagesTo(row.id, p.takaNo, p);
     }
     events.push({ takaId: id, event: 'split', note: `split into ${data.parts.map((p) => p.takaNo).join(', ')}` });
     await refreshIsDamaged(tx, touched);
@@ -517,6 +598,53 @@ export async function splitTaka(role: RoleKey, id: number, input: unknown): Prom
     await recomputeOrdersStatus(tx, role, [parent.orderId]);
     return { parentId: id, orderId: parent.orderId, parts: created };
   });
+}
+
+/**
+ * GET /godown/takas/:id/split-damages — the open damages of the taka's order (the split taka's own first is decided by
+ * the shared picker helper), with their photos: the Split screen's "Which damage is this?" picker.
+ */
+export async function listSplitDamageOptions(role: RoleKey, takaId: number): Promise<SplitDamageOption[]> {
+  void role;
+  const [taka] = await db
+    .select({ id: takas.id, orderId: takas.orderId, allocatedOrderId: takas.allocatedOrderId })
+    .from(takas)
+    .where(and(eq(takas.id, takaId), eq(takas.isDeleted, false)));
+  if (!taka) throw notFound('Taka');
+  const rows = await db
+    .select({
+      id: takaDamages.id,
+      takaId: takaDamages.takaId,
+      takaNo: takas.takaNo,
+      foundAt: takaDamages.foundAt,
+      damageName: damageMaster.name,
+      pcs: takaDamages.pcs,
+      resolvedPcs: takaDamages.resolvedPcs,
+      markedAt: takaDamages.createdAt,
+      recordedAt: takaDamages.recordedAt,
+    })
+    .from(takaDamages)
+    .innerJoin(takas, eq(takas.id, takaDamages.takaId))
+    .leftJoin(damageMaster, eq(damageMaster.id, takaDamages.damageId))
+    .where(and(takaInOrder(taka.allocatedOrderId ?? taka.orderId), eq(takas.isDeleted, false), eq(takaDamages.status, 'open'), eq(takaDamages.isDeleted, false)));
+  const pics = rows.length
+    ? await db
+        .select({ damageId: takaDamageImages.takaDamageId, id: takaDamageImages.id, url: takaDamageImages.imageUrl, thumbUrl: takaDamageImages.thumbUrl })
+        .from(takaDamageImages)
+        .where(inArray(takaDamageImages.takaDamageId, rows.map((r) => r.id)))
+    : [];
+  return rows.map((r) => ({
+    id: r.id,
+    takaId: r.takaId,
+    takaNo: r.takaNo,
+    foundAt: r.foundAt,
+    damageName: r.damageName,
+    openPcs: Math.max((r.pcs ?? 0) - r.resolvedPcs, 0),
+    pcs: r.pcs,
+    markedAt: r.markedAt,
+    recordedAt: r.recordedAt,
+    images: pics.filter((p) => p.damageId === r.id).map(({ id, url, thumbUrl }) => ({ id, url, thumbUrl })),
+  }));
 }
 
 /* ------------------------------------------------------------------ */

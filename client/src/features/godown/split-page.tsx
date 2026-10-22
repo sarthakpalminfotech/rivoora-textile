@@ -7,6 +7,10 @@ import {
   formatMeters,
   formatPcs,
   MAX_SPLIT_PARTS,
+  movedDamagePcsCheck,
+  splitDamageLabel,
+  splitPickerOptions,
+  type SplitDamageOption,
   nextSplitNumber,
   SPLIT_ERROR_TEXT,
   splitMeters,
@@ -24,17 +28,20 @@ import { errorMessage } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { DamageDialog, entryLabel, entryPayload, nextEntryKey, type DamageEntry } from '../takas/damage-dialog';
 import { useUsedTakaNumbers } from '../takas/taka-check';
-import { useGodownDamages, useGodownOrder, useSplitTaka } from './api';
+import { useGodownDamages, useGodownOrder, useSplitDamageOptions, useSplitTaka } from './api';
+import { SplitDamagePicker } from './split-damage-picker';
 
 interface Part {
   key: number;
   pcs: string;
   damages: DamageEntry[];
+  /** Earlier open damages of the order moved onto this part (option id + the damaged pcs typed). */
+  moved: { optionId: number; pcs: number }[];
   refinish: boolean;
 }
 
 let partKey = 0;
-const newPart = (): Part => ({ key: ++partKey, pcs: '', damages: [], refinish: false });
+const newPart = (): Part => ({ key: ++partKey, pcs: '', damages: [], moved: [], refinish: false });
 
 const inputClass = (invalid: boolean) =>
   cn(
@@ -60,6 +67,19 @@ function SplitForm({ order, taka }: { order: GodownOrder; taka: GodownTaka }) {
     });
   }, [parts, skip, order.orderTakaNos, taka.takaNo]);
   const [damageFor, setDamageFor] = useState<number | null>(null);
+  // "Which damage is this?" — the order's earlier open damages (each can be picked for ONE part only).
+  const [pickFor, setPickFor] = useState<number | null>(null);
+  const damageOptions = useSplitDamageOptions(taka.id).data ?? [];
+  const optionById = useMemo(() => new Map(damageOptions.map((o) => [o.id, o])), [damageOptions]);
+  const usedOptionIds = useMemo(() => new Set(parts.flatMap((p) => p.moved.map((m) => m.optionId))), [parts]);
+  // This taka's own open damages that no part takes over: they are cleared by the split.
+  const clearedDamages = damageOptions.filter((o) => o.takaId === taka.id && !usedOptionIds.has(o.id));
+  const movedErrors = parts.some((p) =>
+    p.moved.some((m) => {
+      const o = optionById.get(m.optionId);
+      return !o || !!movedDamagePcsCheck({ originalOpenPcs: o.openPcs, entered: m.pcs, partPcs: /^\d+$/.test(p.pcs) ? Number(p.pcs) : null }).error;
+    }),
+  );
   // The original taka's open damage names: pre-selected in the Damage popup (one) or listed first (several).
   const originalDamages = useGodownDamages(order.orderId, taka.isDamaged);
   const suggestedNames = useMemo(() => {
@@ -88,7 +108,7 @@ function SplitForm({ order, taka }: { order: GodownOrder; taka: GodownTaka }) {
     new Set(used.keys()),
   );
   const numberErrors = check.rows;
-  const canSave = check.ok;
+  const canSave = check.ok && !movedErrors;
   const meters = useMemo(
     () => splitMeters(taka.meters, parts.map((p) => (/^\d+$/.test(p.pcs) ? Number(p.pcs) : 0))),
     [taka.meters, parts],
@@ -107,7 +127,10 @@ function SplitForm({ order, taka }: { order: GodownOrder; taka: GodownTaka }) {
         parts: parts.map((p, i) => ({
           takaNo: numbers[i],
           pcs: Number(p.pcs),
-          damages: p.damages.map((e) => ({ ...entryPayload(e), images: [] })),
+          damages: [
+            ...p.damages.map((e) => ({ ...entryPayload(e), images: [] })),
+            ...p.moved.map((m) => ({ fromTakaDamageId: m.optionId, pcs: m.pcs })),
+          ],
           refinish: p.refinish,
         })),
       },
@@ -142,7 +165,8 @@ function SplitForm({ order, taka }: { order: GodownOrder; taka: GodownTaka }) {
 
       {taka.isDamaged && (
         <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-900">
-          This taka is marked damaged. After the split, only the parts you mark as damaged below stay damaged; the old damage is cleared.
+          This taka is marked damaged. After the split, only the damages you give to a part below stay open; the rest are cleared
+          {clearedDamages.length > 0 ? `: ${clearedDamages.map((o) => splitDamageLabel(o)).join('; ')}` : '.'}
         </p>
       )}
 
@@ -200,8 +224,25 @@ function SplitForm({ order, taka }: { order: GodownOrder; taka: GodownTaka }) {
                 </p>
               )}
 
-              {(p.damages.length > 0 || p.refinish) && (
+              {(p.damages.length > 0 || p.moved.length > 0 || p.refinish) && (
                 <ul className="mt-2.5 flex flex-wrap gap-1.5">
+                  {p.moved.map((m) => {
+                    const o = optionById.get(m.optionId);
+                    const chk = o ? movedDamagePcsCheck({ originalOpenPcs: o.openPcs, entered: m.pcs, partPcs: /^\d+$/.test(p.pcs) ? Number(p.pcs) : null }) : null;
+                    return (
+                      <li key={`m${m.optionId}`} className="flex w-full flex-col gap-1">
+                        <span className="inline-flex w-fit max-w-full items-center gap-1 rounded-full bg-red-50 py-0.5 pl-2.5 pr-1 text-[13px] font-semibold text-red-700">
+                          <AlertTriangle className="size-3.5 shrink-0" aria-hidden />
+                          <span className="min-w-0 truncate">{o ? `${splitDamageLabel({ ...o, openPcs: m.pcs })} (moved)` : 'Earlier damage'}</span>
+                          <button type="button" className="rounded-full p-1 hover:bg-red-100" aria-label="Remove damage" onClick={() => update(p.key, { moved: p.moved.filter((x) => x.optionId !== m.optionId) })}>
+                            <X className="size-3.5" />
+                          </button>
+                        </span>
+                        {chk?.error && <span role="alert" className="text-sm font-semibold text-destructive">{chk.error}</span>}
+                        {chk?.mismatch && <span role="status" className="text-sm font-medium text-amber-800">{chk.mismatch}</span>}
+                      </li>
+                    );
+                  })}
                   {p.damages.map((e) => (
                     <li key={e.key} className="inline-flex items-center gap-1 rounded-full bg-red-50 py-0.5 pl-2.5 pr-1 text-[13px] font-semibold text-red-700">
                       <AlertTriangle className="size-3.5" aria-hidden />
@@ -224,7 +265,7 @@ function SplitForm({ order, taka }: { order: GodownOrder; taka: GodownTaka }) {
               )}
 
               <div className="mt-3 flex items-center gap-2">
-                <Button variant="secondary" size="sm" className="h-11" onClick={() => setDamageFor(p.key)} disabled={!/^\d+$/.test(p.pcs) || Number(p.pcs) < 1}>
+                <Button variant="secondary" size="sm" className="h-11" onClick={() => (splitPickerOptions(damageOptions, taka.id, usedOptionIds).length > 0 ? setPickFor(p.key) : setDamageFor(p.key))} disabled={!/^\d+$/.test(p.pcs) || Number(p.pcs) < 1}>
                   <AlertTriangle /> Damage
                 </Button>
                 {meters[i] != null && /^\d+$/.test(p.pcs) && Number(p.pcs) > 0 && <span className="text-xs font-medium tabular-nums text-slate-400">≈ {formatMeters(meters[i]!)}</span>}
@@ -267,6 +308,21 @@ function SplitForm({ order, taka }: { order: GodownOrder; taka: GodownTaka }) {
         </Button>
       </div>
 
+      <SplitDamagePicker
+        open={pickFor !== null}
+        onOpenChange={(o) => !o && setPickFor(null)}
+        partLabel={pickFor !== null ? `Taka ${numbers[parts.findIndex((x) => x.key === pickFor)] || '—'}` : ''}
+        partPcs={(() => {
+          const pp = parts.find((x) => x.key === pickFor);
+          return pp && /^\d+$/.test(pp.pcs) ? Number(pp.pcs) : null;
+        })()}
+        options={splitPickerOptions(damageOptions, taka.id, usedOptionIds)}
+        onPickExisting={(o: SplitDamageOption, pcs: number) => {
+          const key = pickFor;
+          if (key !== null) setParts((prev) => prev.map((x) => (x.key === key ? { ...x, moved: [...x.moved, { optionId: o.id, pcs }] } : x)));
+        }}
+        onPickOther={() => setDamageFor(pickFor)}
+      />
       <DamageDialog
         open={damagePart !== undefined}
         onOpenChange={(o) => !o && setDamageFor(null)}

@@ -24,3 +24,4 @@ export * from './orderDocs';
 export * from './orderMilestones';
 export * from './workFilters';
 export * from './hold';
+export * from './splitDamage';

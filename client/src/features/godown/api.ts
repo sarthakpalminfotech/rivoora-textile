@@ -8,6 +8,7 @@ import {
   type GodownTaka,
   type GodownDamages,
   type QcNewDamageInput,
+  type SplitDamageOption,
   type ReadyDispatchResult,
 } from '@rivoora/shared';
 import { toast } from 'sonner';
@@ -92,6 +93,15 @@ export function useReadyDispatch(orderId: number) {
     meta: { silentFieldErrors: true },
     mutationFn: (takaIds: number[]) => api.post<ReadyDispatchResult>(`/godown/orders/${orderId}/ready-dispatch`, { takaIds }),
     onSuccess: () => invalidateAfterChallanWrite(qc),
+  });
+}
+
+/** Sprint 15: the order's open damages for the Split screen's "Which damage is this?" picker. */
+export function useSplitDamageOptions(takaId: number, enabled = true) {
+  return useQuery({
+    queryKey: ['godown', 'split-damages', takaId] as const,
+    queryFn: ({ signal }) => api.get<SplitDamageOption[]>(`/godown/takas/${takaId}/split-damages`, undefined, signal),
+    enabled: enabled && takaId > 0,
   });
 }
 

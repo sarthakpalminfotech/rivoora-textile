@@ -221,5 +221,63 @@ const party = async (kind, name) => (await ok('jemish', 'POST', `/${kind}-partie
   await ok('jemish', 'POST', `/orders/${withTakas.id}/release`);
 }
 
+// ---------------------------------------------------------------- 11. split: move earlier damages onto parts
+{
+  const o = await newOrder(60);
+  await ok('jemish', 'POST', `/orders/${o.id}/jobsheets/generate`, { pieces: 60, framesPerJobsheet: 20, machineIds });
+  const js = (await jobsheetsOf(o.id)).jobsheets[0];
+  await ok('jemish', 'POST', `/orders/${o.id}/jobsheets/send`, { jobsheetIds: [js.id] });
+  await ok('supervisor', 'POST', `/jobsheets/${js.id}/start`, { machineId: machineIds[0] });
+  const dmg = (pcs) => [{ type: 'machine', otherName: 'Hole', pcs }];
+  await ok('taka', 'POST', `/jobsheets/${js.id}/takas`, { takas: [{ meters: 100, pcs: 30, damages: dmg(3) }, { meters: 100, pcs: 30, damages: dmg(2) }], note: '' });
+  const takaIds = (await ok('jemish', 'GET', `/jobsheets/${js.id}`)).takas.map((t) => t.id);
+  const bp = await party('butta', 'SplitButta');
+  await ok('godown', 'POST', '/butta/challans', { takaIds, partyId: bp, challanDate: today });
+  await ok('godown', 'POST', '/butta/receive', { takaIds });
+  for (const id of takaIds) {
+    const t = await ok('jemish', 'GET', `/takas/${id}`);
+    await ok('qc', 'POST', `/butta-qc/${id}`, { damageDecisions: t.damages.map((d) => ({ takaDamageId: d.id, resolvedPcs: 0, pcs: null })), newDamages: [] });
+  }
+  const mp = await party('mill', 'SplitMill');
+  const m = await ok('godown', 'POST', '/mill/challans', { takaIds, partyId: mp, challanDate: today });
+  await ok('godown', 'POST', `/mill/challans/${m.challanId}/received-count`, { count: 2 });
+  for (const id of takaIds) {
+    const t = await ok('jemish', 'GET', `/takas/${id}`);
+    await ok('qc', 'POST', `/mill-qc/${id}`, { damageDecisions: t.damages.filter((d) => d.status === 'open').map((d) => ({ takaDamageId: d.id, resolvedPcs: 0, pcs: null })), newDamages: [], result: 'final' });
+  }
+
+  const [a, b] = takaIds;
+  const opts = await ok('dhruvil', 'GET', `/godown/takas/${a}/split-damages`);
+  const own = opts.find((x) => x.takaId === a), other = opts.find((x) => x.takaId === b);
+  check(opts.length === 2 && own && other && own.openPcs === 3 && other.openPcs === 2, 'split picker: the order\'s open damages are listed', opts);
+  const taka = await ok('jemish', 'GET', `/takas/${a}`);
+  const no = taka.takaNo;
+  const dup = await call('dhruvil', 'POST', `/godown/takas/${a}/split`, {
+    parts: [
+      { takaNo: no, pcs: 10, damages: [{ fromTakaDamageId: own.id, pcs: 3 }] },
+      { takaNo: `${no}A`, pcs: 20, damages: [{ fromTakaDamageId: own.id, pcs: 3 }] },
+    ],
+  });
+  check(dup.status === 409, 'split: one earlier damage cannot go to two parts', dup.body);
+  const tooMany = await call('dhruvil', 'POST', `/godown/takas/${a}/split`, {
+    parts: [{ takaNo: no, pcs: 2, damages: [{ fromTakaDamageId: own.id, pcs: 3 }] }, { takaNo: `${no}A`, pcs: 28 }],
+  });
+  check(tooMany.status === 400, 'split: damaged pcs cannot exceed the part pcs', tooMany.body);
+  const res = await ok('dhruvil', 'POST', `/godown/takas/${a}/split`, {
+    parts: [
+      { takaNo: no, pcs: 10, damages: [{ fromTakaDamageId: own.id, pcs: 2 }] },
+      { takaNo: `${no}A`, pcs: 20, damages: [{ fromTakaDamageId: other.id, pcs: 2 }] },
+    ],
+  });
+  check(res.parts.length === 2, 'split with moved damages saved');
+  const p1 = await ok('jemish', 'GET', `/takas/${a}`);
+  const p2 = await ok('jemish', 'GET', `/takas/${res.parts[1].id}`);
+  const open = (t) => t.damages.filter((d) => d.status === 'open');
+  check(open(p1).length === 1 && open(p1)[0].pcs === 2 && open(p1)[0].damageName === 'Hole', 'part 1 holds the moved damage with the entered pcs', p1.damages);
+  check(open(p2).length === 1 && open(p2)[0].pcs === 2 && open(p2)[0].foundAt === 'machine', 'part 2 got the other taka\'s damage', p2.damages);
+  const src = await ok('jemish', 'GET', `/takas/${b}`);
+  check(open(src).length === 0 && src.isDamaged === false, 'the original damage on the other taka is closed');
+}
+
 console.log(failed ? `\n${failed} check(s) FAILED` : '\nAll checks passed');
 process.exit(failed ? 1 : 0);

@@ -597,7 +597,11 @@ export const godownRefinishSchema = z.object({ note: optText(300) });
 /** POST /godown/takas/:id/resolve — resolve one damage (`takaDamageId`) or, without it, every open damage of the taka. */
 export const godownResolveSchema = z.object({ takaDamageId: z.number().int().positive().optional() });
 
-/** One part of a split: the first part keeps the original number. `damages` are new "Supervisor marked" damages. */
+/** Sprint 15: an EARLIER open damage of the order moved onto a part (its pcs are editable). */
+export const splitMovedDamageSchema = z.object({ fromTakaDamageId: z.number().int().positive(), pcs: damagePcs }).strict();
+export type SplitMovedDamageInput = z.input<typeof splitMovedDamageSchema>;
+
+/** One part of a split: the first part keeps the original number. `damages` = new damages or moved earlier ones. */
 export const splitPartSchema = z.object({
   takaNo,
   pcs: z
@@ -605,7 +609,7 @@ export const splitPartSchema = z.object({
     .int('Use a whole number')
     .min(1, 'Pcs must be at least 1')
     .max(TAKA_PCS_MAX, `At most ${TAKA_PCS_MAX} pcs`),
-  damages: z.array(qcNewDamageSchema).max(MAX_DAMAGES_PER_TAKA).default([]),
+  damages: z.array(z.union([splitMovedDamageSchema, qcNewDamageSchema])).max(MAX_DAMAGES_PER_TAKA).default([]),
   refinish: z.boolean().default(false),
 });
 
