@@ -223,17 +223,21 @@ export function OrderHeader({
         <div className="md:row-span-2">
           <DesignThumb order={order} />
         </div>
-        <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2 self-center md:self-start">
-          <h2 className="text-2xl font-bold leading-tight text-slate-900 md:text-[28px]">
-            Order {formatOrderNo(order.orderNo)}
-          </h2>
-          <OrderTypeTag type={order.orderType} className="text-xs" />
-          <BlouseTag option={order.blouseOption} />
-          <OrderStepsTag steps={order} />
-          <StatusBadge status={order.status} />
-          {order.isOnHold && <OnHoldBadge />}
+        {/* Title + tags and the action buttons are two separate flex-wrap rows (never mixed) — each wraps cleanly on
+            its own at tablet widths instead of tags and buttons tangling together on one line. */}
+        <div className="flex min-w-0 flex-col gap-2.5 self-center md:self-start">
+          <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2">
+            <h2 className="text-2xl font-bold leading-tight text-slate-900 md:text-[28px]">
+              Order {formatOrderNo(order.orderNo)}
+            </h2>
+            <OrderTypeTag type={order.orderType} className="text-xs" />
+            <BlouseTag option={order.blouseOption} />
+            <OrderStepsTag steps={order} />
+            <StatusBadge status={order.status} />
+            {order.isOnHold && <OnHoldBadge />}
+          </div>
           {(onUndo || onEdit || onHold || onRelease || onClose) && (
-            <div className="flex items-center gap-2 md:ml-auto">
+            <div className="flex flex-wrap items-center gap-2 md:justify-end">
               <HoldButtons held={order.isOnHold} canHold={!!(onHold && onRelease)} onHold={() => onHold?.()} onRelease={() => onRelease?.()} />
               {onUndo && (
                 <Button variant="secondary" size="sm" onClick={onUndo} disabled={order.isOnHold} title={order.isOnHold ? ON_HOLD_HINT : undefined}>
