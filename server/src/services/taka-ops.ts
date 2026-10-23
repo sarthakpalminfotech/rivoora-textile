@@ -1,7 +1,7 @@
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { currentUserId } from '../lib/request-context';
 import {
-  initialTakaStage,
+  nextTakaStage,
   jobsheetRefShort,
   takaUsedText,
   TAKA_NO_START,
@@ -12,7 +12,7 @@ import {
   type TakaStage,
 } from '@rivoora/shared';
 import type { DbOrTx, Tx } from '../db/client';
-import { counters, designs, jobsheets, orders, takaDamages, takaEvents, takas } from '../db/schema';
+import { counters, jobsheets, orders, takaDamages, takaEvents, takas } from '../db/schema';
 import { badRequest } from '../lib/errors';
 import { resolveDamage } from './damages';
 import { recomputeOrderStatus } from './jobsheets';
@@ -28,14 +28,44 @@ export function chunk<T>(list: readonly T[], size = 400): T[][] {
   return out;
 }
 
-/** The stage a new taka of this order starts in (butta design / no design → `entered`, else `waiting_mill`). */
-export async function initialStageForOrder(tx: DbOrTx, orderId: number): Promise<TakaStage> {
+/**
+ * The stage a new taka of this order starts in — Sprint 16: the ORDER's steps decide (`nextTakaStage`; the design only
+ * pre-filled the Butta tick when the order was made). Existing orders were backfilled with the design's setting.
+ */
+export async function initialStageForOrder(tx: DbOrTx, orderId: number, from: 'taka_entry' | 'outside_receipt' | 'fg_receipt' = 'taka_entry'): Promise<TakaStage> {
+  const [row] = await tx.select({ hasButta: orders.hasButta, hasMill: orders.hasMill }).from(orders).where(eq(orders.id, orderId));
+  return nextTakaStage({ hasButta: row?.hasButta ?? true, hasMill: row?.hasMill ?? true }, from);
+}
+
+/** The steps of the order a taka counts for (its origin order while free stock) — the routing at QC uses them. */
+export async function stepsOfTakaOrder(tx: DbOrTx, takaId: number): Promise<{ hasButta: boolean; hasMill: boolean; isClosed: boolean; orderNo: number }> {
   const [row] = await tx
-    .select({ designId: orders.designId, buttaCutting: designs.buttaCutting })
-    .from(orders)
-    .leftJoin(designs, eq(designs.id, orders.designId))
-    .where(eq(orders.id, orderId));
-  return initialTakaStage(row?.designId != null && row.buttaCutting !== null ? { buttaCutting: row.buttaCutting } : null);
+    .select({ hasButta: orders.hasButta, hasMill: orders.hasMill, isClosed: orders.isClosed, orderNo: orders.orderNo })
+    .from(takas)
+    .innerJoin(orders, eq(orders.id, sql`COALESCE(${takas.allocatedOrderId}, ${takas.orderId})`))
+    .where(eq(takas.id, takaId));
+  return row ?? { hasButta: true, hasMill: true, isClosed: false, orderNo: 0 };
+}
+
+/**
+ * Sprint 16 (Close order): takas of a CLOSED order that come back from butta cutting / the mill (receive or QC) become
+ * free stock (reason `order_closed`) instead of going back to the order. Adds a `moved_to_inventory` event per taka.
+ */
+export async function freeTakasOfClosedOrders(tx: Tx, role: RoleKey, takaIds: readonly number[], at: string, events: TakaEventInput[]): Promise<number[]> {
+  const ids = [...new Set(takaIds)];
+  if (!ids.length) return [];
+  const rows = await tx
+    .select({ id: takas.id, orderNo: orders.orderNo })
+    .from(takas)
+    .innerJoin(orders, eq(orders.id, sql`COALESCE(${takas.allocatedOrderId}, ${takas.orderId})`))
+    .where(and(inArray(takas.id, ids), eq(takas.isFreeStock, false), eq(orders.isClosed, true)));
+  if (!rows.length) return [];
+  await tx
+    .update(takas)
+    .set({ isFreeStock: true, freeStockAt: at, freeStockBy: role, freeStockReason: 'order_closed', allocatedOrderId: null, godownCheckedAt: null, godownCheckedBy: null })
+    .where(inArray(takas.id, rows.map((r) => r.id)));
+  for (const r of rows) events.push({ takaId: r.id, event: 'moved_to_inventory', note: `Order #${r.orderNo} is closed → free stock` });
+  return rows.map((r) => r.id);
 }
 
 /**

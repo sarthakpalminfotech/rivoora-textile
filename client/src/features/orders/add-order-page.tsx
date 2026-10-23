@@ -6,16 +6,21 @@ import { Navigate, useBlocker, useLocation, useNavigate } from 'react-router-dom
 import { toast } from 'sonner';
 import { z } from 'zod';
 import {
+  ALL_STEPS,
   BLOUSE_LABEL,
   BLOUSE_OPTIONS,
   DEFAULT_UNIT,
   ORDER_TYPE_LABEL,
   ORDER_TYPES,
+  stepsHelperText,
+  stepOn,
   UNITS,
+  withStep,
   normalizeCode,
   type BlouseOption,
   type OrderDetail,
   type OrderType,
+  type StepKey,
   type Unit,
   type UploadResult,
 } from '@rivoora/shared';
@@ -41,6 +46,7 @@ import { CustomerFormDialog } from '../masters/customers/customer-form';
 import { BUTTA_OPTIONS, designCodeField, useCodeAvailability, type ButtaChoice } from '../masters/designs/design-form';
 import { useCreateOrder, useUpdateOrder } from './api';
 import { DesignStockPanel } from './design-stock-panel';
+import { StepsPills } from './order-steps-tag';
 import { SavedDesignsDrawer, type SavedDesignPick } from './saved-designs-drawer';
 
 type DesignAttachment =
@@ -54,6 +60,8 @@ const schema = z
     orderType: z.enum(ORDER_TYPES).nullable(),
     /** Optional (Sprint 13): With blouse / Without blouse; null = not set. */
     blouseOption: z.enum(BLOUSE_OPTIONS).nullable(),
+    /** Sprint 16: which of Production / Butta cutting / Mill happen in our system. */
+    steps: z.object({ hasProduction: z.boolean(), hasButta: z.boolean(), hasMill: z.boolean() }),
     materialId: z.number().nullable(),
     design: z.custom<DesignAttachment | null>(),
     newDesignCode: z.string(),
@@ -91,6 +99,7 @@ const defaults = (): FormValues => ({
   // Nothing pre-selected on a new order: the type is a required choice.
   orderType: null,
   blouseOption: null,
+  steps: { ...ALL_STEPS },
   materialId: null,
   design: null,
   newDesignCode: '',
@@ -111,6 +120,7 @@ const fromOrder = (o: OrderDetail): FormValues => {
     brokerId: o.broker?.id ?? null,
     orderType: o.orderType,
     blouseOption: o.blouseOption,
+    steps: { hasProduction: o.hasProduction, hasButta: o.hasButta, hasMill: o.hasMill },
     materialId: o.material.id,
     design: o.design
       ? {
@@ -177,10 +187,25 @@ export function OrderForm({ order }: { order?: OrderDetail }) {
     formState: { errors, isDirty },
   } = useForm<FormValues>({ resolver: zodResolver(schema), defaultValues: order ? fromOrder(order) : defaults() });
 
-  const [customerId, design, noteImages, newDesignCode] = useWatch({
+  const [customerId, design, noteImages, newDesignCode, steps, newDesignButta] = useWatch({
     control,
-    name: ['customerId', 'design', 'noteImages', 'newDesignCode'],
+    name: ['customerId', 'design', 'noteImages', 'newDesignCode', 'steps', 'newDesignButta'],
   });
+  // Sprint 16: the Butta step follows the design's "Goes for butta cutting" until the user taps it themselves.
+  const [buttaTouched, setButtaTouched] = useState(false);
+  useEffect(() => {
+    if (buttaTouched) return;
+    if (design?.kind === 'saved' && design.buttaCutting !== undefined) {
+      setValue('steps', withStep(getValues('steps'), 'butta', design.buttaCutting), { shouldDirty: true });
+    } else if (design?.kind === 'upload' && newDesignButta) {
+      setValue('steps', withStep(getValues('steps'), 'butta', newDesignButta === 'yes'), { shouldDirty: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [design, newDesignButta, buttaTouched]);
+  const toggleStep = (key: StepKey) => {
+    if (key === 'butta') setButtaTouched(true);
+    setValue('steps', withStep(getValues('steps'), key, !stepOn(getValues('steps'), key)), { shouldDirty: true });
+  };
 
   // Dropdown data with server-side search
   const [customerSearch, setCustomerSearch] = useState('');
@@ -246,6 +271,9 @@ export function OrderForm({ order }: { order?: OrderDetail }) {
       brokerId: v.brokerId,
       orderType: v.orderType!,
       blouseOption: v.blouseOption,
+      hasProduction: v.steps.hasProduction,
+      hasButta: v.steps.hasButta,
+      hasMill: v.steps.hasMill,
       materialId: v.materialId!,
       designId: v.design?.kind === 'saved' ? v.design.designId : null,
       variationId: v.design?.kind === 'saved' ? v.design.variationId : null,
@@ -311,6 +339,16 @@ export function OrderForm({ order }: { order?: OrderDetail }) {
       </header>
 
       <form id="order-form" onSubmit={onSubmit} noValidate className="mx-auto w-full max-w-3xl flex-1 space-y-4 px-4 py-4 md:py-6">
+        <SectionCard title="Steps">
+          <StepsPills
+            steps={steps}
+            onToggle={toggleStep}
+            locks={order?.stepLocks}
+            disabled={isEdit && !can('canEditOrderSteps')}
+          />
+          <p className="mt-3 text-[13px] leading-relaxed text-slate-500">{stepsHelperText(steps)}</p>
+        </SectionCard>
+
         <SectionCard title="Client & material">
           <div className="grid gap-4 md:grid-cols-2">
             <Field label="Client name" htmlFor="order-customer" required error={errors.customerId?.message}>

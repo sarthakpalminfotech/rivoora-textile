@@ -12,6 +12,7 @@ import {
   lumpGrDamagePcsOk,
   lumpRevisionTakas,
   parseDispatchChallanNo,
+  printTakaNo,
   reducePcsAcrossRows,
   returnLot,
   takaActualPcs,
@@ -51,7 +52,7 @@ import { likePattern } from '../lib/http';
 import { addNewDamages, assertNewDamages } from './qc-shared';
 import { allocateTakaNumbers, chunk, recomputeOrdersStatus, refreshIsDamaged, writeTakaEvents, type TakaEventInput } from './taka-ops';
 import { freeStockFields, takaInOrder, takaInOrderRaw } from './free-stock';
-import { orderNotHeldFor } from './hold';
+import { orderNotOnHoldFor } from './hold';
 
 /**
  * Dispatch (Dhruvil): a dispatch takes ALL the takas of an order that are ready for dispatch onto one challan (DC-n),
@@ -177,8 +178,18 @@ export async function getDispatchChallan(id: number): Promise<DispatchChallanDet
       .leftJoin(designVariations, eq(designVariations.id, orders.variationId))
       .where(eq(dispatchChallans.id, id)),
     db
-      .select({ id: dispatchChallanTakas.id, takaId: dispatchChallanTakas.takaId, takaNo: dispatchChallanTakas.takaNo, meters: dispatchChallanTakas.meters, pcs: dispatchChallanTakas.pcs })
+      .select({
+        id: dispatchChallanTakas.id,
+        takaId: dispatchChallanTakas.takaId,
+        takaNo: dispatchChallanTakas.takaNo,
+        meters: dispatchChallanTakas.meters,
+        pcs: dispatchChallanTakas.pcs,
+        // Sprint 16: the printed number (ours, else the weaver's own number) — from the taka's weaver fields.
+        weaverTakaNo: takas.weaverTakaNo,
+        hasOwnNumber: takas.hasOwnNumber,
+      })
       .from(dispatchChallanTakas)
+      .innerJoin(takas, eq(takas.id, dispatchChallanTakas.takaId))
       .where(eq(dispatchChallanTakas.challanId, id))
       .orderBy(asc(dispatchChallanTakas.id)),
   ]);
@@ -208,7 +219,15 @@ export async function getDispatchChallan(id: number): Promise<DispatchChallanDet
     },
     customer: { name: row.customerName, address: row.customerAddress || null, phone: row.customerPhone, gstin: row.customerGstin },
     brokerName: row.brokerName,
-    takas: list.map((t) => ({ id: t.id, takaId: t.takaId, takaNo: t.takaNo, meters: t.meters, pcs: t.pcs })),
+    takas: list.map((t) => ({
+      id: t.id,
+      takaId: t.takaId,
+      takaNo: t.takaNo,
+      // The snapshot number is the system number; a weaver-numbered taka prints the weaver's (with a split letter).
+      printNo: printTakaNo({ takaNo: t.takaNo, weaverTakaNo: t.weaverTakaNo, hasOwnNumber: t.hasOwnNumber }),
+      meters: t.meters,
+      pcs: t.pcs,
+    })),
     lines: dispatchLines(list.map((t) => ({ quality: row.quality, design: row.designCode, pcs: t.pcs }))),
     totals,
     createdAt: row.createdAt,
@@ -238,7 +257,8 @@ export async function listDispatchedOrders(role: RoleKey, q: DispatchedListQuery
       OR ${materials.name} LIKE ${p} ESCAPE '\\'
       OR ${designCodeSql} LIKE ${p} ESCAPE '\\'
       OR ${dc ? sql`EXISTS (SELECT 1 FROM dispatch_challans c WHERE c.order_id = "orders"."id" AND c.challan_no = ${dc.no})` : sql`0`}
-      OR EXISTS (SELECT 1 FROM dispatch_challan_takas ct JOIN dispatch_challans c ON c.id = ct.challan_id WHERE c.order_id = "orders"."id" AND ct.taka_no LIKE ${p} ESCAPE '\\'))`;
+      OR EXISTS (SELECT 1 FROM dispatch_challan_takas ct JOIN dispatch_challans c ON c.id = ct.challan_id WHERE c.order_id = "orders"."id" AND ct.taka_no LIKE ${p} ESCAPE '\\')
+      OR EXISTS (SELECT 1 FROM dispatch_challan_takas ct JOIN dispatch_challans c ON c.id = ct.challan_id JOIN takas wt ON wt.id = ct.taka_id WHERE c.order_id = "orders"."id" AND wt.weaver_taka_no LIKE ${p} ESCAPE '\\'))`;
   }
   const base = db
     .select({
@@ -263,7 +283,8 @@ export async function listDispatchedOrders(role: RoleKey, q: DispatchedListQuery
     .leftJoin(designs, eq(designs.id, orders.designId))
     .leftJoin(designVariations, eq(designVariations.id, orders.variationId))
     // Sprint 15: Dhruvil does not see held orders (Jenish / Gaurang do, with an "On hold" badge).
-    .where(and(sql`EXISTS (SELECT 1 FROM dispatch_challans c WHERE c.order_id = "orders"."id")`, statusFilter, orderNotHeldFor(role), search));
+    // Sprint 16: a CLOSED order stays here for what was dispatched (hold only, not the closed filter).
+    .where(and(sql`EXISTS (SELECT 1 FROM dispatch_challans c WHERE c.order_id = "orders"."id")`, statusFilter, orderNotOnHoldFor(role), search));
   const [items, [{ total }]] = await db.batch([
     base.orderBy(desc(latestChallanId)).limit(parsed.limit).offset((parsed.page - 1) * parsed.limit),
     db
@@ -274,7 +295,7 @@ export async function listDispatchedOrders(role: RoleKey, q: DispatchedListQuery
       .leftJoin(customerBrokers, eq(customerBrokers.id, orders.brokerId))
       .leftJoin(designs, eq(designs.id, orders.designId))
       .leftJoin(designVariations, eq(designVariations.id, orders.variationId))
-      .where(and(sql`EXISTS (SELECT 1 FROM dispatch_challans c WHERE c.order_id = "orders"."id")`, statusFilter, orderNotHeldFor(role), search)),
+      .where(and(sql`EXISTS (SELECT 1 FROM dispatch_challans c WHERE c.order_id = "orders"."id")`, statusFilter, orderNotOnHoldFor(role), search)),
   ]);
   const ids = items.map((i) => i.latestId);
   const latest = ids.length
@@ -483,7 +504,7 @@ export async function createGoodsReturn(role: RoleKey, challanId: number, input:
         .filter((r) => (r.pcs ?? 0) > 0);
 
       const [first] = rows;
-      const [firstTaka] = await tx.select({ jobsheetId: takas.jobsheetId }).from(takas).where(eq(takas.id, first.takaId));
+      const [firstTaka] = await tx.select({ jobsheetId: takas.jobsheetId, source: takas.source }).from(takas).where(eq(takas.id, first.takaId));
       const [no] = await allocateTakaNumbers(tx, 1);
       const [lotTaka] = await tx
         .insert(takas)
@@ -497,6 +518,8 @@ export async function createGoodsReturn(role: RoleKey, challanId: number, input:
           isReturnLot: true,
           returnedAt: at,
           returnedFromChallanId: challanId,
+          // Sprint 16: a return lot of an outside / FG order keeps where the goods came from (its damage types).
+          source: firstTaka.source,
           hasBeenToMill: true,
           ...freeStockFields(role, at, 'goods_return'),
           enteredBy: role,

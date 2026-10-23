@@ -7,7 +7,9 @@ import type { ChallanFilter, JobsheetTab, TakaTab } from './schemas';
 import type { DamageType, SubStageKey, TakaStage } from './pipeline';
 import type { DamageStatus } from './takas';
 import type { ChallanKind } from './challans';
-import type { BlouseOption, DamageRecordedAt, FreeStockReason } from './freeStock';
+import type { BlouseOption, DamageRecordedAt, FreeStockReason, TakaSource } from './freeStock';
+import type { OrderKind, OrderSteps, StepLocks } from './orderSteps';
+import type { OutsidePoTotals, PoStatus, PoUnit, ReceiptKind } from './outside';
 
 export interface ApiErrorBody {
   error: { message: string; field?: string };
@@ -125,6 +127,21 @@ export interface OrderListItem {
   designCode: string | null;
   /** Thumbnail of the variation (or design) — the list never returns full images. */
   designThumbUrl: string | null;
+  /** Sprint 16: the order's steps (the card shows "P · B · M" or an Outside production / FG purchase tag). */
+  hasProduction: boolean;
+  hasButta: boolean;
+  hasMill: boolean;
+  isClosed: boolean;
+}
+
+/** Sprint 16: a "Steps changed: …" / "Order closed" entry of the History tab. */
+export interface OrderEventEntry {
+  id: number;
+  event: 'steps_changed' | 'order_closed';
+  note: string | null;
+  role: RoleKey;
+  userName: string | null;
+  createdAt: string;
 }
 
 /** Sprint 15: a "Put on hold" / "Released from hold" entry of the History tab. */
@@ -196,6 +213,22 @@ export interface OrderDetail {
   holdEvents: OrderHoldEvent[];
   /** Sprint 13: set once goods came back (the order shows "Returned"); only for roles that see the dispatch statuses. */
   returned: OrderReturnSummary | null;
+  /** Sprint 16: the order's steps + kind. */
+  hasProduction: boolean;
+  hasButta: boolean;
+  hasMill: boolean;
+  kind: OrderKind;
+  /** Why a ticked step can't be removed any more (null = it can) — the Edit order form shows the reason. */
+  stepLocks: StepLocks;
+  /** Outside POs of the order (not cancelled) and receipts (outside + FG). */
+  outsidePoCount: number;
+  receiptCount: number;
+  /** Sprint 16: Close order. */
+  isClosed: boolean;
+  closedAt: string | null;
+  closeNote: string | null;
+  /** "Steps changed" / "Order closed" History entries. */
+  orderEvents: OrderEventEntry[];
 }
 
 export interface PreviousDesign {
@@ -290,6 +323,8 @@ export interface OrderJobsheets {
   completedCount: number;
   coverage: Coverage;
   warnings: CoverageWarning[];
+  /** Sprint 16: pcs POs of the order — the "120 pcs given outside (PO-3)" line; the coverage already leaves them out. */
+  outsidePos: { poNo: number; pcs: number }[];
 }
 
 export type JobsheetEventKind =
@@ -300,7 +335,9 @@ export type JobsheetEventKind =
   | 'completed'
   | 'machine_changed'
   | 'takas_entered'
-  | 'takas_edited';
+  | 'takas_edited'
+  // Sprint 16: Close order cancels the Pending / Sent jobsheets.
+  | 'cancelled';
 
 export interface JobsheetEvent {
   id: number;
@@ -369,6 +406,8 @@ export interface JobsheetDetail {
   orderNo: number;
   /** Sprint 13: the order's blouse option (null = not set). */
   blouseOption: BlouseOption | null;
+  /** Sprint 16: the order's steps (the damage types at taka entry follow them). */
+  orderSteps: OrderSteps;
   design: JobsheetDesign | null;
   /** Null for the supervisor: no client, rate or order details. */
   order: JobsheetOrderInfo | null;
@@ -611,8 +650,36 @@ export interface Taka {
   freeStockReason: FreeStockReason | null;
   /** Sprint 13: the taka was assigned from this jobsheet's order to ANOTHER order (its number) — it is counted there. */
   allocatedOrderNo: number | null;
+  /** Sprint 16: where it came from, the weaver's own number ("W 1101") and whether our number was typed for it. */
+  source: TakaSource;
+  weaverTakaNo: string | null;
+  hasOwnNumber: boolean;
+  /** Sprint 16: the receipt it came on (outside / FG takas). */
+  outsideReceiptId: number | null;
+  /** Sprint 16: the one taka made for an FG pcs-to-pcs receipt ("Received lot"). */
+  isReceivedLot: boolean;
   enteredBy: RoleKey;
   createdAt: string;
+}
+
+/** Sprint 16: the takas of one receipt (outside weaver challan / FG purchase) — a group on the Takas tab. */
+export interface ReceiptTakaGroup {
+  receiptId: number;
+  kind: ReceiptKind;
+  /** The weaver's / supplier's challan number. */
+  challanNo: string;
+  receiptDate: string;
+  poId: number | null;
+  poNo: number | null;
+  /** The weaver (outside PO) or the supplier (FG purchase). */
+  partyName: string | null;
+  /** The external jobsheet the takas are on (Edit takas of this receipt uses it). */
+  jobsheetId: number;
+  takas: Taka[];
+  /** Sprint 16: the external jobsheet's note — shared by every receipt of this order; Edit takas reads it back unchanged. */
+  note: string | null;
+  /** Sprint 16: the weaver's short code (outside PO) or `FG` — the prefix of a taka received without our own number. */
+  prefix: string;
 }
 
 /** One jobsheet's takas (a group on the order's Takas card, or the block on the jobsheet details). */
@@ -642,6 +709,8 @@ export interface OrderTakas {
   totalPcs: number | null;
   /** Every active jobsheet of the order, by number (groups without takas included). */
   groups: JobsheetTakaGroup[];
+  /** Sprint 16: outside / FG takas grouped by the receipt they came on (newest first). */
+  receipts: ReceiptTakaGroup[];
 }
 
 /** GET /takas/next-numbers — the numbers the next takas would get (not reserved until saved). */
@@ -736,7 +805,9 @@ export interface DashboardTakaGroup {
 /** GET /orders/:id/dashboard/items?sub= */
 export type DashboardItems =
   | { sub: SubStageKey; kind: 'jobsheets'; connected: boolean; jobsheets: DashboardJobsheetItem[] }
-  | { sub: SubStageKey; kind: 'takas'; connected: boolean; groups: DashboardTakaGroup[] };
+  | { sub: SubStageKey; kind: 'takas'; connected: boolean; groups: DashboardTakaGroup[] }
+  // Sprint 16: the open outside POs ("At outside weaver" / "Given outside").
+  | { sub: SubStageKey; kind: 'pos'; connected: boolean; pos: OutsidePoCard[] };
 
 /** One damaged taka on the Damages tab, with the damages that match the filter. */
 export interface DamagedTaka {
@@ -801,6 +872,9 @@ export const TAKA_EVENT_KINDS = [
   // Sprint 13
   'moved_to_inventory',
   'allocated_from_free_stock',
+  // Sprint 16
+  'received_outside',
+  'received_fg',
 ] as const;
 export type TakaEventKind = (typeof TAKA_EVENT_KINDS)[number];
 
@@ -857,6 +931,13 @@ export interface TakaDetail {
   blouseOption: BlouseOption | null;
   /** Sprint 13: the taka is free stock (no order; `orderNo` is the order it was made for). */
   isFreeStock: boolean;
+  /** Sprint 16: where it came from + the weaver's number; the order's steps; where it has been (damage types follow). */
+  source: TakaSource;
+  weaverTakaNo: string | null;
+  hasOwnNumber: boolean;
+  orderSteps: OrderSteps;
+  beenToButta: boolean;
+  hasBeenToMill: boolean;
   design: TakaDesignInfo;
   /** The challans of the taka (butta cutting, mill) — the active row of each kind, also after it came back. */
   challans: TakaChallanRef[];
@@ -1088,13 +1169,15 @@ export interface ChallanCreateResult {
   totalMeters: number;
 }
 
-export type ReceiveCode = 'received' | 'not_found' | 'not_sent' | 'already_received' | 'changed';
+export type ReceiveCode = 'received' | 'not_found' | 'not_sent' | 'already_received' | 'changed' | 'ambiguous';
 
 export interface ReceiveResult {
   takaId: number | null;
   takaNo: string;
   ok: boolean;
   code: ReceiveCode;
+  /** Sprint 16 (`ambiguous`): several takas carry this (weaver) number — the "Which one?" picker. */
+  candidates?: TakaLookupCandidate[];
   /** Plain-English reason (alerts) — filled for every result. */
   message: string;
   orderNo: number | null;
@@ -1176,6 +1259,9 @@ export interface OrderDeliveryChallan {
 export interface OrderChallans {
   orderId: number;
   items: (OrderChallan | OrderDeliveryChallan)[];
+  /** Sprint 16: the order's outside POs (print) and the receipts (outside weaver / FG challans). */
+  pos: OutsidePoCard[];
+  receipts: OutsideReceiptRow[];
 }
 
 /* ---------- Mill QC (Sprint 9) ---------- */
@@ -1232,6 +1318,13 @@ export interface GodownTaka {
   isReturnLot: boolean;
   returnedAt: string | null;
   originOrderNo: number | null;
+  /** Sprint 16 */
+  source: TakaSource;
+  weaverTakaNo: string | null;
+  hasOwnNumber: boolean;
+  isReceivedLot: boolean;
+  beenToButta: boolean;
+  hasBeenToMill: boolean;
 }
 
 /** GET /godown/orders/:orderId */
@@ -1255,6 +1348,9 @@ export interface GodownOrder {
   status: OrderStatusKey;
   /** Sprint 15: on hold. */
   isOnHold: boolean;
+  /** Sprint 16: the order's steps (damage types) + kind (FG purchase / outside tags). */
+  orderSteps: OrderSteps;
+  kind: OrderKind;
   kpis: import('./godown').GodownKpis;
   /** Sprint 10: pcs tiles (ready for dispatch / refinish / damaged). */
   pcsKpis: GodownPcsKpis;
@@ -1451,6 +1547,8 @@ export interface DispatchTakaRow {
   id: number;
   takaId: number;
   takaNo: string;
+  /** Sprint 16: the number printed on the challan (`printTakaNo`: ours, else the weaver's own number). */
+  printNo: string;
   meters: number | null;
   pcs: number | null;
 }
@@ -1637,4 +1735,193 @@ export interface AssignTargetOrder {
 export interface MarkFreshResult {
   takaId: number;
   resolved: number;
+}
+
+/* ---------- Sprint 16: weavers, outside POs, receipts, FG purchase, Close order ---------- */
+
+/** An outside weaver (Weaver master). */
+export interface Weaver {
+  id: number;
+  name: string;
+  /** 1–4 capital letters; the prefix of the weaver's takas without our number (S1101). */
+  shortCode: string;
+  mobile: string | null;
+  address: string | null;
+  gstin: string | null;
+  notes: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface WeaverLookupItem {
+  id: number;
+  name: string;
+  shortCode: string;
+}
+
+/** One outside PO (the order's Outside production tab, Receive goods, the Docs tab). */
+export interface OutsidePoCard {
+  id: number;
+  poNo: number;
+  /** "PO-12" */
+  label: string;
+  orderId: number;
+  orderNo: number;
+  weaver: WeaverLookupItem;
+  quality: { id: number; name: string };
+  quantity: number;
+  unit: PoUnit;
+  orderType: OrderType;
+  /** Null for roles without `canSeeRate`. */
+  rate: number | null;
+  poDate: string;
+  notes: string | null;
+  status: PoStatus;
+  receivedQty: number;
+  receivedTakas: number;
+  pendingQty: number;
+  /** Edit / cancel are possible (nothing received yet). */
+  canEdit: boolean;
+  createdAt: string;
+}
+
+/** GET /orders/:id/outside-pos — the Outside production tab. */
+export interface OrderOutside {
+  orderId: number;
+  orderNo: number;
+  kind: OrderKind;
+  totals: OutsidePoTotals;
+  pos: OutsidePoCard[];
+  receipts: OutsideReceiptRow[];
+}
+
+/** One receipt (a weaver's / supplier's challan received). */
+export interface OutsideReceiptRow {
+  id: number;
+  kind: ReceiptKind;
+  challanNo: string;
+  receiptDate: string;
+  poId: number | null;
+  poNo: number | null;
+  partyName: string | null;
+  takas: number;
+  pcs: number;
+  meters: number;
+  damagedPcs: number;
+  notes: string | null;
+  createdAt: string;
+}
+
+/** GET /outside-pos/:id/print */
+export interface OutsidePoPrintData {
+  poNo: number;
+  label: string;
+  poDate: string;
+  status: PoStatus;
+  weaver: { name: string; address: string | null; mobile: string | null; gstin: string | null };
+  quality: string;
+  quantity: number;
+  unit: PoUnit;
+  orderType: OrderType;
+  rate: number | null;
+  notes: string | null;
+  orderNo: number;
+  designCode: string | null;
+  blouseOption: BlouseOption | null;
+}
+
+/** One open PO / FG order on the Receive goods module. Restricted roles get no client / rate. */
+export interface ReceiveGoodsPo extends OutsidePoCard {
+  designCode: string | null;
+  thumbUrl: string | null;
+  blouseOption: BlouseOption | null;
+}
+
+export interface ReceiveGoodsFgOrder {
+  orderId: number;
+  orderNo: number;
+  orderType: OrderType;
+  quantity: number;
+  unit: Unit;
+  quality: string;
+  designCode: string | null;
+  thumbUrl: string | null;
+  blouseOption: BlouseOption | null;
+  /** Null for roles without `canSeeClient`. */
+  customerName: string | null;
+  /** Takas received so far (0 = awaiting goods). */
+  receivedTakas: number;
+  receivedPcs: number;
+}
+
+/** GET /receive-goods */
+export interface ReceiveGoodsData {
+  pos: ReceiveGoodsPo[];
+  fgOrders: ReceiveGoodsFgOrder[];
+}
+
+/** What the receipt form needs for one PO / FG order (GET /outside-pos/:id/receipt-form, /orders/:id/fg-receipt-form). */
+export interface ReceiptFormData {
+  kind: ReceiptKind;
+  orderId: number;
+  orderNo: number;
+  orderType: OrderType;
+  orderSteps: OrderSteps;
+  quality: string;
+  designCode: string | null;
+  thumbUrl: string | null;
+  blouseOption: BlouseOption | null;
+  po: OutsidePoCard | null;
+  /** The weaver's short code (outside PO) or `FG` (FG purchase) — the prefix of takas without our number. */
+  prefix: string;
+}
+
+/** POST /outside-pos/:id/receipts and POST /orders/:id/fg-receipts */
+export interface ReceiptResult {
+  receiptId: number;
+  orderId: number;
+  orderNo: number;
+  takas: { id: number; takaNo: string; weaverTakaNo: string | null; pcs: number | null }[];
+  pcs: number;
+  meters: number;
+}
+
+/** GET /takas/lookup?no= — every active taka whose number OR weaver number is this one ("Which one?" picker). */
+export interface TakaLookupCandidate {
+  id: number;
+  takaNo: string;
+  weaverTakaNo: string | null;
+  weaverName: string | null;
+  orderNo: number;
+  stage: TakaStage;
+  /** The number typed matched our system number exactly (it wins over weaver numbers). */
+  exact: boolean;
+}
+
+/** POST /orders/:id/close */
+export interface CloseOrderResult {
+  orderId: number;
+  orderNo: number;
+  /** Ongoing jobsheets completed with the frames entered. */
+  completed: number;
+  /** Pending / Sent jobsheets cancelled. */
+  cancelled: number;
+  /** Open outside POs closed. */
+  closedPos: number;
+  /** Takas with us that became free stock (and their pcs). */
+  freeTakas: number;
+  freePcs: number;
+  /** Takas still at butta cutting / the mill (they become free stock when they come back). */
+  outTakas: number;
+}
+
+/** What Close order will do (GET /orders/:id/close-preview) — the summary of the confirm dialog. */
+export interface ClosePreview {
+  ongoing: { id: number; jobsheetNo: number; frames: number; machineNo: number | null }[];
+  pendingJobsheets: number;
+  openPos: number;
+  freeTakas: number;
+  freePcs: number;
+  outTakas: number;
+  dispatchedTakas: number;
 }

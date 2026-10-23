@@ -26,7 +26,7 @@ import { ApiError } from '@/lib/api';
 import { Bi, bi } from '@/lib/bilingual';
 import { formatDateTime } from '@/lib/format';
 import { cn } from '@/lib/utils';
-import { DamageDialog, entryLabel, nextEntryKey, qcEntryPayload, type DamageEntry } from '../takas/damage-dialog';
+import { DamageDialog, entryLabel, nextEntryKey, qcEntryPayload, takaDamageTypes, type DamageEntry } from '../takas/damage-dialog';
 import { useSubmitQc, useTakaByNo } from './api';
 import { FreshTag } from '../takas/taka-chip';
 import { BlouseTag } from '../free-stock/blouse';
@@ -496,6 +496,8 @@ function QcForm({ taka }: { taka: TakaDetail }) {
         takaPcs={takaPcs}
         value={null}
         allowImages
+        types={takaDamageTypes(taka)}
+        source={taka.source}
         onConfirm={(v) => setAdded((prev) => [...prev, { key: nextEntryKey(), foundAt: v.type, choice: v.choice, pcs: v.pcs, images: v.images }])}
       />
 

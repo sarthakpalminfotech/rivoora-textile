@@ -1,8 +1,8 @@
-import { ArrowLeft, CalendarClock, ImageOff, PackageCheck, Send } from 'lucide-react';
+import { ArrowLeft, CalendarClock, Check, ImageOff, PackageCheck, Send, X as XIcon } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
-import { isReadyOrLater, ORDER_TYPE_LABEL, returnedSummary, STATUS, type OrderDetail } from '@rivoora/shared';
+import { isReadyOrLater, ORDER_TYPE_LABEL, STEP_KEYS, STEP_LABEL, returnedSummary, stepOn, STATUS, type OrderDetail } from '@rivoora/shared';
 import { usePageTitle } from '@/components/layout/page-title';
 import { ErrorState } from '@/components/list-parts';
 import { Button } from '@/components/ui/button';
@@ -15,6 +15,7 @@ import { useRole } from '@/hooks/useRole';
 import { ApiError } from '@/lib/api';
 import { formatDateTime, formatOrderNo } from '@/lib/format';
 import { OrderJobsheetsSection } from '../jobsheets/order-jobsheets-section';
+import { OutsideTab } from '../outside/outside-tab';
 import { OrderTakasCard } from '../takas/takas-card';
 import { cn } from '@/lib/utils';
 import { useOrder, useUndoProduction } from './api';
@@ -25,6 +26,7 @@ import { DashboardSkeleton, DashboardTab } from './dashboard/dashboard-tab';
 import { OrderHeader } from './dashboard/order-header';
 import { useOrderView, type OrderTab } from './dashboard/view-state';
 import { BlouseTag } from '../free-stock/blouse';
+import { CloseOrderDialog } from './close/close-order-dialog';
 import { HistoryTab } from './history-tab';
 import { HoldOrderDialog, OnHoldBanner, ReleaseHoldDialog } from './hold/hold-order';
 
@@ -65,6 +67,19 @@ function DetailsTab({ order }: { order: OrderDetail }) {
             {can('canSeeClient') && (
               <Item label="Broker">{order.broker ? order.broker.name : <span className="font-normal text-slate-400">—</span>}</Item>
             )}
+            <Item label="Steps" className="sm:col-span-3">
+              <span className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm font-semibold">
+                {STEP_KEYS.map((k) => {
+                  const on = stepOn(order, k);
+                  return (
+                    <span key={k} className={cn('inline-flex items-center gap-1', on ? 'text-slate-800' : 'text-slate-400')}>
+                      {on ? <Check className="size-3.5 text-emerald-600" aria-hidden /> : <XIcon className="size-3.5" aria-hidden />}
+                      {STEP_LABEL[k]}
+                    </span>
+                  );
+                })}
+              </span>
+            </Item>
           </dl>
         </Card>
 
@@ -192,6 +207,7 @@ export default function OrderDetailsPage() {
   const [confirmUndo, setConfirmUndo] = useState(false);
   const [holdOpen, setHoldOpen] = useState(false);
   const [releaseOpen, setReleaseOpen] = useState(false);
+  const [closeOpen, setCloseOpen] = useState(false);
   usePageTitle(order ? `Order ${formatOrderNo(order.orderNo)}` : 'Order details');
 
   const goBack = () => {
@@ -233,9 +249,13 @@ export default function OrderDetailsPage() {
 
   // Sprint 15: the godown supervisor's Orders — Dashboard · Takas · Damages · Docs · History (no Jobsheets, no Order details).
   const godownOnly = can('canViewGodownOrders') && !can('canViewOrders');
+  // Sprint 16: the Outside production tab — always for roles that can create POs; for receive-only roles once the order has one.
+  const showOutside = can('canCreateOutsidePo') || (can('canReceiveOutside') && order.outsidePoCount > 0);
   const allTabs: { key: OrderTab; label: string; count?: number; danger?: boolean }[] = [
     { key: 'dashboard', label: 'Dashboard' },
-    { key: 'jobsheets', label: 'Jobsheets', count: ready ? order.jobsheetCount : undefined },
+    // Sprint 16: no Jobsheets tab for an order without the Production step — it never gets jobsheets.
+    ...(order.hasProduction ? [{ key: 'jobsheets' as const, label: 'Jobsheets', count: ready ? order.jobsheetCount : undefined }] : []),
+    ...(showOutside ? [{ key: 'outside' as const, label: 'Outside production', count: order.outsidePoCount || undefined }] : []),
     ...(canTakas
       ? [
           { key: 'takas' as const, label: 'Takas', count: counts?.takaCount },
@@ -256,6 +276,15 @@ export default function OrderDetailsPage() {
     <div className="page-container space-y-4 py-5">
       {back}
 
+      {order.isClosed && (
+        <div role="status" className="flex items-start gap-3 rounded-xl border border-slate-300 bg-slate-100 px-4 py-3 text-slate-800">
+          <div className="min-w-0 text-[14px] leading-snug">
+            <p className="font-bold">This order is closed</p>
+            <p className="text-slate-600">It is hidden from production, QC, godown and dispatch. It stays visible to you and in Dispatched for what was sent.</p>
+            {order.closeNote && <p className="mt-1 font-medium">Note: {order.closeNote}</p>}
+          </div>
+        </div>
+      )}
       {order.isOnHold && <OnHoldBanner note={order.holdNote} canRelease={can('canHoldOrder')} />}
 
       <OrderHeader
@@ -264,6 +293,7 @@ export default function OrderDetailsPage() {
         onEdit={can('canEditOrder') ? () => navigate(`/orders/${order.id}/edit`) : undefined}
         onHold={can('canHoldOrder') ? () => setHoldOpen(true) : undefined}
         onRelease={can('canHoldOrder') ? () => setReleaseOpen(true) : undefined}
+        onClose={can('canCloseOrder') ? () => setCloseOpen(true) : undefined}
       />
 
       <Tabs value={tab} onValueChange={(v) => view.setTab(v as OrderTab)}>
@@ -294,15 +324,36 @@ export default function OrderDetailsPage() {
         <TabsContent value="jobsheets" className="mt-4">
           {ready ? <OrderJobsheetsSection order={order} /> : <NotSentCard />}
         </TabsContent>
+        {showOutside && (
+          <TabsContent value="outside" className="mt-4">
+            {ready ? (
+              <OutsideTab orderId={order.id} orderNo={order.orderNo} material={order.material} orderType={order.orderType} />
+            ) : (
+              <NotSentCard />
+            )}
+          </TabsContent>
+        )}
         {canTakas && (
           <TabsContent value="takas" className="mt-4">
-            {order.jobsheetCount > 0 ? (
+            {/* Sprint 16: outside / FG orders never get real jobsheets — their takas come in on receipts instead. */}
+            {order.jobsheetCount > 0 || order.receiptCount > 0 ? (
               <OrderTakasCard order={order} />
             ) : !ready ? (
               <NotSentCard />
             ) : (
               <div className="rounded-xl border border-border bg-white shadow-soft">
-                <EmptyState icon={PackageCheck} title="No takas yet" description="Takas appear here once jobsheets are woven and entered." className="py-10" />
+                <EmptyState
+                  icon={PackageCheck}
+                  title="No takas yet"
+                  description={
+                    order.kind === 'fg_purchase'
+                      ? 'Takas appear here once the goods are received.'
+                      : order.kind === 'outside_production'
+                        ? 'Takas appear here once goods are received from an outside weaver.'
+                        : 'Takas appear here once jobsheets are woven and entered.'
+                  }
+                  className="py-10"
+                />
               </div>
             )}
           </TabsContent>
@@ -329,6 +380,7 @@ export default function OrderDetailsPage() {
 
       <HoldOrderDialog orderId={order.id} orderNo={order.orderNo} open={holdOpen} onOpenChange={setHoldOpen} />
       <ReleaseHoldDialog orderId={order.id} orderNo={order.orderNo} open={releaseOpen} onOpenChange={setReleaseOpen} />
+      <CloseOrderDialog orderId={order.id} orderNo={order.orderNo} open={closeOpen} onOpenChange={setCloseOpen} />
 
       <ConfirmDialog
         open={confirmUndo}

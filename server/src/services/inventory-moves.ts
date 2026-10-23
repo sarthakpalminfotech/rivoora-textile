@@ -10,9 +10,12 @@ import {
   nextSplitNumber,
   partialMoveMeters,
   planPcsMove,
+  splitWeaverTakaNo,
   takaActualPcs,
   type AddFromFreeStockResult,
   type BlouseFilter,
+  type FreeStockReason,
+  type TakaSource,
   type MoveToInventoryResult,
   type RoleKey,
   type TakaStage,
@@ -48,8 +51,13 @@ interface TakaRow {
   godownCheckedAt: string | null;
   freeStockAt: string | null;
   freeStockBy: RoleKey | null;
-  freeStockReason: 'moved' | 'goods_return' | null;
+  freeStockReason: FreeStockReason | null;
   parentTakaId: number | null;
+  source: TakaSource;
+  weaverId: number | null;
+  weaverTakaNo: string | null;
+  hasOwnNumber: boolean;
+  outsideReceiptId: number | null;
 }
 
 const takaSelect = {
@@ -70,6 +78,11 @@ const takaSelect = {
   freeStockBy: takas.freeStockBy,
   freeStockReason: takas.freeStockReason,
   parentTakaId: takas.parentTakaId,
+  source: takas.source,
+  weaverId: takas.weaverId,
+  weaverTakaNo: takas.weaverTakaNo,
+  hasOwnNumber: takas.hasOwnNumber,
+  outsideReceiptId: takas.outsideReceiptId,
 };
 
 const total = (rows: readonly Pick<TakaRow, 'pcs' | 'actualPcs'>[]) => rows.reduce((n, t) => n + (takaActualPcs(t) ?? 0), 0);
@@ -127,6 +140,12 @@ async function splitOffPart(
       parentTakaId: parent.id,
       hasBeenToMill: parent.hasBeenToMill,
       originOrderId: parent.originOrderId,
+      // Sprint 16: an outside taka's part keeps its source / receipt; its weaver number gets the part's letter.
+      source: parent.source,
+      weaverId: parent.weaverId,
+      weaverTakaNo: splitWeaverTakaNo(parent.weaverTakaNo, takaNo),
+      hasOwnNumber: parent.hasOwnNumber,
+      outsideReceiptId: parent.outsideReceiptId,
       enteredBy: role,
       createdAt: at,
       updatedAt: at,

@@ -87,9 +87,10 @@ export function blouseMismatchNote(takaOption: BlouseOption | null | undefined, 
 /* Free stock                                                           */
 /* ------------------------------------------------------------------ */
 
-export const FREE_STOCK_REASONS = ['moved', 'goods_return'] as const;
+// Sprint 16: `order_closed` = the order was closed and the taka was with us (or came back after the close).
+export const FREE_STOCK_REASONS = ['moved', 'goods_return', 'order_closed'] as const;
 export type FreeStockReason = (typeof FREE_STOCK_REASONS)[number];
-export const FREE_STOCK_REASON_LABEL: Record<FreeStockReason, string> = { moved: 'Moved', goods_return: 'Returned' };
+export const FREE_STOCK_REASON_LABEL: Record<FreeStockReason, string> = { moved: 'Moved', goods_return: 'Returned', order_closed: 'Order closed' };
 
 /** The columns of a taka that decide which order it counts for. */
 export interface TakaOwnership {
@@ -137,8 +138,8 @@ export function moveToInventorySelectable(stage: string, isFreeStock = false): M
   return { selectable: false, reason: 'Not available.' };
 }
 
-/** An order can receive free stock unless it is not in production yet or is fully dispatched / returned. */
-export const canReceiveFreeStock = (orderStatus: string) => !['pending_production', 'dispatched', 'returned'].includes(orderStatus);
+/** An order can receive free stock unless it is not in production yet, fully dispatched / returned, or closed. */
+export const canReceiveFreeStock = (orderStatus: string) => !['pending_production', 'dispatched', 'returned', 'closed'].includes(orderStatus);
 
 /** The stage a taka has once it is free stock: a ticked `ready_dispatch` taka goes back to `final`, the rest keep theirs. */
 export const freeStockStage = (stage: string): string => (stage === 'ready_dispatch' ? 'final' : stage);
@@ -249,8 +250,8 @@ export function hasBeenToMillThroughAncestors(
 /* Damage: type chosen with a radio + where it was recorded             */
 /* ------------------------------------------------------------------ */
 
-/** The three types the person marking a damage can choose. */
-export const CHOOSABLE_DAMAGE_TYPES = ['machine', 'butta', 'mill'] as const;
+/** The types the person marking a damage can choose (Sprint 16: + Weaver damage for takas bought / made outside). */
+export const CHOOSABLE_DAMAGE_TYPES = ['machine', 'butta', 'mill', 'weaver'] as const;
 export type ChoosableDamageType = (typeof CHOOSABLE_DAMAGE_TYPES)[number];
 
 /** Stored in `taka_damages.found_at` when nothing was chosen (goods return only). Shown as "Damage type not marked". */
@@ -260,13 +261,49 @@ export const CHOOSABLE_DAMAGE_LABEL: Record<ChoosableDamageType, { en: string; h
   machine: { en: 'Machine damage', hi: 'मशीन खराबी' },
   butta: { en: 'Butta cutting damage', hi: 'बुट्टा खराबी' },
   mill: { en: 'Mill damage', hi: 'मिल खराबी' },
+  weaver: { en: 'Weaver damage', hi: 'बुनकर खराबी' },
 };
 
 export function isChoosableDamageType(value: unknown): value is ChoosableDamageType {
   return typeof value === 'string' && (CHOOSABLE_DAMAGE_TYPES as readonly string[]).includes(value);
 }
 
-export const DAMAGE_RECORDED_AT = ['taka_entry', 'edit_takas', 'butta_qc', 'mill_qc', 'godown', 'goods_return', 'split', 'inventory'] as const;
+/** Where a taka came from (`takas.source`). */
+export const TAKA_SOURCES = ['production', 'outside_po', 'fg_purchase'] as const;
+export type TakaSource = (typeof TAKA_SOURCES)[number];
+
+/** What `damageTypeOptions` needs to know about a taka and its order. */
+export interface DamageTypeFacts {
+  /** `takas.source` (null / missing = our production). */
+  source?: TakaSource | null;
+  /** The order's steps (missing = all ticked, the old behaviour). */
+  hasButta?: boolean;
+  hasMill?: boolean;
+  /** The taka has been to butta cutting (rework) / to the mill (rework, refinish). */
+  beenToButta?: boolean;
+  beenToMill?: boolean;
+}
+
+/**
+ * Sprint 16: the damage types that apply to a taka — Machine for our production, Weaver for outside / FG takas, Butta
+ * cutting when the order has Butta ticked or the taka has been there, Mill likewise. Always at least one type.
+ * The radio pre-selects it when only one applies.
+ */
+export function damageTypeOptions(f: DamageTypeFacts = {}): ChoosableDamageType[] {
+  const outside = f.source === 'outside_po' || f.source === 'fg_purchase';
+  const out: ChoosableDamageType[] = [outside ? 'weaver' : 'machine'];
+  if ((f.hasButta ?? true) || f.beenToButta) out.push('butta');
+  if ((f.hasMill ?? true) || f.beenToMill) out.push('mill');
+  return out;
+}
+
+/** "Weaver damage" reads "Weaver / supplier damage" for an FG purchase. */
+export function damageTypeLabelFor(type: ChoosableDamageType, source?: TakaSource | null): { en: string; hi: string } {
+  if (type === 'weaver' && source === 'fg_purchase') return { en: 'Weaver / supplier damage', hi: 'बुनकर / सप्लायर खराबी' };
+  return CHOOSABLE_DAMAGE_LABEL[type];
+}
+
+export const DAMAGE_RECORDED_AT = ['taka_entry', 'edit_takas', 'butta_qc', 'mill_qc', 'godown', 'goods_return', 'split', 'inventory', 'outside_receipt', 'fg_receipt'] as const;
 export type DamageRecordedAt = (typeof DAMAGE_RECORDED_AT)[number];
 
 export const DAMAGE_RECORDED_AT_LABEL: Record<DamageRecordedAt, string> = {
@@ -278,6 +315,8 @@ export const DAMAGE_RECORDED_AT_LABEL: Record<DamageRecordedAt, string> = {
   goods_return: 'Goods return',
   split: 'Split',
   inventory: 'Inventory',
+  outside_receipt: 'Receipt from weaver',
+  fg_receipt: 'FG receipt',
 };
 
 export function isDamageRecordedAt(value: unknown): value is DamageRecordedAt {

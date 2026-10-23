@@ -11,9 +11,11 @@ import { libsql } from './client';
 const WIPE = [
   'taka_damage_images', 'taka_events', 'taka_damages', 'goods_return_takas', 'goods_returns', 'dispatch_challan_takas',
   'challan_takas', 'takas', 'dispatch_challans', 'challans', 'jobsheet_machines', 'jobsheet_events', 'jobsheets',
+  // Sprint 16: receipts and outside POs (children of orders), the order History events.
+  'outside_receipts', 'outside_pos', 'order_events',
   'order_hold_events', 'order_status_history', 'order_note_images', 'orders', 'counters',
 ];
-const KEPT = ['users', 'customers', 'customer_brokers', 'materials', 'designs', 'design_variations', 'machines', 'damages', 'butta_parties', 'mill_parties'];
+const KEPT = ['users', 'customers', 'customer_brokers', 'materials', 'designs', 'design_variations', 'machines', 'damages', 'butta_parties', 'mill_parties', 'weavers'];
 
 async function main() {
   if (!process.argv.includes('--yes')) throw new Error('Refusing to run without --yes');

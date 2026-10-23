@@ -1,8 +1,10 @@
-import { AlertTriangle, Cog, Droplets, Pencil, Plus, Scissors, Trash2, type LucideIcon } from 'lucide-react';
+import { AlertTriangle, Cog, Droplets, Pencil, Plus, Scissors, Trash2, Truck, type LucideIcon } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import {
-  CHOOSABLE_DAMAGE_LABEL,
   CHOOSABLE_DAMAGE_TYPES,
+  damageTypeLabelFor,
+  damageTypeOptions,
+  type TakaSource,
   cleanPcs,
   DAMAGE_NAME_MAX_LENGTH,
   DAMAGE_NOT_MARKED,
@@ -109,7 +111,20 @@ export function editEntryPayload(
   return { ...id, ...type, damageId: null, pcs: e.pcs };
 }
 
-const TYPE_ICON: Record<ChoosableDamageType, LucideIcon> = { machine: Cog, butta: Scissors, mill: Droplets };
+const TYPE_ICON: Record<ChoosableDamageType, LucideIcon> = { machine: Cog, butta: Scissors, mill: Droplets, weaver: Truck };
+
+/** Sprint 16: the damage types of a taka from its details (QC screens, godown, split). */
+export function takaDamageTypes(t: {
+  source?: TakaSource | null;
+  orderSteps?: { hasButta: boolean; hasMill: boolean } | null;
+  beenToButta?: boolean;
+  hasBeenToMill?: boolean;
+}): ChoosableDamageType[] {
+  return damageTypeOptions({ source: t.source, hasButta: t.orderSteps?.hasButta, hasMill: t.orderSteps?.hasMill, beenToButta: t.beenToButta, beenToMill: t.hasBeenToMill });
+}
+
+/** The old three types (callers that don't know the taka's source / steps). */
+const DEFAULT_TYPES: readonly ChoosableDamageType[] = CHOOSABLE_DAMAGE_TYPES.filter((t) => t !== 'weaver');
 
 interface DamageTypeRadioProps {
   value: ChoosableDamageType | null;
@@ -118,10 +133,14 @@ interface DamageTypeRadioProps {
   optional?: boolean;
   /** Show the Hindi line too (Taka entry / QC screens). */
   bilingual?: boolean;
+  /** Sprint 16: the types that apply to the taka (`damageTypeOptions`); default Machine / Butta / Mill. */
+  types?: readonly ChoosableDamageType[];
+  /** Sprint 16: an FG purchase reads "Weaver / supplier damage". */
+  source?: TakaSource | null;
 }
 
-/** The "Damage type" radio: three large tappable cards, nothing pre-selected. */
-export function DamageTypeRadio({ value, onChange, optional, bilingual }: DamageTypeRadioProps) {
+/** The "Damage type" radio: large tappable cards, nothing pre-selected (unless only one type applies). */
+export function DamageTypeRadio({ value, onChange, optional, bilingual, types = DEFAULT_TYPES, source }: DamageTypeRadioProps) {
   return (
     <div role="radiogroup" aria-label={bilingual ? 'Damage type / खराबी का प्रकार' : 'Damage type'} className="space-y-2">
       <p className="text-sm font-semibold text-slate-800">
@@ -129,11 +148,11 @@ export function DamageTypeRadio({ value, onChange, optional, bilingual }: Damage
         {!optional && <span className="ml-0.5 text-destructive">*</span>}
         {optional && <span className="ml-1.5 text-xs font-normal text-slate-500">{bilingual ? 'Optional / वैकल्पिक' : 'Optional'}</span>}
       </p>
-      <div className="grid grid-cols-3 gap-2">
-        {CHOOSABLE_DAMAGE_TYPES.map((type) => {
+      <div className={cn('grid gap-2', types.length === 1 ? 'grid-cols-1' : types.length === 2 || types.length === 4 ? 'grid-cols-2' : 'grid-cols-3')}>
+        {types.map((type) => {
           const Icon = TYPE_ICON[type];
           const on = value === type;
-          const label = CHOOSABLE_DAMAGE_LABEL[type];
+          const label = damageTypeLabelFor(type, source);
           return (
             <button
               key={type}
@@ -185,6 +204,10 @@ interface DamageDialogProps {
    * dropdown; exactly one is pre-selected when a NEW damage is opened.
    */
   suggestedNames?: { damageId: number; name: string }[];
+  /** Sprint 16: the damage types that apply to this taka (`damageTypeOptions`); one type is pre-selected. */
+  types?: readonly ChoosableDamageType[];
+  /** Sprint 16: where the taka came from ("Weaver / supplier damage" for an FG purchase). */
+  source?: TakaSource | null;
 }
 
 /**
@@ -192,7 +215,7 @@ interface DamageDialogProps {
  * type it, and give the damaged pcs. A centred modal on md+, a bottom sheet on phones; bilingual for the Taka entry
  * and Butta QC roles.
  */
-export function DamageDialog({ open, onOpenChange, takaLabel, typeOptional, takaPcs, value, onConfirm, onRemove, allowImages, onRefinish, suggestedNames }: DamageDialogProps) {
+export function DamageDialog({ open, onOpenChange, takaLabel, typeOptional, takaPcs, value, onConfirm, onRemove, allowImages, onRefinish, suggestedNames, types, source }: DamageDialogProps) {
   const [images, setImages] = useState<DamageImageInput[]>([]);
   const [uploading, setUploading] = useState(false);
   const bilingual = useBilingual();
@@ -213,8 +236,8 @@ export function DamageDialog({ open, onOpenChange, takaLabel, typeOptional, taka
     setImages(value?.images ?? []);
     setUploading(false);
     setPcsText(value?.pcs != null ? String(value.pcs) : '');
-    // Nothing is pre-selected on a new damage; an existing one shows the type it was saved with.
-    setType(value && isChoosableDamageType(value.foundAt) ? value.foundAt : null);
+    // Nothing is pre-selected on a new damage (unless only one type applies); an existing one shows its saved type.
+    setType(value && isChoosableDamageType(value.foundAt) ? value.foundAt : !value && !typeOptional && types?.length === 1 ? types[0] : null);
     const choice = value?.choice;
     if (choice?.kind === 'master') {
       setSelected(choice.damageId);
@@ -315,7 +338,7 @@ export function DamageDialog({ open, onOpenChange, takaLabel, typeOptional, taka
     >
       <div className="space-y-4 pb-1">
         <div>
-          <DamageTypeRadio value={type} onChange={setType} optional={typeOptional} bilingual={bilingual} />
+          <DamageTypeRadio value={type} onChange={setType} optional={typeOptional} bilingual={bilingual} types={types} source={source} />
           {!typeReady && (
             <p className="mt-1.5 text-[13px] font-medium text-red-600">{t('Choose the damage type', 'खराबी का प्रकार चुनें')}</p>
           )}
@@ -435,6 +458,11 @@ interface TakaDamageControlProps {
   /** `lg` = the big bilingual Taka entry button, `sm` = the compact Edit takas button. */
   size?: 'lg' | 'sm';
   className?: string;
+  /** Sprint 16: the damage types that apply (see `DamageDialog`). */
+  types?: readonly ChoosableDamageType[];
+  source?: TakaSource | null;
+  /** Sprint 16 (receipts): a new damage can carry photos. */
+  allowImages?: boolean;
 }
 
 /**
@@ -449,6 +477,9 @@ export function TakaDamageControl({
   disabled,
   size = 'lg',
   className,
+  types,
+  source,
+  allowImages,
 }: TakaDamageControlProps) {
   const bilingual = useBilingual();
   const t = (en: string, hi: string) => (bilingual ? `${en} / ${hi}` : en);
@@ -460,11 +491,11 @@ export function TakaDamageControl({
     ? `Damage${firstName ? ` · ${firstName}` : ''}${first.pcs != null ? ` · ${first.pcs} pcs` : ''}${entries.length > 1 ? ` +${entries.length - 1}` : ''}`
     : 'Damage';
 
-  const confirm = (v: { type: DamageType; choice: DamageChoice; pcs: number }) => {
+  const confirm = (v: { type: DamageType; choice: DamageChoice; pcs: number; images: DamageImageInput[] }) => {
     if (mode?.type === 'edit') {
-      onChange(entries.map((e) => (e.key === mode.key ? { ...e, foundAt: v.type, choice: v.choice, pcs: v.pcs } : e)));
+      onChange(entries.map((e) => (e.key === mode.key ? { ...e, foundAt: v.type, choice: v.choice, pcs: v.pcs, images: v.images } : e)));
     } else {
-      onChange([...entries, { key: nextEntryKey(), foundAt: v.type, choice: v.choice, pcs: v.pcs }]);
+      onChange([...entries, { key: nextEntryKey(), foundAt: v.type, choice: v.choice, pcs: v.pcs, images: v.images }]);
     }
   };
 
@@ -512,6 +543,9 @@ export function TakaDamageControl({
         value={editing ?? null}
         onConfirm={confirm}
         onRemove={editing ? () => onChange(entries.filter((e) => e.key !== editing.key)) : undefined}
+        types={types}
+        source={source}
+        allowImages={allowImages}
       />
 
       <ResponsiveModal

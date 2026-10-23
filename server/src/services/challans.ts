@@ -12,6 +12,7 @@ import {
   challanReceiveSchema,
   compareTakaNo,
   parseChallanNo,
+  printTakaNo,
   isTakaReady,
   mixesRefinishAndNormal,
   readyStagesOf,
@@ -57,7 +58,9 @@ import {
 } from '../db/schema';
 import { badRequest, conflict, notFound } from '../lib/errors';
 import { likePattern } from '../lib/http';
-import { chunk, recomputeOrdersStatus, writeTakaEvents, type TakaEventInput } from './taka-ops';
+import { chunk, freeTakasOfClosedOrders, recomputeOrdersStatus, writeTakaEvents, type TakaEventInput } from './taka-ops';
+import { resolveTakaNumber } from './taka-lookup';
+import { listOrderDocsOutside } from './outside';
 import { takaOrderId } from './free-stock';
 import { takaOrderNotHeld } from './hold';
 import { challanFilters, rowFilters } from './work-filters';
@@ -174,6 +177,8 @@ async function expectedMoreByOrder(kind: ChallanKind, mode: SendMode, orderIds: 
     .where(
       and(
         eq(jobsheets.isDeleted, false),
+        // Sprint 16: never the hidden external jobsheet (outside / FG takas).
+        eq(jobsheets.isExternal, false),
         inArray(jobsheets.orderId, orderIds),
         sql`NOT EXISTS (SELECT 1 FROM takas t WHERE t.jobsheet_id = "jobsheets"."id" AND t.is_deleted = 0)`,
       ),
@@ -196,7 +201,7 @@ export async function listPendingOrders(kind: ChallanKind, q: ButtaListQuery, mo
     const p = likePattern(term);
     const orderNo = /^\d+$/.test(term) ? Number(term) : null;
     const stages = modeStages(kind, mode).notSent.map((s) => `'${s}'`).join(', ');
-    search = sql`(${orders.orderNo} = ${orderNo ?? -1} OR ${designCodeSql} LIKE ${p} ESCAPE '\\' OR ${orders.id} IN (SELECT t2.order_id FROM takas t2 WHERE t2.is_deleted = 0 AND t2.stage IN (${sql.raw(stages)}) AND t2.taka_no LIKE ${p} ESCAPE '\\'))`;
+    search = sql`(${orders.orderNo} = ${orderNo ?? -1} OR ${designCodeSql} LIKE ${p} ESCAPE '\\' OR ${orders.id} IN (SELECT t2.order_id FROM takas t2 WHERE t2.is_deleted = 0 AND t2.stage IN (${sql.raw(stages)}) AND (t2.taka_no LIKE ${p} ESCAPE '\\' OR t2.weaver_taka_no LIKE ${p} ESCAPE '\\')))`;
   }
   const hasReady = sql`SUM(CASE WHEN ${isReadySql(kind, mode)} THEN 1 ELSE 0 END) > 0`;
   // Filters modal: loom / quality / order type / blouse — only the matching takas count (and can be sent from the drawer).
@@ -466,7 +471,7 @@ export async function listChallans(kind: ChallanKind, q: ChallanListQuery): Prom
       sql`(${challans.challanNo} = ${challanNo ?? -1}
         OR ${partyNameSql} LIKE ${p} ESCAPE '\\'
         OR EXISTS (SELECT 1 ${rowsOf} AND ct.order_id IN (SELECT o.id FROM orders o WHERE o.order_no = ${orderNo ?? -1}))
-        OR EXISTS (SELECT 1 ${rowsOf} AND ct.taka_id IN (SELECT t.id FROM takas t WHERE t.taka_no LIKE ${p} ESCAPE '\\')))`,
+        OR EXISTS (SELECT 1 ${rowsOf} AND ct.taka_id IN (SELECT t.id FROM takas t WHERE t.taka_no LIKE ${p} ESCAPE '\\' OR t.weaver_taka_no LIKE ${p} ESCAPE '\\')))`,
     );
   }
   const where = and(...conds);
@@ -573,6 +578,8 @@ async function loadChallan(kind: ChallanKind, id: number) {
       .select({
         id: takas.id,
         takaNo: takas.takaNo,
+        weaverTakaNo: takas.weaverTakaNo,
+        hasOwnNumber: takas.hasOwnNumber,
         isDamaged: takas.isDamaged,
         meters: challanTakas.meters,
         pcs: challanTakas.pcs,
@@ -670,7 +677,8 @@ export async function getChallanPrint(kind: ChallanKind, id: number): Promise<Ch
     party: { name: challan.partyName, address: challan.partyAddress, mobile: challan.partyMobile, gstin: challan.partyGstin },
     isRefinish: challan.kind === 'mill' && rows.length > 0 && rows.every((r) => r.rowIsRefinish),
     qualities: [...new Set(sorted.map((r) => r.quality))],
-    takas: sorted.map((r) => ({ takaNo: r.takaNo, meters: r.meters })),
+    // Sprint 16: the PRINTED number — ours, else the weaver's own number (1101, not S1101).
+    takas: sorted.map((r) => ({ takaNo: printTakaNo(r), meters: r.meters })),
   };
 }
 
@@ -753,10 +761,40 @@ export async function receiveTakas(kind: ChallanKind, role: RoleKey, input: unkn
   const cfg = CHALLAN_KIND_CONFIG[kind];
   const data = challanReceiveSchema.parse(input);
   return db.transaction(async (tx) => {
-    const wanted: ({ takaNo: string } | { id: number })[] = data.takaNo !== undefined ? [{ takaNo: data.takaNo.trim() }] : data.takaIds!.map((id) => ({ id }));
     const results: ReceiveResult[] = [];
+    let wanted: ({ takaNo: string } | { id: number })[];
+    if (data.takaNo !== undefined) {
+      // Sprint 16: a typed number may be our number OR an outside weaver's own number; several matches → "Which one?".
+      const typed = data.takaNo.trim();
+      const found = await resolveTakaNumber(tx, typed);
+      if (found.kind === 'many') {
+        return {
+          received: 0,
+          results: [
+            {
+              takaId: null,
+              takaNo: typed,
+              ok: false,
+              code: 'ambiguous',
+              candidates: found.candidates,
+              message: `${found.candidates.length} takas have number ${typed} — pick the right one`,
+              orderNo: null,
+              challanId: null,
+              challanNo: null,
+              challanKind: kind,
+              meters: null,
+              receivedAt: null,
+            },
+          ],
+        };
+      }
+      wanted = [found.kind === 'one' ? { id: found.id } : { takaNo: typed }];
+    } else {
+      wanted = data.takaIds!.map((id) => ({ id }));
+    }
     const orderIds: number[] = [];
     const events: TakaEventInput[] = [];
+    const receivedIds: number[] = [];
     for (const w of wanted) {
       const [row] = await tx
         .select({
@@ -828,8 +866,11 @@ export async function receiveTakas(kind: ChallanKind, role: RoleKey, input: unkn
       }
       events.push({ takaId: row.id, event: KIND_EVENTS[kind].received, challanId: row.challanId, note: row.challanNo ? challanLabel(row.challanNo, kind) : null });
       orderIds.push(row.orderId);
+      receivedIds.push(row.id);
       results.push({ ...base, ok: true, code: 'received', message: `Taka ${row.takaNo} received`, receivedAt: at });
     }
+    // Sprint 16: takas of a CLOSED order become free stock when they come back.
+    await freeTakasOfClosedOrders(tx, role, receivedIds, now(), events);
     await writeTakaEvents(tx, role, events);
     await recomputeOrdersStatus(tx, role, orderIds);
     return { results, received: results.filter((r) => r.ok).length };
@@ -970,7 +1011,9 @@ export async function listOrderChallans(role: RoleKey, orderId: number): Promise
     meters: round2(Number(r.meters)),
     createdAt: r.createdAt,
   }));
-  return { orderId, items: mergeOrderChallans(buttaAndMill, deliveries) };
+  // Sprint 16: the order's outside POs (print) and receipts (outside weaver / FG challans).
+  const outside = await listOrderDocsOutside(role, orderId);
+  return { orderId, items: mergeOrderChallans(buttaAndMill, deliveries), ...outside };
 }
 
 export type { TakaStage };

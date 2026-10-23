@@ -42,9 +42,10 @@ describe('taka number validation (one jobsheet)', () => {
     for (const v of ['6245', '6245-1', '62/45']) expect(TAKA_NO_REGEX.test(v), v).toBe(true);
   });
 
-  it('rejects letters, leading / trailing / double separators and more than 15 characters', () => {
-    for (const v of ['-6245', '6245-', '62--45', '62/-45', 'A12', '12a', '12 3']) expect(TAKA_NO_REGEX.test(v), v).toBe(false);
-    expect(validateTakaNumbers(['-6245', '6245-', '62--45', 'A12', '1234567890123456'])).toEqual([
+  it('rejects letters (except a 1–4 letter prefix, Sprint 16), leading / trailing / double separators and more than 15 characters', () => {
+    for (const v of ['-6245', '6245-', '62--45', '62/-45', 'ABCDE12', '12a', '12 3', 'a12']) expect(TAKA_NO_REGEX.test(v), v).toBe(false);
+    expect(TAKA_NO_REGEX.test('A12')).toBe(true);
+    expect(validateTakaNumbers(['-6245', '6245-', '62--45', 'ABCDE12', '1234567890123456'])).toEqual([
       'format',
       'format',
       'format',
@@ -92,7 +93,9 @@ describe('taka number validation (one jobsheet)', () => {
     expect(cleanTakaNo('62-/45')).toBe('62-45');
     expect(cleanTakaNo('-6245')).toBe('6245');
     expect(cleanTakaNo('6245-')).toBe('6245-');
-    expect(cleanTakaNo('A12')).toBe('12');
+    // Sprint 16: a leading weaver code survives (lower case is dropped, the client upper-cases where codes are typed).
+    expect(cleanTakaNo('A12')).toBe('A12');
+    expect(cleanTakaNo('a12')).toBe('12');
     expect(cleanTakaNo('12345678901234567')).toBe('123456789012345');
   });
 

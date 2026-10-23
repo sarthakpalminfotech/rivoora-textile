@@ -1,7 +1,7 @@
 import { endOfMonth, startOfMonth, subDays } from 'date-fns';
 import { useCallback, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { isOrderType, isStatusKey, type OrderStatusKey, type OrderType } from '@rivoora/shared';
+import { isOrderKind, isOrderType, isStatusKey, type OrderKind, type OrderStatusKey, type OrderType } from '@rivoora/shared';
 import { toApiDate } from '@/lib/format';
 
 export interface OrderFilters {
@@ -12,6 +12,8 @@ export interface OrderFilters {
   parties: number[];
   /** Order type (Lump / Pcs to pcs). */
   types: OrderType[];
+  /** Sprint 16: order kind (In-house / Outside production / FG purchase). */
+  kinds: OrderKind[];
   from?: string;
   to?: string;
 }
@@ -32,6 +34,7 @@ export function useOrderFilters() {
       materials: list('material').map(Number).filter((n) => Number.isInteger(n) && n > 0),
       parties: list('party').map(Number).filter((n) => Number.isInteger(n) && n > 0),
       types: list('type').filter(isOrderType),
+      kinds: list('kind').filter(isOrderKind),
       from: DATE_RE.test(from) ? from : undefined,
       to: DATE_RE.test(to) ? to : undefined,
     };
@@ -48,6 +51,7 @@ export function useOrderFilters() {
           if ('materials' in patch) set('material', patch.materials?.join(','));
           if ('parties' in patch) set('party', patch.parties?.join(','));
           if ('types' in patch) set('type', patch.types?.join(','));
+          if ('kinds' in patch) set('kind', patch.kinds?.join(','));
           if ('from' in patch) set('from', patch.from);
           if ('to' in patch) set('to', patch.to);
           return next;
@@ -59,7 +63,12 @@ export function useOrderFilters() {
   );
 
   const activeCount =
-    filters.statuses.length + filters.materials.length + filters.parties.length + filters.types.length + (filters.from || filters.to ? 1 : 0);
+    filters.statuses.length +
+    filters.materials.length +
+    filters.parties.length +
+    filters.types.length +
+    filters.kinds.length +
+    (filters.from || filters.to ? 1 : 0);
 
   return { filters, setFilters, activeCount };
 }

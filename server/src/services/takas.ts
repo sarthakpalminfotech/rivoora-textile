@@ -1,6 +1,10 @@
-import { and, asc, desc, eq, inArray, sql, type SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, notInArray, sql, type SQL } from 'drizzle-orm';
 import {
   can,
+  FG_TAKA_PREFIX,
+  outsideTakaNumber,
+  WEAVER_TAKA_NO_REGEX,
+  type ReceiptTakaGroup,
   dispatchChallanLabel,
   canRoleSeeJobsheetStatus,
   canRoleSeeStatus,
@@ -47,10 +51,13 @@ import {
   jobsheets,
   materials,
   orders,
+  outsidePos,
+  outsideReceipts,
   takaDamageImages,
   takaDamages,
   takaEvents,
   takas,
+  weavers,
 } from '../db/schema';
 import { badRequest, conflict, notFound } from '../lib/errors';
 import {
@@ -80,6 +87,9 @@ import {
 } from './taka-ops';
 import { takaInOrder, takaOrderId } from './free-stock';
 import { orderNotHeldFor } from './hold';
+import { realJobsheet } from './external';
+import { resolveTakaNumber } from './taka-lookup';
+import { refreshReceiptTotals } from './outside';
 
 /* ------------------------------------------------------------------ */
 /* helpers                                                              */
@@ -97,6 +107,7 @@ async function loadJobsheetForTakas(tx: Tx, role: RoleKey, id: number) {
       runningMachineId: jobsheets.runningMachineId,
       takaNote: jobsheets.takaNote,
       isDeleted: jobsheets.isDeleted,
+      isExternal: jobsheets.isExternal,
       orderNo: orders.orderNo,
       orderStatus: orders.status,
     })
@@ -104,6 +115,8 @@ async function loadJobsheetForTakas(tx: Tx, role: RoleKey, id: number) {
     .innerJoin(orders, eq(orders.id, jobsheets.orderId))
     .where(eq(jobsheets.id, id));
   if (!js || js.isDeleted || !canRoleSeeJobsheetStatus(role, js.status)) throw notFound('Jobsheet');
+  // Sprint 16: the hidden external jobsheet (outside / FG takas) is only ever edited per receipt by Jenish / Gaurang.
+  if (js.isExternal && !can(role, 'canEditTakas')) throw notFound('Jobsheet');
   if (!isRestricted(role) && !canRoleSeeStatus(role, js.orderStatus)) throw notFound('Jobsheet');
   return js;
 }
@@ -153,6 +166,7 @@ export async function enterTakas(role: RoleKey, id: number, input: unknown): Pro
   const data = takaEntrySchema.parse(input);
   return db.transaction(async (tx) => {
     const js = await loadJobsheetForTakas(tx, role, id);
+    if (js.isExternal) throw notFound('Jobsheet');
     const existing = await activeTakas(tx, id);
     if (existing.length + data.takas.length > MAX_TAKAS_PER_JOBSHEET) {
       throw badRequest(`A jobsheet can have at most ${MAX_TAKAS_PER_JOBSHEET} takas.`);
@@ -268,12 +282,63 @@ export async function editTakas(role: RoleKey, id: number, input: unknown): Prom
   const data = takaEditSchema.parse(input);
   return db.transaction(async (tx) => {
     const js = await loadJobsheetForTakas(tx, role, id);
+    // Sprint 16: outside / FG takas sit on the order's hidden external jobsheet and are edited ONE RECEIPT at a time
+    // (a replace-set over the whole external jobsheet would remove the other receipts' takas).
+    if (js.isExternal !== (data.receiptId !== undefined)) {
+      throw badRequest(js.isExternal ? 'Open Edit takas from the receipt.' : 'This jobsheet has no receipts.');
+    }
+    let receipt: { id: number; weaverId: number | null; prefix: string } | null = null;
+    if (data.receiptId !== undefined) {
+      const [r] = await tx
+        .select({ id: outsideReceipts.id, weaverId: outsideReceipts.weaverId, kind: outsideReceipts.kind, code: weavers.shortCode })
+        .from(outsideReceipts)
+        .leftJoin(weavers, eq(weavers.id, outsideReceipts.weaverId))
+        .where(and(eq(outsideReceipts.id, data.receiptId), eq(outsideReceipts.orderId, js.orderId)));
+      if (!r) throw notFound('Receipt');
+      receipt = { id: r.id, weaverId: r.weaverId, prefix: r.kind === 'fg' ? FG_TAKA_PREFIX : (r.code ?? '') };
+    }
     // Sprint 13: takas that became free stock (or went to another order) are no longer part of this jobsheet's set —
     // Edit takas must neither show nor remove them (their numbers stay used).
-    const existing = (await activeTakas(tx, id)).filter((t) => !t.isFreeStock && t.allocatedOrderNo === null);
+    const existing = (await activeTakas(tx, id)).filter(
+      (t) => !t.isFreeStock && t.allocatedOrderNo === null && (!receipt || t.outsideReceiptId === receipt.id),
+    );
     const values = data.takas.map((t) => t.takaNo);
     const used = await usedTakaNumbers(tx, values, existing.map((t) => t.id));
     assertValidNumbers(values, validateTakaNumbers(values, [], { used }), used);
+    if (receipt) {
+      // The weaver's own numbers: required where the taka had one, numeric, unique in the form and for the weaver.
+      const seen = new Set<string>();
+      const oldById = new Map(existing.map((t) => [t.id, t]));
+      data.takas.forEach((t, i) => {
+        const old = t.id !== undefined ? oldById.get(t.id) : undefined;
+        const w = t.weaverTakaNo?.trim() ?? '';
+        if (!w) {
+          if (old?.weaverTakaNo) throw badRequest(`Taka ${t.takaNo}: enter the weaver taka number`, `takas.${i}.weaverTakaNo`);
+          return;
+        }
+        if (!WEAVER_TAKA_NO_REGEX.test(w)) throw badRequest(`Taka ${t.takaNo}: weaver number — use digits, - or / only`, `takas.${i}.weaverTakaNo`);
+        if (seen.has(w)) throw badRequest(`Weaver taka ${w} is typed twice`, `takas.${i}.weaverTakaNo`);
+        seen.add(w);
+      });
+      if (receipt.weaverId !== null && seen.size) {
+        const clash = await tx
+          .select({ no: takas.weaverTakaNo })
+          .from(takas)
+          .where(
+            and(
+              eq(takas.weaverId, receipt.weaverId),
+              eq(takas.isDeleted, false),
+              inArray(takas.weaverTakaNo, [...seen]),
+              existing.length ? notInArray(takas.id, existing.map((t) => t.id)) : undefined,
+            ),
+          )
+          .limit(1);
+        if (clash.length) {
+          const i = data.takas.findIndex((t) => t.weaverTakaNo?.trim() === clash[0].no);
+          throw badRequest(`This weaver already sent taka ${clash[0].no}`, `takas.${Math.max(0, i)}.weaverTakaNo`);
+        }
+      }
+    }
 
     const byId = new Map(existing.map((t) => [t.id, t]));
     const seenIds = new Set<number>();
@@ -358,8 +423,10 @@ export async function editTakas(role: RoleKey, id: number, input: unknown): Prom
 
     // The rows as they will be saved.
     const rows: (EditRow & { plan: DamagePlan })[] = data.takas.map((t, i) => ({ ...t, plan: plans[i] }));
+    // Sprint 16: a receipt edit can change the weaver's number too (production takas never carry one).
+    const weaverNoOf = (t: (typeof rows)[number], old: Taka) => (receipt ? t.weaverTakaNo?.trim() || null : old.weaverTakaNo);
     const isChanged = (t: (typeof rows)[number], old: Taka) =>
-      old.takaNo !== t.takaNo || old.meters !== t.meters || old.pcs !== t.pcs || damagesChanged(t.plan);
+      old.takaNo !== t.takaNo || old.meters !== t.meters || old.pcs !== t.pcs || weaverNoOf(t, old) !== old.weaverTakaNo || damagesChanged(t.plan);
     // Pcs are required on every new or edited taka; only an unchanged older taka without pcs may stay without.
     rows.forEach((t, i) => {
       if (t.pcs !== null) return;
@@ -371,6 +438,7 @@ export async function editTakas(role: RoleKey, id: number, input: unknown): Prom
     if (addedRows.length && js.status !== JOBSHEET_STATUS.COMPLETED) {
       throw conflict('Takas can only be added once the jobsheet is completed.');
     }
+    if (addedRows.length && receipt) throw conflict('Takas of a receipt come in by receiving goods — they can be changed or removed here, not added.');
     const removed = existing.filter((t) => !seenIds.has(t.id));
     // A taka that is out on a challan (or already past the butta QC step it is in) can't just be removed.
     const stuck = removed.find((t) => ['at_butta', 'rework_butta', 'butta_qc', 'at_mill', 'mill_qc', 'final', 'refinish', 'ready_dispatch', 'dispatched'].includes(t.stage));
@@ -406,15 +474,28 @@ export async function editTakas(role: RoleKey, id: number, input: unknown): Prom
     for (const t of renumbered) {
       await tx.update(takas).set({ takaNo: `~${t.id}` }).where(eq(takas.id, t.id!));
     }
+    // Sprint 16: the same for the weaver's numbers (unique per weaver).
+    const reWeaver = changed.filter((t) => weaverNoOf(t, byId.get(t.id!)!) !== byId.get(t.id!)!.weaverTakaNo);
+    for (const t of reWeaver) {
+      await tx.update(takas).set({ weaverTakaNo: `~${t.id}` }).where(eq(takas.id, t.id!));
+    }
     for (const t of changed) {
       const old = byId.get(t.id!)!;
+      const weaverNo = weaverNoOf(t, old);
       await tx
         .update(takas)
-        .set({ takaNo: t.takaNo, meters: t.meters, pcs: t.pcs })
+        .set({
+          takaNo: t.takaNo,
+          meters: t.meters,
+          pcs: t.pcs,
+          // Our number = anything other than the weaver code + the weaver number (a received lot always has ours).
+          ...(receipt ? { weaverTakaNo: weaverNo, hasOwnNumber: !weaverNo || t.takaNo !== outsideTakaNumber(receipt.prefix, weaverNo) } : {}),
+        })
         .where(eq(takas.id, t.id!));
       touched.add(t.id!);
       const parts = [
         old.takaNo !== t.takaNo && `number ${old.takaNo} → ${t.takaNo}`,
+        weaverNo !== old.weaverTakaNo && `weaver number ${old.weaverTakaNo ?? '–'} → ${weaverNo ?? '–'}`,
         takaEditNote({ meters: old.meters, pcs: old.pcs }, { meters: t.meters, pcs: t.pcs }),
         ...t.plan.updates.map((u) => `damage ${u.before} → ${u.after}`),
         ...t.plan.removes.map((r) => `damage removed (${r.label})`),
@@ -472,6 +553,8 @@ export async function editTakas(role: RoleKey, id: number, input: unknown): Prom
     await refreshIsDamaged(tx, [...touched]);
     await writeTakaEvents(tx, role, events);
     if (noteChanged) await tx.update(jobsheets).set({ takaNote: note }).where(eq(jobsheets.id, id));
+    // Sprint 16: a receipt's totals (and its PO's received quantity) follow its takas.
+    if (receipt) await refreshReceiptTotals(tx, receipt.id);
 
     const after = await activeTakas(tx, id);
     const parts = [
@@ -499,7 +582,7 @@ export async function editTakas(role: RoleKey, id: number, input: unknown): Prom
 /* ------------------------------------------------------------------ */
 
 export async function listOrderTakas(role: RoleKey, orderId: number): Promise<OrderTakas> {
-  const [orderRows, sheetRows, takaRows] = await db.batch([
+  const [orderRows, sheetRows, takaRows, externalRows] = await db.batch([
     db.select({ id: orders.id, orderNo: orders.orderNo, status: orders.status }).from(orders).where(eq(orders.id, orderId)),
     db
       .select({
@@ -514,23 +597,89 @@ export async function listOrderTakas(role: RoleKey, orderId: number): Promise<Or
       })
       .from(jobsheets)
       .leftJoin(runningMachine, eq(runningMachine.id, jobsheets.runningMachineId))
-      .where(and(eq(jobsheets.orderId, orderId), eq(jobsheets.isDeleted, false)))
+      .where(and(eq(jobsheets.orderId, orderId), eq(jobsheets.isDeleted, false), realJobsheet))
       .orderBy(asc(jobsheets.jobsheetNo)),
     db
-      .select({ ...takaColumns, jobsheetId: takas.jobsheetId })
+      .select({ ...takaColumns, jobsheetId: takas.jobsheetId, isExternal: jobsheets.isExternal })
       .from(takas)
       .innerJoin(jobsheets, eq(jobsheets.id, takas.jobsheetId))
       .where(and(takaInOrder(orderId), eq(takas.isDeleted, false), eq(jobsheets.isDeleted, false))),
+    // Sprint 16: the order's hidden external jobsheet (outside / FG receipts) carries ONE shared note, if any —
+    // Edit takas of a receipt must read it back unchanged (it must never blank another receipt's note).
+    db
+      .select({ takaNote: jobsheets.takaNote })
+      .from(jobsheets)
+      .where(and(eq(jobsheets.orderId, orderId), eq(jobsheets.isExternal, true))),
   ]);
+  const externalNote = externalRows[0]?.takaNote ?? null;
   const order = orderRows[0];
   if (!order || !canRoleSeeStatus(role, order.status)) throw notFound('Order');
 
   const byJobsheet = new Map<number, Taka[]>();
-  for (const { jobsheetId, ...row } of takaRows) {
+  // Sprint 16: outside / FG takas (on an external jobsheet) are grouped by the receipt they came on.
+  const byReceipt = new Map<number, { jobsheetId: number; takas: Taka[] }>();
+  for (const { jobsheetId, isExternal, ...row } of takaRows) {
     const t = mapTaka(row);
+    if (isExternal) {
+      const key = t.outsideReceiptId ?? 0;
+      const g = byReceipt.get(key) ?? { jobsheetId, takas: [] };
+      g.takas.push(t);
+      byReceipt.set(key, g);
+      continue;
+    }
     const list = byJobsheet.get(jobsheetId);
     if (list) list.push(t);
     else byJobsheet.set(jobsheetId, [t]);
+  }
+  const receiptIds = [...byReceipt.keys()].filter((k) => k > 0);
+  const receiptRows = receiptIds.length
+    ? await db
+        .select({
+          id: outsideReceipts.id,
+          kind: outsideReceipts.kind,
+          challanNo: outsideReceipts.challanNo,
+          receiptDate: outsideReceipts.receiptDate,
+          poId: outsideReceipts.poId,
+          poNo: outsidePos.poNo,
+          weaverName: weavers.name,
+          weaverCode: weavers.shortCode,
+          supplierName: outsideReceipts.supplierName,
+        })
+        .from(outsideReceipts)
+        .leftJoin(outsidePos, eq(outsidePos.id, outsideReceipts.poId))
+        .leftJoin(weavers, eq(weavers.id, outsideReceipts.weaverId))
+        .where(inArray(outsideReceipts.id, receiptIds))
+        .orderBy(desc(outsideReceipts.id))
+    : [];
+  const receipts: ReceiptTakaGroup[] = receiptRows.map((r) => ({
+    receiptId: r.id,
+    kind: r.kind,
+    challanNo: r.challanNo,
+    receiptDate: r.receiptDate,
+    poId: r.poId,
+    poNo: r.poNo,
+    partyName: r.weaverName ?? r.supplierName,
+    jobsheetId: byReceipt.get(r.id)!.jobsheetId,
+    takas: sortTakas(byReceipt.get(r.id)!.takas),
+    note: externalNote,
+    prefix: r.kind === 'fg' ? FG_TAKA_PREFIX : r.weaverCode ?? '',
+  }));
+  // Takas on an external jobsheet without a receipt (e.g. split parts of an older one): one group of their own.
+  const loose = byReceipt.get(0);
+  if (loose) {
+    receipts.push({
+      receiptId: 0,
+      kind: 'outside_po',
+      challanNo: '—',
+      receiptDate: '',
+      poId: null,
+      poNo: null,
+      partyName: null,
+      jobsheetId: loose.jobsheetId,
+      takas: sortTakas(loose.takas),
+      note: externalNote,
+      prefix: '',
+    });
   }
   const groups: JobsheetTakaGroup[] = sheetRows.map((r) => ({
     jobsheetId: r.id,
@@ -580,7 +729,7 @@ export async function listOrderTakas(role: RoleKey, orderId: number): Promise<Or
       });
     }
   }
-  const all = groups.flatMap((g) => g.takas);
+  const all = [...groups.flatMap((g) => g.takas), ...receipts.flatMap((r) => r.takas)];
   return {
     orderId: order.id,
     orderNo: order.orderNo,
@@ -589,6 +738,7 @@ export async function listOrderTakas(role: RoleKey, orderId: number): Promise<Or
     totalMeters: totalMeters(all),
     totalPcs: totalPcs(all),
     groups,
+    receipts,
   };
 }
 
@@ -651,6 +801,14 @@ async function loadTakaDetail(role: RoleKey, where: SQL): Promise<TakaDetail> {
       orderStatus: orders.status,
       blouseOption: orders.blouseOption,
       isFreeStock: takas.isFreeStock,
+      source: takas.source,
+      weaverTakaNo: takas.weaverTakaNo,
+      hasOwnNumber: takas.hasOwnNumber,
+      hasBeenToMill: takas.hasBeenToMill,
+      beenToButta: sql<number>`EXISTS (SELECT 1 FROM challan_takas bt WHERE bt.taka_id = "takas"."id" AND bt.kind = 'butta')`,
+      orderHasProduction: orders.hasProduction,
+      orderHasButta: orders.hasButta,
+      orderHasMill: orders.hasMill,
       jobsheetId: jobsheets.id,
       jobsheetNo: jobsheets.jobsheetNo,
       quality: materials.name,
@@ -752,6 +910,12 @@ async function loadTakaDetail(role: RoleKey, where: SQL): Promise<TakaDetail> {
     quality: row.quality,
     blouseOption: row.blouseOption,
     isFreeStock: row.isFreeStock,
+    source: row.source,
+    weaverTakaNo: row.weaverTakaNo,
+    hasOwnNumber: row.hasOwnNumber,
+    orderSteps: { hasProduction: row.orderHasProduction, hasButta: row.orderHasButta, hasMill: row.orderHasMill },
+    beenToButta: Boolean(row.beenToButta),
+    hasBeenToMill: row.hasBeenToMill,
     design: { code: row.designCode, thumbUrl: row.thumbUrl, imageUrl: row.imageUrl },
     challans: challanRefs,
     events,
@@ -827,8 +991,17 @@ export async function getTakaDamagesDetail(role: RoleKey, id: number): Promise<T
 
 export const getTakaDetail = (role: RoleKey, id: number) => loadTakaDetail(role, eq(takas.id, id));
 
-/** The one active taka with this number (Receive and Butta QC). */
-export const takaByNo = (role: RoleKey, takaNo: string) => loadTakaDetail(role, eq(takas.takaNo, takaNo.trim()));
+/**
+ * The one active taka with this number (Receive and Butta QC). Sprint 16: our number OR an outside weaver's own number;
+ * when several takas carry it the client shows the "Which one?" picker (`GET /takas/lookup`) — here that is a 409.
+ */
+export async function takaByNo(role: RoleKey, takaNo: string): Promise<TakaDetail> {
+  const found = await resolveTakaNumber(db, takaNo);
+  if (found.kind === 'many') {
+    throw conflict(`${found.candidates.length} takas have number ${takaNo.trim()} — pick the right one.`, 'ambiguous');
+  }
+  return loadTakaDetail(role, found.kind === 'one' ? eq(takas.id, found.id) : eq(takas.takaNo, takaNo.trim()));
+}
 
 /* ------------------------------------------------------------------ */
 /* Taka entry Jobsheets list                                            */
@@ -843,7 +1016,8 @@ const lastTakaAt = sql<string | null>`(SELECT MAX(t.created_at) FROM takas t WHE
  */
 export async function listTakaJobsheets(role: RoleKey, q: TakaListQuery): Promise<TakaJobsheetPage> {
   // Sprint 15: jobsheets of a held order are hidden from Taka entry.
-  const base: (SQL | undefined)[] = [eq(jobsheets.isDeleted, false), orderNotHeldFor(role)];
+  // Sprint 16: never the hidden external jobsheet (outside / FG takas are not entered here).
+  const base: (SQL | undefined)[] = [eq(jobsheets.isDeleted, false), realJobsheet, orderNotHeldFor(role)];
   if (q.search) base.push(jobsheetSearch(q.search));
   const tabWhere = q.tab === 'pending' ? sql`${activeTakaCount} = 0` : sql`${activeTakaCount} > 0`;
   const order =

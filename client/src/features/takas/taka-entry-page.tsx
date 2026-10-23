@@ -5,6 +5,7 @@ import { toast } from 'sonner';
 import {
   cleanMeters,
   cleanPcs,
+  damageTypeOptions,
   formatMeters,
   formatPcs,
   JOBSHEET_STATUS,
@@ -541,6 +542,7 @@ export default function TakaEntryPage() {
                     takaPcs={parsePcs(r.pcs).pcs}
                     disabled={parsePcs(r.pcs).error !== null}
                     className="col-span-2 mt-1 md:col-span-1 md:row-start-2 md:mt-0"
+                    types={damageTypeOptions({ source: 'production', ...js?.orderSteps })}
                   />
                 </div>
                 {otherMessage && (

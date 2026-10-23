@@ -16,7 +16,7 @@ import { conflict, notFound } from '../lib/errors';
 import { likePattern } from '../lib/http';
 import { applyQcChanges } from './qc-shared';
 import { takaByNo } from './takas';
-import { recomputeOrdersStatus, refreshIsDamaged, writeTakaEvents, type TakaEventInput } from './taka-ops';
+import { freeTakasOfClosedOrders, recomputeOrdersStatus, refreshIsDamaged, writeTakaEvents, type TakaEventInput } from './taka-ops';
 import { takaOrderId } from './free-stock';
 
 /**
@@ -34,7 +34,7 @@ export async function listMillQcPending(q: ButtaListQuery): Promise<QcPendingPag
   if (parsed.search) {
     const term = parsed.search.replace(/^#/, '');
     const p = likePattern(term);
-    search = sql`(${takas.takaNo} LIKE ${p} ESCAPE '\\' OR ${orders.orderNo} = ${/^\d+$/.test(term) ? Number(term) : -1})`;
+    search = sql`(${takas.takaNo} LIKE ${p} ESCAPE '\\' OR ${takas.weaverTakaNo} LIKE ${p} ESCAPE '\\' OR ${orders.orderNo} = ${/^\d+$/.test(term) ? Number(term) : -1})`;
   }
   // Waiting for QC: back from the mill, or still marked at the mill on a challan the godown counted takas on.
   const where = and(
@@ -167,6 +167,8 @@ export async function submitMillQc(role: RoleKey, takaId: number, input: unknown
     } else {
       events.push({ takaId, event: 'mill_qc_done', note: moved[0].isDamaged ? 'Damaged' : 'Fresh' });
     }
+    // Sprint 16: a taka of a CLOSED order becomes free stock once it is back.
+    await freeTakasOfClosedOrders(tx, role, [takaId], at, events);
     await writeTakaEvents(tx, role, events);
     await recomputeOrdersStatus(tx, role, [taka.orderId]);
     return {

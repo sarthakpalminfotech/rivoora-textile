@@ -25,6 +25,7 @@ import {
   orderStatusForJobsheets,
   planFramesEdit,
   planJobsheets,
+  STATUS,
   type Coverage,
   type JobsheetActionResult,
   type JobsheetByNo,
@@ -78,6 +79,7 @@ import { takaInOrder } from './free-stock';
 import { liveJobsheetPieces } from './jobsheet-live';
 import { orderNotHeldFor } from './hold';
 import { rowFilters } from './work-filters';
+import { outsideCommittedPcs, outsidePcsPos, realJobsheet, realJobsheetRaw } from './external';
 
 const JOBSHEET_COUNTER = 'jobsheet_no';
 export const now = () => new Date().toISOString();
@@ -102,6 +104,7 @@ interface OrderPlanRow {
   unit: Unit;
   quantity: number;
   framesPerJobsheet: number | null;
+  hasProduction: boolean;
 }
 
 const orderPlanColumns = {
@@ -111,6 +114,7 @@ const orderPlanColumns = {
   unit: orders.unit,
   quantity: orders.quantity,
   framesPerJobsheet: orders.framesPerJobsheet,
+  hasProduction: orders.hasProduction,
 };
 
 /** The order, or 404 if it doesn't exist or its status isn't visible for the role. */
@@ -121,6 +125,10 @@ async function loadVisibleOrder(tx: DbOrTx, role: RoleKey, orderId: number): Pro
 }
 
 function assertJobsheetsAllowed(order: OrderPlanRow) {
+  // Sprint 16: an order without the Production step is made outside / bought — it never gets jobsheets.
+  if (!order.hasProduction) {
+    throw conflict('This order has no Production step (it is made outside or bought ready), so it has no jobsheets.');
+  }
   if (order.unit !== 'pcs') {
     throw conflict('Jobsheets are only available for orders in pcs for now (kg / g / meter orders are coming soon).');
   }
@@ -255,12 +263,19 @@ export const activeTakaCount = sql<number>`(SELECT COUNT(*) FROM takas t WHERE t
  * actually changes, and an order that is still Pending for production is never moved.
  */
 export async function recomputeOrderStatus(orderId: number, role: RoleKey, tx: Tx): Promise<boolean> {
-  const [order] = await tx.select({ status: orders.status }).from(orders).where(eq(orders.id, orderId));
-  if (!order || !isReadyOrLater(order.status)) return false;
+  const [order] = await tx
+    .select({ status: orders.status, hasProduction: orders.hasProduction, hasButta: orders.hasButta, hasMill: orders.hasMill, isClosed: orders.isClosed })
+    .from(orders)
+    .where(eq(orders.id, orderId));
+  if (!order) return false;
+  // Sprint 16: a closed order is Closed whatever its other status was (also while Pending for production).
+  if (order.isClosed) return order.status === STATUS.CLOSED ? false : writeStatus(tx, role, orderId, order.status, STATUS.CLOSED);
+  if (!isReadyOrLater(order.status)) return false;
+  // Real jobsheets only — the hidden external jobsheet (outside / FG takas) is not production.
   const rows = await tx
     .select({ status: jobsheets.status, takaCount: activeTakaCount })
     .from(jobsheets)
-    .where(and(eq(jobsheets.orderId, orderId), eq(jobsheets.isDeleted, false)));
+    .where(and(eq(jobsheets.orderId, orderId), eq(jobsheets.isDeleted, false), realJobsheet));
   // The stage of every active taka (butta cutting / waiting for the mill drive the later order statuses).
   const stageRows = await tx
     .select({ stage: takas.stage })
@@ -277,6 +292,7 @@ export async function recomputeOrderStatus(orderId: number, role: RoleKey, tx: T
     rows,
     stageRows.map((r) => r.stage),
     Number(gr?.n ?? 0) > 0,
+    { steps: { hasProduction: order.hasProduction, hasButta: order.hasButta, hasMill: order.hasMill } },
   );
   if (next === order.status) return false;
   return writeStatus(tx, role, orderId, order.status, next);
@@ -292,15 +308,18 @@ async function activeJobsheets(tx: DbOrTx, orderId: number) {
       completedFrames: jobsheets.completedFrames,
     })
     .from(jobsheets)
-    .where(and(eq(jobsheets.orderId, orderId), eq(jobsheets.isDeleted, false)))
+    .where(and(eq(jobsheets.orderId, orderId), eq(jobsheets.isDeleted, false), realJobsheet))
     .orderBy(asc(jobsheets.jobsheetNo));
 }
 
 type CoverageSheet = Parameters<typeof coverageFrames>[0][number];
 
-/** Live figures from the active jobsheets (Sprint 15) — never from the deprecated order counters. */
-function coverageOf(order: Pick<OrderPlanRow, 'quantity'>, list: CoverageSheet[]): Coverage {
-  return orderJobsheetPlan(order.quantity, list);
+/**
+ * Live figures from the active jobsheets (Sprint 15) — never from the deprecated order counters. Sprint 16: pcs given
+ * to outside weavers on pcs POs (`outsidePcs`) are left out of what the jobsheets must cover.
+ */
+function coverageOf(order: Pick<OrderPlanRow, 'quantity'>, list: CoverageSheet[], outsidePcs = 0): Coverage {
+  return orderJobsheetPlan(Math.max(0, order.quantity - outsidePcs), list);
 }
 
 /** Rows of (jobsheet, machine) → machines per jobsheet id. */
@@ -423,11 +442,13 @@ export async function listOrderJobsheets(role: RoleKey, orderId: number): Promis
       .leftJoin(jobsheetMachines, eq(jobsheetMachines.jobsheetId, jobsheets.id))
       .leftJoin(machines, eq(machines.id, jobsheetMachines.machineId))
       .leftJoin(runningMachine, eq(runningMachine.id, jobsheets.runningMachineId))
-      .where(and(eq(jobsheets.orderId, orderId), eq(jobsheets.isDeleted, false)))
+      .where(and(eq(jobsheets.orderId, orderId), eq(jobsheets.isDeleted, false), realJobsheet))
       .orderBy(asc(jobsheets.jobsheetNo), asc(machines.machineNo)),
   ]);
   const order = orderRows[0];
   if (!order || !canRoleSeeStatus(role, order.status)) throw notFound('Order');
+  const outsidePos = await outsidePcsPos(db, orderId);
+  const outsidePcs = outsidePos.reduce((s, p) => s + p.pcs, 0);
 
   const list: JobsheetListItem[] = [];
   for (const r of rows) {
@@ -454,7 +475,7 @@ export async function listOrderJobsheets(role: RoleKey, orderId: number): Promis
       item.machines.push({ id: r.machineId, machineNo: r.machineNo, name: r.machineName, isActive: r.machineActive ?? true });
     }
   }
-  const coverage = coverageOf(order, list);
+  const coverage = coverageOf(order, list, outsidePcs);
   return {
     orderId: order.id,
     orderNo: order.orderNo,
@@ -465,6 +486,7 @@ export async function listOrderJobsheets(role: RoleKey, orderId: number): Promis
     completedCount: list.filter((j) => j.status === JOBSHEET_STATUS.COMPLETED).length,
     coverage,
     warnings: coverageWarnings(coverage),
+    outsidePos,
   };
 }
 
@@ -488,8 +510,12 @@ export async function getJobsheet(role: RoleKey, id: number): Promise<JobsheetDe
         parentJobsheetId: jobsheets.parentJobsheetId,
         parentJobsheetNo,
         takaNote: jobsheets.takaNote,
+        isExternal: jobsheets.isExternal,
         blouseOption: orders.blouseOption,
         orderOnHold: orders.isOnHold,
+        orderHasProduction: orders.hasProduction,
+        orderHasButta: orders.hasButta,
+        orderHasMill: orders.hasMill,
         ...runningMachineColumns,
         order: orderPlanColumns,
         customer: { id: customers.id, name: customers.name, city: customers.city },
@@ -529,6 +555,7 @@ export async function getJobsheet(role: RoleKey, id: number): Promise<JobsheetDe
           // Outer column written explicitly (see the Drizzle gotcha in CLAUDE.md).
           sql`"jobsheets"."order_id" = (SELECT j2.order_id FROM jobsheets j2 WHERE j2.id = ${id})`,
           eq(jobsheets.isDeleted, false),
+          realJobsheet,
         ),
       )
       .orderBy(asc(jobsheets.jobsheetNo)),
@@ -558,12 +585,13 @@ export async function getJobsheet(role: RoleKey, id: number): Promise<JobsheetDe
   ]);
 
   const r = rows[0];
-  if (!r || r.isDeleted || !canRoleSeeJobsheetStatus(role, r.status)) throw notFound('Jobsheet');
+  // Sprint 16: the hidden external jobsheet is never opened as a jobsheet.
+  if (!r || r.isDeleted || r.isExternal || !canRoleSeeJobsheetStatus(role, r.status)) throw notFound('Jobsheet');
   const restricted = isRestricted(role);
   if (!restricted && !canRoleSeeStatus(role, r.order.status)) throw notFound('Jobsheet');
 
   const code = r.variationCode ?? r.designCode;
-  const coverage = restricted ? null : coverageOf(r.order, siblings);
+  const coverage = restricted ? null : coverageOf(r.order, siblings, await outsideCommittedPcs(db, r.order.id));
   // Takas are hidden from roles that can't see them (the supervisor) — including their activity entries.
   const seesTakas = can(role, 'canViewTakas');
   return {
@@ -571,6 +599,7 @@ export async function getJobsheet(role: RoleKey, id: number): Promise<JobsheetDe
     jobsheetNo: r.jobsheetNo,
     blouseOption: r.blouseOption,
     orderOnHold: r.orderOnHold,
+    orderSteps: { hasProduction: r.orderHasProduction, hasButta: r.orderHasButta, hasMill: r.orderHasMill },
     status: r.status,
     frames: r.frames,
     completedFrames: r.completedFrames,
@@ -619,13 +648,14 @@ export async function jobsheetByNo(role: RoleKey, jobsheetNo: number): Promise<J
       jobsheetNo: jobsheets.jobsheetNo,
       status: jobsheets.status,
       isDeleted: jobsheets.isDeleted,
+      isExternal: jobsheets.isExternal,
       orderNo: orders.orderNo,
       orderStatus: orders.status,
     })
     .from(jobsheets)
     .innerJoin(orders, eq(orders.id, jobsheets.orderId))
     .where(eq(jobsheets.jobsheetNo, jobsheetNo));
-  if (!r || r.isDeleted || !canRoleSeeJobsheetStatus(role, r.status)) throw notFound('Jobsheet');
+  if (!r || r.isDeleted || r.isExternal || !canRoleSeeJobsheetStatus(role, r.status)) throw notFound('Jobsheet');
   if (!isRestricted(role) && !canRoleSeeStatus(role, r.orderStatus)) throw notFound('Jobsheet');
   return { id: r.id, jobsheetNo: r.jobsheetNo, orderNo: r.orderNo };
 }
@@ -650,7 +680,7 @@ export async function printJobsheets(role: RoleKey, ids: number[]): Promise<Jobs
       .innerJoin(orders, eq(orders.id, jobsheets.orderId))
       .leftJoin(designs, eq(designs.id, orders.designId))
       .leftJoin(designVariations, eq(designVariations.id, orders.variationId))
-      .where(and(inArray(jobsheets.id, ids), eq(jobsheets.isDeleted, false))),
+      .where(and(inArray(jobsheets.id, ids), eq(jobsheets.isDeleted, false), realJobsheet)),
     db
       .select(machineColumns)
       .from(jobsheetMachines)
@@ -737,7 +767,7 @@ export async function listSupervisorJobsheets(role: RoleKey, q: JobsheetListQuer
   // Never Pending (not yet sent) — the visible set comes from the status config.
   const visible = supervisorStatuses(role);
   // Sprint 15: jobsheets of a held order are hidden from the supervisor.
-  const scope: (SQL | undefined)[] = [eq(jobsheets.isDeleted, false), inArray(jobsheets.status, visible), orderNotHeldFor(role)];
+  const scope: (SQL | undefined)[] = [eq(jobsheets.isDeleted, false), realJobsheet, inArray(jobsheets.status, visible), orderNotHeldFor(role)];
   if (q.orderId) scope.push(eq(jobsheets.orderId, q.orderId));
   const base = [...scope];
   if (q.search) base.push(jobsheetSearch(q.search));
@@ -860,7 +890,7 @@ export async function listSupervisorJobsheets(role: RoleKey, q: JobsheetListQuer
  * first). Never returns the client or other order details.
  */
 export async function listSupervisorOrders(role: RoleKey, q: SupervisorOrderListQuery): Promise<SupervisorOrderPage> {
-  const where: (SQL | undefined)[] = [eq(jobsheets.isDeleted, false), inArray(jobsheets.status, supervisorStatuses(role)), orderNotHeldFor(role)];
+  const where: (SQL | undefined)[] = [eq(jobsheets.isDeleted, false), realJobsheet, inArray(jobsheets.status, supervisorStatuses(role)), orderNotHeldFor(role)];
   if (q.search) {
     const term = searchTerm(q.search);
     const codeP = likePattern(normalizeCode(term));
@@ -880,7 +910,7 @@ export async function listSupervisorOrders(role: RoleKey, q: SupervisorOrderList
   const lastCompletedAt = sql<string | null>`MAX(${jobsheets.completedAt})`;
   // Sprint 15: all machines assigned across the order's visible jobsheets (same aggregate query, no per-card queries).
   const visibleStatuses = supervisorStatuses(role);
-  const machineNosJson = sql<string | null>`(SELECT json_group_array(DISTINCT m.machine_no) FROM jobsheet_machines jm JOIN jobsheets j ON j.id = jm.jobsheet_id JOIN machines m ON m.id = jm.machine_id WHERE j.order_id = "orders"."id" AND j.is_deleted = 0 AND j.status IN (${sql.join(visibleStatuses.map((s) => sql`${s}`), sql`, `)}))`;
+  const machineNosJson = sql<string | null>`(SELECT json_group_array(DISTINCT m.machine_no) FROM jobsheet_machines jm JOIN jobsheets j ON j.id = jm.jobsheet_id JOIN machines m ON m.id = jm.machine_id WHERE j.order_id = "orders"."id" AND j.is_deleted = 0 AND ${realJobsheetRaw('j')} AND j.status IN (${sql.join(visibleStatuses.map((s) => sql`${s}`), sql`, `)}))`;
   const from = () =>
     db
       .select({
@@ -962,10 +992,11 @@ async function loadJobsheetForWrite(tx: Tx, role: RoleKey, id: number) {
       orderId: jobsheets.orderId,
       status: jobsheets.status,
       isDeleted: jobsheets.isDeleted,
+      isExternal: jobsheets.isExternal,
     })
     .from(jobsheets)
     .where(eq(jobsheets.id, id));
-  if (!js || js.isDeleted) throw notFound('Jobsheet');
+  if (!js || js.isDeleted || js.isExternal) throw notFound('Jobsheet');
   const order = await loadVisibleOrder(tx, role, js.orderId).catch(() => {
     throw notFound('Jobsheet');
   });
@@ -1049,7 +1080,7 @@ export async function updateJobsheet(role: RoleKey, id: number, input: unknown):
 
     await recomputeOrderStatus(orderId, role, tx);
     const after = await activeJobsheets(tx, orderId);
-    const coverage = coverageOf(order, after);
+    const coverage = coverageOf(order, after, await outsideCommittedPcs(tx, orderId));
     return {
       orderNo: order.orderNo,
       updated: plan.updated,
@@ -1091,7 +1122,7 @@ export async function countActiveJobsheets(tx: DbOrTx, orderId: number): Promise
   const [row] = await tx
     .select({ n: sql<number>`COUNT(*)` })
     .from(jobsheets)
-    .where(and(eq(jobsheets.orderId, orderId), eq(jobsheets.isDeleted, false)));
+    .where(and(eq(jobsheets.orderId, orderId), eq(jobsheets.isDeleted, false), realJobsheet));
   return Number(row?.n ?? 0);
 }
 
@@ -1162,12 +1193,13 @@ async function loadJobsheetForRun(tx: Tx, role: RoleKey, id: number) {
       frames: jobsheets.frames,
       runningMachineId: jobsheets.runningMachineId,
       isDeleted: jobsheets.isDeleted,
+      isExternal: jobsheets.isExternal,
       orderNo: orders.orderNo,
     })
     .from(jobsheets)
     .innerJoin(orders, eq(orders.id, jobsheets.orderId))
     .where(eq(jobsheets.id, id));
-  if (!js || js.isDeleted || !canRoleSeeJobsheetStatus(role, js.status)) throw notFound('Jobsheet');
+  if (!js || js.isDeleted || js.isExternal || !canRoleSeeJobsheetStatus(role, js.status)) throw notFound('Jobsheet');
   if (js.status === JOBSHEET_STATUS.PENDING) throw notFound('Jobsheet');
   return { ...js, ref: jobsheetRef(js.orderNo, js.jobsheetNo) };
 }

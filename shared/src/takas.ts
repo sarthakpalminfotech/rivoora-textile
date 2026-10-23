@@ -3,16 +3,17 @@
  * Pure helpers shared by the server (validation) and the client (inline errors, summaries, QR scanning).
  */
 
-import { DAMAGE_TYPE_LABEL, isDamageType, type TakaStage } from './pipeline';
+import { DAMAGE_TYPE_LABEL, isDamageType, nextTakaStage, type TakaStage } from './pipeline';
 
 /**
- * Taka numbers: digits with single `-` or `/` separators between them (`6245`, `6245-1`, `62/45`), no letters —
- * except the one capital letter a split part gets (`1101A`, see `splitBase`).
+ * Taka numbers: digits with single `-` or `/` separators between them (`6245`, `6245-1`, `62/45`), optionally
+ * - after ONE capital letter at the end, the part a split makes (`1101A`, see `splitBase`), and
+ * - Sprint 16: behind a 1–4 letter capital prefix = an outside weaver's short code (`S1101`) or `FG` (FG purchase).
  * Stored as text so leading zeros are kept.
  */
 export const TAKA_NO_MAX_LENGTH = 15;
-/** An optional single capital letter at the end marks a part made by a split (1101A). Entry never produces it. */
-export const TAKA_NO_REGEX = /^\d+([-/]\d+)*[A-Z]?$/;
+/** Prefix (weaver code / FG, 0–4 capitals) + digits with - / + an optional split letter (1101A, S1101, S1101A, FG25). */
+export const TAKA_NO_REGEX = /^[A-Z]{0,4}\d+([-/]\d+)*[A-Z]?$/;
 
 /*
  * Damage types live in `pipeline.ts` (DAMAGE_TYPES / DAMAGE_TYPE_LABEL / DAMAGE_TYPE_CONFIG) = WHERE the damage was
@@ -39,14 +40,20 @@ export type TakaNoError = 'required' | 'format' | 'too_long' | 'duplicate' | 'al
  */
 export function cleanTakaNo(value: string): string {
   const kept = value.replace(/[^\dA-Z/-]/g, '');
+  // Sprint 16: up to 4 capital letters at the very start survive (a weaver's short code, `FG`).
+  const prefix = /^[A-Z]{1,4}/.exec(kept)?.[0] ?? '';
+  const rest = kept.slice(prefix.length);
   // A capital letter survives only as the last character right after a digit (the split-part suffix).
-  const suffix = /\d[A-Z]$/.test(kept) ? kept.slice(-1) : '';
-  const base = kept
+  const suffix = /\d[A-Z]$/.test(rest) ? rest.slice(-1) : '';
+  const base = rest
     .replace(/[A-Z]/g, '')
     .replace(/^[-/]+/, '')
     .replace(/([-/])[-/]+/g, '$1');
-  return (base + suffix).slice(0, TAKA_NO_MAX_LENGTH);
+  return (prefix + base + suffix).slice(0, TAKA_NO_MAX_LENGTH);
 }
+
+/** The letter prefix of a taka number ("S1101A" → "S", "1101" → ""). */
+export const takaNoPrefix = (takaNo: string): string => /^[A-Z]{1,4}(?=\d)/.exec(takaNo.trim())?.[0] ?? '';
 
 export function takaNoError(value: string): Exclude<TakaNoError, 'duplicate' | 'already_entered' | 'already_used'> | null {
   const v = value.trim();
@@ -88,7 +95,7 @@ export const hasTakaErrors = (errors: readonly (TakaNoError | null)[]) => errors
 /** English + Hindi messages for the inline field errors. */
 export const TAKA_ERROR_TEXT: Record<TakaNoError, { en: string; hi: string }> = {
   required: { en: 'Enter the taka number', hi: 'टाका नंबर लिखें' },
-  format: { en: 'Use digits, - or / only', hi: 'सिर्फ अंक, - या / लिखें' },
+  format: { en: 'Use digits, - or / (letters only as a short code at the start)', hi: 'सिर्फ अंक, - या / लिखें' },
   too_long: { en: `At most ${TAKA_NO_MAX_LENGTH} characters`, hi: `ज़्यादा से ज़्यादा ${TAKA_NO_MAX_LENGTH} अक्षर` },
   duplicate: { en: 'Typed twice', hi: 'दो बार लिखा है' },
   already_entered: { en: 'Already entered for this jobsheet', hi: 'इस जॉबशीट में पहले से है' },
@@ -297,11 +304,11 @@ export function damagePcsErrorText(error: DamagePcsError, takaPcs: number | null
 /* ------------------------------------------------------------------ */
 
 /**
- * The stage a taka starts in: `entered` (waiting for butta cutting) when the order's design goes for butta cutting —
- * or the order has no design — and `waiting_mill` when the design skips butta cutting.
+ * @deprecated Sprint 16: the ORDER's steps decide (`nextTakaStage(order, 'taka_entry')`); the design only pre-fills the
+ * Butta tick. Kept for older callers / tests: the old design rule for an order with Production + Mill.
  */
 export function initialTakaStage(design: { buttaCutting: boolean } | null | undefined): TakaStage {
-  return !design || design.buttaCutting ? 'entered' : 'waiting_mill';
+  return nextTakaStage({ hasButta: !design || design.buttaCutting, hasMill: true }, 'taka_entry');
 }
 
 /* ------------------------------------------------------------------ */
@@ -326,9 +333,13 @@ export function takaSummary(takas: readonly { isDamaged: boolean; meters?: numbe
  * stable order.
  */
 export function compareTakaNo(a: string, b: string): number {
+  // Sprint 16: numbers with a letter prefix (a weaver's code / FG) sort after ours, grouped by prefix.
+  const xa = takaNoPrefix(a);
+  const xb = takaNoPrefix(b);
+  if (xa !== xb) return xa === '' ? -1 : xb === '' ? 1 : xa.localeCompare(xb);
   // The split-part letter ("1101A") sorts right after its parent ("1101").
-  const pa = a.replace(/[A-Z]$/, '').split(/[-/]/).map(Number);
-  const pb = b.replace(/[A-Z]$/, '').split(/[-/]/).map(Number);
+  const pa = a.slice(xa.length).replace(/[A-Z]$/, '').split(/[-/]/).map(Number);
+  const pb = b.slice(xb.length).replace(/[A-Z]$/, '').split(/[-/]/).map(Number);
   for (let i = 0; i < Math.min(pa.length, pb.length); i++) {
     const d = (pa[i] || 0) - (pb[i] || 0);
     if (d) return d;
@@ -487,3 +498,144 @@ export function damageShareMessage(p: { damage: string; takaNo: string; orderNo:
 
 /** wa.me fallback link for desktops / browsers that cannot share files. */
 export const whatsappShareUrl = (text: string): string => `https://wa.me/?text=${encodeURIComponent(text)}`;
+
+/* ------------------------------------------------------------------ */
+/* Sprint 16: outside weavers' taka numbers                             */
+/* ------------------------------------------------------------------ */
+
+/** A weaver's short code: 1–4 capital letters, unique among active weavers. `FG` is reserved (FG purchase). */
+export const WEAVER_CODE_REGEX = /^[A-Z]{1,4}$/;
+export const RESERVED_WEAVER_CODES: readonly string[] = ['FG'];
+/** The prefix of an FG purchase taka that came without our number (FG1101). */
+export const FG_TAKA_PREFIX = 'FG';
+
+/** Keeps capital letters only (typed lowercase is upper-cased), at most 4. */
+export const cleanWeaverCode = (value: string): string => value.toUpperCase().replace(/[^A-Z]/g, '').slice(0, 4);
+
+export type WeaverCodeError = 'required' | 'format' | 'reserved';
+export function weaverCodeError(code: string): WeaverCodeError | null {
+  const v = code.trim();
+  if (!v) return 'required';
+  if (!WEAVER_CODE_REGEX.test(v)) return 'format';
+  if (RESERVED_WEAVER_CODES.includes(v)) return 'reserved';
+  return null;
+}
+export const WEAVER_CODE_ERROR_TEXT: Record<WeaverCodeError, string> = {
+  required: 'Enter the short code',
+  format: 'Use 1 to 4 letters (A–Z)',
+  reserved: 'FG is reserved for FG purchases',
+};
+
+/**
+ * The short code suggested from a weaver's name: the first letter of each word (up to 4), else the first letter;
+ * a code that is taken gets letters of the name added, then A, B, C … ("Shree Textiles" → "ST", "Shree" → "S").
+ */
+export function suggestWeaverCode(name: string, taken: Iterable<string> = []): string {
+  const used = new Set([...taken].map((c) => c.toUpperCase()));
+  const words = name.toUpperCase().replace(/[^A-Z\s]/g, ' ').split(/\s+/).filter(Boolean);
+  if (!words.length) return '';
+  const initials = words.map((w) => w[0]).join('').slice(0, 4);
+  const letters = words.join('');
+  const candidates = [initials, letters.slice(0, 1), letters.slice(0, 2), letters.slice(0, 3), letters.slice(0, 4)];
+  for (const c of candidates) if (c && !used.has(c) && !RESERVED_WEAVER_CODES.includes(c)) return c;
+  const base = initials.slice(0, 3);
+  for (const l of SPLIT_LETTERS) {
+    const c = `${base}${l}`;
+    if (!used.has(c) && !RESERVED_WEAVER_CODES.includes(c)) return c;
+  }
+  return initials;
+}
+
+/** Weaver taka numbers are numeric (digits with - or /), like ours. */
+export const WEAVER_TAKA_NO_REGEX = /^\d+([-/]\d+)*$/;
+export const cleanWeaverTakaNo = (value: string): string =>
+  value
+    .replace(/[^\d/-]/g, '')
+    .replace(/^[-/]+/, '')
+    .replace(/([-/])[-/]+/g, '$1')
+    .slice(0, TAKA_NO_MAX_LENGTH - 4);
+
+/**
+ * The system number of a taka received from outside: OUR number when it was typed, else the weaver's short code + the
+ * weaver's number (Shree Textiles, code S + 1101 → S1101; FG purchases use `FG`).
+ */
+export function outsideTakaNumber(code: string, weaverTakaNo: string, ourTakaNo?: string | null): string {
+  const own = ourTakaNo?.trim();
+  return own ? own : `${code}${weaverTakaNo.trim()}`;
+}
+
+/** The fields `printTakaNo` needs. */
+export interface PrintableTaka {
+  takaNo: string;
+  weaverTakaNo?: string | null;
+  /** Our number was typed for it (the system number is ours, not code + weaver number). */
+  hasOwnNumber?: boolean | null;
+}
+
+/**
+ * The number PRINTED on challans (butta / mill / delivery): our number when we gave one, else the weaver's exact number
+ * (1101, not S1101); a split part prints the weaver number + its letter (1101A). Production takas print their own number.
+ */
+export function printTakaNo(t: PrintableTaka): string {
+  if (t.hasOwnNumber || !t.weaverTakaNo) return t.takaNo;
+  return t.weaverTakaNo;
+}
+
+/**
+ * The weaver number of a split part: the parent's weaver number + the part's letter ("1101" + S1101B → "1101B").
+ * Null when the parent has no weaver number.
+ */
+export function splitWeaverTakaNo(parentWeaverNo: string | null | undefined, partTakaNo: string): string | null {
+  if (!parentWeaverNo) return null;
+  const letter = /[A-Z]$/.exec(partTakaNo.trim())?.[0] ?? '';
+  return `${parentWeaverNo.replace(/[A-Z]$/, '')}${letter}`;
+}
+
+export type OutsideRowError =
+  | 'weaver_required'
+  | 'weaver_format'
+  | 'weaver_duplicate'
+  | 'weaver_used'
+  | 'own_format'
+  | 'own_duplicate'
+  | 'system_used';
+
+export const OUTSIDE_ROW_ERROR_TEXT: Record<OutsideRowError, string> = {
+  weaver_required: 'Enter the weaver taka number',
+  weaver_format: 'Use digits, - or / only',
+  weaver_duplicate: 'Typed twice',
+  weaver_used: 'This weaver already sent this taka number',
+  own_format: 'Use digits, - or / (letters only as a short code at the start)',
+  own_duplicate: 'Our number typed twice',
+  system_used: 'Already used — type our number for this taka',
+};
+
+/**
+ * Validates the taka numbers of a receipt (outside weaver or FG lump): weaver numbers are required, numeric and unique in
+ * the form and for the weaver (`usedWeaverNos`); our numbers are optional, valid and unique; the resulting SYSTEM number
+ * (ours, else code + weaver number) must not be used anywhere (`usedSystemNos`). One error (or null) per row.
+ */
+export function validateOutsideRows(
+  rows: readonly { weaverTakaNo: string; ourTakaNo?: string | null }[],
+  code: string,
+  { usedWeaverNos, usedSystemNos }: { usedWeaverNos?: ReadonlySet<string> | null; usedSystemNos?: ReadonlySet<string> | null } = {},
+): (OutsideRowError | null)[] {
+  const seenWeaver = new Set<string>();
+  const seenSystem = new Set<string>();
+  return rows.map((r) => {
+    const w = r.weaverTakaNo.trim();
+    if (!w) return 'weaver_required';
+    if (!WEAVER_TAKA_NO_REGEX.test(w)) return 'weaver_format';
+    if (seenWeaver.has(w)) return 'weaver_duplicate';
+    seenWeaver.add(w);
+    if (usedWeaverNos?.has(w)) return 'weaver_used';
+    const own = r.ourTakaNo?.trim() ?? '';
+    if (own && takaNoError(own) !== null) return 'own_format';
+    const system = outsideTakaNumber(code, w, own);
+    if (seenSystem.has(system)) return own ? 'own_duplicate' : 'weaver_duplicate';
+    seenSystem.add(system);
+    if (system.length > TAKA_NO_MAX_LENGTH) return own ? 'own_format' : 'weaver_format';
+    if (usedSystemNos?.has(system)) return 'system_used';
+    return null;
+  });
+}

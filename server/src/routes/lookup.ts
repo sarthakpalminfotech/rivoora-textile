@@ -7,6 +7,7 @@ import { lookupParties } from '../services/parties';
 import { lookupDamages } from '../services/damages';
 import { lookupMachines } from '../services/machines';
 import { lookupMaterials } from '../services/materials';
+import { lookupWeavers } from '../services/weavers';
 
 /** Lightweight id + name endpoints for dropdowns. */
 export const lookupRouter = Router();
@@ -42,7 +43,7 @@ lookupRouter.get(
 /** Damage names for the damage popup: Jenish, Gaurang (edit takas), the Taka entry role and Butta QC. */
 lookupRouter.get(
   '/damages',
-  requirePermission('canViewMasters', 'canEnterTakas', 'canEditTakas', 'canButtaQc', 'canMillQc', 'canUseGodownOrders'),
+  requirePermission('canViewMasters', 'canEnterTakas', 'canEditTakas', 'canButtaQc', 'canMillQc', 'canUseGodownOrders', 'canReceiveOutside'),
   ah(async (req, res) => {
     res.set('Cache-Control', 'private, max-age=10');
     res.json(await lookupDamages(querySchema.parse(req.query).search));
@@ -69,10 +70,20 @@ lookupRouter.get(
   }),
 );
 
+/** Sprint 16: outside weavers for the PO form (Jenish, Gaurang). */
+lookupRouter.get(
+  '/weavers',
+  requirePermission('canManageWeavers', 'canCreateOutsidePo', 'canReceiveOutside'),
+  ah(async (req, res) => {
+    res.set('Cache-Control', 'private, max-age=10');
+    res.json(await lookupWeavers(querySchema.parse(req.query).search));
+  }),
+);
+
 lookupRouter.get(
   '/materials',
   // + the godown supervisor: the Quality filter of Butta cutting / Mill (names only).
-  requirePermission('canViewMasters', 'canViewProductionOrders', 'canUseButtaModule', 'canUseMillModule'),
+  requirePermission('canViewMasters', 'canViewProductionOrders', 'canUseButtaModule', 'canUseMillModule', 'canCreateOutsidePo'),
   ah(async (req, res) => {
     res.set('Cache-Control', 'private, max-age=10');
     res.json(await lookupMaterials(querySchema.parse(req.query).search));

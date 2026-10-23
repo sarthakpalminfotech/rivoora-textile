@@ -19,6 +19,9 @@ import type {
   Material,
   MaterialInput,
   VariationInput,
+  Weaver,
+  WeaverInput,
+  WeaverLookupItem,
 } from '@rivoora/shared';
 import { useInfiniteList } from '@/hooks/useInfiniteList';
 import { api } from '@/lib/api';
@@ -36,6 +39,8 @@ export const masterKeys = {
   lookupBrokers: (customerId: number) => ['lookup', 'customers', 'brokers', customerId] as const,
   damages: ['damages'] as const,
   lookupDamages: ['lookup', 'damages'] as const,
+  weavers: ['weavers'] as const,
+  lookupWeavers: ['lookup', 'weavers'] as const,
 };
 
 /* ---------- lookups (dropdowns) ---------- */
@@ -322,6 +327,58 @@ export function useDeleteParty(kind: ChallanKind) {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: partyKeys.all(kind) });
       void qc.invalidateQueries({ queryKey: partyKeys.lookup(kind) });
+    },
+  });
+}
+
+/* ---------- Sprint 16: weavers (Weaver master) ---------- */
+
+export const useWeavers = (search: string) => useInfiniteList<Weaver>([...masterKeys.weavers, 'list'], '/weavers', { search });
+
+/** Active weavers for the outside PO form. */
+export function useWeaverLookup(search = '', enabled = true) {
+  return useQuery({
+    queryKey: [...masterKeys.lookupWeavers, search],
+    queryFn: ({ signal }) => api.get<WeaverLookupItem[]>('/lookup/weavers', { search }, signal),
+    placeholderData: keepPreviousData,
+    staleTime: 30_000,
+    enabled,
+  });
+}
+
+/** The short code suggested from a weaver's name (editable; a taken code is skipped). */
+export function useSuggestWeaverCode(name: string, enabled: boolean) {
+  return useQuery({
+    queryKey: ['weavers', 'suggest-code', name],
+    queryFn: ({ signal }) => api.get<{ code: string }>('/weavers/suggest-code', { name }, signal),
+    enabled: enabled && name.trim().length > 0,
+    staleTime: 0,
+  });
+}
+
+export function useSaveWeaver() {
+  const qc = useQueryClient();
+  return useMutation({
+    meta: { silentFieldErrors: true },
+    mutationFn: ({ id, data }: { id?: number; data: WeaverInput }) =>
+      id ? api.put<Weaver>(`/weavers/${id}`, data) : api.post<Weaver>('/weavers', data),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: masterKeys.weavers });
+      void qc.invalidateQueries({ queryKey: masterKeys.lookupWeavers });
+      // The weaver's name appears on outside POs / receipts / challans.
+      void qc.invalidateQueries({ queryKey: ['outside'] });
+      void qc.invalidateQueries({ queryKey: ['receive-goods'] });
+    },
+  });
+}
+
+export function useDeleteWeaver() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => api.delete(`/weavers/${id}`),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: masterKeys.weavers });
+      void qc.invalidateQueries({ queryKey: masterKeys.lookupWeavers });
     },
   });
 }

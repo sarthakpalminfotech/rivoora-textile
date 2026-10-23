@@ -31,6 +31,7 @@ export function useOrders(filters: OrderFilters) {
     material: filters.materials,
     party: filters.parties,
     type: filters.types,
+    kind: filters.kinds,
     from: filters.from,
     to: filters.to,
   });

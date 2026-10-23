@@ -1,4 +1,5 @@
 import type { RoleKey } from './roles';
+import { orderKind, type OrderSteps } from './orderSteps';
 
 /**
  * Central order-status configuration, used by both client and server.
@@ -31,6 +32,8 @@ const DISPATCH_VISIBLE: readonly RoleKey[] = ['jemish', 'gaurang', 'dhruvil', GO
 const IN_PRODUCTION: readonly RoleKey[] = ['jemish', 'gaurang', 'supervisor'];
 /** In production → Taka entry done: also the godown supervisor (his orders have takas, so never "Jobsheet created"). */
 const IN_PRODUCTION_WITH_TAKAS: readonly RoleKey[] = [...IN_PRODUCTION, GODOWN];
+/** Sprint 16: outside production / FG purchase before any goods arrive — Jenish, Gaurang and Dhruvil (Receive goods). */
+const BEFORE_GOODS: readonly RoleKey[] = ['jemish', 'gaurang', 'dhruvil'];
 
 export const ORDER_STATUSES = [
   {
@@ -47,6 +50,22 @@ export const ORDER_STATUSES = [
     sequence: 20,
     badge: { bg: '#DCFCE7', text: '#166534', dot: '#22C55E' },
     visibleTo: FROM_READY,
+  },
+  {
+    // Sprint 16: no Production — POs placed with outside weavers, nothing received yet.
+    key: 'outside_production',
+    label: 'At outside weaver',
+    sequence: 22,
+    badge: { bg: '#E0F2FE', text: '#0369A1', dot: '#0284C7' },
+    visibleTo: BEFORE_GOODS,
+  },
+  {
+    // Sprint 16: direct FG purchase, nothing received yet.
+    key: 'awaiting_goods',
+    label: 'Awaiting goods',
+    sequence: 24,
+    badge: { bg: '#ECFEFF', text: '#155E75', dot: '#0891B2' },
+    visibleTo: BEFORE_GOODS,
   },
   {
     key: 'jobsheet_created',
@@ -112,6 +131,15 @@ export const ORDER_STATUSES = [
     visibleTo: FROM_BUTTA,
   },
   {
+    // Sprint 16: an order WITHOUT the Mill step whose takas are all with Dhruvil (final / refinish / ready) — the
+    // "Mill QC done" of orders that never go to the mill.
+    key: 'in_godown',
+    label: 'In godown',
+    sequence: 115,
+    badge: { bg: '#ECFDF5', text: '#047857', dot: '#10B981' },
+    visibleTo: DISPATCH_VISIBLE,
+  },
+  {
     key: 'ready_for_dispatch',
     label: 'Ready for dispatch',
     sequence: 120,
@@ -140,6 +168,14 @@ export const ORDER_STATUSES = [
     badge: { bg: '#E0F2FE', text: '#0C4A6E', dot: '#0284C7' },
     visibleTo: DISPATCH_VISIBLE,
   },
+  {
+    // Sprint 16: Close order (Jenish / Gaurang) — overrides every other status. Neutral grey.
+    key: 'closed',
+    label: 'Closed',
+    sequence: 150,
+    badge: { bg: '#F1F5F9', text: '#475569', dot: '#94A3B8' },
+    visibleTo: FROM_READY,
+  },
 ] as const satisfies readonly StatusConfig[];
 
 export type OrderStatusKey = (typeof ORDER_STATUSES)[number]['key'];
@@ -160,6 +196,10 @@ export const STATUS = {
   PARTLY_DISPATCHED: 'partly_dispatched',
   DISPATCHED: 'dispatched',
   RETURNED: 'returned',
+  OUTSIDE_PRODUCTION: 'outside_production',
+  AWAITING_GOODS: 'awaiting_goods',
+  IN_GODOWN: 'in_godown',
+  CLOSED: 'closed',
 } as const satisfies Record<string, OrderStatusKey>;
 
 export const STATUS_KEYS = ORDER_STATUSES.map((s) => s.key) as [OrderStatusKey, ...OrderStatusKey[]];
@@ -311,30 +351,59 @@ export function orderStatusForJobsheets(
   takaStages: readonly string[] = [],
   /** Sprint 13: the order had a goods return (its returned takas are free stock now and not in `takaStages`). */
   hadGoodsReturn = false,
+  /** Sprint 16: the order's steps (missing = Production + Butta + Mill, the old rules) and whether it was closed. */
+  ctx: OrderStatusContext = {},
 ): OrderStatusKey {
+  if (ctx.isClosed) return STATUS.CLOSED;
+  const hasMill = ctx.steps?.hasMill ?? true;
+  const kind = ctx.steps ? orderKind(ctx.steps) : 'in_house';
+  // Sprint 16: no Production — the takas decide; before any goods: at the outside weaver / awaiting goods.
+  if (kind !== 'in_house') {
+    if (takaStages.length === 0) {
+      if (hadGoodsReturn) return STATUS.RETURNED;
+      return kind === 'fg_purchase' ? STATUS.AWAITING_GOODS : STATUS.OUTSIDE_PRODUCTION;
+    }
+    return statusForTakaStages(takaStages, hadGoodsReturn, hasMill);
+  }
   const list = jobsheets.map((j) => (typeof j === 'string' ? { status: j, takaCount: 0 } : j));
+  // An in-house order without jobsheets stays Jobsheet pending (also while free stock / an outside PO already gave it takas).
   if (list.length === 0) return STATUS.READY_PRODUCTION;
   if (list.every((j) => j.status === JOBSHEET_STATUS.COMPLETED)) {
     if (!list.every((j) => (j.takaCount ?? 0) > 0)) return STATUS.PRODUCTION_COMPLETED;
-    // Sprint 12: once any taka is dispatched the order is Partly dispatched (Dispatched when every taka is).
-    if (takaStages.some((s) => s === 'dispatched')) {
-      if (!takaStages.every((s) => s === 'dispatched')) return STATUS.PARTLY_DISPATCHED;
-      return hadGoodsReturn ? STATUS.RETURNED : STATUS.DISPATCHED;
-    }
-    if (takaStages.some((s) => s === 'at_butta' || s === 'butta_qc' || s === 'rework_butta')) return STATUS.IN_BUTTA_CUTTING;
-    if (takaStages.length > 0 && takaStages.every((s) => s === 'waiting_mill')) return STATUS.READY_FOR_MILL;
-    // Nothing is in butta cutting any more. Takas still `entered` have not been through it yet (earliest stage wins).
-    if (!takaStages.includes('entered')) {
-      const past = (s: string) => PAST_MILL_STAGES.includes(s);
-      if (takaStages.length > 0 && takaStages.every((s) => s === 'ready_dispatch')) return STATUS.READY_FOR_DISPATCH;
-      if (takaStages.length > 0 && takaStages.every(past)) return STATUS.MILL_QC_DONE;
-      if (takaStages.length > 0 && takaStages.every((s) => s === 'mill_qc' || past(s))) return STATUS.RECEIVED_FROM_MILL;
-      if (takaStages.some((s) => s === 'at_mill' || s === 'mill_qc' || past(s))) return STATUS.IN_MILL;
-    }
-    return STATUS.TAKA_ENTRY_DONE;
+    return statusForTakaStages(takaStages, hadGoodsReturn, hasMill);
   }
   if (list.some((j) => j.status === JOBSHEET_STATUS.ONGOING || j.status === JOBSHEET_STATUS.COMPLETED)) {
     return STATUS.IN_PRODUCTION;
   }
   return STATUS.JOBSHEET_CREATED;
+}
+
+/** Sprint 16: what else the order-status rule needs to know about the order. */
+export interface OrderStatusContext {
+  steps?: OrderSteps;
+  /** Close order — overrides everything. */
+  isClosed?: boolean;
+}
+
+/**
+ * The status that follows from where the takas are (production is done, or there is no production): the EARLIEST
+ * unfinished stage wins. Without the Mill step an order whose takas are all with Dhruvil is "In godown".
+ */
+function statusForTakaStages(takaStages: readonly string[], hadGoodsReturn: boolean, hasMill: boolean): OrderStatusKey {
+  // Sprint 12: once any taka is dispatched the order is Partly dispatched (Dispatched when every taka is).
+  if (takaStages.some((s) => s === 'dispatched')) {
+    if (!takaStages.every((s) => s === 'dispatched')) return STATUS.PARTLY_DISPATCHED;
+    return hadGoodsReturn ? STATUS.RETURNED : STATUS.DISPATCHED;
+  }
+  if (takaStages.some((s) => s === 'at_butta' || s === 'butta_qc' || s === 'rework_butta')) return STATUS.IN_BUTTA_CUTTING;
+  if (takaStages.length > 0 && takaStages.every((s) => s === 'waiting_mill')) return STATUS.READY_FOR_MILL;
+  // Nothing is in butta cutting any more. Takas still `entered` have not been through it yet (earliest stage wins).
+  if (!takaStages.includes('entered')) {
+    const past = (s: string) => PAST_MILL_STAGES.includes(s);
+    if (takaStages.length > 0 && takaStages.every((s) => s === 'ready_dispatch')) return STATUS.READY_FOR_DISPATCH;
+    if (takaStages.length > 0 && takaStages.every(past)) return hasMill ? STATUS.MILL_QC_DONE : STATUS.IN_GODOWN;
+    if (takaStages.length > 0 && takaStages.every((s) => s === 'mill_qc' || past(s))) return STATUS.RECEIVED_FROM_MILL;
+    if (takaStages.some((s) => s === 'at_mill' || s === 'mill_qc' || past(s))) return STATUS.IN_MILL;
+  }
+  return STATUS.TAKA_ENTRY_DONE;
 }

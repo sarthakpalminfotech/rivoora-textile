@@ -184,6 +184,7 @@ function TakaRow({
         <div className="min-w-0">
           <p className={cn('flex flex-wrap items-center gap-x-2 text-xl font-bold tabular-nums', disabled ? 'text-slate-500' : 'text-slate-900')}>
             {taka.takaNo}
+            {taka.weaverTakaNo && <span className="text-xs font-medium text-slate-400">W {taka.weaverTakaNo}</span>}
             {taka.isReturnLot && <ReturnLotTag />}
             {taka.returnedAt && !taka.isReturnLot && <ReturnedTag />}
             {taka.originOrderNo != null && <FromOrderTag orderNo={taka.originOrderNo} />}

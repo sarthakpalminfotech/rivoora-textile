@@ -10,11 +10,15 @@ import {
   DAMAGE_NAME_MAX_LENGTH,
   MAX_TAKAS_PER_JOBSHEET,
   MAX_TAKAS_PER_SUBMIT,
+  RESERVED_WEAVER_CODES,
   TAKA_METERS_MAX,
   TAKA_NO_MAX_LENGTH,
   TAKA_NO_REGEX,
   TAKA_PCS_MAX,
+  WEAVER_CODE_REGEX,
+  WEAVER_TAKA_NO_REGEX,
 } from './takas';
+import { PO_UNITS } from './outside';
 
 export const PHONE_REGEX = /^[6-9]\d{9}$/;
 
@@ -141,8 +145,10 @@ export const variationInputSchema = z.object({
 });
 export type VariationInput = z.input<typeof variationInputSchema>;
 
-export const orderCreateSchema = z
-  .object({
+/** Sprint 16: the three steps of an order (all ticked by default on a new order). */
+const stepFlag = z.boolean({ invalid_type_error: 'Tick or untick the step' });
+
+const orderBaseShape = {
     customerId: z.number().int().positive('Select a client'),
     /** Optional broker — must be one of the customer's brokers (checked by the server). */
     brokerId: z.number().int().positive().nullish().transform((v) => v ?? null),
@@ -173,19 +179,61 @@ export const orderCreateSchema = z
       .array(z.object({ url: imageUrl, thumbUrl: imageUrl }))
       .max(10, 'At most 10 images')
       .default([]),
+};
+
+const designOk = (v: { newDesign: unknown; designId: unknown }) => !(v.newDesign && v.designId);
+const variationOk = (v: { variationId: unknown; designId: unknown }) => !v.variationId || !!v.designId;
+const DESIGN_REFINE = { message: 'Pick either a saved design or upload a new one', path: ['designId'] };
+const VARIATION_REFINE = { message: 'Variation needs a design', path: ['variationId'] };
+
+/** POST /orders — Sprint 16: + the steps (an old client that sends none gets all three, the old flow). */
+export const orderCreateSchema = z
+  .object({
+    ...orderBaseShape,
+    hasProduction: stepFlag.default(true),
+    hasButta: stepFlag.default(true),
+    hasMill: stepFlag.default(true),
   })
-  .refine((v) => !(v.newDesign && v.designId), {
-    message: 'Pick either a saved design or upload a new one',
-    path: ['designId'],
-  })
-  .refine((v) => !v.variationId || v.designId, {
-    message: 'Variation needs a design',
-    path: ['variationId'],
-  });
+  .refine(designOk, DESIGN_REFINE)
+  .refine(variationOk, VARIATION_REFINE);
 export type OrderCreateInput = z.input<typeof orderCreateSchema>;
 
-/** Editing an order sends the same fields as creating one (note images = the full new set). */
-export const orderUpdateSchema = orderCreateSchema;
+/**
+ * Editing an order sends the same fields as creating one (note images = the full new set). The steps are optional
+ * here — only sent (and only applied, by a role with `canEditOrderSteps`) when they change.
+ */
+export const orderUpdateSchema = z
+  .object({
+    ...orderBaseShape,
+    hasProduction: stepFlag.optional(),
+    hasButta: stepFlag.optional(),
+    hasMill: stepFlag.optional(),
+  })
+  .refine(designOk, DESIGN_REFINE)
+  .refine(variationOk, VARIATION_REFINE);
+
+/** PUT /orders/:id/steps */
+export const orderStepsSchema = z.object({ hasProduction: stepFlag, hasButta: stepFlag, hasMill: stepFlag });
+export type OrderStepsInput = z.input<typeof orderStepsSchema>;
+
+/** POST /orders/:id/close — an optional note + "Frames completed" for every jobsheet on the loom (like Hold). */
+export const orderCloseSchema = z.object({
+  note: optText(300),
+  ongoing: z
+    .array(
+      z.object({
+        jobsheetId: z.number().int().positive(),
+        completedFrames: z
+          .number({ required_error: 'Enter the frames completed', invalid_type_error: 'Enter the frames completed' })
+          .int('Use a whole number')
+          .min(0, 'Cannot be negative')
+          .max(100_000, 'Must be at most 1,00,000'),
+      }),
+    )
+    .max(500)
+    .default([]),
+});
+export type OrderCloseInput = z.input<typeof orderCloseSchema>;
 
 /** POST /orders/:id/hold (Sprint 15) — an optional note + "Frames completed" for every jobsheet that is on the loom. */
 export const orderHoldSchema = z.object({
@@ -328,7 +376,7 @@ const takaNo = z
   .trim()
   .min(1, 'Enter the taka number')
   .max(TAKA_NO_MAX_LENGTH, `At most ${TAKA_NO_MAX_LENGTH} characters`)
-  .regex(TAKA_NO_REGEX, 'Use digits, - or / only');
+  .regex(TAKA_NO_REGEX, 'Use digits, - or / (letters only as a short code at the start)');
 
 /** Pcs of a taka: a whole number 1–9999 (required on new takas). */
 const takaPcs = z
@@ -423,10 +471,14 @@ export const takaEditSchema = z.object({
         meters: takaMeters,
         pcs: takaPcs.nullish().transform((v) => v ?? null),
         damages: z.array(takaEditDamage).max(MAX_DAMAGES_PER_TAKA, `At most ${MAX_DAMAGES_PER_TAKA} damages per taka`).default([]),
+        /** Sprint 16: an outside taka's weaver number (Edit takas of a receipt). */
+        weaverTakaNo: z.string().trim().max(TAKA_NO_MAX_LENGTH).nullish().transform((v) => v || null),
       }),
     )
     .max(MAX_TAKAS_PER_JOBSHEET, `At most ${MAX_TAKAS_PER_JOBSHEET} takas per jobsheet`),
   note: takaNote,
+  /** Sprint 16: edit only the takas of this receipt (outside / FG takas live on the order's hidden external jobsheet). */
+  receiptId: z.number().int().positive().optional(),
 });
 export type TakaEditInput = z.input<typeof takaEditSchema>;
 
@@ -742,6 +794,102 @@ export const addFromFreeStockSchema = z.union([
     .strict(),
 ]);
 export type AddFromFreeStockInput = z.input<typeof addFromFreeStockSchema>;
+
+/* ---------- Sprint 16: weavers, outside POs, receipts, FG purchase ---------- */
+
+/** Weaver master: name + a 1–4 letter short code (unique among active weavers, `FG` reserved). */
+export const weaverInputSchema = z.object({
+  name: z.string().trim().min(1, 'Name is required').max(PARTY_NAME_MAX_LENGTH, 'Name is too long'),
+  shortCode: z
+    .string({ required_error: 'Enter the short code' })
+    .trim()
+    .transform((v) => v.toUpperCase())
+    .refine((v) => v.length > 0, 'Enter the short code')
+    .refine((v) => WEAVER_CODE_REGEX.test(v), 'Use 1 to 4 letters (A–Z)')
+    .refine((v) => !RESERVED_WEAVER_CODES.includes(v), 'FG is reserved for FG purchases'),
+  mobile: optText(20),
+  address: optText(500),
+  gstin: optText(20).transform((v) => (v ? v.toUpperCase() : null)),
+  notes: optText(1000),
+});
+export type WeaverInput = z.input<typeof weaverInputSchema>;
+
+/** POST /orders/:id/outside-pos and PUT /outside-pos/:id */
+export const outsidePoInputSchema = z.object({
+  weaverId: z.number({ required_error: 'Select the weaver', invalid_type_error: 'Select the weaver' }).int().positive('Select the weaver'),
+  materialId: z.number({ required_error: 'Select the quality', invalid_type_error: 'Select the quality' }).int().positive('Select the quality'),
+  quantity: z
+    .number({ required_error: 'Enter the quantity', invalid_type_error: 'Enter the quantity' })
+    .positive('Quantity must be more than 0')
+    .max(10_000_000),
+  unit: z.enum(PO_UNITS, { errorMap: () => ({ message: 'Pick pcs or meters' }) }),
+  orderType: z.enum(ORDER_TYPES, { required_error: 'Pick the order type', invalid_type_error: 'Pick the order type' }),
+  rate: z.number().min(0, 'Rate cannot be negative').max(100_000_000).nullish().transform((v) => v ?? null),
+  poDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Pick the PO date'),
+  notes: optText(1000),
+});
+export type OutsidePoInput = z.input<typeof outsidePoInputSchema>;
+
+const receiptHeader = {
+  challanNo: z.string({ required_error: "Enter the challan number" }).trim().min(1, "Enter the challan number").max(40, 'At most 40 characters'),
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Pick the date'),
+  notes: optText(1000),
+};
+
+/** A damage on a received taka: like a QC damage (type, name, pcs, photos) — the type is usually Weaver damage. */
+const receiptDamage = qcNewDamageSchema;
+
+/** One received taka: the weaver's / supplier's number (required), OUR number (optional), pcs, meters, damages. */
+export const receiptRowSchema = z.object({
+  weaverTakaNo: z
+    .string({ required_error: 'Enter the weaver taka number' })
+    .trim()
+    .min(1, 'Enter the weaver taka number')
+    .max(TAKA_NO_MAX_LENGTH - 4, 'Too long')
+    .regex(WEAVER_TAKA_NO_REGEX, 'Use digits, - or / only'),
+  ourTakaNo: z
+    .string()
+    .trim()
+    .max(TAKA_NO_MAX_LENGTH)
+    .nullish()
+    .transform((v) => v || null)
+    .refine((v) => v === null || TAKA_NO_REGEX.test(v), 'Use digits, - or / (letters only as a short code at the start)'),
+  pcs: takaPcs,
+  meters: takaMeters,
+  damages: z.array(receiptDamage).max(MAX_DAMAGES_PER_TAKA).default([]),
+});
+export type ReceiptRowInput = z.input<typeof receiptRowSchema>;
+/** A receipt row after parsing (defaults filled in). */
+export type ReceiptRow = z.infer<typeof receiptRowSchema>;
+
+const receiptRows = z
+  .array(receiptRowSchema, { required_error: 'Enter at least one taka' })
+  .min(1, 'Enter at least one taka')
+  .max(MAX_TAKAS_PER_SUBMIT, `At most ${MAX_TAKAS_PER_SUBMIT} takas at a time`);
+
+/** POST /outside-pos/:id/receipts */
+export const outsideReceiptSchema = z.object({ ...receiptHeader, rows: receiptRows });
+export type OutsideReceiptInput = z.input<typeof outsideReceiptSchema>;
+
+const supplierName = z.string({ required_error: 'Enter the supplier name' }).trim().min(1, 'Enter the supplier name').max(PARTY_NAME_MAX_LENGTH, 'Name is too long');
+
+/** POST /orders/:id/fg-receipts — lump: taka rows (FG + number when ours is not typed); pcs to pcs: received pcs only. */
+export const fgReceiptSchema = z.union([
+  z.object({ ...receiptHeader, supplierName, rows: receiptRows }).strict(),
+  z
+    .object({
+      ...receiptHeader,
+      supplierName,
+      pcs: z.number({ required_error: 'Enter the received pcs', invalid_type_error: 'Enter the received pcs' }).int('Use a whole number').min(1, 'At least 1 pcs').max(1_000_000),
+      damagedPcs: z.number({ invalid_type_error: 'Enter the damaged pcs' }).int('Use a whole number').min(0).max(1_000_000).default(0),
+      damage: receiptDamage.optional(),
+    })
+    .strict(),
+]);
+export type FgReceiptInput = z.input<typeof fgReceiptSchema>;
+
+/** GET /takas/lookup?no= */
+export const takaLookupQuerySchema = z.object({ no: z.string().trim().min(1, 'Enter the taka number').max(40) });
 
 /** GET /dispatched */
 export const DISPATCHED_STATUS_FILTERS = ['partly_dispatched', 'dispatched', 'returned'] as const;

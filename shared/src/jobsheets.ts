@@ -348,12 +348,31 @@ export function completedFramesNote(assigned: number, completed: number): string
  * jobsheet number follows in brackets. `jobsheet_no` itself is unchanged (global, never reused, used by the QR).
  */
 
-/** "Order #26 (319)" */
+/**
+ * Sprint 16: the hidden EXTERNAL jobsheet of an order (outside / FG takas point to it) has a NEGATIVE number
+ * (`-orders.id`): unique, never in the counter's range, never scannable, never shown — references to it read "Order #26".
+ */
+export const isExternalJobsheetNo = (jobsheetNo: number | null | undefined): boolean => typeof jobsheetNo === 'number' && jobsheetNo <= 0;
+export const externalJobsheetNo = (orderId: number): number => -orderId;
+
+/** "Order #26 (319)" ("Order #26" for the hidden external jobsheet). */
 export function jobsheetRef(orderNo: number, jobsheetNo: number): string {
-  return `Order #${orderNo} (${jobsheetNo})`;
+  return isExternalJobsheetNo(jobsheetNo) ? `Order #${orderNo}` : `Order #${orderNo} (${jobsheetNo})`;
 }
 
-/** "#26 (319)" — chips, tiles, toasts and other tight spots. */
+/** "#26 (319)" — chips, tiles, toasts and other tight spots ("#26" for the external jobsheet). */
 export function jobsheetRefShort(orderNo: number, jobsheetNo: number): string {
-  return `#${orderNo} (${jobsheetNo})`;
+  return isExternalJobsheetNo(jobsheetNo) ? `#${orderNo}` : `#${orderNo} (${jobsheetNo})`;
+}
+
+/**
+ * Sprint 16: pcs of an order given to outside weavers on pcs POs, which the jobsheets don't need to cover: an open /
+ * received PO counts its quantity (or what came, if more), a closed one what was received, a cancelled one nothing.
+ */
+export function outsidePoCommittedPcs(pos: readonly { unit: string; quantity: number; receivedQty: number; status: string }[]): number {
+  return Math.round(
+    pos
+      .filter((p) => p.unit === 'pcs' && p.status !== 'cancelled')
+      .reduce((s, p) => s + (p.status === 'closed' ? p.receivedQty : Math.max(p.quantity, p.receivedQty)), 0),
+  );
 }

@@ -69,11 +69,12 @@ describe('taka numbers with a split letter', () => {
     expect(takaNoError('1101A')).toBeNull();
     expect(takaNoError('62/45B')).toBeNull();
     expect(takaNoError('1101a')).toBe('format');
-    expect(takaNoError('A1101')).toBe('format');
+    // Sprint 16: a 1–4 letter prefix (weaver code) is allowed in front.
+    expect(takaNoError('A1101')).toBeNull();
     expect(takaNoError('1101AB')).toBe('format');
     expect(cleanTakaNo('1101A')).toBe('1101A');
     expect(cleanTakaNo('1101ab')).toBe('1101');
-    expect(cleanTakaNo('A1101')).toBe('1101');
+    expect(cleanTakaNo('A1101')).toBe('A1101');
     expect(cleanTakaNo('11A01')).toBe('1101');
   });
 

@@ -1,7 +1,7 @@
 /**
  * Rework (Sprint 12): sending takas back to butta cutting or the mill. Pure rules shared by server and client.
  */
-import type { TakaStage } from './pipeline';
+import { nextTakaStage, type TakaStage } from './pipeline';
 
 export type SendBackTarget = 'butta' | 'mill';
 
@@ -33,9 +33,8 @@ export function reworkSelectable(stage: string): ReworkSelectable {
 }
 
 /**
- * A taka that has already been to the mill (itself, or any ancestor through `parent_taka_id`) is dyed: after a Butta QC
- * (e.g. a re-butta) it goes back to the godown (`final`) — to its order, or still free stock — and NOT to the mill again.
- * Everything else follows the normal flow: `waiting_mill`.
+ * @deprecated Sprint 16: use `nextTakaStage(order, 'butta_qc', taka)` (it also follows the order's Mill tick).
+ * Kept for older callers / tests: the same rule for an order that has the Mill step.
  */
 export function stageAfterButtaQc(taka: {
   hasBeenToMill?: boolean | null;
@@ -43,8 +42,7 @@ export function stageAfterButtaQc(taka: {
   hasMillHistory?: boolean;
   refinishCount?: number | null;
 }): TakaStage {
-  const dyed = !!taka.hasBeenToMill || !!taka.ancestorHasBeenToMill || !!taka.hasMillHistory || (taka.refinishCount ?? 0) > 0;
-  return dyed ? 'final' : 'waiting_mill';
+  return nextTakaStage({ hasButta: true, hasMill: true }, 'butta_qc', taka);
 }
 
 /** The stage a taka sent back to `target` moves to. */

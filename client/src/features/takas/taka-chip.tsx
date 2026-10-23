@@ -17,7 +17,25 @@ import { cn } from '@/lib/utils';
 import { FreeStockTag, FromOrderTag, InOrderTag, ReButtaTag, ReturnLotTag, ReturnedTag } from './taka-tags';
 
 type ChipTaka = Pick<Taka, 'takaNo' | 'meters' | 'pcs' | 'damages'> &
-  Partial<Pick<Taka, 'stage' | 'challanNo' | 'challanKind' | 'actualPcs' | 'refinishCount' | 'parentTakaNo' | 'godownCheckedAt' | 'reworkCount' | 'isReturnLot' | 'returnedAt' | 'originOrderNo' | 'isFreeStock' | 'allocatedOrderNo'>>;
+  Partial<
+    Pick<
+      Taka,
+      | 'stage'
+      | 'challanNo'
+      | 'challanKind'
+      | 'actualPcs'
+      | 'refinishCount'
+      | 'parentTakaNo'
+      | 'godownCheckedAt'
+      | 'reworkCount'
+      | 'isReturnLot'
+      | 'returnedAt'
+      | 'originOrderNo'
+      | 'isFreeStock'
+      | 'allocatedOrderNo'
+      | 'weaverTakaNo'
+    >
+  >;
 
 /** Selection mode (send back): a tick box in front of the chip; `disabledReason` greys the chip out (shown as a tooltip). */
 export interface TakaChipSelect {
@@ -124,6 +142,7 @@ export function TakaChip({ taka, size = 'md', showStage, showChallan, bilingual,
         {showStage && taka.stage && <StageDot stage={taka.stage} />}
         {damaged && <AlertTriangle className={cn('shrink-0', lg ? 'size-4' : 'size-3.5')} aria-hidden />}
         {taka.takaNo}
+        {taka.weaverTakaNo && <span className="text-[12px] font-medium text-slate-400">W {taka.weaverTakaNo}</span>}
         {taka.parentTakaNo && <span className="text-[12px] font-medium text-slate-400">from {taka.parentTakaNo}</span>}
         {taka.meters != null && <span className={sub}>· {formatMeters(taka.meters)}</span>}
         <span className={sub}>

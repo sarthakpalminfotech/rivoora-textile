@@ -27,6 +27,8 @@ import { takaRouter } from './routes/taka';
 import { takasRouter } from './routes/takas';
 import { uploadsRouter } from './routes/uploads';
 import { dispatchRouter, dispatchedRouter } from './routes/dispatch';
+import { weaversRouter } from './routes/weavers';
+import { outsidePosRouter, receiveGoodsRouter } from './routes/outside';
 
 const app = express();
 app.disable('x-powered-by');
@@ -78,6 +80,10 @@ api.use('/godown', godownRouter);
 api.use('/inventory', inventoryRouter);
 api.use('/dispatch', dispatchRouter);
 api.use('/dispatched', dispatchedRouter);
+// Sprint 16: weavers, outside POs, Receive goods.
+api.use('/weavers', weaversRouter);
+api.use('/outside-pos', outsidePosRouter);
+api.use('/receive-goods', receiveGoodsRouter);
 api.use('/lookup', lookupRouter);
 api.use('/uploads', uploadsRouter);
 api.use(notFoundHandler);

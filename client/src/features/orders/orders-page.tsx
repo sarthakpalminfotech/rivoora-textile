@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { STATUS, type OrderListItem } from '@rivoora/shared';
+import { OrderStepsTag } from './order-steps-tag';
 import { OrderTypeTag } from './order-type-tag';
 import { usePageTitle } from '@/components/layout/page-title';
 import { ErrorState, Fab, FetchingIndicator, LoadMore, SearchBar } from '@/components/list-parts';
@@ -163,7 +164,7 @@ export default function OrdersPage() {
   const hasFilters = activeCount > 0 || !!filters.search;
   const clearAll = () => {
     setSearchText('');
-    setFilters({ search: '', statuses: [], materials: [], parties: [], types: [], from: undefined, to: undefined });
+    setFilters({ search: '', statuses: [], materials: [], parties: [], types: [], kinds: [], from: undefined, to: undefined });
   };
   const count = selected.size;
 
@@ -312,6 +313,7 @@ export default function OrdersPage() {
                         <div className="flex flex-wrap items-end gap-1.5 pb-0.5">
                           <OrderTypeTag type={o.orderType} />
                           <BlouseTag option={o.blouseOption} />
+                          <OrderStepsTag steps={o} />
                         </div>
                         {can('canSeeClient') && o.brokerName && <Field label="Broker" value={o.brokerName} />}
                       </dl>
@@ -370,7 +372,7 @@ export default function OrdersPage() {
         open={confirmOpen}
         onOpenChange={setConfirmOpen}
         title={`Send ${count} order${count === 1 ? '' : 's'} for production?`}
-        description="They will move to Jobsheet pending and become visible to the production team."
+        description="Each one moves on from Pending — in-house orders to Jobsheet pending, outside / FG purchase orders straight to their own next step (no jobsheets for those)."
         confirmLabel="Confirm"
         loading={send.isPending}
         onConfirm={confirmSend}

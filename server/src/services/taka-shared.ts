@@ -52,6 +52,12 @@ export const takaColumns = {
   isFreeStock: takas.isFreeStock,
   freeStockReason: takas.freeStockReason,
   allocatedOrderNo: takaAllocatedOrderNo,
+  // Sprint 16: outside / FG takas.
+  source: takas.source,
+  weaverTakaNo: takas.weaverTakaNo,
+  hasOwnNumber: takas.hasOwnNumber,
+  outsideReceiptId: takas.outsideReceiptId,
+  isReceivedLot: takas.isReceivedLot,
   enteredBy: takas.enteredBy,
   createdAt: takas.createdAt,
 };

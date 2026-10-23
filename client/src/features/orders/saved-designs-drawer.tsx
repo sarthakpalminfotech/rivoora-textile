@@ -22,6 +22,9 @@ export interface SavedDesignPick {
   thumbUrl: string | null;
   /** The design's fixed material — pre-selected on the order. */
   material: { id: number; name: string } | null;
+  /** Sprint 16: the design's "Goes for butta cutting" — pre-fills the order's Butta step until the user taps it themselves.
+   * Undefined for a pick from "Previous orders" (not loaded there). */
+  buttaCutting?: boolean;
 }
 
 interface SavedDesignsDrawerProps {
@@ -160,7 +163,7 @@ function DesignVariationsView({
 }) {
   const { data: design, isPending, isError, error, refetch } = useDesign(designId);
   const pickBase = (d: Design) =>
-    onPick({ designId: d.id, variationId: null, code: d.code, imageUrl: d.imageUrl, thumbUrl: d.thumbUrl, material: d.material });
+    onPick({ designId: d.id, variationId: null, code: d.code, imageUrl: d.imageUrl, thumbUrl: d.thumbUrl, material: d.material, buttaCutting: d.buttaCutting });
 
   return (
     <div className="space-y-4">
@@ -202,6 +205,7 @@ function DesignVariationsView({
                     imageUrl: v.imageUrl,
                     thumbUrl: v.thumbUrl,
                     material: design.material,
+                    buttaCutting: design.buttaCutting,
                   })
                 }
               />

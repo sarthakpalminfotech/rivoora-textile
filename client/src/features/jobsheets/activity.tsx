@@ -11,6 +11,7 @@ const DOT: Record<JobsheetEventKind, string> = {
   machine_changed: '#8B5CF6',
   takas_entered: '#14B8A6',
   takas_edited: '#A855F7',
+  cancelled: '#EF4444',
 };
 
 const fr = (n: number) => `${n} frame${n === 1 ? '' : 's'}`;
@@ -35,6 +36,8 @@ export function eventTitle(e: JobsheetEvent, assignedFrames: number): string {
       return e.note ? `Takas entered — ${e.note}` : 'Takas entered';
     case 'takas_edited':
       return 'Takas edited';
+    case 'cancelled':
+      return 'Cancelled';
     default:
       return e.event;
   }

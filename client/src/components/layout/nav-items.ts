@@ -10,6 +10,7 @@ import {
   LayoutGrid,
   Layers,
   Palette,
+  PackageSearch,
   ScanLine,
   Scissors,
   Store,
@@ -57,6 +58,9 @@ export const NAV_ITEMS: NavItem[] = [
   // Dhruvil (dispatch): final takas, split, ready to dispatch, dispatch challans. Jenish / Gaurang have their own Orders.
   { to: '/godown/orders', label: 'Orders', icon: Warehouse, permission: 'canUseGodownOrders', group: 'main', hideWith: 'canViewOrders' },
   { to: '/dispatched', label: 'Dispatched', icon: Truck, permission: 'canDispatch', group: 'main' },
+  // Sprint 16: Receive goods (outside weavers' challans, FG purchases) — the godown supervisor and Dhruvil; Jenish /
+  // Gaurang receive from the order's Outside production tab instead, so it is not in their nav.
+  { to: '/receive-goods', label: 'Receive goods', icon: PackageSearch, permission: 'canReceiveOutside', group: 'main', hideWith: 'canViewOrders' },
   // One Masters entry; the page lists every master the role may open.
   { to: '/masters', label: 'Masters', icon: Database, permission: 'canViewMasters', group: 'main' },
   { to: '/customers', label: 'Customers', icon: Users, permission: 'canViewMasters', group: 'masters' },
@@ -66,6 +70,7 @@ export const NAV_ITEMS: NavItem[] = [
   { to: '/damages', label: 'Damage master', icon: Bandage, permission: 'canViewMasters', group: 'masters' },
   { to: '/butta-parties', label: 'Butta parties', icon: Store, permission: 'canManageButtaParties', group: 'masters' },
   { to: '/mill-parties', label: 'Mill parties', icon: Store, permission: 'canManageMillParties', group: 'masters' },
+  { to: '/weavers', label: 'Weavers', icon: Store, permission: 'canManageWeavers', group: 'masters' },
   { to: '/users', label: 'Users', icon: UserCog, permission: 'canManageUsers', group: 'masters' },
 ];
 

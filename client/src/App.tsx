@@ -41,6 +41,11 @@ const ChallanModulePage = lazy(() => import('@/features/challans/challan-module-
 const ChallanDetailsPage = lazy(() => import('@/features/challans/challan-details-page'));
 const ChallanPrintPage = lazy(() => import('@/features/challans/challan-print-page'));
 const PartiesPage = lazy(() => import('@/features/masters/parties/parties-page'));
+const WeaversPage = lazy(() => import('@/features/masters/weavers/weavers-page'));
+const ReceiveGoodsPage = lazy(() => import('@/features/outside/receive-goods-page'));
+const OutsidePoReceivePage = lazy(() => import('@/features/outside/outside-po-receive-page'));
+const FgReceivePage = lazy(() => import('@/features/outside/fg-receive-page'));
+const PoPrintPage = lazy(() => import('@/features/outside/po-print-page'));
 const DamageDetailsPage = lazy(() => import('@/features/takas/damage-details-page'));
 const QcHomePage = lazy(() => import('@/features/qc/qc-home-page'));
 const QcTakaPage = lazy(() => import('@/features/butta-qc/qc-taka-page'));
@@ -142,6 +147,36 @@ const router = createBrowserRouter([
         ),
       },
       {
+        path: '/print/outside-po/:id',
+        element: (
+          <Suspense fallback={<PageSkeleton />}>
+            <RequirePermission permission={['canCreateOutsidePo', 'canReceiveOutside']}>
+              <PoPrintPage />
+            </RequirePermission>
+          </Suspense>
+        ),
+      },
+      {
+        path: '/outside-pos/:id/receive',
+        element: (
+          <Suspense fallback={<PageSkeleton />}>
+            <RequirePermission permission="canReceiveOutside">
+              <OutsidePoReceivePage />
+            </RequirePermission>
+          </Suspense>
+        ),
+      },
+      {
+        path: '/orders/:id/receive-fg',
+        element: (
+          <Suspense fallback={<PageSkeleton />}>
+            <RequirePermission permission="canReceiveOutside">
+              <FgReceivePage />
+            </RequirePermission>
+          </Suspense>
+        ),
+      },
+      {
         element: <AppLayout />,
         children: [
           { index: true, element: <LandingRedirect /> },
@@ -159,6 +194,8 @@ const router = createBrowserRouter([
           { path: 'orders/:orderId/takas/:takaId/damages', element: guard(['canEditTakas', 'canViewProductionOrders', 'canViewGodownOrders'], <DamageDetailsPage />) },
           { path: 'butta-parties', element: guard('canManageButtaParties', <PartiesPage kind="butta" />) },
           { path: 'mill-parties', element: guard('canManageMillParties', <PartiesPage kind="mill" />) },
+          { path: 'weavers', element: guard('canManageWeavers', <WeaversPage />) },
+          { path: 'receive-goods', element: guard('canReceiveOutside', <ReceiveGoodsPage />) },
           // Butta cutting + Mill modules (Jenish, Gaurang, Godown supervisor) and the Butta QC role.
           { path: 'butta', element: guard('canUseButtaModule', <ChallanModulePage kind="butta" />) },
           { path: 'butta/challans/:id', element: guard('canUseButtaModule', <ChallanDetailsPage kind="butta" />) },

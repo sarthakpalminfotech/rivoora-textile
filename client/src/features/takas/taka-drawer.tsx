@@ -53,6 +53,8 @@ const EVENT_LABEL: Record<TakaEventKind, string> = {
   moved_to_inventory: 'Moved to inventory (free stock)',
   allocated_from_free_stock: 'Added from free stock',
   moved_order: 'Moved to another order',
+  received_outside: 'Received from outside weaver',
+  received_fg: 'Received (FG purchase)',
 };
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
@@ -82,11 +84,15 @@ function Body({ takaId }: { takaId: number }) {
   return (
     <div className="space-y-5">
       <dl className="grid grid-cols-2 gap-x-4 gap-y-3">
-        <Row label="Order / Jobsheet">
-          <JobsheetLink id={t.jobsheetId} className="text-primary hover:underline">
+        <Row label={t.source === 'production' ? 'Order / Jobsheet' : 'Order'}>
+          <JobsheetLink id={t.jobsheetId} jobsheetNo={t.jobsheetNo} className="text-primary hover:underline">
             {jobsheetRefShort(t.orderNo, t.jobsheetNo)}
           </JobsheetLink>
+          {t.source !== 'production' && (
+            <span className="block text-[13px] font-medium text-slate-500">{t.source === 'fg_purchase' ? 'FG purchase' : 'From outside weaver'}</span>
+          )}
         </Row>
+        {t.weaverTakaNo && <Row label={t.source === 'fg_purchase' ? 'Supplier taka no' : 'Weaver taka no'}>{t.weaverTakaNo}</Row>}
         <Row label="Quality">{t.quality ?? '—'}</Row>
         <Row label="Meters">{t.meters != null ? formatMeters(t.meters) : '—'}</Row>
         <Row label="Pcs">

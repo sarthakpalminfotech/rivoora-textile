@@ -6,6 +6,7 @@ import {
   validateQcDecisions,
   DAMAGE_NOT_MARKED,
   DAMAGE_RECORDED_AT_LABEL,
+  type ChoosableDamageType,
   type DamageRecordedAt,
   type DamageType,
   type RoleKey,
@@ -22,8 +23,8 @@ import { insertTakaDamages, resolveDamageNames, type TakaEventInput } from './ta
 export const isOurImageUrl = (url: string) => url.startsWith('/uploads/') || /^https:\/\//i.test(url);
 
 export interface NewDamageInput {
-  /** The damage type chosen with the radio; null/absent = "not marked" (goods return only). */
-  type?: 'machine' | 'butta' | 'mill' | null;
+  /** The damage type chosen with the radio; null/absent = "not marked" (goods return only). Sprint 16: + weaver. */
+  type?: ChoosableDamageType | null;
   pcs: number;
   images: { url: string; thumbUrl: string }[];
   damageId?: number;

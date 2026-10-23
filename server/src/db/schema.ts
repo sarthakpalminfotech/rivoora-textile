@@ -21,8 +21,12 @@ import type {
   JobsheetStatusKey,
   OrderStatusKey,
   OrderType,
+  PoStatus,
+  PoUnit,
+  ReceiptKind,
   RoleKey,
   TakaEventKind,
+  TakaSource,
   TakaStage,
   Unit,
 } from '@rivoora/shared';
@@ -180,11 +184,24 @@ export const orders = sqliteTable(
     heldByUserId: integer('held_by_user_id'),
     holdNote: text('hold_note'),
     releasedAt: text('released_at'),
+    /**
+     * Sprint 16: which main steps happen in our system. Backfilled on existing orders: Production + Mill = 1, Butta =
+     * the design's current "Goes for butta cutting" (1 without a design) — exactly the old routing.
+     */
+    hasProduction: integer('has_production', { mode: 'boolean' }).notNull().default(true),
+    hasButta: integer('has_butta', { mode: 'boolean' }).notNull().default(true),
+    hasMill: integer('has_mill', { mode: 'boolean' }).notNull().default(true),
+    /** Sprint 16: Close order (Jenish / Gaurang). Overrides every status. */
+    isClosed: integer('is_closed', { mode: 'boolean' }).notNull().default(false),
+    closedAt: text('closed_at'),
+    closedByUserId: integer('closed_by_user_id'),
+    closeNote: text('close_note'),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
   (t) => [
     uniqueIndex('orders_order_no_unique').on(t.orderNo),
+    index('orders_is_closed_idx').on(t.isClosed),
     index('orders_is_on_hold_idx').on(t.isOnHold),
     index('orders_status_idx').on(t.status),
     index('orders_order_date_idx').on(t.orderDate),
@@ -208,6 +225,24 @@ export const orderNoteImages = sqliteTable(
     updatedAt: updatedAt(),
   },
   (t) => [index('order_note_images_order_idx').on(t.orderId)],
+);
+
+/** Sprint 16: "Steps changed: …" / "Order closed" entries of the order History tab. */
+export const orderEvents = sqliteTable(
+  'order_events',
+  {
+    id: id(),
+    orderId: integer('order_id')
+      .notNull()
+      .references(() => orders.id, { onDelete: 'cascade' }),
+    event: text('event').$type<'steps_changed' | 'order_closed'>().notNull(),
+    note: text('note'),
+    role: text('role').$type<RoleKey>().notNull(),
+    userId: integer('user_id'),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index('order_events_order_idx').on(t.orderId)],
 );
 
 /** Sprint 15: "Put on hold" / "Released from hold" entries of the order History tab. */
@@ -291,6 +326,12 @@ export const jobsheets = sqliteTable(
     suggestedMachineId: integer('suggested_machine_id').references(() => machines.id),
     /** Common note of the taka entry (appended on every entry, editable by Jenish / Gaurang). */
     takaNote: text('taka_note'),
+    /**
+     * Sprint 16: the order's ONE hidden external jobsheet — outside PO / FG takas point to it (takas.jobsheet_id is NOT
+     * NULL). Its number is `-orders.id` (never in the counter's range, never shown); every jobsheet list / count leaves
+     * it out (`realJobsheet`).
+     */
+    isExternal: integer('is_external', { mode: 'boolean' }).notNull().default(false),
     isDeleted: isDeleted(),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
@@ -406,12 +447,26 @@ export const takas = sqliteTable(
     allocatedOrderId: integer('allocated_order_id').references(() => orders.id),
     /** Sprint 13: the taka (or one of its ancestors through `parent_taka_id`) has been to the mill. */
     hasBeenToMill: integer('has_been_to_mill', { mode: 'boolean' }).notNull().default(false),
+    /** Sprint 16: `production` (taka entry) · `outside_po` (an outside weaver's challan) · `fg_purchase`. */
+    source: text('source').$type<TakaSource>().notNull().default('production'),
+    /** Sprint 16: the weaver's / supplier's own taka number (printed when we gave no number of our own). */
+    weaverTakaNo: text('weaver_taka_no'),
+    weaverId: integer('weaver_id'),
+    /** Sprint 16: our number was typed for it (else the system number = weaver code + weaver number). */
+    hasOwnNumber: integer('has_own_number', { mode: 'boolean' }).notNull().default(false),
+    outsideReceiptId: integer('outside_receipt_id'),
+    /** Sprint 16: the one taka made for an FG pcs-to-pcs receipt ("Received lot"). */
+    isReceivedLot: integer('is_received_lot', { mode: 'boolean' }).notNull().default(false),
     enteredBy: text('entered_by').$type<RoleKey>().notNull(),
     isDeleted: isDeleted(),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
   (t) => [
+    index('takas_receipt_idx').on(t.outsideReceiptId),
+    // Sprint 16: the same weaver can't send the same taka number twice.
+    uniqueIndex('takas_weaver_no_active_unique').on(t.weaverId, t.weaverTakaNo).where(sql`${t.isDeleted} = 0 AND ${t.weaverId} IS NOT NULL`),
+    index('takas_weaver_taka_no_idx').on(t.weaverTakaNo),
     index('takas_parent_idx').on(t.parentTakaId),
     index('takas_jobsheet_idx').on(t.jobsheetId),
     index('takas_order_idx').on(t.orderId),
@@ -734,6 +789,104 @@ export const sessions = sqliteTable(
     lastSeenAt: text('last_seen_at').notNull().default(nowIso),
   },
   (t) => [index('sessions_user_idx').on(t.userId), index('sessions_expires_idx').on(t.expiresAt)],
+);
+
+/* ------------------------------------------------------------------ */
+/* Sprint 16: weavers, outside POs, receipts                            */
+/* ------------------------------------------------------------------ */
+
+/** Outside weavers (Weaver master). `short_code` (1–4 letters, unique among active, `FG` reserved) prefixes their takas. */
+export const weavers = sqliteTable(
+  'weavers',
+  {
+    id: id(),
+    name: text('name').notNull(),
+    shortCode: text('short_code').notNull(),
+    mobile: text('mobile'),
+    address: text('address'),
+    gstin: text('gstin'),
+    notes: text('notes'),
+    isDeleted: isDeleted(),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    uniqueIndex('weavers_short_code_active_unique').on(t.shortCode).where(sql`${t.isDeleted} = 0`),
+    uniqueIndex('weavers_name_active_unique').on(sql`lower(${t.name})`).where(sql`${t.isDeleted} = 0`),
+  ],
+);
+
+/** Purchase orders to outside weavers (PO-n, counter `outside_po_no`, never reused). */
+export const outsidePos = sqliteTable(
+  'outside_pos',
+  {
+    id: id(),
+    poNo: integer('po_no').notNull(),
+    orderId: integer('order_id')
+      .notNull()
+      .references(() => orders.id),
+    weaverId: integer('weaver_id')
+      .notNull()
+      .references(() => weavers.id),
+    materialId: integer('material_id')
+      .notNull()
+      .references(() => materials.id),
+    quantity: real('quantity').notNull(),
+    unit: text('unit').$type<PoUnit>().notNull(),
+    orderType: text('order_type').$type<OrderType>().notNull(),
+    rate: real('rate'),
+    /** yyyy-MM-dd */
+    poDate: text('po_date').notNull(),
+    notes: text('notes'),
+    status: text('status').$type<PoStatus>().notNull().default('open'),
+    /** Received so far, in the PO's unit (pcs or meters), and how many takas. */
+    receivedQty: real('received_qty').notNull().default(0),
+    receivedTakas: integer('received_takas').notNull().default(0),
+    closedAt: text('closed_at'),
+    closedByUserId: integer('closed_by_user_id'),
+    /** `manual` | `order_closed` */
+    closeReason: text('close_reason'),
+    cancelledAt: text('cancelled_at'),
+    createdBy: text('created_by').$type<RoleKey>().notNull(),
+    createdByUserId: integer('created_by_user_id'),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    uniqueIndex('outside_pos_po_no_unique').on(t.poNo),
+    index('outside_pos_order_idx').on(t.orderId),
+    index('outside_pos_weaver_idx').on(t.weaverId),
+    index('outside_pos_status_idx').on(t.status),
+  ],
+);
+
+/** One received challan: against an outside PO (`po_id`) or a direct FG purchase (`supplier_name`). */
+export const outsideReceipts = sqliteTable(
+  'outside_receipts',
+  {
+    id: id(),
+    kind: text('kind').$type<ReceiptKind>().notNull(),
+    poId: integer('po_id').references(() => outsidePos.id),
+    orderId: integer('order_id')
+      .notNull()
+      .references(() => orders.id),
+    weaverId: integer('weaver_id').references(() => weavers.id),
+    supplierName: text('supplier_name'),
+    /** The weaver's / supplier's challan number (their number, as typed). */
+    challanNo: text('challan_no').notNull(),
+    /** yyyy-MM-dd */
+    receiptDate: text('receipt_date').notNull(),
+    notes: text('notes'),
+    takas: integer('takas').notNull().default(0),
+    pcs: integer('pcs').notNull().default(0),
+    meters: real('meters').notNull().default(0),
+    damagedPcs: integer('damaged_pcs').notNull().default(0),
+    createdBy: text('created_by').$type<RoleKey>().notNull(),
+    createdByUserId: integer('created_by_user_id'),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index('outside_receipts_order_idx').on(t.orderId), index('outside_receipts_po_idx').on(t.poId)],
 );
 
 /** Named running counters (e.g. `jobsheet_no`). Allocate inside the write transaction. */

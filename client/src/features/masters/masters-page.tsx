@@ -12,6 +12,7 @@ const DESCRIPTIONS: Record<string, string> = {
   '/damages': 'Damage names used on takas',
   '/butta-parties': 'Butta cutting parties',
   '/mill-parties': 'Mill (dyeing) parties',
+  '/weavers': 'Outside weavers',
   '/users': 'People who can log in',
 };
 

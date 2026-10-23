@@ -1,5 +1,5 @@
 import { useRole } from "@/hooks/useRole";
-import { ChevronDown, ImageOff, Pencil, Phone, Undo2 } from "lucide-react";
+import { Ban, ChevronDown, ImageOff, Pencil, Phone, Undo2 } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import type { OrderDetail } from "@rivoora/shared";
 import { Button } from "@/components/ui/button";
@@ -12,6 +12,7 @@ import {
   formatQuantity,
 } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { OrderStepsTag } from "../order-steps-tag";
 import { OrderTypeTag } from "../order-type-tag";
 import { BlouseTag } from '../../free-stock/blouse';
 import { HoldButtons, ON_HOLD_HINT, OnHoldBadge } from '../hold/hold-order';
@@ -95,6 +96,7 @@ export function OrderHeader({
   onEdit,
   onHold,
   onRelease,
+  onClose,
 }: {
   order: OrderDetail;
   onUndo?: () => void;
@@ -102,6 +104,8 @@ export function OrderHeader({
   /** Sprint 15 (Jenish): Hold order / Release hold. */
   onHold?: () => void;
   onRelease?: () => void;
+  /** Sprint 16 (Jenish, Gaurang): Close order — hidden once it is already closed. */
+  onClose?: () => void;
 }) {
   const [more, setMore] = useState(false);
   const { can } = useRole();
@@ -170,7 +174,8 @@ export function OrderHeader({
       ),
     },
     // Sprint 15: the godown supervisor's Orders start at butta cutting — no production fields.
-    ...(order.unit === "pcs" && !can("canViewGodownOrders")
+    // Sprint 16: no jobsheets at all for an order without the Production step.
+    ...(order.unit === "pcs" && order.hasProduction && !can("canViewGodownOrders")
       ? [
           {
             label: "Jobsheet quantity",
@@ -224,9 +229,10 @@ export function OrderHeader({
           </h2>
           <OrderTypeTag type={order.orderType} className="text-xs" />
           <BlouseTag option={order.blouseOption} />
+          <OrderStepsTag steps={order} />
           <StatusBadge status={order.status} />
           {order.isOnHold && <OnHoldBadge />}
-          {(onUndo || onEdit || onHold || onRelease) && (
+          {(onUndo || onEdit || onHold || onRelease || onClose) && (
             <div className="flex items-center gap-2 md:ml-auto">
               <HoldButtons held={order.isOnHold} canHold={!!(onHold && onRelease)} onHold={() => onHold?.()} onRelease={() => onRelease?.()} />
               {onUndo && (
@@ -244,6 +250,18 @@ export function OrderHeader({
                   title={order.isOnHold ? ON_HOLD_HINT : 'Edit order'}
                 >
                   <Pencil />
+                </Button>
+              )}
+              {onClose && !order.isClosed && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={onClose}
+                  disabled={order.isOnHold}
+                  className="text-destructive hover:bg-destructive-soft"
+                  title={order.isOnHold ? ON_HOLD_HINT : 'Close order'}
+                >
+                  <Ban /> Close order
                 </Button>
               )}
             </div>

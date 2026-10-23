@@ -84,6 +84,16 @@ export interface RolePermissions {
   canSeeHeldOrders: boolean;
   /** Sprint 15: the godown supervisor's read-only Orders module (butta cutting onwards, no client / rate). */
   canViewGodownOrders: boolean;
+  /** Sprint 16: change an order's steps (Production · Butta cutting · Mill) after it was created. */
+  canEditOrderSteps: boolean;
+  /** Sprint 16: the Weaver master (outside weavers). */
+  canManageWeavers: boolean;
+  /** Sprint 16: create / edit / cancel / close outside POs (and print them). */
+  canCreateOutsidePo: boolean;
+  /** Sprint 16: receive goods against an outside PO or for a direct FG purchase (the Receive goods module). */
+  canReceiveOutside: boolean;
+  /** Sprint 16: Close order. */
+  canCloseOrder: boolean;
 }
 
 export interface RoleConfig {
@@ -112,6 +122,11 @@ const NO_SPRINT12 = {
   canHoldOrder: false,
   canSeeHeldOrders: false,
   canViewGodownOrders: false,
+  canEditOrderSteps: false,
+  canManageWeavers: false,
+  canCreateOutsidePo: false,
+  canReceiveOutside: false,
+  canCloseOrder: false,
 };
 /** Jenish + Gaurang: all the Sprint 12 owner permissions. */
 const OWNER_SPRINT12 = {
@@ -125,6 +140,12 @@ const OWNER_SPRINT12 = {
   canHoldOrder: false,
   canSeeHeldOrders: true,
   canViewGodownOrders: false,
+  // Sprint 16: order steps, weavers, outside POs, receiving goods, Close order.
+  canEditOrderSteps: true,
+  canManageWeavers: true,
+  canCreateOutsidePo: true,
+  canReceiveOutside: true,
+  canCloseOrder: true,
 };
 
 const NO_TAKAS = { canUseTakaModules: false, canEnterTakas: false, canEditTakas: false, canViewTakas: false };
@@ -315,7 +336,8 @@ export const ROLES: Record<RoleKey, RoleConfig> = {
     // Restricted view: order numbers, design and quality only (no client, rate or other order details).
     // Sprint 12: the godown Orders module moved to Dhruvil — he keeps Butta cutting and Mill.
     // Sprint 15: + the read-only Orders module (butta cutting onwards): order, takas, damages, docs — no client, no rate.
-    permissions: { ...NOTHING, canUseButtaModule: true, canUseMillModule: true, canViewGodownOrders: true, canViewTakas: true },
+    // Sprint 16: + Receive goods (outside weavers' challans, FG purchases) — never the client or rate there.
+    permissions: { ...NOTHING, canUseButtaModule: true, canUseMillModule: true, canViewGodownOrders: true, canViewTakas: true, canReceiveOutside: true },
   },
   // One person does both QCs: the Butta QC and the Mill QC share this role and one screen (/qc).
   qc: {
@@ -343,6 +365,8 @@ export const ROLES: Record<RoleKey, RoleConfig> = {
       canDispatch: true,
       canGoodsReturn: true,
       canMoveToInventory: true,
+      // Sprint 16: Receive goods (outside weavers' challans, FG purchases).
+      canReceiveOutside: true,
     },
   },
 };

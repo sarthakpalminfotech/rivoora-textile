@@ -370,8 +370,9 @@ export default function DispatchPrintPage() {
   usePageTitle(data ? `Print challan ${data.label}` : 'Print challan');
 
   const lump = data?.order.orderType === 'lump';
-  const pages = useMemo(() => (data && lump ? paginateChallanTakas(data.takas) : []), [data, lump]);
-  const pcsOf = useMemo<PcsOf>(() => new Map((data?.takas ?? []).map((t) => [t.takaNo, t.pcs])), [data]);
+  // Sprint 16: the printed number is ours when we gave one, else the weaver's / supplier's own number.
+  const pages = useMemo(() => (data && lump ? paginateChallanTakas(data.takas.map((t) => ({ takaNo: t.printNo, meters: t.meters }))) : []), [data, lump]);
+  const pcsOf = useMemo<PcsOf>(() => new Map((data?.takas ?? []).map((t) => [t.printNo, t.pcs])), [data]);
   const totals = useMemo(() => (data ? dispatchTotals(data.takas) : { takas: 0, pcs: 0, meters: 0 }), [data]);
   const pageCount = lump ? pages.length : 1;
   const pagePxW = PAGE_W_MM * MM_TO_PX;

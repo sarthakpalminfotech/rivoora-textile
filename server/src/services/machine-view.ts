@@ -15,7 +15,7 @@ export async function getMachineView(role: RoleKey): Promise<MachineViewData> {
         name: machines.name,
         isActive: machines.isActive,
         // Outer column written explicitly (see the Drizzle gotcha in CLAUDE.md).
-        lastCompletedAt: sql<string | null>`(SELECT MAX(j.completed_at) FROM jobsheets j WHERE j.running_machine_id = "machines"."id" AND j.is_deleted = 0)`,
+        lastCompletedAt: sql<string | null>`(SELECT MAX(j.completed_at) FROM jobsheets j WHERE j.running_machine_id = "machines"."id" AND j.is_deleted = 0 AND j.is_external = 0)`,
       })
       .from(machines)
       .where(eq(machines.isDeleted, false))
@@ -36,7 +36,7 @@ export async function getMachineView(role: RoleKey): Promise<MachineViewData> {
       .leftJoin(designs, eq(designs.id, orders.designId))
       .leftJoin(designVariations, eq(designVariations.id, orders.variationId))
       // Sprint 15: a held order's jobsheets are completed when it is put on hold; this also hides any leftover from the supervisor.
-      .where(and(eq(jobsheets.status, JOBSHEET_STATUS.ONGOING), eq(jobsheets.isDeleted, false), orderNotHeldFor(role)))
+      .where(and(eq(jobsheets.status, JOBSHEET_STATUS.ONGOING), eq(jobsheets.isDeleted, false), eq(jobsheets.isExternal, false), orderNotHeldFor(role)))
       .orderBy(asc(jobsheets.startedAt), asc(jobsheets.jobsheetNo)),
   ]);
 

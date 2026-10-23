@@ -7,11 +7,14 @@ import {
   cleanTakaNo,
   formatMeters,
   takaNoError,
+  takaStageShortLabel,
   TAKA_NO_MAX_LENGTH,
   type ChallanKind,
   type ReceiveResult,
+  type TakaLookupCandidate,
 } from '@rivoora/shared';
 import { Button } from '@/components/ui/button';
+import { ResponsiveModal } from '@/components/ui/modal';
 import { errorMessage } from '@/lib/api';
 import { formatOrderNo, formatTime } from '@/lib/format';
 import { cn } from '@/lib/utils';
@@ -36,6 +39,7 @@ export function ReceiveTakaNumber({ kind }: { kind: ChallanKind }) {
   const [value, setValue] = useState('');
   const [alert, setAlert] = useState<string | null>(null);
   const [rows, setRows] = useState<ReceivedRow[]>([]);
+  const [ambiguous, setAmbiguous] = useState<{ no: string; candidates: TakaLookupCandidate[] } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const submit = async () => {
@@ -55,9 +59,26 @@ export function ReceiveTakaNumber({ kind }: { kind: ChallanKind }) {
       if (r?.ok) {
         setAlert(null);
         setRows((prev) => [{ key: ++rowKey, result: r, undoing: false }, ...prev]);
+      } else if (r?.code === 'ambiguous' && r.candidates?.length) {
+        setAlert(null);
+        setAmbiguous({ no, candidates: r.candidates });
       } else {
         setAlert(r?.message ?? `Taka ${no} could not be received`);
       }
+    } catch (err) {
+      setAlert(errorMessage(err));
+    }
+    inputRef.current?.focus();
+  };
+
+  /** Sprint 16: several takas carry the typed number (ours + an outside weaver's) — the user picks the right one. */
+  const resolveCandidate = async (c: TakaLookupCandidate) => {
+    setAmbiguous(null);
+    try {
+      const res = await receive.mutateAsync({ takaIds: [c.id] });
+      const r = res.results[0];
+      if (r?.ok) setRows((prev) => [{ key: ++rowKey, result: r, undoing: false }, ...prev]);
+      else setAlert(r?.message ?? 'Could not be received');
     } catch (err) {
       setAlert(errorMessage(err));
     }
@@ -162,6 +183,36 @@ export function ReceiveTakaNumber({ kind }: { kind: ChallanKind }) {
           </ul>
         )}
       </section>
+
+      <ResponsiveModal
+        open={!!ambiguous}
+        onOpenChange={(o) => !o && setAmbiguous(null)}
+        title={`Which taka ${ambiguous?.no ?? ''}?`}
+        desktopVariant="center"
+        mobileVariant="bottom"
+        size="md"
+      >
+        <p className="mb-3 text-sm text-slate-600">More than one taka carries this number. Pick the right one.</p>
+        <ul className="space-y-2">
+          {ambiguous?.candidates.map((c) => (
+            <li key={c.id}>
+              <button
+                type="button"
+                onClick={() => void resolveCandidate(c)}
+                className="flex w-full items-center justify-between gap-2 rounded-xl border border-border bg-white px-4 py-3 text-left transition hover:border-primary/40 hover:bg-primary-soft/40"
+              >
+                <span>
+                  <span className="text-xl font-bold tabular-nums text-slate-900">{c.takaNo}</span>
+                  {c.weaverName && <span className="ml-2 text-sm font-medium text-slate-500">W {c.weaverTakaNo} · {c.weaverName}</span>}
+                </span>
+                <span className="shrink-0 text-sm font-semibold text-slate-600">
+                  {formatOrderNo(c.orderNo)} · {takaStageShortLabel(c.stage)}
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      </ResponsiveModal>
     </div>
   );
 }

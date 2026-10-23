@@ -1,6 +1,6 @@
-import { Ban, Check, Clock, PauseCircle, PlayCircle } from 'lucide-react';
+import { Ban, Check, Clock, PauseCircle, PlayCircle, Settings2 } from 'lucide-react';
 import { useMemo } from 'react';
-import { HOLD_EVENT_LABEL, mainStepsOfHistory, orderMilestones, type Milestone, type MilestoneKey, type OrderDetail, type OrderHoldEvent } from '@rivoora/shared';
+import { HOLD_EVENT_LABEL, mainStepsOfHistory, orderMilestones, type Milestone, type MilestoneKey, type OrderDetail, type OrderEventEntry, type OrderHoldEvent } from '@rivoora/shared';
 import { Segmented } from '@/components/ui/segmented';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ROLES } from '@/config/roles';
@@ -89,12 +89,36 @@ function Overview({ steps }: { steps: Milestone[] }) {
   );
 }
 
+/** "Steps changed: …" / "Order closed" (Sprint 16) — a neutral row in the timeline. */
+function OrderEventRow({ e }: { e: OrderEventEntry }) {
+  const closed = e.event === 'order_closed';
+  return (
+    <li className="relative">
+      <span
+        className={cn('absolute -left-6 top-1 flex size-4 items-center justify-center rounded-full border-[3px] border-white shadow', closed ? 'bg-slate-700' : 'bg-slate-400')}
+        aria-hidden
+      />
+      <div className={cn('-my-1.5 rounded-lg px-3 py-1.5', closed ? 'bg-slate-200' : 'bg-slate-50')}>
+        <p className="flex items-center gap-1.5 text-[15px] font-semibold text-slate-800">
+          {closed ? <Ban className="size-4" aria-hidden /> : <Settings2 className="size-4" aria-hidden />}
+          {closed ? 'Order closed' : 'Steps changed'}
+        </p>
+        <p className="text-sm text-slate-500">
+          {formatDateTime(e.createdAt)} · by {e.userName ?? ROLES[e.role]?.name ?? e.role}
+        </p>
+        {e.note && <p className="mt-0.5 text-sm font-medium text-slate-700">{e.note}</p>}
+      </div>
+    </li>
+  );
+}
+
 /** Detailed: every status change. Main steps get a stronger dot, a soft tint and the "time since previous step" pill. */
 function Detailed({ order, steps }: { order: OrderDetail; steps: Milestone[] | null }) {
-  // Status changes and hold events in one timeline, newest first.
+  // Status changes, hold events and order events (steps changed / closed) in one timeline, newest first.
   const entries = [
     ...order.history.map((h) => ({ at: h.changedAt, kind: 'status' as const, h })),
     ...order.holdEvents.map((e) => ({ at: e.createdAt, kind: 'hold' as const, e })),
+    ...order.orderEvents.map((e) => ({ at: e.createdAt, kind: 'order' as const, e })),
   ].sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0));
   const firstStatusId = order.history.length ? order.history[order.history.length - 1].id : null;
   const mainOf = useMemo(() => mainStepsOfHistory(order.history), [order.history]);
@@ -103,6 +127,7 @@ function Detailed({ order, steps }: { order: OrderDetail; steps: Milestone[] | n
     <ol className="relative space-y-5 pl-6 before:absolute before:bottom-2 before:left-[7px] before:top-2 before:w-0.5 before:bg-slate-200">
       {entries.map((entry) => {
         if (entry.kind === 'hold') return <HoldRow key={`hold-${entry.e.id}`} e={entry.e} />;
+        if (entry.kind === 'order') return <OrderEventRow key={`event-${entry.e.id}`} e={entry.e} />;
         const h = entry.h;
         const i = h.id === firstStatusId ? 0 : 1;
         const to = getStatus(h.toStatus);

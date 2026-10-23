@@ -1,4 +1,4 @@
-import { jobsheetRef } from '@rivoora/shared';
+import { isExternalJobsheetNo, jobsheetRef } from '@rivoora/shared';
 import { cn } from '@/lib/utils';
 
 interface JobsheetRefProps {
@@ -14,6 +14,7 @@ interface JobsheetRefProps {
 /**
  * The order number first — large / bold, inherits the surrounding text style — with the jobsheet number in brackets,
  * smaller and muted: "Order #26 (319)". The plain-text form is `jobsheetRef()` / `jobsheetRefShort()` in shared.
+ * Sprint 16: takas from outside / FG purchases sit on a hidden jobsheet — shown as "Order #26 (outside)".
  */
 export function JobsheetRef({ orderNo, jobsheetNo, variant = 'full', className, bracketClassName }: JobsheetRefProps) {
   return (
@@ -22,7 +23,7 @@ export function JobsheetRef({ orderNo, jobsheetNo, variant = 'full', className, 
         {variant === 'full' ? 'Order ' : ''}#{orderNo}
       </span>
       <span aria-hidden className={cn('shrink-0 text-[0.7em] font-semibold text-slate-400', bracketClassName)}>
-        ({jobsheetNo})
+        ({isExternalJobsheetNo(jobsheetNo) ? 'outside' : jobsheetNo})
       </span>
     </span>
   );

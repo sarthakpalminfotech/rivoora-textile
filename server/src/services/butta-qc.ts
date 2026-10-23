@@ -1,10 +1,10 @@
 import { and, desc, eq, sql, type SQL } from 'drizzle-orm';
-import { buttaListQuerySchema, qcSubmitSchema, stageAfterButtaQc, type ButtaListQuery, type QcPendingPage, type QcResult, type RoleKey } from '@rivoora/shared';
+import { buttaListQuerySchema, nextTakaStage, qcSubmitSchema, type ButtaListQuery, type QcPendingPage, type QcResult, type RoleKey } from '@rivoora/shared';
 import { db } from '../db/client';
 import { challanTakas, challans, orders, takas } from '../db/schema';
 import { conflict, notFound } from '../lib/errors';
 import { likePattern } from '../lib/http';
-import { ancestorHasBeenToMill, recomputeOrdersStatus, refreshIsDamaged, writeTakaEvents } from './taka-ops';
+import { ancestorHasBeenToMill, freeTakasOfClosedOrders, recomputeOrdersStatus, refreshIsDamaged, stepsOfTakaOrder, writeTakaEvents } from './taka-ops';
 import { applyQcChanges } from './qc-shared';
 import { takaOrderId } from './free-stock';
 
@@ -19,7 +19,7 @@ export async function listQcPending(q: ButtaListQuery): Promise<QcPendingPage> {
   if (parsed.search) {
     const term = parsed.search.replace(/^#/, '');
     const p = likePattern(term);
-    search = sql`(${takas.takaNo} LIKE ${p} ESCAPE '\\' OR ${orders.orderNo} = ${/^\d+$/.test(term) ? Number(term) : -1})`;
+    search = sql`(${takas.takaNo} LIKE ${p} ESCAPE '\\' OR ${takas.weaverTakaNo} LIKE ${p} ESCAPE '\\' OR ${orders.orderNo} = ${/^\d+$/.test(term) ? Number(term) : -1})`;
   }
   // Sprint 15: a held order's takas wait (hidden) until the order is released.
   const where = and(eq(takas.stage, 'butta_qc'), eq(takas.isDeleted, false), eq(orders.isOnHold, false), search);
@@ -103,8 +103,9 @@ export async function submitQc(role: RoleKey, takaId: number, input: unknown): P
       .from(challanTakas)
       .where(and(eq(challanTakas.takaId, takaId), eq(challanTakas.kind, 'mill')))
       .limit(1);
-    // Sprint 13: the taka OR any ancestor (a split part) has been to the mill -> final, else the normal flow.
-    const nextStage = stageAfterButtaQc({
+    // Sprint 16: the ONE routing rule — waiting for the mill only when the order has the Mill step and the taka is not
+    // dyed yet (Sprint 13: the taka OR any ancestor has been to the mill); otherwise back to the godown (final).
+    const nextStage = nextTakaStage(await stepsOfTakaOrder(tx, takaId), 'butta_qc', {
       hasBeenToMill: taka.hasBeenToMill,
       ancestorHasBeenToMill: await ancestorHasBeenToMill(tx, taka.parentTakaId),
       hasMillHistory: Boolean(mill),
@@ -121,6 +122,8 @@ export async function submitQc(role: RoleKey, takaId: number, input: unknown): P
       .set({ qcDoneAt: at, updatedAt: at })
       .where(and(eq(challanTakas.takaId, takaId), eq(challanTakas.kind, 'butta'), eq(challanTakas.isActive, true)));
     events.push({ takaId, event: 'butta_qc_done', note: moved[0].isDamaged ? 'Damaged' : 'Fresh' });
+    // Sprint 16: a taka of a CLOSED order becomes free stock once it is back.
+    await freeTakasOfClosedOrders(tx, role, [takaId], at, events);
     await writeTakaEvents(tx, role, events);
     await recomputeOrdersStatus(tx, role, [taka.orderId]);
     return { takaId, takaNo: taka.takaNo, result: 'final', fresh: !moved[0].isDamaged, resolved, kept, added };

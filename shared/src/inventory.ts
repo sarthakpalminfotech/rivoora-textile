@@ -79,6 +79,8 @@ export function orderInventoryPcs(
   order: InventoryOrderInput,
   jobsheets: readonly InventoryJobsheetInput[],
   takas: readonly InventoryTakaInput[],
+  /** Sprint 16: pcs still to come on the order's open pcs POs ("at outside weaver") — counted as In making. */
+  pendingOutsidePcs = 0,
 ): InventoryPcs | null {
   if (order.unit !== 'pcs') return null;
 
@@ -88,7 +90,7 @@ export function orderInventoryPcs(
     if (n > 0) takaCount.set(t.jobsheetId, (takaCount.get(t.jobsheetId) ?? 0) + n);
   }
   const framePcs = new Map<number, number>();
-  let inMaking = 0;
+  let inMaking = Math.max(0, pendingOutsidePcs);
   for (const j of jobsheets) {
     const pcs = effectiveFrames({ frames: j.frames, status: j.status as JobsheetStatusKey, completedFrames: j.completedFrames }) * SECTIONS_PER_BEAM;
     if ((takaCount.get(j.id) ?? 0) === 0) inMaking += pcs;

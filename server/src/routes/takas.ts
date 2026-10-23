@@ -1,5 +1,6 @@
 import { Router } from 'express';
-import { TAKA_NEXT_NUMBERS_MAX, takaCheckQuerySchema } from '@rivoora/shared';
+import { TAKA_NEXT_NUMBERS_MAX, takaCheckQuerySchema, takaLookupQuerySchema } from '@rivoora/shared';
+import { lookupTakas } from '../services/taka-lookup';
 import { ah, parseId } from '../lib/http';
 import { requirePermission } from '../middleware/role';
 import { db } from '../db/client';
@@ -12,7 +13,7 @@ export const takasRouter = Router();
 /** Live uniqueness check while typing (taka entry, Edit takas): numbers are unique across the whole system. */
 takasRouter.get(
   '/check',
-  requirePermission('canEnterTakas', 'canEditTakas'),
+  requirePermission('canEnterTakas', 'canEditTakas', 'canReceiveOutside'),
   ah(async (req, res) => {
     res.set('Cache-Control', 'no-store');
     res.json(await checkTakaNo(takaCheckQuerySchema.parse(req.query).no));
@@ -22,11 +23,25 @@ takasRouter.get(
 /** The numbers the next takas would get (Taka entry shows them before saving; they are confirmed on save). */
 takasRouter.get(
   '/next-numbers',
-  requirePermission('canEnterTakas'),
+  // Sprint 16: + the receipt form's "Add our taka numbers".
+  requirePermission('canEnterTakas', 'canReceiveOutside'),
   ah(async (req, res) => {
     res.set('Cache-Control', 'no-store');
     const count = Math.min(TAKA_NEXT_NUMBERS_MAX, Math.max(1, Number(req.query.count) || 1));
     res.json({ numbers: await peekTakaNumbers(db, count) });
+  }),
+);
+
+/**
+ * Sprint 16: every active taka whose number OR outside weaver number is this one — the "Which one?" picker of the
+ * receive / QC / split / GR screens. Restricted fields only (taka, weaver, order number, stage).
+ */
+takasRouter.get(
+  '/lookup',
+  requirePermission('canUseButtaModule', 'canUseMillModule', 'canButtaQc', 'canMillQc', 'canEditTakas', 'canUseGodownOrders', 'canReceiveOutside', 'canDispatch'),
+  ah(async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    res.json(await lookupTakas(db, takaLookupQuerySchema.parse(req.query).no));
   }),
 );
 

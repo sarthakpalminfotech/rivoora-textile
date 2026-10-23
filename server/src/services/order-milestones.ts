@@ -1,7 +1,7 @@
-import { and, asc, eq, sql } from 'drizzle-orm';
+import { and, asc, eq, ne, sql } from 'drizzle-orm';
 import { canRoleSeeStatus, type MilestoneLot, type OrderMilestoneInput, type RoleKey } from '@rivoora/shared';
 import { db } from '../db/client';
-import { challanTakas, challans, designs, dispatchChallans, jobsheets, orders } from '../db/schema';
+import { challanTakas, challans, designs, dispatchChallans, jobsheets, orders, outsidePos, outsideReceipts } from '../db/schema';
 import { notFound } from '../lib/errors';
 
 /**
@@ -13,13 +13,16 @@ import { notFound } from '../lib/errors';
  * - the original dispatch challans (revision 0).
  */
 export async function getOrderMilestones(role: RoleKey, orderId: number): Promise<OrderMilestoneInput> {
-  const [orderRows, startRows, challanRows, dispatchRows] = await db.batch([
+  const [orderRows, startRows, challanRows, dispatchRows, poRows, receiptRows] = await db.batch([
     db
       .select({
         id: orders.id,
         status: orders.status,
         createdAt: orders.createdAt,
         buttaCutting: designs.buttaCutting,
+        hasProduction: orders.hasProduction,
+        hasButta: orders.hasButta,
+        hasMill: orders.hasMill,
         firstInProduction: sql<string | null>`(SELECT MIN(h.changed_at) FROM order_status_history h WHERE h.order_id = ${orders.id} AND h.to_status = 'in_production')`,
       })
       .from(orders)
@@ -28,7 +31,7 @@ export async function getOrderMilestones(role: RoleKey, orderId: number): Promis
     db
       .select({ at: sql<string | null>`MIN(${jobsheets.startedAt})` })
       .from(jobsheets)
-      .where(and(eq(jobsheets.orderId, orderId), eq(jobsheets.isDeleted, false))),
+      .where(and(eq(jobsheets.orderId, orderId), eq(jobsheets.isDeleted, false), eq(jobsheets.isExternal, false))),
     db
       .select({
         challanId: challans.id,
@@ -47,6 +50,17 @@ export async function getOrderMilestones(role: RoleKey, orderId: number): Promis
       .from(dispatchChallans)
       .where(and(eq(dispatchChallans.orderId, orderId), eq(dispatchChallans.revision, 0)))
       .orderBy(asc(dispatchChallans.createdAt)),
+    // Sprint 16: POs placed (not cancelled) and the receipts (outside weavers / FG).
+    db
+      .select({ createdAt: outsidePos.createdAt })
+      .from(outsidePos)
+      .where(and(eq(outsidePos.orderId, orderId), ne(outsidePos.status, 'cancelled')))
+      .orderBy(asc(outsidePos.createdAt)),
+    db
+      .select({ kind: outsideReceipts.kind, createdAt: outsideReceipts.createdAt })
+      .from(outsideReceipts)
+      .where(eq(outsideReceipts.orderId, orderId))
+      .orderBy(asc(outsideReceipts.createdAt)),
   ]);
   const order = orderRows[0];
   if (!order || !canRoleSeeStatus(role, order.status)) throw notFound('Order');
@@ -63,11 +77,16 @@ export async function getOrderMilestones(role: RoleKey, orderId: number): Promis
   return {
     createdAt: order.createdAt,
     productionStartedAt: startRows[0]?.at ?? order.firstInProduction,
-    buttaApplies: order.buttaCutting ?? true,
+    // Sprint 16: the order's Butta tick (existing orders were backfilled with the design's setting — same as before).
+    buttaApplies: order.hasButta,
     buttaSent: lots.butta.sent,
     buttaReceived: lots.butta.received,
     millSent: lots.mill.sent,
     millReceived: lots.mill.received,
     dispatched: dispatchRows.map((d) => ({ first: d.createdAt, last: d.createdAt })),
+    steps: { hasProduction: order.hasProduction, hasButta: order.hasButta, hasMill: order.hasMill },
+    poPlaced: poRows.map((p) => ({ first: p.createdAt, last: p.createdAt })),
+    receivedOutside: receiptRows.filter((r) => r.kind === 'outside_po').map((r) => ({ first: r.createdAt, last: r.createdAt })),
+    goodsReceived: receiptRows.filter((r) => r.kind === 'fg').map((r) => ({ first: r.createdAt, last: r.createdAt })),
   };
 }

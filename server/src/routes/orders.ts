@@ -19,6 +19,9 @@ import { sendBackTakas } from '../services/rework';
 import { addFromFreeStock, moveToInventory } from '../services/inventory-moves';
 import { holdOrder, releaseOrder } from '../services/hold-order';
 import { getDashboardItems, getOrderDamages, getOrderDashboard } from '../services/dashboard';
+import { createFgReceipt, createOutsidePo, listOrderOutside, receiptFormForFg } from '../services/outside';
+import { updateOrderSteps } from '../services/order-steps';
+import { closeOrder, closePreview } from '../services/close-order';
 
 export const ordersRouter = Router();
 // The supervisor opens orders read only (writes below need their own permissions); the Taka entry role has no access.
@@ -39,6 +42,42 @@ ordersRouter.post(
   requirePermission('canMoveToInventory'),
   ah(async (req, res) => {
     res.json(await addFromFreeStock(req.role, parseId(req.params.id), req.body));
+  }),
+);
+
+// Sprint 16: outside POs of an order (the Outside production tab) — Jenish / Gaurang.
+ordersRouter.get(
+  '/:id/outside-pos',
+  requirePermission('canCreateOutsidePo'),
+  ah(async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    res.json(await listOrderOutside(req.role, parseId(req.params.id)));
+  }),
+);
+
+ordersRouter.post(
+  '/:id/outside-pos',
+  requirePermission('canCreateOutsidePo'),
+  ah(async (req, res) => {
+    res.status(201).json(await createOutsidePo(req.role, parseId(req.params.id), req.body));
+  }),
+);
+
+// Sprint 16: a direct FG purchase's receipts — also the godown supervisor and Dhruvil (no Orders access, so before the gate).
+ordersRouter.get(
+  '/:id/fg-receipt-form',
+  requirePermission('canReceiveOutside'),
+  ah(async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    res.json(await receiptFormForFg(req.role, parseId(req.params.id)));
+  }),
+);
+
+ordersRouter.post(
+  '/:id/fg-receipts',
+  requirePermission('canReceiveOutside'),
+  ah(async (req, res) => {
+    res.status(201).json(await createFgReceipt(req.role, parseId(req.params.id), req.body));
   }),
 );
 
@@ -117,6 +156,35 @@ ordersRouter.post(
   requirePermission('canHoldOrder'),
   ah(async (req, res) => {
     res.json(await releaseOrder(req.role, parseId(req.params.id)));
+  }),
+);
+
+/** Sprint 16: change the steps (Production · Butta cutting · Mill), with the untick guards. Returns the order. */
+ordersRouter.put(
+  '/:id/steps',
+  requirePermission('canEditOrderSteps'),
+  ah(async (req, res) => {
+    const id = parseId(req.params.id);
+    await updateOrderSteps(req.role, id, req.body);
+    res.json(await getOrder(req.role, id));
+  }),
+);
+
+/** Sprint 16: Close order — what it will do, and doing it. */
+ordersRouter.get(
+  '/:id/close-preview',
+  requirePermission('canCloseOrder'),
+  ah(async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    res.json(await closePreview(req.role, parseId(req.params.id)));
+  }),
+);
+
+ordersRouter.post(
+  '/:id/close',
+  requirePermission('canCloseOrder'),
+  ah(async (req, res) => {
+    res.json(await closeOrder(req.role, parseId(req.params.id), req.body));
   }),
 );
 

@@ -13,6 +13,13 @@ export function orderOnHoldMessage(orderNo: number, role?: RoleKey): string {
   return role && ROLES[role].bilingual ? `${en} / ${ORDER_ON_HOLD_HI}` : en;
 }
 
+/** Sprint 16: "Order #26 is closed" — the 409 text of every write on a closed order (except receiving). */
+export const ORDER_CLOSED_HI = 'यह ऑर्डर बंद है';
+export function orderClosedMessage(orderNo: number, role?: RoleKey): string {
+  const en = `Order #${orderNo} is closed`;
+  return role && ROLES[role].bilingual ? `${en} / ${ORDER_CLOSED_HI}` : en;
+}
+
 /** Roles that still see a held order. Everyone else has it hidden from lists and blocked on details. */
 export const seesHeldOrders = (role: RoleKey): boolean => can(role, 'canSeeHeldOrders');
 

@@ -29,6 +29,8 @@ import { activeTakaCount, isRestricted, machinesJson, parseMachinesJson, running
 import { mapTaka, parseDamagesJson, sortTakas, takaColumns, takaDamagesJson } from './taka-shared';
 import { takaInOrder } from './free-stock';
 import { isGodownOrdersOnly } from './godown-scope';
+import { realJobsheet } from './external';
+import { openPosOfOrder, outsideTotalsByOrder } from './outside';
 
 /**
  * Order dashboard (Jenish / Gaurang): counts, the items of one sub-stage, and the damaged takas.
@@ -41,9 +43,13 @@ const orderColumns = {
   status: orders.status,
   unit: orders.unit,
   quantity: orders.quantity,
+  hasProduction: orders.hasProduction,
+  hasButta: orders.hasButta,
+  hasMill: orders.hasMill,
 };
 
-const activeJobsheetOf = (orderId: number) => and(eq(jobsheets.orderId, orderId), eq(jobsheets.isDeleted, false));
+/** Real jobsheets only (Sprint 16: the hidden external jobsheet of outside / FG takas is not production). */
+const activeJobsheetOf = (orderId: number) => and(eq(jobsheets.orderId, orderId), eq(jobsheets.isDeleted, false), realJobsheet);
 /** Active takas of the order whose jobsheet is active too. */
 const activeTakasOf = (orderId: number) => and(takaInOrder(orderId), eq(takas.isDeleted, false), eq(jobsheets.isDeleted, false));
 
@@ -107,6 +113,7 @@ export async function getOrderDashboard(role: RoleKey, orderId: number): Promise
       .where(and(activeTakasOf(orderId), eq(challanTakas.kind, 'butta'), eq(challanTakas.isActive, true))),
   ]);
   const order = assertVisible(role, orderRows[0]);
+  const outside = (await outsideTotalsByOrder(db, [order.id])).get(order.id);
   const data = buildOrderDashboard(
     {
       order,
@@ -114,6 +121,9 @@ export async function getOrderDashboard(role: RoleKey, orderId: number): Promise
       takas: takaRows.map((t) => ({ ...t, count: Number(t.count), pcs: t.pcs === null ? null : Number(t.pcs), withoutPcs: Number(t.withoutPcs) })),
       damages: damageRows.map((d) => ({ foundAt: d.foundAt, count: Number(d.count), pcs: d.pcs === null ? null : Number(d.pcs) })),
       buttaTakas: Number(buttaRows[0]?.n ?? 0),
+      // Sprint 16: the order's steps decide its stages; outside POs feed the Outside card / sub-stages.
+      steps: { hasProduction: order.hasProduction, hasButta: order.hasButta, hasMill: order.hasMill },
+      outside,
     },
     new Date(),
   );
@@ -126,14 +136,16 @@ export async function getOrderDashboard(role: RoleKey, orderId: number): Promise
  * card, no jobsheet KPIs / alerts, and the pcs bar re-based on the later stages.
  */
 function withoutProduction(data: OrderDashboardData): OrderDashboardData {
-  const mainStages = data.mainStages.filter((s) => s.key !== 'production');
-  const bar = data.bar.filter((b) => b.stage !== 'production');
+  // Sprint 16: also without the Outside production / Purchase card that stands in Production's place.
+  const first = (key: string) => key === 'production' || key === 'outside' || key === 'purchase';
+  const mainStages = data.mainStages.filter((s) => !first(s.key));
+  const bar = data.bar.filter((b) => !first(b.stage));
   const barTotalPcs = bar.reduce((n, b) => n + b.pcs, 0);
   return {
     ...data,
     hasJobsheets: true,
     mainStages,
-    subStages: data.subStages.filter((s) => s.mainStage !== 'production'),
+    subStages: data.subStages.filter((s) => !first(s.mainStage)),
     production: { jobsheets: 0, frames: 0, wovenFrames: 0, wovenPcs: 0, onLoomFrames: 0, takas: 0, takaPcs: null },
     progress: { ...data.progress, wovenFrames: 0, wovenPcs: 0 },
     bar: bar.map((b) => ({ ...b, share: barTotalPcs > 0 ? b.pcs / barTotalPcs : 0 })),
@@ -153,7 +165,14 @@ export async function getDashboardItems(role: RoleKey, orderId: number, query: u
   const { sub } = dashboardItemsQuerySchema.parse(query);
   const config = getSubStage(sub);
   // Sprint 15: no jobsheet lists for the godown supervisor (his Orders start at butta cutting).
-  if (config.unit === 'jobsheets' && isGodownOrdersOnly(role)) throw notFound('Dashboard section');
+  if ((config.unit === 'jobsheets' || config.unit === 'pos') && isGodownOrdersOnly(role)) throw notFound('Dashboard section');
+
+  // Sprint 16: the open outside POs ("At outside weaver" / "Given outside").
+  if (config.unit === 'pos') {
+    const [orderRow] = await db.select(orderColumns).from(orders).where(eq(orders.id, orderId));
+    assertVisible(role, orderRow);
+    return { sub, kind: 'pos', connected: true, pos: await openPosOfOrder(role, orderId) };
+  }
 
   if (config.unit === 'jobsheets') {
     const [orderRows, rows] = await db.batch([

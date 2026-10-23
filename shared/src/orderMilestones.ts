@@ -1,12 +1,18 @@
 import type { OrderStatusKey } from './statuses';
+import { ALL_STEPS, type OrderSteps } from './orderSteps';
 
 /**
  * The main steps of an order, in order (Order details → History → Overview). ONE definition: the step list, which
  * order status marks each step in the detailed history, and the duration maths between consecutive steps.
+ * Sprint 16: the steps follow the order's ticks (production / butta / mill steps only when ticked), plus the outside
+ * steps (PO placed, Received from weaver) and Goods received for an FG purchase.
  */
 export const MILESTONE_KEYS = [
   'created',
   'in_production',
+  'po_placed',
+  'received_weaver',
+  'goods_received',
   'butta_sent',
   'butta_received',
   'mill_sent',
@@ -18,6 +24,9 @@ export type MilestoneKey = (typeof MILESTONE_KEYS)[number];
 export const MILESTONE_LABEL: Record<MilestoneKey, string> = {
   created: 'Order created',
   in_production: 'In production',
+  po_placed: 'PO placed',
+  received_weaver: 'Received from weaver',
+  goods_received: 'Goods received',
   butta_sent: 'Sent to butta cutting',
   butta_received: 'Received from butta cutting',
   mill_sent: 'Sent to mill',
@@ -46,6 +55,14 @@ export interface OrderMilestoneInput {
   millReceived: MilestoneLot[];
   /** One entry per original dispatch challan (revisions are not new lots). */
   dispatched: MilestoneLot[];
+  /** Sprint 16: the order's steps (missing = all ticked). */
+  steps?: OrderSteps;
+  /** Sprint 16: one entry per outside PO (not cancelled) — when it was placed. */
+  poPlaced?: MilestoneLot[];
+  /** Sprint 16: one entry per receipt against an outside PO. */
+  receivedOutside?: MilestoneLot[];
+  /** Sprint 16: one entry per FG purchase receipt. */
+  goodsReceived?: MilestoneLot[];
 }
 
 export type MilestoneState = 'done' | 'pending' | 'skipped';
@@ -84,7 +101,36 @@ const time = (iso: string) => new Date(iso).getTime();
 const TOOK: Partial<Record<MilestoneKey, { from: MilestoneKey; place: string }>> = {
   butta_received: { from: 'butta_sent', place: 'Butta cutting' },
   mill_received: { from: 'mill_sent', place: 'Mill' },
+  received_weaver: { from: 'po_placed', place: 'The weaver' },
 };
+
+/**
+ * Sprint 16: the steps that apply to an order. Production / butta / mill steps only when ticked (or when something did
+ * happen there — rework), the outside steps when the order has no Production or has POs, Goods received for an FG
+ * purchase.
+ */
+function appliesTo(key: MilestoneKey, input: OrderMilestoneInput, happened: boolean): boolean {
+  const steps = input.steps ?? ALL_STEPS;
+  const fg = !steps.hasProduction && !steps.hasButta && !steps.hasMill;
+  switch (key) {
+    case 'created':
+    case 'dispatched':
+      return true;
+    case 'in_production':
+      return steps.hasProduction;
+    case 'po_placed':
+    case 'received_weaver':
+      return (!steps.hasProduction && !fg) || (input.poPlaced?.length ?? 0) > 0;
+    case 'goods_received':
+      return fg || happened;
+    case 'butta_sent':
+    case 'butta_received':
+      return steps.hasButta || happened;
+    case 'mill_sent':
+    case 'mill_received':
+      return steps.hasMill || happened;
+  }
+}
 
 /**
  * The seven main steps with their date, lots and the time taken since the previous reached step.
@@ -96,6 +142,9 @@ export function orderMilestones(input: OrderMilestoneInput): Milestone[] {
   const lotsOf: Record<MilestoneKey, MilestoneLot[]> = {
     created: [{ first: input.createdAt, last: input.createdAt }],
     in_production: input.productionStartedAt ? [{ first: input.productionStartedAt, last: input.productionStartedAt }] : [],
+    po_placed: input.poPlaced ?? [],
+    received_weaver: input.receivedOutside ?? [],
+    goods_received: input.goodsReceived ?? [],
     butta_sent: input.buttaSent,
     butta_received: input.buttaReceived,
     mill_sent: input.millSent,
@@ -108,6 +157,8 @@ export function orderMilestones(input: OrderMilestoneInput): Milestone[] {
   let prev: Milestone | null = null;
   for (const key of MILESTONE_KEYS) {
     const lots = lotsOf[key];
+    // Sprint 16: steps the order does not have are left out (not "Skipped").
+    if (!appliesTo(key, input, lots.length > 0)) continue;
     if (lots.length === 0) {
       out.push({ key, label: MILESTONE_LABEL[key], state: skippable(key) ? 'skipped' : 'pending', at: null, lots: 0, lastAt: null, sincePrevious: null });
       continue;
@@ -133,6 +184,7 @@ export function orderMilestones(input: OrderMilestoneInput): Milestone[] {
 const STEP_OF_STATUS: Partial<Record<OrderStatusKey, MilestoneKey>> = {
   pending_production: 'created',
   in_production: 'in_production',
+  outside_production: 'po_placed',
   in_butta_cutting: 'butta_sent',
   ready_for_mill: 'butta_received',
   in_mill: 'mill_sent',

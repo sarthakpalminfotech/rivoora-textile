@@ -1,6 +1,6 @@
 import { X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ORDER_TYPE_LABEL, ORDER_TYPES, type LookupItem, type OrderStatusKey } from '@rivoora/shared';
+import { ORDER_KIND_LABEL, ORDER_KINDS, ORDER_TYPE_LABEL, ORDER_TYPES, type LookupItem, type OrderStatusKey } from '@rivoora/shared';
 import { Button } from '@/components/ui/button';
 import { DateRangePicker } from '@/components/ui/date-picker';
 import { Field } from '@/components/ui/field';
@@ -15,7 +15,7 @@ import { useCustomerLookup, useMaterialLookup } from '../masters/api';
 import { DATE_PRESETS, type OrderFilters } from './filters';
 
 type Draft = Omit<OrderFilters, 'search'>;
-const EMPTY_DRAFT: Draft = { statuses: [], materials: [], parties: [], types: [], from: undefined, to: undefined };
+const EMPTY_DRAFT: Draft = { statuses: [], materials: [], parties: [], types: [], kinds: [], from: undefined, to: undefined };
 
 /** Remembers names seen in lookups (materials / parties), so chips / selections keep their labels. */
 function useLookupNames(items: LookupItem[] | undefined) {
@@ -48,7 +48,9 @@ export function OrderFiltersDialog({ open, onOpenChange, value, onApply }: Order
   parties.data?.forEach((c) => partyNameCache.set(c.id, c.name));
 
   useEffect(() => {
-    if (open) setDraft({ statuses: value.statuses, materials: value.materials, parties: value.parties, types: value.types, from: value.from, to: value.to });
+    if (open) {
+      setDraft({ statuses: value.statuses, materials: value.materials, parties: value.parties, types: value.types, kinds: value.kinds, from: value.from, to: value.to });
+    }
   }, [open, value]);
 
   const statusOptions = useMemo(() => statusesForRole(role).map((s) => ({ value: s.key as OrderStatusKey, label: s.label })), [role]);
@@ -143,6 +145,27 @@ export function OrderFiltersDialog({ open, onOpenChange, value, onApply }: Order
             })}
           </div>
         </Field>
+        <Field label="Order kind">
+          <div className="flex flex-wrap gap-2" role="group" aria-label="Order kind">
+            {ORDER_KINDS.map((k) => {
+              const on = draft.kinds.includes(k);
+              return (
+                <button
+                  key={k}
+                  type="button"
+                  aria-pressed={on}
+                  onClick={() => setDraft((d) => ({ ...d, kinds: on ? d.kinds.filter((x) => x !== k) : [...d.kinds, k] }))}
+                  className={cn(
+                    'min-h-9 rounded-full border px-3.5 text-sm font-medium transition-colors',
+                    on ? 'border-primary bg-primary-soft text-primary' : 'border-input bg-white text-slate-700 hover:bg-muted',
+                  )}
+                >
+                  {ORDER_KIND_LABEL[k]}
+                </button>
+              );
+            })}
+          </div>
+        </Field>
         <Field label="Order date">
           <div className="space-y-2.5">
             <div className="flex flex-wrap gap-2">
@@ -215,6 +238,11 @@ export function FilterChips({ filters, onChange }: FilterChipsProps) {
       key: `t-${t}`,
       label: ORDER_TYPE_LABEL[t],
       remove: () => onChange({ types: filters.types.filter((x) => x !== t) }),
+    })),
+    ...filters.kinds.map((k) => ({
+      key: `k-${k}`,
+      label: ORDER_KIND_LABEL[k],
+      remove: () => onChange({ kinds: filters.kinds.filter((x) => x !== k) }),
     })),
   ];
   if (filters.from || filters.to) {

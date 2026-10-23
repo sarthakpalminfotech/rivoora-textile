@@ -18,6 +18,8 @@ import {
 } from './pipeline';
 import { SECTIONS_PER_BEAM } from './production';
 import type { JobsheetStatusKey, OrderStatusKey } from './statuses';
+import { ALL_STEPS, orderKind, type OrderKind, type OrderSteps } from './orderSteps';
+import { EMPTY_OUTSIDE_TOTALS, type OutsidePoTotals } from './outside';
 
 /**
  * The order dashboard (order details → Dashboard tab), computed from the order, its ACTIVE jobsheets and its ACTIVE
@@ -76,6 +78,10 @@ export interface DashboardInput {
   damages?: readonly DashboardDamageInput[];
   /** How many active takas went through butta cutting (have a butta challan). 0 = the order skipped it. Default: unknown (counts as gone through). */
   buttaTakas?: number;
+  /** Sprint 16: the order's steps (default: all ticked — the old dashboard). */
+  steps?: OrderSteps;
+  /** Sprint 16: the order's outside POs (default: none). */
+  outside?: OutsidePoTotals;
 }
 
 /* ------------------------------------------------------------------ */
@@ -84,6 +90,8 @@ export interface DashboardInput {
 
 export interface SubStageCount {
   key: SubStageKey;
+  /** Sprint 16: a label that replaces the config's for this order ("Received · waiting for butta cutting"). */
+  label?: string;
   mainStage: MainStageKey;
   unit: StageUnit;
   connected: boolean;
@@ -169,6 +177,11 @@ export interface DashboardAlert {
 }
 
 export interface OrderDashboardData {
+  /** Sprint 16: in-house / outside production / FG purchase, and the ticked steps. */
+  kind: OrderKind;
+  steps: OrderSteps;
+  /** Sprint 16: the order's outside POs (all zero when it has none). */
+  outside: OutsidePoTotals;
   isPcs: boolean;
   hasJobsheets: boolean;
   progress: DashboardProgress;
@@ -211,6 +224,11 @@ const damageOf = (foundAt: string | null): DamageType => (isDamageType(foundAt) 
 export function buildOrderDashboard(input: DashboardInput, now: Date = new Date()): OrderDashboardData {
   const { order, jobsheets, takas, damages: openDamages = [] } = input;
   const isPcs = order.unit === 'pcs';
+  // Sprint 16: the order's steps decide which main stages show; outside / FG orders get their own first card.
+  const steps = input.steps ?? ALL_STEPS;
+  const kind = orderKind(steps);
+  const outside = input.outside ?? EMPTY_OUTSIDE_TOTALS;
+  const firstStage: MainStageKey = kind === 'in_house' ? 'production' : kind === 'outside_production' ? 'outside' : 'purchase';
 
   const subs = new Map<SubStageKey, SubStageCount>(
     SUB_STAGES.map((s) => [
@@ -323,14 +341,22 @@ export function buildOrderDashboard(input: DashboardInput, now: Date = new Date(
     if (ownJobsheets.has(jobsheetId)) continue;
     for (const [main, p] of perPcs) addPcs(main, p.pcs);
   }
+  // Sprint 16: pcs still at outside weavers (open pcs POs) count where the order is being made (same as the inventory).
+  addPcs('production', outside.pcsPending);
+  // Orders without Production: everything before butta cutting belongs to their first card (Outside production / Purchase).
+  if (firstStage !== 'production') {
+    addPcs(firstStage, barPcs.get('production')!);
+    barPcs.set('production', 0);
+  }
   subs.get('on_loom')!.machines = loomMachines.size;
   const waiting = subs.get('with_supervisor')!;
   const oldestHours = hoursSince(waiting.oldestSince, now);
   waiting.overdue = oldestHours !== null && oldestHours > ALERT_NOT_STARTED_HOURS;
 
   // Live jobsheet figures (Sprint 15): from the active jobsheets, never from stored order counters.
+  // Sprint 16: pcs given outside on pcs POs don't need jobsheets.
   const livePlan = orderJobsheetPlan(
-    order.quantity,
+    Math.max(0, order.quantity - outside.pcsCommitted),
     jobsheets.map((j) => ({ frames: j.frames, status: j.status as JobsheetStatusKey, completedFrames: j.completedFrames })),
   );
   // Rule 2: the coverage warnings (frames short / over, jobsheet quantity less / more), texts unchanged.
@@ -340,7 +366,7 @@ export function buildOrderDashboard(input: DashboardInput, now: Date = new Date(
   }
 
   const totalPcs = [...barPcs.values()].reduce((s, n) => s + n, 0);
-  const bar: BarShare[] = MAIN_STAGES.map((m) => {
+  const allBar: BarShare[] = MAIN_STAGES.map((m) => {
     const p = barPcs.get(m.key)!;
     return { stage: m.key, pcs: Math.round(p), share: totalPcs > 0 ? p / totalPcs : 0 };
   });
@@ -348,41 +374,81 @@ export function buildOrderDashboard(input: DashboardInput, now: Date = new Date(
   // Completed / skipped main stages (visual state only).
   const stageCount = (...stages: string[]) => takas.reduce((n, t) => n + (stages.includes(t.stage) ? t.count ?? 1 : 0), 0);
   const productionDone =
-    jobsheets.length > 0 &&
-    jobsheets.every((j) => j.status === 'completed' && (takasByJobsheet.get(j.id)?.size ?? 0) > 0) &&
-    stageCount('entered') === 0;
+    kind === 'in_house'
+      ? jobsheets.length > 0 &&
+        jobsheets.every((j) => j.status === 'completed' && (takasByJobsheet.get(j.id)?.size ?? 0) > 0) &&
+        stageCount('entered') === 0 &&
+        outside.openPos === 0
+      : kind === 'outside_production'
+        ? outside.pos > 0 && outside.openPos === 0 && takaCount > 0 && stageCount('entered') === 0
+        : takaCount > 0;
   const buttaDone = productionDone && stageCount('entered', 'rework_butta', 'at_butta', 'butta_qc') === 0 && takaCount > 0;
   const buttaSkipped = buttaDone && input.buttaTakas === 0;
   const millDone = buttaDone && takaCount > 0 && stageCount('final', 'ready_dispatch', 'dispatched') === takaCount;
   const readyDone = takaCount > 0 && stageCount('ready_dispatch', 'dispatched') === takaCount;
   const stateOf = (key: MainStageKey, connected: boolean): StageState => {
     if (!connected) return null;
-    if (key === 'production') return productionDone ? 'completed' : null;
+    if (key === 'production' || key === 'outside' || key === 'purchase') return productionDone ? 'completed' : null;
     if (key === 'butta') return buttaSkipped ? 'skipped' : buttaDone ? 'completed' : null;
     if (key === 'mill') return millDone ? 'completed' : null;
     if (key === 'ready') return readyDone ? 'completed' : null;
     return null;
   };
 
-  const subList = SUB_STAGES.map((s) => subs.get(s.key)!);
-  const mainStages: MainStageCount[] = MAIN_STAGES.map((m) => {
+  // Sprint 16: sub-stages that apply to this order. Outside / FG orders have no jobsheet sub-stages; their takas waiting
+  // for butta cutting belong to the first card; the PO sub-stages count open POs.
+  for (const key of ['outside_po', 'at_weaver'] as const) {
+    const s = subs.get(key)!;
+    s.count = outside.openPos;
+    s.takaPcs = outside.pcsPending > 0 ? outside.pcsPending : null;
+  }
+  const subList: SubStageCount[] = [];
+  for (const cfg of SUB_STAGES) {
+    const s = subs.get(cfg.key)!;
+    if (cfg.unit === 'jobsheets' && kind !== 'in_house') continue;
+    if (cfg.key === 'outside_po' && !(kind === 'in_house' && outside.pos > 0)) continue;
+    if (cfg.key === 'at_weaver' && kind !== 'outside_production') continue;
+    if (cfg.key === 'taka_done' && kind !== 'in_house') {
+      if (!steps.hasButta && s.count === 0) continue;
+      subList.push({ ...s, mainStage: firstStage, label: 'Received · waiting for butta cutting' });
+      continue;
+    }
+    subList.push(s);
+  }
+
+  const shownMain = (key: MainStageKey, work: boolean, pcs: number): boolean => {
+    if (key === 'production' || key === 'outside' || key === 'purchase') return key === firstStage;
+    // A step that is not ticked shows only while a taka is there anyway (rework / refinish is always allowed).
+    if (key === 'butta') return steps.hasButta || work || pcs > 0;
+    if (key === 'mill') return steps.hasMill || work || pcs > 0;
+    return true;
+  };
+  const allMain: MainStageCount[] = MAIN_STAGES.map((m) => {
     const own = subList.filter((s) => s.mainStage === m.key);
     const takasHere = own.filter((s) => s.unit === 'takas').reduce((n, s) => n + s.count, 0);
-    return {
+    const base: MainStageCount = {
       key: m.key,
       unit: m.unit,
       connected: m.connected,
       count: m.key === 'production' ? jobsheets.length : takasHere,
       takas: m.key === 'production' ? takaCount : takasHere,
       damaged: own.reduce((n, s) => n + s.damaged, 0),
-      pcs: bar.find((b) => b.stage === m.key)!.pcs,
+      pcs: allBar.find((b) => b.stage === m.key)!.pcs,
       hasWork: own.some((s) => s.count > 0),
       state: stateOf(m.key, m.connected),
     };
+    // Outside production: the POs (and how many takas came); Purchase: what was received (awaiting = work to do).
+    if (m.key === 'outside') return { ...base, unit: 'pos', count: outside.pos, takas: outside.takasReceived };
+    if (m.key === 'purchase') return { ...base, count: takaCount, takas: takaCount, hasWork: takaCount === 0 };
+    return base;
   });
+  const mainStages = allMain.filter((m) => shownMain(m.key, m.hasWork, m.pcs));
+  const shownKeys = new Set(mainStages.map((m) => m.key));
+  const bar = allBar.filter((b) => shownKeys.has(b.stage));
 
   const wovenPcs = wovenFrames * SECTIONS_PER_BEAM;
-  const targetPcs = jobsheets.length > 0 ? livePlan.jobsheetPieces : order.quantity;
+  // In-house: the jobsheet quantity (+ what is given outside); outside / FG orders: the order quantity.
+  const targetPcs = kind === 'in_house' && jobsheets.length > 0 ? livePlan.jobsheetPieces + outside.pcsCommitted : order.quantity;
   const damageCounts = new Map<DamageType, { count: number; pcs: number | null }>();
   for (const d of openDamages) {
     const n = d.count ?? 1;
@@ -401,6 +467,9 @@ export function buildOrderDashboard(input: DashboardInput, now: Date = new Date(
   }));
 
   return {
+    kind,
+    steps,
+    outside,
     isPcs,
     hasJobsheets: jobsheets.length > 0,
     progress: {
@@ -426,6 +495,6 @@ export function buildOrderDashboard(input: DashboardInput, now: Date = new Date(
     damageTotal: damages.reduce((n, d) => n + d.count, 0),
     takaCount,
     alerts,
-    defaultStage: mainStages.find((m) => m.hasWork)?.key ?? 'production',
+    defaultStage: mainStages.find((m) => m.hasWork)?.key ?? firstStage,
   };
 }

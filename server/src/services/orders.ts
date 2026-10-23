@@ -4,8 +4,13 @@ import { z } from 'zod';
 import {
   can,
   canRoleSeeStatus,
+  isOrderKind,
   isOrderType,
   isStatusKey,
+  orderKind,
+  parsePoNo,
+  type OrderEventEntry,
+  type OrderKind,
   normalizeCode,
   parseIdList,
   parseKeyList,
@@ -28,14 +33,17 @@ import {
   designVariations,
   designs,
   materials,
+  orderEvents,
   orderNoteImages,
   orderStatusHistory,
   orders,
+  users,
 } from '../db/schema';
 import { badRequest, conflict, notFound } from '../lib/errors';
 import { csv, likePattern, paginationSchema } from '../lib/http';
 import { insertDesign } from './designs';
-import { countActiveJobsheets } from './jobsheets';
+import { countActiveJobsheets, recomputeOrderStatus } from './jobsheets';
+import { applyStepsChange, stepLocksOf } from './order-steps';
 import { liveJobsheetPieces } from './jobsheet-live';
 import { getOrderReturnSummary } from './dispatch';
 import { assertOrderVisibleFor, orderNotHeldFor } from './hold';
@@ -55,9 +63,21 @@ export const orderListQuerySchema = paginationSchema.extend({
   party: z.string().optional().transform((v) => parseIdList(v)),
   /** Order type filter: `type=lump,pcs_to_pcs`. */
   type: z.string().optional().transform((v) => parseKeyList(v, isOrderType)),
+  /** Sprint 16: order kind filter: `kind=in_house,outside_production,fg_purchase`. */
+  kind: z.string().optional().transform((v) => parseKeyList(v, isOrderKind)),
   from: dateString,
   to: dateString,
 });
+
+/** Sprint 16: SQL of an order kind (from the three step columns). */
+function kindSql(kind: OrderKind): SQL {
+  if (kind === 'in_house') return eq(orders.hasProduction, true);
+  if (kind === 'outside_production') return and(eq(orders.hasProduction, false), or(eq(orders.hasButta, true), eq(orders.hasMill, true)))!;
+  return and(eq(orders.hasProduction, false), eq(orders.hasButta, false), eq(orders.hasMill, false))!;
+}
+
+/** The supervisor's Orders (production only): orders without the Production step never appear for him. */
+const productionOnly = (role: RoleKey) => can(role, 'canViewProductionOrders') && !can(role, 'canViewOrders');
 export type OrderListQuery = z.infer<typeof orderListQuerySchema>;
 
 function emptyPage<T>(page: number, limit: number): Paginated<T> {
@@ -73,7 +93,13 @@ export async function listOrders(role: RoleKey, q: OrderListQuery): Promise<Pagi
 
   // Sprint 15: a held order is visible to Jenish / Gaurang only.
   // Sprint 15: the godown supervisor only lists orders that have takas at the butta stage or later.
-  const conditions: (SQL | undefined)[] = [inArray(orders.status, statuses), orderNotHeldFor(role), isGodownOrdersOnly(role) ? orderHasGodownTakas : undefined];
+  const conditions: (SQL | undefined)[] = [
+    inArray(orders.status, statuses),
+    orderNotHeldFor(role),
+    isGodownOrdersOnly(role) ? orderHasGodownTakas : undefined,
+    productionOnly(role) ? eq(orders.hasProduction, true) : undefined,
+  ];
+  if (q.kind.length) conditions.push(or(...q.kind.map(kindSql)));
   if (q.from) conditions.push(gte(orders.orderDate, q.from));
   if (q.to) conditions.push(lte(orders.orderDate, q.to));
   if (q.material.length) conditions.push(inArray(orders.materialId, q.material));
@@ -95,6 +121,15 @@ export async function listOrders(role: RoleKey, q: OrderListQuery): Promise<Pagi
       if (/^\d+$/.test(term)) parts.push(eq(orders.orderNo, Number(term)));
       parts.push(sql`CAST(${orders.quantity} AS TEXT) LIKE ${likePattern(term, 'prefix')} ESCAPE '\\'`);
     }
+    // Sprint 16: a weaver's taka number (the physical taka may carry only that) and PO numbers.
+    if (/^\d+([-/]\d+)*[A-Z]?$/i.test(term)) {
+      parts.push(sql`EXISTS (SELECT 1 FROM takas wt WHERE wt.is_deleted = 0 AND COALESCE(wt.allocated_order_id, wt.order_id) = "orders"."id" AND wt.weaver_taka_no = ${term.toUpperCase()})`);
+    } else if (/^[A-Z]{1,4}\d+([-/]\d+)*[A-Z]?$/i.test(term)) {
+      // "S1101": an outside taka's system number (weaver code + number).
+      parts.push(sql`EXISTS (SELECT 1 FROM takas wt WHERE wt.is_deleted = 0 AND COALESCE(wt.allocated_order_id, wt.order_id) = "orders"."id" AND wt.taka_no = ${term.toUpperCase()})`);
+    }
+    const poNo = parsePoNo(term);
+    if (poNo !== null && /^po/i.test(term)) parts.push(sql`EXISTS (SELECT 1 FROM outside_pos op WHERE op.order_id = "orders"."id" AND op.po_no = ${poNo})`);
     conditions.push(or(...parts));
   }
   const where = and(...conditions);
@@ -116,6 +151,10 @@ export async function listOrders(role: RoleKey, q: OrderListQuery): Promise<Pagi
         orderDate: orders.orderDate,
         designCode: sql<string | null>`COALESCE(${designVariations.code}, ${designs.code})`,
         designThumbUrl: sql<string | null>`COALESCE(${designVariations.thumbUrl}, ${designs.thumbUrl})`,
+        hasProduction: orders.hasProduction,
+        hasButta: orders.hasButta,
+        hasMill: orders.hasMill,
+        isClosed: orders.isClosed,
       })
       .from(orders)
       .innerJoin(customers, eq(customers.id, orders.customerId))
@@ -158,11 +197,19 @@ export async function getOrder(role: RoleKey, id: number): Promise<OrderDetail> 
         orderDate: orders.orderDate,
         notes: orders.notes,
         sentToProductionAt: orders.sentToProductionAt,
-        jobsheetCount: sql<number>`(SELECT COUNT(*) FROM jobsheets j WHERE j.order_id = "orders"."id" AND j.is_deleted = 0)`,
+        jobsheetCount: sql<number>`(SELECT COUNT(*) FROM jobsheets j WHERE j.order_id = "orders"."id" AND j.is_deleted = 0 AND j.is_external = 0)`,
         jobsheetPieces: liveJobsheetPieces,
         isOnHold: orders.isOnHold,
         heldAt: orders.heldAt,
         holdNote: orders.holdNote,
+        hasProduction: orders.hasProduction,
+        hasButta: orders.hasButta,
+        hasMill: orders.hasMill,
+        isClosed: orders.isClosed,
+        closedAt: orders.closedAt,
+        closeNote: orders.closeNote,
+        outsidePoCount: sql<number>`(SELECT COUNT(*) FROM outside_pos p WHERE p.order_id = "orders"."id" AND p.status <> 'cancelled')`,
+        receiptCount: sql<number>`(SELECT COUNT(*) FROM outside_receipts r WHERE r.order_id = "orders"."id")`,
         createdAt: orders.createdAt,
         updatedAt: orders.updatedAt,
         customer: { id: customers.id, name: customers.name, phone: customers.phone, city: customers.city },
@@ -209,6 +256,9 @@ export async function getOrder(role: RoleKey, id: number): Promise<OrderDetail> 
   // Orders in statuses the role can't see behave as if they don't exist.
   if (!r || !canRoleSeeStatus(role, r.status)) throw notFound('Order');
   assertOrderVisibleFor(role, r);
+  // Sprint 16: the supervisor's Orders are production orders only.
+  if (productionOnly(role) && !r.hasProduction) throw notFound('Order');
+  const steps = { hasProduction: r.hasProduction, hasButta: r.hasButta, hasMill: r.hasMill };
 
   const detail: OrderDetail = {
     id: r.id,
@@ -244,12 +294,31 @@ export async function getOrder(role: RoleKey, id: number): Promise<OrderDetail> 
     holdEvents: await listHoldEvents(r.id),
     // Sprint 13: what came back from the customer (only orders that ended up Returned need it).
     returned: r.status === 'returned' ? await getOrderReturnSummary(r.id) : null,
+    ...steps,
+    kind: orderKind(steps),
+    stepLocks: can(role, 'canEditOrderSteps') ? await stepLocksOf(db, r.id) : { production: null, butta: null, mill: null },
+    outsidePoCount: Number(r.outsidePoCount),
+    receiptCount: Number(r.receiptCount),
+    isClosed: r.isClosed,
+    closedAt: r.closedAt,
+    closeNote: r.closeNote,
+    orderEvents: await listOrderEvents(r.id),
   };
   if (can(role, 'canSeeRate')) detail.rate = r.rate;
   return detail;
 }
 
-type OrderData = z.infer<typeof orderCreateSchema>;
+/** Sprint 16: the "Steps changed" / "Order closed" History entries, oldest first. */
+async function listOrderEvents(orderId: number): Promise<OrderEventEntry[]> {
+  return db
+    .select({ id: orderEvents.id, event: orderEvents.event, note: orderEvents.note, role: orderEvents.role, userName: users.name, createdAt: orderEvents.createdAt })
+    .from(orderEvents)
+    .leftJoin(users, eq(users.id, orderEvents.userId))
+    .where(eq(orderEvents.orderId, orderId))
+    .orderBy(asc(orderEvents.createdAt), asc(orderEvents.id));
+}
+
+type OrderData = Pick<z.infer<typeof orderCreateSchema>, 'customerId' | 'brokerId' | 'materialId' | 'designId' | 'variationId' | 'newDesign'>;
 
 /**
  * Checks the client / broker / material / design references of an order form and returns the design + variation
@@ -339,6 +408,10 @@ export async function createOrder(role: RoleKey, input: unknown): Promise<{ id: 
         orderDate: data.orderDate,
         notes: data.notes,
         status: STATUS.PENDING_PRODUCTION,
+        // Sprint 16: the steps that happen in our system (all three on a new order unless unticked).
+        hasProduction: data.hasProduction,
+        hasButta: data.hasButta,
+        hasMill: data.hasMill,
       })
       .returning({ id: orders.id, orderNo: orders.orderNo });
 
@@ -363,10 +436,26 @@ export async function updateOrder(role: RoleKey, id: number, input: unknown): Pr
 
   await db.transaction(async (tx) => {
     const [current] = await tx
-      .select({ status: orders.status, unit: orders.unit, rate: orders.rate, brokerId: orders.brokerId })
+      .select({
+        status: orders.status,
+        unit: orders.unit,
+        rate: orders.rate,
+        brokerId: orders.brokerId,
+        hasProduction: orders.hasProduction,
+        hasButta: orders.hasButta,
+        hasMill: orders.hasMill,
+      })
       .from(orders)
       .where(eq(orders.id, id));
     if (!current || !canRoleSeeStatus(role, current.status)) throw notFound('Order');
+    // Sprint 16: the steps change only when they are sent, and only for a role that may change them.
+    if (can(role, 'canEditOrderSteps') && (data.hasProduction !== undefined || data.hasButta !== undefined || data.hasMill !== undefined)) {
+      await applyStepsChange(tx, role, id, current, {
+        hasProduction: data.hasProduction ?? current.hasProduction,
+        hasButta: data.hasButta ?? current.hasButta,
+        hasMill: data.hasMill ?? current.hasMill,
+      });
+    }
     if (data.unit !== current.unit && (await countActiveJobsheets(tx, id)) > 0) {
       throw badRequest('The unit cannot change once the order has jobsheets', 'unit');
     }
@@ -423,7 +512,10 @@ async function changeStatus(
   });
 }
 
-/** Only orders that are currently Pending for production are affected. */
+/**
+ * Only orders that are currently Pending for production are affected. Sprint 16: an order without Production then moves
+ * straight on to its own first status (At outside weaver / Awaiting goods) — the same recompute as every other write.
+ */
 export async function sendToProduction(role: RoleKey, orderIds: number[]): Promise<SendToProductionResult> {
   const ids = [...new Set(orderIds)];
   const updated = await changeStatus(
@@ -436,19 +528,35 @@ export async function sendToProduction(role: RoleKey, orderIds: number[]): Promi
   if (updated.length === 0) {
     throw conflict('None of the selected orders are pending for production any more. Refresh and try again.');
   }
+  await db.transaction(async (tx) => {
+    for (const id of updated) await recomputeOrderStatus(id, role, tx);
+  });
   return { updated: updated.length, orderIds: updated };
 }
 
+/** Sprint 16: the first status after "sent for production", by kind — where Undo send for production is possible. */
+const UNDOABLE: readonly OrderStatusKey[] = [STATUS.READY_PRODUCTION, STATUS.OUTSIDE_PRODUCTION, STATUS.AWAITING_GOODS];
+
 export async function undoSendToProduction(role: RoleKey, id: number): Promise<void> {
-  const [order] = await db.select({ status: orders.status }).from(orders).where(eq(orders.id, id));
+  const [order] = await db
+    .select({
+      status: orders.status,
+      pos: sql<number>`(SELECT COUNT(*) FROM outside_pos p WHERE p.order_id = "orders"."id" AND p.status <> 'cancelled')`,
+      takas: sql<number>`(SELECT COUNT(*) FROM takas t WHERE t.is_deleted = 0 AND (t.order_id = "orders"."id" OR t.allocated_order_id = "orders"."id"))`,
+    })
+    .from(orders)
+    .where(eq(orders.id, id));
   if (!order) throw notFound('Order');
-  if (order.status !== STATUS.READY_PRODUCTION) {
-    throw conflict('Only orders in Jobsheet pending can be moved back.');
+  if (!UNDOABLE.includes(order.status)) {
+    throw conflict('Only orders in Jobsheet pending (or waiting for outside goods with nothing placed yet) can be moved back.');
   }
   if ((await countActiveJobsheets(db, id)) > 0) {
     throw conflict('This order already has jobsheets. Delete its jobsheets before moving it back to Pending.');
   }
-  const updated = await changeStatus(role, [id], STATUS.READY_PRODUCTION, STATUS.PENDING_PRODUCTION, null);
+  if (Number(order.pos) > 0) throw conflict('This order already has outside POs. Cancel them before moving it back to Pending.');
+  // (Jobsheet pending keeps the old rule; an outside / FG order with goods already received can't go back.)
+  if (order.status !== STATUS.READY_PRODUCTION && Number(order.takas) > 0) throw conflict('This order already has takas, so it can no longer be moved back to Pending.');
+  const updated = await changeStatus(role, [id], order.status, STATUS.PENDING_PRODUCTION, null);
   if (updated.length === 0) throw conflict('This order was changed by someone else. Refresh and try again.');
 }
 

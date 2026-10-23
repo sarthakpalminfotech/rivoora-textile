@@ -105,7 +105,10 @@ async function loadOrderPcs(role: RoleKey, key?: string): Promise<{ list: OrderP
         variationId: orders.variationId,
         blouseOption: orders.blouseOption,
         isOnHold: orders.isOnHold,
+        isClosed: orders.isClosed,
         customerName: customers.name,
+        // Sprint 16: pcs still to come on open pcs POs ("at outside weaver") — In making.
+        pendingOutsidePcs: sql<number>`COALESCE((SELECT SUM(MAX(p.quantity - p.received_qty, 0)) FROM outside_pos p WHERE p.order_id = "orders"."id" AND p.unit = 'pcs' AND p.status IN ('open', 'partly_received')), 0)`,
       })
       .from(orders)
       .innerJoin(customers, eq(customers.id, orders.customerId))
@@ -120,7 +123,7 @@ async function loadOrderPcs(role: RoleKey, key?: string): Promise<{ list: OrderP
       })
       .from(jobsheets)
       .innerJoin(orders, eq(orders.id, jobsheets.orderId))
-      .where(and(scope, eq(orders.unit, 'pcs'), eq(jobsheets.isDeleted, false))),
+      .where(and(scope, eq(orders.unit, 'pcs'), eq(jobsheets.isDeleted, false), eq(jobsheets.isExternal, false))),
     db
       .select({
         // Sprint 13: a taka counts for the order it is allocated to (else its own); free stock counts for none.
@@ -149,7 +152,8 @@ async function loadOrderPcs(role: RoleKey, key?: string): Promise<{ list: OrderP
   let excluded = 0;
   for (const o of orderRows) {
     const pcs = orderInventoryPcs(
-      { unit: o.unit, quantity: o.quantity },
+      // Sprint 16: a CLOSED order orders nothing any more (its free stock is counted as free stock).
+      { unit: o.unit, quantity: o.isClosed ? 0 : o.quantity },
       sheetsByOrder.get(o.orderId) ?? [],
       (takasByOrder.get(o.orderId) ?? []).map((t) => ({
         jobsheetId: t.jobsheetId,
@@ -159,6 +163,7 @@ async function loadOrderPcs(role: RoleKey, key?: string): Promise<{ list: OrderP
         withoutPcs: Number(t.withoutPcs),
         damagedPcs: t.damagedPcs === null ? 0 : Number(t.damagedPcs),
       })),
+      o.isClosed ? 0 : Number(o.pendingOutsidePcs),
     );
     if (!pcs) {
       excluded += 1;
@@ -510,7 +515,14 @@ export async function listInventoryItemOrders(role: RoleKey, key: string, query:
       ? await db
           .selectDistinct({ orderId: takaOrderId })
           .from(takas)
-          .where(and(inArray(takaOrderId, ids), takaNotFree, eq(takas.isDeleted, false), sql`${takas.takaNo} LIKE ${likePattern(term)} ESCAPE '\\'`))
+          .where(
+            and(
+              inArray(takaOrderId, ids),
+              takaNotFree,
+              eq(takas.isDeleted, false),
+              sql`(${takas.takaNo} LIKE ${likePattern(term)} ESCAPE '\\' OR ${takas.weaverTakaNo} LIKE ${likePattern(term)} ESCAPE '\\')`,
+            ),
+          )
       : [];
     const asNo = /^\d+$/.test(term) ? Number(term) : -1;
     matching = new Set([...byTaka.map((r) => r.orderId), ...list.filter((o) => o.orderNo === asNo).map((o) => o.orderId)]);

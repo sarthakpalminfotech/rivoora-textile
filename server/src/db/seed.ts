@@ -2,7 +2,8 @@
  * Demo data. Safe to run more than once:
  * - customers / materials / designs / variations are matched by name / code and only inserted when missing;
  * - orders are only seeded when the orders table is empty;
- * - machines 1–12 are inserted when missing.
+ * - machines 1–12 are inserted when missing;
+ * - Sprint 16: one demo weaver (code S) when missing.
  */
 import { and, count, eq } from 'drizzle-orm';
 import { format, subDays } from 'date-fns';
@@ -14,7 +15,7 @@ import { env } from '../env';
 import { storage } from '../storage';
 import { db, libsql } from './client';
 import { PATTERNS, type Palette, type PatternName } from './patterns';
-import { customerBrokers, customers, designVariations, designs, machines, materials, orderStatusHistory, orders } from './schema';
+import { customerBrokers, customers, designVariations, designs, machines, materials, orderStatusHistory, orders, weavers } from './schema';
 
 /** Demo brokers per customer name (added only when the customer has none). */
 const BROKERS: Record<string, string[]> = {
@@ -234,6 +235,12 @@ async function seedMachines() {
   return 12;
 }
 
+/** Sprint 16: one demo outside weaver (only when no weaver with its code exists yet). */
+async function seedWeaver() {
+  const [found] = await db.select({ id: weavers.id }).from(weavers).where(and(eq(weavers.shortCode, 'S'), eq(weavers.isDeleted, false)));
+  if (!found) await db.insert(weavers).values({ name: 'Shree Textiles (demo)', shortCode: 'S', mobile: '9800000000', address: 'Surat' });
+}
+
 async function main() {
   console.log('Seeding demo data…');
   const customerIds = await seedCustomers();
@@ -244,6 +251,8 @@ async function main() {
   console.log(`  designs: ${designRefs.length} (with variations)`);
   await seedOrders(customerIds, materialIds, designRefs);
   console.log(`  machines: 1–${await seedMachines()}`);
+  await seedWeaver();
+  console.log('  weaver: Shree Textiles (demo), code S');
   console.log('Done.');
   libsql.close();
 }

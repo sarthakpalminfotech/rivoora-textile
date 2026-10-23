@@ -1,8 +1,8 @@
 import type { RequestHandler } from 'express';
-import { and, eq, inArray, sql } from 'drizzle-orm';
-import { orderOnHoldMessage, seesHeldOrders } from '@rivoora/shared';
+import { and, eq, inArray, or, sql } from 'drizzle-orm';
+import { orderClosedMessage, orderOnHoldMessage, seesHeldOrders } from '@rivoora/shared';
 import { db } from '../db/client';
-import { challanTakas, dispatchChallans, jobsheets, orders, takas } from '../db/schema';
+import { challanTakas, dispatchChallans, jobsheets, orders, outsidePos, takas } from '../db/schema';
 import { conflict, notFound } from '../lib/errors';
 import { isGodownOrdersOnly, orderInGodownScope } from '../services/godown-scope';
 
@@ -47,10 +47,12 @@ const ofJobsheet: Resolver = async (m) => {
 };
 const ofTaka: Resolver = async (m) => byTakaIds([Number(m[1])]);
 const ofTakaNo: Resolver = async (m) => {
+  // Sprint 16: a typed number may be an outside weaver's own number too.
+  const no = decodeURIComponent(m[1]);
   const rows = await db
     .select({ orderId: takas.orderId, allocatedOrderId: takas.allocatedOrderId, isFreeStock: takas.isFreeStock })
     .from(takas)
-    .where(and(eq(takas.takaNo, decodeURIComponent(m[1])), eq(takas.isDeleted, false)));
+    .where(and(or(eq(takas.takaNo, no), eq(takas.weaverTakaNo, no)), eq(takas.isDeleted, false)));
   return ordersOfTakaRows(rows);
 };
 const ofBodyTakaIds: Resolver = async (_m, req) => byTakaIds(idList((req.body as { takaIds?: unknown } | undefined)?.takaIds));
@@ -80,31 +82,48 @@ const ofJobsheetNo: Resolver = async (m) => {
   const rows = await db.select({ orderId: jobsheets.orderId }).from(jobsheets).where(eq(jobsheets.jobsheetNo, Number(m[1])));
   return rows.map((r) => r.orderId);
 };
+/** Sprint 16: the order of an outside PO. */
+const ofOutsidePo: Resolver = async (m) => {
+  const rows = await db.select({ orderId: outsidePos.orderId }).from(outsidePos).where(eq(outsidePos.id, Number(m[1])));
+  return rows.map((r) => r.orderId);
+};
 
 interface Rule {
   methods: string[];
   pattern: RegExp;
   resolve: Resolver;
+  /**
+   * Sprint 16: still allowed on a CLOSED order (it stays blocked on a held one): the QC of takas that come back after
+   * the close (they become free stock) and goods returns (returned goods go to free stock anyway).
+   */
+  allowClosed?: boolean;
 }
 
-/** Writes. NOT listed on purpose: orders hold / release, the receive endpoints, the mill received count and undo receive. */
+/**
+ * Writes. NOT listed on purpose: orders hold / release, the receive endpoints (butta / mill receive, the mill received
+ * count, undo receive, Sprint 16: goods received from an outside weaver / an FG supplier), Close order is listed (a held
+ * order is released first).
+ */
 const WRITE_RULES: Rule[] = [
   { methods: ['PUT', 'DELETE'], pattern: /^\/jobsheets\/(\d+)$/, resolve: ofJobsheet },
   { methods: ['POST', 'PUT'], pattern: /^\/jobsheets\/(\d+)\/(?:pull-back|start|complete|change-machine|takas)$/, resolve: ofJobsheet },
-  { methods: ['PUT'], pattern: /^\/orders\/(\d+)$/, resolve: ofOrder },
+  { methods: ['PUT'], pattern: /^\/orders\/(\d+)(?:\/steps)?$/, resolve: ofOrder },
   {
     methods: ['POST'],
-    pattern: /^\/orders\/(\d+)\/(?:jobsheets|jobsheets\/generate|jobsheets\/send|undo-production|takas\/move-to-inventory|takas\/add-from-free-stock|takas\/send-back)$/,
+    pattern: /^\/orders\/(\d+)\/(?:jobsheets|jobsheets\/generate|jobsheets\/send|undo-production|takas\/move-to-inventory|takas\/add-from-free-stock|takas\/send-back|outside-pos|close)$/,
     resolve: ofOrder,
   },
   { methods: ['POST'], pattern: /^\/orders\/send-to-production$/, resolve: ofBodyOrderIds },
   { methods: ['POST'], pattern: /^\/(?:butta|mill)\/challans$/, resolve: ofBodyTakaIds },
   { methods: ['POST'], pattern: /^\/(?:butta|mill)\/challans\/(\d+)\/cancel$/, resolve: ofChallanTakas },
-  { methods: ['POST'], pattern: /^\/(?:butta-qc|mill-qc)\/(\d+)$/, resolve: ofTaka },
+  { methods: ['POST'], pattern: /^\/(?:butta-qc|mill-qc)\/(\d+)$/, resolve: ofTaka, allowClosed: true },
   { methods: ['PATCH', 'POST'], pattern: /^\/godown\/takas\/(\d+)(?:\/[a-z-]+)?$/, resolve: ofTaka },
   { methods: ['POST'], pattern: /^\/godown\/orders\/(\d+)\/(?:ready-dispatch|dispatch)$/, resolve: ofOrder },
-  { methods: ['POST'], pattern: /^\/dispatch\/challans\/(\d+)\/goods-return$/, resolve: ofDispatchChallan },
+  { methods: ['POST'], pattern: /^\/dispatch\/challans\/(\d+)\/goods-return$/, resolve: ofDispatchChallan, allowClosed: true },
   { methods: ['POST'], pattern: /^\/inventory\/takas\/(\d+)\/mark-fresh$/, resolve: ofTaka },
+  // Sprint 16: outside POs (receiving against a PO is a receive endpoint — not listed).
+  { methods: ['PUT'], pattern: /^\/outside-pos\/(\d+)$/, resolve: ofOutsidePo },
+  { methods: ['POST'], pattern: /^\/outside-pos\/(\d+)\/(?:cancel|close)$/, resolve: ofOutsidePo },
 ];
 
 /** Reads of roles that must not see held orders: 409 with the hold message (jobsheet / taka screens). */
@@ -124,7 +143,14 @@ const READ_HIDDEN_RULES: Rule[] = [
   { methods: ['GET'], pattern: /^\/dispatched\/(\d+)$/, resolve: ofOrder },
   { methods: ['GET'], pattern: /^\/dispatch\/challans\/(\d+)(?:\/print)?$/, resolve: ofDispatchChallan },
   { methods: ['GET'], pattern: /^\/(?:butta|mill)\/(?:pending-orders|refinish-orders)\/(\d+)\/takas$/, resolve: ofOrder },
+  { methods: ['GET'], pattern: /^\/outside-pos\/(\d+)(?:\/.*)?$/, resolve: ofOutsidePo },
 ];
+
+/**
+ * Sprint 16: a CLOSED order is also hidden (404) from these work screens of the roles that don't see held orders. The
+ * Dispatched module and dispatch challans stay open (what was dispatched stays visible).
+ */
+const CLOSED_HIDDEN_PATTERNS: RegExp[] = [/^\/orders\/(\d+)(?:\/.*)?$/, /^\/godown\/orders\/(\d+)(?:\/.*)?$/, /^\/(?:butta|mill)\/(?:pending-orders|refinish-orders)\/(\d+)\/takas$/];
 
 const match = (rules: Rule[], method: string, path: string, req: Parameters<RequestHandler>[0]) => {
   for (const rule of rules) {
@@ -135,13 +161,14 @@ const match = (rules: Rule[], method: string, path: string, req: Parameters<Requ
   return null;
 };
 
-async function heldOrders(orderIds: number[]): Promise<{ id: number; orderNo: number }[]> {
+/** The orders among these that are held or (Sprint 16) closed. */
+async function blockedOrders(orderIds: number[]): Promise<{ id: number; orderNo: number; isOnHold: boolean; isClosed: boolean }[]> {
   const ids = [...new Set(orderIds)];
   if (ids.length === 0) return [];
   return db
-    .select({ id: orders.id, orderNo: orders.orderNo })
+    .select({ id: orders.id, orderNo: orders.orderNo, isOnHold: orders.isOnHold, isClosed: orders.isClosed })
     .from(orders)
-    .where(and(inArray(orders.id, ids), sql`${orders.isOnHold} = 1`));
+    .where(and(inArray(orders.id, ids), sql`(${orders.isOnHold} = 1 OR ${orders.isClosed} = 1)`));
 }
 
 export const holdGuard: RequestHandler = (req, _res, next) => {
@@ -150,20 +177,30 @@ export const holdGuard: RequestHandler = (req, _res, next) => {
   const run = async () => {
     if (method === 'GET' || method === 'HEAD') {
       // Sprint 15: the godown supervisor's Orders — only orders with takas at the butta stage or later.
-      const scoped = isGodownOrdersOnly(req.role) ? path.match(/^\/orders\/(\d+)(?:\/.*)?$/) : null;
+      // (Sprint 16: the FG receipt form is his Receive goods module, not the Orders module.)
+      const scoped = isGodownOrdersOnly(req.role) && !/\/fg-receipt-form$/.test(path) ? path.match(/^\/orders\/(\d+)(?:\/.*)?$/) : null;
       if (scoped && !(await orderInGodownScope(Number(scoped[1])))) throw notFound('Order');
       if (seesHeldOrders(req.role)) return;
       const hit = match(READ_MESSAGE_RULES, method, path, req) ?? match(READ_HIDDEN_RULES, method, path, req);
       if (!hit) return;
-      const held = await heldOrders(await hit.rule.resolve(hit.m, req));
-      if (held.length === 0) return;
-      if (READ_MESSAGE_RULES.includes(hit.rule)) throw conflict(orderOnHoldMessage(held[0].orderNo, req.role));
-      throw notFound('Order');
+      const blocked = await blockedOrders(await hit.rule.resolve(hit.m, req));
+      const held = blocked.filter((o) => o.isOnHold);
+      if (held.length) {
+        if (READ_MESSAGE_RULES.includes(hit.rule)) throw conflict(orderOnHoldMessage(held[0].orderNo, req.role));
+        throw notFound('Order');
+      }
+      // Sprint 16: closed orders are gone from the other roles' work screens (not from Dispatched).
+      if (blocked.some((o) => o.isClosed) && CLOSED_HIDDEN_PATTERNS.some((p) => p.test(path))) throw notFound('Order');
+      return;
     }
     const hit = match(WRITE_RULES, method, path, req);
     if (!hit) return;
-    const held = await heldOrders(await hit.rule.resolve(hit.m, req));
-    if (held.length) throw conflict(orderOnHoldMessage(held[0].orderNo, req.role));
+    const blocked = await blockedOrders(await hit.rule.resolve(hit.m, req));
+    const held = blocked.find((o) => o.isOnHold);
+    if (held) throw conflict(orderOnHoldMessage(held.orderNo, req.role));
+    // Sprint 16: a closed order blocks writes like a hold (receiving stays open; see `allowClosed`).
+    const closed = blocked.find((o) => o.isClosed);
+    if (closed && !hit.rule.allowClosed) throw conflict(orderClosedMessage(closed.orderNo, req.role));
   };
   run().then(() => next(), next);
 };

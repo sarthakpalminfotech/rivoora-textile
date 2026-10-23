@@ -15,6 +15,8 @@ import {
   qcNewDamageSchema,
   readyDispatchBlockers,
   readyDispatchSchema,
+  orderKind,
+  splitWeaverTakaNo,
   splitMeters,
   takaActualPcs,
   validateSplit,
@@ -68,6 +70,16 @@ const designImageSql = sql<string | null>`CASE WHEN ${designVariations.id} IS NO
 /** Stages of takas that have passed (or are about to leave) the Mill QC — what makes an order visible here. */
 const POST_QC = ['final', 'refinish', 'ready_dispatch'] as const;
 
+/** Sprint 16: where the taka came from + its weaver number (the "W 1101" line, the damage types). */
+const godownTakaExtra = {
+  source: takas.source,
+  weaverTakaNo: takas.weaverTakaNo,
+  hasOwnNumber: takas.hasOwnNumber,
+  isReceivedLot: takas.isReceivedLot,
+  hasBeenToMill: takas.hasBeenToMill,
+  beenToButta: sql<number>`EXISTS (SELECT 1 FROM challan_takas bt WHERE bt.taka_id = "takas"."id" AND bt.kind = 'butta')`,
+};
+
 /* ------------------------------------------------------------------ */
 /* Orders list                                                          */
 /* ------------------------------------------------------------------ */
@@ -85,7 +97,7 @@ export async function listGodownOrders(role: RoleKey, q: GodownListQuery): Promi
     const p = likePattern(term);
     const orderNo = /^\d+$/.test(term) ? Number(term) : -1;
     const byClient = seesClient ? sql` OR ${customers.name} LIKE ${p} ESCAPE '\'` : sql``;
-    search = sql`(${orders.orderNo} = ${orderNo}${byClient} OR ${orders.id} IN (SELECT COALESCE(t2.allocated_order_id, t2.order_id) FROM takas t2 WHERE t2.is_free_stock = 0 AND t2.is_deleted = 0 AND t2.stage IN ('final', 'refinish', 'ready_dispatch') AND t2.taka_no LIKE ${p} ESCAPE '\\'))`;
+    search = sql`(${orders.orderNo} = ${orderNo}${byClient} OR ${orders.id} IN (SELECT COALESCE(t2.allocated_order_id, t2.order_id) FROM takas t2 WHERE t2.is_free_stock = 0 AND t2.is_deleted = 0 AND t2.stage IN ('final', 'refinish', 'ready_dispatch') AND (t2.taka_no LIKE ${p} ESCAPE '\\' OR t2.weaver_taka_no LIKE ${p} ESCAPE '\\')))`;
   }
   const unchecked = sql<number>`SUM(CASE WHEN ${takas.stage} = 'final' AND ${takas.godownCheckedAt} IS NULL THEN 1 ELSE 0 END)`;
   const hasPostQc = sql`SUM(CASE WHEN ${takas.stage} IN ('final', 'refinish', 'ready_dispatch') THEN 1 ELSE 0 END) > 0`;
@@ -164,6 +176,9 @@ export async function getGodownOrder(role: RoleKey, orderId: number): Promise<Go
         designId: orders.designId,
         variationId: orders.variationId,
         status: orders.status,
+        hasProduction: orders.hasProduction,
+        hasButta: orders.hasButta,
+        hasMill: orders.hasMill,
         customerId: customers.id,
         customerName: customers.name,
         customerPhone: customers.phone,
@@ -194,6 +209,7 @@ export async function getGodownOrder(role: RoleKey, orderId: number): Promise<Go
         isReturnLot: takas.isReturnLot,
         returnedAt: takas.returnedAt,
         originOrderNo: takaOriginOrderNo,
+        ...godownTakaExtra,
       })
       .from(takas)
       .innerJoin(jobsheets, eq(jobsheets.id, takas.jobsheetId))
@@ -217,7 +233,8 @@ export async function getGodownOrder(role: RoleKey, orderId: number): Promise<Go
   ]);
   const row = orderRows[0];
   if (!row) throw notFound('Order');
-  const { customerId, customerName, customerPhone, customerAddress, customerGstin, brokerName, rate, designId, variationId, ...order } = row;
+  const { customerId, customerName, customerPhone, customerAddress, customerGstin, brokerName, rate, designId, variationId, hasProduction, hasButta, hasMill, ...order } = row;
+  const orderSteps = { hasProduction, hasButta, hasMill };
   const seesClient = can(role, 'canSeeClient');
   const kpis = godownKpis(takaRows.map((t) => ({ stage: t.stage, pcs: t.pcs, actualPcs: t.actualPcs, checked: t.godownCheckedAt !== null })));
   const stagePcs = (stage: string) => takaRows.filter((t) => t.stage === stage).reduce((n, t) => n + (takaActualPcs(t) ?? 0), 0);
@@ -230,10 +247,12 @@ export async function getGodownOrder(role: RoleKey, orderId: number): Promise<Go
   };
   const list: GodownTaka[] = takaRows
     .filter((t) => t.stage === 'final' || t.stage === 'ready_dispatch')
-    .map(({ godownCheckedAt, ...t }) => ({ ...t, checked: godownCheckedAt !== null, checkedAt: godownCheckedAt }))
+    .map(({ godownCheckedAt, beenToButta, ...t }) => ({ ...t, beenToButta: Boolean(beenToButta), checked: godownCheckedAt !== null, checkedAt: godownCheckedAt }))
     .sort((a, b) => compareTakaNo(a.takaNo, b.takaNo));
   return {
     ...order,
+    orderSteps,
+    kind: orderKind(orderSteps),
     inventoryKey: inventoryKey({ designId, variationId }),
     customer: seesClient ? { id: customerId, name: customerName, phone: customerPhone, address: customerAddress || null, gstin: customerGstin } : null,
     brokerName: seesClient ? brokerName : null,
@@ -269,6 +288,11 @@ async function loadFinalTaka(tx: Tx, id: number) {
       freeStockReason: takas.freeStockReason,
       allocatedOrderId: takas.allocatedOrderId,
       originOrderId: takas.originOrderId,
+      source: takas.source,
+      weaverId: takas.weaverId,
+      weaverTakaNo: takas.weaverTakaNo,
+      hasOwnNumber: takas.hasOwnNumber,
+      outsideReceiptId: takas.outsideReceiptId,
     })
     .from(takas)
     .where(and(eq(takas.id, id), eq(takas.isDeleted, false)));
@@ -336,11 +360,12 @@ export async function patchGodownTaka(role: RoleKey, id: number, input: unknown)
         isReturnLot: takas.isReturnLot,
         returnedAt: takas.returnedAt,
         originOrderNo: takaOriginOrderNo,
+        ...godownTakaExtra,
       })
       .from(takas)
       .where(eq(takas.id, id));
-    const { godownCheckedAt, ...rest } = row;
-    return { ...rest, checked: godownCheckedAt !== null, checkedAt: godownCheckedAt };
+    const { godownCheckedAt, beenToButta, ...rest } = row;
+    return { ...rest, beenToButta: Boolean(beenToButta), checked: godownCheckedAt !== null, checkedAt: godownCheckedAt };
   });
 }
 
@@ -580,6 +605,12 @@ export async function splitTaka(role: RoleKey, id: number, input: unknown): Prom
           freeStockBy: parent.freeStockBy,
           freeStockReason: parent.freeStockReason,
           allocatedOrderId: parent.allocatedOrderId,
+          // Sprint 16: an outside taka's part keeps its source / receipt; its weaver number gets the part's letter (1101A).
+          source: parent.source,
+          weaverId: parent.weaverId,
+          weaverTakaNo: splitWeaverTakaNo(parent.weaverTakaNo, p.takaNo),
+          hasOwnNumber: parent.hasOwnNumber,
+          outsideReceiptId: parent.outsideReceiptId,
           enteredBy: role,
           createdAt: at,
           updatedAt: at,

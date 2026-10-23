@@ -17,6 +17,7 @@ import {
   type MainStageKey,
   type OrderDashboard,
   type OrderDetail,
+  type StageUnit,
   type SubStageCount,
   type SubStageKey,
 } from '@rivoora/shared';
@@ -36,6 +37,7 @@ import { CreateJobsheetsDialog } from '../../jobsheets/jobsheet-forms';
 import { FramesValue, machineNumbers } from '../../jobsheets/parts';
 import { JobsheetLink } from '../../jobsheets/js-link';
 import { TakaChips } from '../../takas/takas-card';
+import { PoStatusPill } from '../../outside/po-status';
 import { useSendToProduction } from '../api';
 import { useDashboardItems, useOrderDashboard } from './api';
 import type { OrderView } from './view-state';
@@ -45,7 +47,8 @@ import type { OrderView } from './view-state';
 /* ------------------------------------------------------------------ */
 
 const plural = (n: number, word: string) => `${n.toLocaleString('en-IN')} ${word}${n === 1 ? '' : 's'}`;
-const unitWord = (unit: 'jobsheets' | 'takas', n: number) => (unit === 'jobsheets' ? (n === 1 ? 'jobsheet' : 'jobsheets') : n === 1 ? 'taka' : 'takas');
+const unitWord = (unit: StageUnit, n: number) =>
+  unit === 'jobsheets' ? (n === 1 ? 'jobsheet' : 'jobsheets') : unit === 'pos' ? (n === 1 ? 'PO' : 'POs') : n === 1 ? 'taka' : 'takas';
 const fmt = (n: number) => n.toLocaleString('en-IN', { maximumFractionDigits: 1 });
 const hoursSince = (iso: string | null, now: number) => (iso ? (now - Date.parse(iso)) / 3_600_000 : null);
 
@@ -161,6 +164,10 @@ function MainStageCard({ stage, data, selected, onSelect }: { stage: MainStageCo
     ) : (
       <span className="text-slate-500">Jobsheets for kg / g / meter orders — coming soon</span>
     );
+  } else if (stage.key === 'outside') {
+    secondary = `${plural(data.outside.pos, 'PO')} · ${plural(stage.takas, 'taka')} received`;
+  } else if (stage.key === 'purchase') {
+    secondary = stage.takas > 0 ? `${plural(stage.takas, 'taka')} received` : 'Awaiting goods';
   } else {
     secondary = stage.connected ? `${stage.pcs.toLocaleString('en-IN')} pcs` : <ComingSoon />;
   }
@@ -262,6 +269,9 @@ function subFact(s: SubStageCount, now: number): ReactNode {
     }
     case 'on_loom':
       return `${plural(s.frames, 'frame')} · ${plural(s.machines, 'machine')}`;
+    case 'outside_po':
+    case 'at_weaver':
+      return s.takaPcs !== null ? `${plural(s.takaPcs, 'pc')} pending` : 'pending';
     default:
       return (
         <>
@@ -291,7 +301,7 @@ function SubStageCards({ subs, selected, onToggle }: { subs: SubStageCount[]; se
             >
               <span className="flex items-start gap-1.5 text-[13px] font-medium leading-snug text-slate-600">
                 <span className="mt-[5px] size-2 shrink-0 rounded-full" style={{ backgroundColor: config.colour, opacity: s.connected ? 1 : 0.5 }} aria-hidden />
-                {config.label}
+                {s.label ?? config.label}
               </span>
               <span className={cn('mt-auto pt-1 text-2xl font-bold leading-none tabular-nums', s.connected ? 'text-slate-900' : 'text-slate-400')}>
                 {s.count}
@@ -467,9 +477,29 @@ function DetailBody({ orderId, sub }: { orderId: number; sub: SubStageKey }) {
     body = <ErrorState error={query.error} onRetry={() => void query.refetch()} />;
   } else {
     const d = query.data;
-    const empty = d.kind === 'jobsheets' ? d.jobsheets.length === 0 : d.groups.length === 0;
+    const empty = d.kind === 'jobsheets' ? d.jobsheets.length === 0 : d.kind === 'pos' ? d.pos.length === 0 : d.groups.length === 0;
     if (empty) body = <EmptyState icon={Inbox} title="Nothing here right now" className="py-8" />;
     else if (d.kind === 'jobsheets') body = <JobsheetRows items={d.jobsheets} />;
+    else if (d.kind === 'pos')
+      body = (
+        <ul className="space-y-2.5">
+          {d.pos.map((p) => (
+            <li key={p.id} className="rounded-xl border border-border p-3.5">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[15px] font-bold text-slate-900">{p.label}</span>
+                <PoStatusPill status={p.status} />
+              </div>
+              <p className="mt-1 text-sm text-slate-600">
+                {p.weaver.name} · {p.quality.name}
+              </p>
+              <p className="mt-1 text-sm font-medium text-slate-700">
+                {p.quantity.toLocaleString('en-IN')} {p.unit === 'meters' ? 'm' : 'pcs'} ordered · {p.receivedQty.toLocaleString('en-IN')} received ·{' '}
+                {p.pendingQty.toLocaleString('en-IN')} pending
+              </p>
+            </li>
+          ))}
+        </ul>
+      );
     else
       body = (
         <div className="space-y-3">
@@ -533,16 +563,37 @@ function AlertsCard({ alerts, view }: { alerts: DashboardAlert[]; view: OrderVie
 /* ------------------------------------------------------------------ */
 
 /** Pending for production (Jenish only): nothing to show yet, with the Send for production action. */
-function NotSentYet({ order }: { order: OrderDetail }) {
+/** Sprint 16: the copy of "Send for production" follows the order's kind — it never creates jobsheets for an order without the Production step. */
+function sendForProductionCopy(kind: OrderDetail['kind']): { description: string; confirmDescription: string } {
+  if (kind === 'fg_purchase') {
+    return {
+      description: 'Once sent, its goods can be received here or from the Receive goods module.',
+      confirmDescription: 'It becomes ready to receive the finished goods — no jobsheets are created for this order.',
+    };
+  }
+  if (kind === 'outside_production') {
+    return {
+      description: "Once sent, you can create POs to outside weavers from this order's Outside production tab.",
+      confirmDescription: 'It becomes available for outside POs ("At outside weaver") — no jobsheets are created for this order.',
+    };
+  }
+  return {
+    description: 'Once the order is sent for production, its jobsheets, takas and damages show up here.',
+    confirmDescription: 'It becomes visible to the production team as Jobsheet pending.',
+  };
+}
+
+function NotSentYet({ order, view }: { order: OrderDetail; view: OrderView }) {
   const { can } = useRole();
   const send = useSendToProduction();
   const [confirm, setConfirm] = useState(false);
+  const copy = sendForProductionCopy(order.kind);
   return (
     <div className="rounded-xl border border-border bg-white shadow-soft">
       <EmptyState
         icon={Send}
         title="Not sent for production yet"
-        description="Once the order is sent for production, its jobsheets, takas and damages show up here."
+        description={copy.description}
         action={
           can('canSendToProduction') ? (
             <Button onClick={() => setConfirm(true)}>
@@ -555,15 +606,58 @@ function NotSentYet({ order }: { order: OrderDetail }) {
         open={confirm}
         onOpenChange={setConfirm}
         title={`Send order ${formatOrderNo(order.orderNo)} for production?`}
-        description="It becomes visible to the production team as Jobsheet pending."
+        description={copy.confirmDescription}
         confirmLabel="Send"
         loading={send.isPending}
         onConfirm={() =>
           send.mutate([order.id], {
-            onSuccess: () => toast.success(`Order ${formatOrderNo(order.orderNo)} sent for production`),
+            onSuccess: () => {
+              toast.success(`Order ${formatOrderNo(order.orderNo)} sent for production`);
+              // Outside production has no jobsheets to show — go straight to where the PO is created.
+              if (order.kind === 'outside_production') view.setTab('outside');
+            },
             onSettled: () => setConfirm(false),
           })
         }
+      />
+    </div>
+  );
+}
+
+/** Outside production (no Production step), nothing placed with a weaver yet. */
+function NoOutsidePosYet({ order }: { order: OrderDetail }) {
+  const { can } = useRole();
+  const navigate = useNavigate();
+  return (
+    <div className="rounded-xl border border-dashed border-border bg-white">
+      <EmptyState
+        icon={Send}
+        title="Nothing given outside yet"
+        description={can('canCreateOutsidePo') ? 'Create a PO to an outside weaver from the Outside production tab.' : undefined}
+        className="py-10"
+        action={
+          can('canCreateOutsidePo') ? (
+            <Button onClick={() => navigate(`/orders/${order.id}?tab=outside`)}>
+              <Plus /> Go to Outside production
+            </Button>
+          ) : undefined
+        }
+      />
+    </div>
+  );
+}
+
+/** Direct FG purchase, nothing received yet. */
+function AwaitingGoodsYet({ order, can: canReceive }: { order: OrderDetail; can: boolean }) {
+  const navigate = useNavigate();
+  return (
+    <div className="rounded-xl border border-dashed border-border bg-white">
+      <EmptyState
+        icon={Inbox}
+        title="Awaiting goods"
+        description={canReceive ? 'Receive the finished goods here, or from the Receive goods module.' : undefined}
+        className="py-10"
+        action={canReceive ? <Button onClick={() => navigate(`/orders/${order.id}/receive-fg`)}>Receive goods</Button> : undefined}
       />
     </div>
   );
@@ -612,10 +706,11 @@ export function DashboardSkeleton() {
 /* ------------------------------------------------------------------ */
 
 export function DashboardTab({ order, view }: { order: OrderDetail; view: OrderView }) {
+  const { can } = useRole();
   const pending = order.status === STATUS.PENDING_PRODUCTION;
   const query = useOrderDashboard(order.id, !pending);
 
-  if (pending) return <NotSentYet order={order} />;
+  if (pending) return <NotSentYet order={order} view={view} />;
   if (query.isPending) return <DashboardSkeleton />;
   if (query.isError || !query.data) {
     return (
@@ -629,14 +724,19 @@ export function DashboardTab({ order, view }: { order: OrderDetail; view: OrderV
   const stage = view.stage ?? data.defaultStage;
   const subs = data.subStages.filter((s) => s.mainStage === stage);
   const openSub = view.sub ? data.subStages.find((s) => s.key === view.sub) : undefined;
-  const productionOff = stage === 'production' && !data.isPcs;
+  // Sprint 16: these special cases only apply to in-house orders — outside / FG orders never have jobsheets.
+  const noJobsheetsYet = data.kind === 'in_house' && data.isPcs && !data.hasJobsheets;
+  const productionOff = data.kind === 'in_house' && stage === 'production' && !data.isPcs;
+  const nothingOutsideYet = data.kind === 'outside_production' && data.outside.pos === 0 && data.takaCount === 0;
+  const nothingFgYet = data.kind === 'fg_purchase' && data.takaCount === 0;
+  const blocked = noJobsheetsYet || productionOff || nothingOutsideYet || nothingFgYet;
 
   return (
     <div className="space-y-4">
       <ProgressCard data={data} />
       <MainStages data={data} selected={stage} onSelect={view.selectStage} />
 
-      {data.isPcs && !data.hasJobsheets ? (
+      {noJobsheetsYet ? (
         <NoJobsheetsYet order={order} />
       ) : productionOff ? (
         <div className="rounded-xl border border-dashed border-border bg-white">
@@ -647,18 +747,18 @@ export function DashboardTab({ order, view }: { order: OrderDetail; view: OrderV
             className="py-10"
           />
         </div>
+      ) : nothingOutsideYet ? (
+        <NoOutsidePosYet order={order} />
+      ) : nothingFgYet ? (
+        <AwaitingGoodsYet order={order} can={can('canReceiveOutside')} />
       ) : (
         <div className="space-y-3 rounded-xl border border-border bg-slate-50/60 p-3 md:p-4" aria-label={`${getMainStage(stage).label} details`}>
           <SummaryLine data={data} stage={stage} />
-          <SubStageCards subs={subs} selected={view.sub} onToggle={view.toggleSub} />
+          {subs.length > 0 && <SubStageCards subs={subs} selected={view.sub} onToggle={view.toggleSub} />}
         </div>
       )}
 
-      <DetailDrawer
-        orderId={order.id}
-        open={productionOff ? undefined : openSub}
-        onClose={() => openSub && view.toggleSub(openSub.key)}
-      />
+      <DetailDrawer orderId={order.id} open={blocked ? undefined : openSub} onClose={() => openSub && view.toggleSub(openSub.key)} />
 
       <AlertsCard alerts={data.alerts} view={view} />
     </div>

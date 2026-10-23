@@ -5,6 +5,7 @@ import {
   formatMeters,
   formatPcs,
   JOBSHEET_STATUS,
+  receiptLabel,
   reworkSelectable,
   takaActualPcs,
   takaStageShortLabel,
@@ -14,6 +15,7 @@ import {
   type JobsheetDetail,
   type JobsheetTakaGroup,
   type OrderDetail,
+  type ReceiptTakaGroup,
   type Taka,
   type TakaStage,
 } from '@rivoora/shared';
@@ -30,6 +32,7 @@ import { FramesValue, machineNumbers, StatTile } from '../jobsheets/parts';
 import { JobsheetLink } from '../jobsheets/js-link';
 import { useOrderTakas } from './api';
 import { EditTakasDialog, type EditTakasTarget } from './edit-takas-dialog';
+import { EditReceiptTakasDialog, type EditReceiptTarget } from './edit-receipt-takas-dialog';
 import { SendBackDialog, type SendBackTarget } from './send-back-dialog';
 import { StageDot, TakaChip } from './taka-chip';
 import { TakaDrawer } from './taka-drawer';
@@ -214,6 +217,72 @@ function TakaGroup({
   );
 }
 
+/** Sprint 16: one receipt's takas (outside weaver challan / FG purchase) — grouped like a jobsheet, but by receipt. */
+function ReceiptGroup({
+  group,
+  filter,
+  stage = 'all',
+  onOpen,
+  onEdit,
+  selection,
+}: {
+  group: ReceiptTakaGroup;
+  filter: Filter;
+  stage?: StageFilter;
+  onOpen?: (t: Taka) => void;
+  onEdit?: () => void;
+  selection?: TakaSelection;
+}) {
+  const shown = group.takas.filter((t) => (filter === 'damaged' ? t.isDamaged : true) && (stage === 'all' || t.stage === stage));
+  return (
+    <div className="rounded-xl border border-border p-3.5">
+      <div className="mb-2.5 flex flex-wrap items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[15px] font-semibold text-slate-900">
+            {receiptLabel(group)}
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-white px-2 py-0.5 text-xs font-semibold text-slate-600">
+              <span className="size-2 rounded-full bg-cyan-500" aria-hidden />
+              {group.kind === 'fg' ? 'FG purchase' : 'Outside weaver'}
+            </span>
+          </p>
+          <p className="mt-0.5 text-sm text-slate-500">
+            {group.partyName}
+            {group.takas.length > 0 && ` · ${group.takas.length} taka${group.takas.length === 1 ? '' : 's'}`}
+            {totalMeters(group.takas) !== null && ` · ${formatMeters(totalMeters(group.takas)!)}`}
+            {totalPcs(group.takas) !== null && ` · ${formatPcs(totalPcs(group.takas)!)}`}
+          </p>
+        </div>
+        {onEdit && !selection && (
+          <Button variant="secondary" size="sm" onClick={onEdit}>
+            <Pencil /> Edit takas
+          </Button>
+        )}
+      </div>
+      {shown.length === 0 ? (
+        <p className="text-sm text-muted-foreground">{filter === 'damaged' ? 'No damaged takas' : 'No takas in this stage'}</p>
+      ) : (
+        <TakaChips takas={shown} onOpen={onOpen} selection={selection} />
+      )}
+    </div>
+  );
+}
+
+/** A receipt group's takas, ready for `EditReceiptTakasDialog` (skips groups with no real receipt — split leftovers). */
+const toReceiptTarget = (g: ReceiptTakaGroup, order: Pick<OrderDetail, 'orderNo' | 'hasButta' | 'hasMill'>): EditReceiptTarget => ({
+  jobsheetId: g.jobsheetId,
+  receiptId: g.receiptId,
+  orderNo: order.orderNo,
+  challanNo: g.challanNo,
+  poNo: g.poNo,
+  partyName: g.partyName,
+  kind: g.kind,
+  prefix: g.prefix,
+  takas: g.takas.filter((t) => !t.isFreeStock && t.allocatedOrderNo === null),
+  note: g.note,
+  hasButta: order.hasButta,
+  hasMill: order.hasMill,
+});
+
 function Summary({ total, damaged, meters, pcs }: { total: number; damaged: number; meters: number | null; pcs: number | null }) {
   return (
     <div className="grid grid-cols-2 gap-2.5 sm:max-w-3xl sm:grid-cols-4">
@@ -246,6 +315,7 @@ export function OrderTakasCard({ order }: { order: OrderDetail }) {
   const [filter, setFilter] = useState<Filter>('all');
   const [stage, setStage] = useState<StageFilter>('all');
   const [editing, setEditing] = useState<EditTakasTarget | null>(null);
+  const [editingReceipt, setEditingReceipt] = useState<EditReceiptTarget | null>(null);
   const [openTaka, setOpenTaka] = useState<Taka | null>(null);
   const [selecting, setSelecting] = useState(false);
   const [picked, setPicked] = useState<Map<number, Taka>>(new Map());
@@ -279,9 +349,12 @@ export function OrderTakasCard({ order }: { order: OrderDetail }) {
     : undefined;
   const data = query.data;
   // Pcs-to-pcs orders move a pcs count: the pcs in the godown stages (final + ready for dispatch).
-  const godownPcs = (data?.groups ?? []).flatMap((g) => g.takas).filter((t) => t.stage === 'final' || t.stage === 'ready_dispatch').reduce((n, t) => n + (takaActualPcs(t) ?? 0), 0);
+  const godownPcs = [...(data?.groups ?? []), ...(data?.receipts ?? [])]
+    .flatMap((g) => g.takas)
+    .filter((t) => t.stage === 'final' || t.stage === 'ready_dispatch')
+    .reduce((n, t) => n + (takaActualPcs(t) ?? 0), 0);
   // Only the stages that have takas get a pill.
-  const stagesPresent = TAKA_STAGES.filter((s) => data?.groups.some((g) => g.takas.some((t) => t.stage === s)));
+  const stagesPresent = TAKA_STAGES.filter((s) => data?.groups.some((g) => g.takas.some((t) => t.stage === s)) || data?.receipts.some((g) => g.takas.some((t) => t.stage === s)));
   const activeStage: StageFilter = stage !== 'all' && !stagesPresent.includes(stage) ? 'all' : stage;
 
   let body: ReactNode;
@@ -303,6 +376,11 @@ export function OrderTakasCard({ order }: { order: OrderDetail }) {
         ? g.takas.some((t) => (filter === 'damaged' ? t.isDamaged : true) && (activeStage === 'all' || t.stage === activeStage))
         : true,
     );
+    const receiptGroups = data.receipts.filter((g) =>
+      filter === 'damaged' || activeStage !== 'all'
+        ? g.takas.some((t) => (filter === 'damaged' ? t.isDamaged : true) && (activeStage === 'all' || t.stage === activeStage))
+        : true,
+    );
     body = (
       <div className="space-y-4">
         <Summary total={data.total} damaged={data.damaged} meters={data.totalMeters} pcs={data.totalPcs} />
@@ -319,6 +397,18 @@ export function OrderTakasCard({ order }: { order: OrderDetail }) {
               selection={selection}
               // A jobsheet without takas can only get them once it is completed.
               onEdit={canEdit && (g.takas.length > 0 || g.status === JOBSHEET_STATUS.COMPLETED) ? () => setEditing(toTarget(g)) : undefined}
+            />
+          ))}
+          {receiptGroups.map((g) => (
+            <ReceiptGroup
+              key={g.receiptId}
+              group={g}
+              filter={filter}
+              stage={activeStage}
+              onOpen={setOpenTaka}
+              selection={selection}
+              // The "loose" group (split leftovers of a deleted receipt, receiptId 0) has no receipt to scope an edit to.
+              onEdit={canEdit && g.receiptId > 0 ? () => setEditingReceipt(toReceiptTarget(g, order)) : undefined}
             />
           ))}
         </div>
@@ -409,6 +499,7 @@ export function OrderTakasCard({ order }: { order: OrderDetail }) {
         </>
       )}
       {canEdit && <EditTakasDialog target={editing} onClose={() => setEditing(null)} />}
+      {canEdit && <EditReceiptTakasDialog target={editingReceipt} onClose={() => setEditingReceipt(null)} />}
       <TakaDrawer takaId={openTaka?.id ?? null} takaNo={openTaka?.takaNo} onClose={() => setOpenTaka(null)} />
     </Shell>
   );

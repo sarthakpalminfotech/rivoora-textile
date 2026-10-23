@@ -17,10 +17,12 @@
 /* Main stages                                                          */
 /* ------------------------------------------------------------------ */
 
-export const MAIN_STAGE_KEYS = ['production', 'butta', 'mill', 'ready'] as const;
+// Sprint 16: `outside` (no Production: POs to outside weavers) and `purchase` (direct FG purchase) take Production's place.
+export const MAIN_STAGE_KEYS = ['production', 'outside', 'purchase', 'butta', 'mill', 'ready'] as const;
 export type MainStageKey = (typeof MAIN_STAGE_KEYS)[number];
 
-export type StageUnit = 'jobsheets' | 'takas';
+/** Sprint 16: `pos` = outside POs (the "At outside weaver" / "Given outside" sub-stages). */
+export type StageUnit = 'jobsheets' | 'takas' | 'pos';
 
 export interface MainStageConfig {
   key: MainStageKey;
@@ -33,6 +35,9 @@ export interface MainStageConfig {
 
 export const MAIN_STAGES: readonly MainStageConfig[] = [
   { key: 'production', label: 'Production', unit: 'jobsheets', colour: '#0EA5E9', connected: true },
+  // Sprint 16: shown INSTEAD of Production for orders without it (never both).
+  { key: 'outside', label: 'Outside production', unit: 'takas', colour: '#0284C7', connected: true },
+  { key: 'purchase', label: 'Purchase', unit: 'takas', colour: '#0891B2', connected: true },
   // Not connected yet — see the note at the top of this file.
   { key: 'butta', label: 'Butta cutting', unit: 'takas', colour: '#F59E0B', connected: true },
   // The whole order goes to the mill together for dyeing. Only "Waiting for mill" is connected so far.
@@ -91,6 +96,9 @@ export const SUB_STAGE_KEYS = [
   'ready_dispatch',
   'rework_butta',
   'dispatched',
+  // Sprint 16: outside POs (no taka stage — counted from the POs).
+  'outside_po',
+  'at_weaver',
 ] as const;
 export type SubStageKey = (typeof SUB_STAGE_KEYS)[number];
 
@@ -115,6 +123,10 @@ export const SUB_STAGES: readonly SubStageConfig[] = [
   { key: 'on_loom', label: 'On loom', shortLabel: 'On loom', mainStage: 'production', unit: 'jobsheets', colour: '#3B82F6', connected: true },
   { key: 'taka_pending', label: 'Taka entry pending', shortLabel: 'Taka entry pending', mainStage: 'production', unit: 'jobsheets', colour: '#14B8A6', connected: true },
   { key: 'taka_done', label: 'Taka entry done · waiting for butta cutting', shortLabel: 'Taka entry done', mainStage: 'production', unit: 'takas', colour: '#A855F7', connected: true, takaStages: ['entered'] },
+  // Sprint 16: a part of an in-house order given to outside weavers (open POs).
+  { key: 'outside_po', label: 'Given outside (POs)', shortLabel: 'Outside', mainStage: 'production', unit: 'pos', colour: '#0284C7', connected: true },
+  // Sprint 16: orders without Production — POs still at the outside weaver.
+  { key: 'at_weaver', label: 'At outside weaver', shortLabel: 'At weaver', mainStage: 'outside', unit: 'pos', colour: '#0284C7', connected: true },
   // Butta cutting — connected in Sprint 7.
   { key: 'at_butta', label: 'At butta cutting', shortLabel: 'At butta cutting', mainStage: 'butta', unit: 'takas', colour: '#F59E0B', connected: true, takaStages: ['at_butta'] },
   { key: 'butta_qc', label: 'Received · QC pending', shortLabel: 'QC pending', mainStage: 'butta', unit: 'takas', colour: '#EAB308', connected: true, takaStages: ['butta_qc'] },
@@ -205,7 +217,7 @@ export function jobsheetSubStage(status: string, takaCount: number): JobsheetSub
 /* Damage types                                                         */
 /* ------------------------------------------------------------------ */
 
-export const DAMAGE_TYPES = ['machine', 'butta', 'mill', 'unmarked', 'godown', 'customer_return'] as const;
+export const DAMAGE_TYPES = ['machine', 'butta', 'mill', 'weaver', 'unmarked', 'godown', 'customer_return'] as const;
 export type DamageType = (typeof DAMAGE_TYPES)[number];
 
 export interface DamageTypeConfig {
@@ -221,6 +233,8 @@ export const DAMAGE_TYPE_CONFIG: readonly DamageTypeConfig[] = [
   // To connect later: a NEW damage found at the QC after butta cutting / after the mill.
   { key: 'butta', label: 'Butta cutting damage', recordedWhen: 'At the QC after butta cutting', connected: true },
   { key: 'mill', label: 'Mill damage', recordedWhen: 'At the QC after the mill', connected: true },
+  // Sprint 16: takas received from an outside weaver (or an FG supplier). Shown only when > 0, like the legacy types.
+  { key: 'weaver', label: 'Weaver damage', recordedWhen: 'When goods are received from an outside weaver / FG supplier', connected: true },
   // Sprint 13: nothing chosen at a goods return → "Damage type not marked".
   { key: 'unmarked', label: 'Damage type not marked', recordedWhen: 'At goods return (GR), no type chosen', connected: true },
   // Legacy labels: older damages keep them (new damages always carry machine / butta / mill / not marked).
@@ -277,4 +291,49 @@ export const TAKA_STAGE_STATUS_TEXT: Record<TakaStage, string> = {
 
 export function takaStageStatusText(stage: string): string {
   return isTakaStage(stage) ? TAKA_STAGE_STATUS_TEXT[stage] : stage;
+}
+
+/* ------------------------------------------------------------------ */
+/* Sprint 16: ONE routing rule for every taka                           */
+/* ------------------------------------------------------------------ */
+
+/** Where a routing decision is made. */
+export type TakaRouteFrom = 'taka_entry' | 'outside_receipt' | 'fg_receipt' | 'butta_qc' | 'mill_qc';
+
+/** What the routing needs to know about the taka (only Butta QC looks at it). */
+export interface TakaRouteFacts {
+  /** The taka (or any ancestor through `parent_taka_id`) has been to the mill — a re-butta must not go there again. */
+  hasBeenToMill?: boolean | null;
+  ancestorHasBeenToMill?: boolean | null;
+  /** It has a mill challan row. */
+  hasMillHistory?: boolean;
+  refinishCount?: number | null;
+}
+
+/** The taka has been dyed already (itself, an ancestor, a mill challan row or a refinish trip). */
+export const hasBeenDyed = (t: TakaRouteFacts = {}): boolean =>
+  !!t.hasBeenToMill || !!t.ancestorHasBeenToMill || !!t.hasMillHistory || (t.refinishCount ?? 0) > 0;
+
+/**
+ * The stage a taka moves to next — the ONE rule (replaces `initialTakaStage` and `stageAfterButtaQc`):
+ * - taka entry / received from an outside weaver → `entered` (waiting for butta) when Butta is ticked, else
+ *   `waiting_mill` when Mill is ticked, else `final` (Dhruvil);
+ * - FG purchase receipt → `final`;
+ * - Butta QC done → `waiting_mill` when Mill is ticked and the taka has not been dyed yet, else `final`;
+ * - Mill QC done → `final`.
+ * Rework / refinish is an exception that does not go through here (the owner sends a taka back by hand); after it
+ * passes QC again it returns to `final` (a re-butta of a dyed taka) or follows the order's steps.
+ */
+export function nextTakaStage(order: { hasButta: boolean; hasMill: boolean }, from: TakaRouteFrom, taka: TakaRouteFacts = {}): TakaStage {
+  switch (from) {
+    case 'taka_entry':
+    case 'outside_receipt':
+      return order.hasButta ? 'entered' : order.hasMill ? 'waiting_mill' : 'final';
+    case 'fg_receipt':
+      return 'final';
+    case 'butta_qc':
+      return order.hasMill && !hasBeenDyed(taka) ? 'waiting_mill' : 'final';
+    case 'mill_qc':
+      return 'final';
+  }
 }
