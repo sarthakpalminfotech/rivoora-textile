@@ -53,10 +53,12 @@ function SectionButton({ machine, section, program, now, onOpen }: { machine: Tf
       >
         <span className="flex items-center gap-2">
           <span className="text-sm font-bold tabular-nums text-slate-500">{label}</span>
-          <span className="text-[11px] font-medium uppercase tracking-wide text-slate-400">{TFO_SECTION_LABEL[section]} · idle</span>
+          <span className="hidden truncate text-[11px] font-medium uppercase tracking-wide text-slate-400 sm:inline">{TFO_SECTION_LABEL[section]} · idle</span>
         </span>
         <span className="inline-flex items-center gap-1 text-sm font-semibold text-slate-500 group-hover:text-violet-700">
-          <Plus className="size-4" aria-hidden /> Assign program
+          <Plus className="size-4 shrink-0" aria-hidden />
+          <span className="sm:hidden">Assign</span>
+          <span className="hidden sm:inline">Assign program</span>
         </span>
       </button>
     );

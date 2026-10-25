@@ -1,6 +1,6 @@
 # Rivoora Textile — Project State
 
-Snapshot of what the code actually does as of **2026-10-14** — the latest work is the **Sprint 11** section at the very end (Sprints 7–10 are short summaries at the end too; see `CLAUDE.md` for detail). **Sprint 6 (client demo feedback)** is in
+Snapshot of what the code actually does as of **2026-10-26** — the latest work is the **Sprint 17** section (yarn) at the very end (Sprints 7–10 are short summaries at the end too; see `CLAUDE.md` for detail). **Sprint 6 (client demo feedback)** is in
 [§13](#13-sprint-6--client-demo-feedback); Sprint 5 (order dashboard) in [§12](#12-sprint-5--order-dashboard-order-details-page).
 Sprint 4 is in [§11](#11-sprint-4--taka-entry-role-qr-scan-takas-on-orders), Sprint 3 in
 [§10](#10-sprint-3--supervisor-machine-production-flow-machine-view), Sprint 2 in [§9](#9-sprint-2--machines--jobsheets).
@@ -1093,3 +1093,24 @@ Live jobsheet numbers, picks removed, supervisor Order view quality + machines, 
 - Verified: `npm run typecheck` clean, `npm test` 274 passing, `node scripts/check-sprint15.mjs` all checks pass on a local file DB.
 - **Turso changes when you run `npm run db:migrate`** (migration `0014_sprint15_hold_order.sql`, additive only): new table `order_hold_events`; `orders` gets `is_on_hold` (default 0), `held_at`, `held_by_user_id`, `hold_note`, `released_at`; index `orders_is_on_hold_idx`. Needs 0010–0013 applied first. No data is changed or removed.
 - Not done: no real-phone check (keyboard + Save bar, share sheet with image), no 360 / 768 / 1280 px screenshot pass, Mill Send → Pending drawer checked in the browser at desktop width only.
+
+## Sprint 17 (done, committed) — current as of 2026-10-26
+
+Yarn PO + Yarn inventory with three zones (Direct consumption · TFO · Warping): Yarn parties / Yarn qualities / TFO machines masters, Yarn POs (lines, partial challans into a zone, close / cancel, A4 print), the yarn stock ledger, Transfer, Direct-consumption Withdraw (yarn or beams), the TFO machine board (assign / running / stop + history), Warping (start → in process → Mark done → beams). Not linked to orders. Details in the "Sprint 17" section of CLAUDE.md; spec: rivoora-sprint17-yarn-prompt.md.
+
+- Verified: `npm run typecheck` clean, `npm test` 338 passing (new `yarn.test.ts`, 28 tests), `npm run build` OK; `node scripts/check-sprint17.mjs` (≈ 80 API checks — permissions, the full PO → challans → transfer → TFO → warping → beams → consume flow, no-negative-stock and beam-zone rules, and a reconciliation of summary / zone screens / ledger after every step) plus `check-auth`, `check-sprint13`, `check-sprint15`, `check-sprint16` all pass on a local file DB. In Chrome (local dev server, local DB): every dialog driven through the UI (transfer, assign + stop program, start warping, mark done, consume a beam, receive with over-receipt); an automated layout audit of every new page and dialog at 360 / 768 / 1024 / 1280 (no horizontal overflow; no field alone on a tablet row except wide selects and the 3-option zone picker); screenshots at 360 / 768 / 1024 / desktop of the main screen, TFO board, PO form, receive, Transfer, Assign program and Mark done.
+- **Turso changes when you run `npm run db:migrate`** (migration `0016_sprint17_yarn.sql`, additive only): new tables `yarn_parties`, `yarn_qualities`, `tfo_machines`, `yarn_pos`, `yarn_po_lines`, `yarn_receipts`, `yarn_receipt_lines`, `yarn_po_events`, `yarn_transfers`, `yarn_withdrawals`, `yarn_stock_moves`, `beams`, `beam_moves`, `tfo_programs`, `warping_jobs`, `warping_job_inputs` and their indexes (incl. unique `yarn_pos.po_no`, unique `beams.beam_no`, unique `warping_jobs.job_no`, partial unique one-running-program-per-section, partial unique names / machine numbers among active rows). No existing table is altered, nothing is dropped, renamed or backfilled. Counter rows `warping_job_no` / `beam_no` are created on first use. Needs 0010–0015 applied first if they aren't.
+- Decisions / deviations: quantities stored as integer grams (`*_g`) and rates as paise (not `qty_kg`); three extra tables (`yarn_po_events`, `yarn_transfers`, `yarn_withdrawals`); rate / amount hidden from the two supervisors (they have no `canSeeRate`); a fully received PO takes no more challans (over-receipt is allowed inside a challan, with the amber warning); Close only for a partly received PO, Cancel only for an open PO with nothing received; the TFO zone screen's Run program button opens Assign program with an idle-section picker; `/yarn/movements` is the "View all" page; the movement date filter compares the UTC date of `created_at` (same as the other date filters).
+- Nav side effect: the godown supervisor's bottom bar was full (4), so with Yarn inventory + Yarn PO the max-4 rule moves **Receive goods** into More. Sidebar (≥ 1024px) and landings unchanged for every role.
+- Not done: real phone / tablet check; migration on Turso.
+
+### Existing screens with the one-field-per-row tablet problem (listed, not fixed)
+
+- Users master form — Name, Phone, Role, Password each on their own row on tablets.
+- Outside PO dialog (order → Outside production) — weaver, quality, quantity, unit, order type, rate, date, notes one per row (no grid).
+- Materials, Machines and Damage master forms — short fields (machine no., code) take the full row.
+- Butta parties, Mill parties, Weavers — Name alone on its row (only Mobile + GSTIN are paired); no 3-column layout on landscape tablets.
+- Customer form — 2 columns at most (`sm:grid-cols-2`), no 3-column layout at 1024px; brokers list full width.
+- Add / Edit order — content capped at 768px, so landscape tablets still get the 2-column phone-ish layout (quantity / unit / rate / date could share rows).
+- Jobsheet create / edit forms — 2 columns at most.
+- Receipt entry (outside PO / FG receive) and Goods return — header fields 2 columns at most.

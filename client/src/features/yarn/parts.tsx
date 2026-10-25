@@ -27,7 +27,7 @@ export const ZONE_ICON: Record<YarnZone, LucideIcon> = { direct: Package, tfo: R
 /** ₹ from paise. */
 export const money = (paise: number | null | undefined) => (paise === null || paise === undefined ? '—' : formatMoney(paise / 100));
 
-export function ZoneTag({ zone, className }: { zone: YarnZone; className?: string }) {
+export function ZoneTag({ zone, className, short }: { zone: YarnZone; className?: string; /** "Direct" instead of "Direct consumption" on narrow columns. */ short?: boolean }) {
   const c = YARN_ZONE_CONFIG[zone];
   const Icon = ZONE_ICON[zone];
   return (
@@ -36,7 +36,7 @@ export function ZoneTag({ zone, className }: { zone: YarnZone; className?: strin
       style={{ backgroundColor: c.accent.soft, color: c.accent.text, borderColor: c.accent.border }}
     >
       <Icon className="size-3.5 shrink-0" aria-hidden />
-      <span className="truncate">{c.label}</span>
+      <span className="truncate">{short ? c.label.split(' ')[0] : c.label}</span>
     </span>
   );
 }

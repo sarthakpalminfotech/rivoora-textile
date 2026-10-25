@@ -375,7 +375,7 @@ export function MarkDoneDialog({ job, onOpenChange }: { job: WarpingJob | null; 
             )}
           </div>
           {serverErr?.field.startsWith('beams') && <p className="mb-2 text-sm font-medium text-destructive">{serverErr.message}</p>}
-          <div className="hidden grid-cols-[6rem_6rem_7.5rem_minmax(0,1fr)_10.5rem_2.75rem] gap-x-3 border-b border-border pb-2 text-xs font-semibold uppercase tracking-wide text-slate-500 md:grid">
+          <div className="hidden md:grid-cols-[4.75rem_4.75rem_6.25rem_minmax(0,1fr)_8.75rem_2.5rem] lg:grid-cols-[6rem_6rem_7.5rem_minmax(0,1fr)_10.5rem_2.75rem] gap-x-3 border-b border-border pb-2 text-xs font-semibold uppercase tracking-wide text-slate-500 md:grid">
             <span className="text-right">Taar *</span>
             <span className="text-right">Panna *</span>
             <span className="text-right">Meters *</span>
@@ -385,7 +385,7 @@ export function MarkDoneDialog({ job, onOpenChange }: { job: WarpingJob | null; 
           </div>
           <ol className="space-y-3 md:space-y-0">
             {rows.map((r, i) => (
-              <li key={r.key} className="grid grid-cols-3 gap-3 rounded-xl border border-border p-3 md:grid-cols-[6rem_6rem_7.5rem_minmax(0,1fr)_10.5rem_2.75rem] md:items-start md:rounded-none md:border-0 md:border-b md:px-0 md:py-2.5">
+              <li key={r.key} className="grid grid-cols-3 gap-3 rounded-xl border border-border p-3 md:grid-cols-[4.75rem_4.75rem_6.25rem_minmax(0,1fr)_8.75rem_2.5rem] lg:grid-cols-[6rem_6rem_7.5rem_minmax(0,1fr)_10.5rem_2.75rem] md:items-start md:rounded-none md:border-0 md:border-b md:px-0 md:py-2.5">
                 <Field label={<span className="md:hidden">Taar</span>}>
                   <Input inputMode="numeric" autoComplete="off" value={r.taar} onChange={(e) => set(r.key, { taar: e.target.value.replace(/\D/g, '').slice(0, 7) })} invalid={fieldErr(i, 'taar')} className="text-right tabular-nums" aria-label={`Taar beam ${i + 1}`} />
                 </Field>

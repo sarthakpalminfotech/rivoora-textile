@@ -20,13 +20,13 @@ import { ZoneActionDialogs, type ZoneAction } from './zone-actions';
 
 function KpiTile({ label, value, icon: Icon, tone }: { label: string; value: React.ReactNode; icon: typeof Spool; tone?: string }) {
   return (
-    <div className="flex min-w-0 items-center gap-3 rounded-2xl border border-border bg-white p-3 shadow-soft md:p-3.5">
-      <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-slate-500" style={tone ? { color: tone } : undefined}>
+    <div className="flex min-w-0 items-center gap-3 rounded-2xl border border-border bg-white p-3 shadow-soft md:px-3 md:py-2.5 lg:p-3.5">
+      <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-slate-500 md:hidden lg:flex" style={tone ? { color: tone } : undefined}>
         <Icon className="size-5" aria-hidden />
       </span>
       <div className="min-w-0">
-        <p className="truncate text-xs font-semibold uppercase tracking-wide text-slate-400">{label}</p>
-        <p className="truncate text-lg font-bold tabular-nums text-slate-900 md:text-xl">{value}</p>
+        <p className="truncate text-xs font-semibold uppercase tracking-wide text-slate-400 md:text-[11px] lg:text-xs">{label}</p>
+        <p className="truncate text-lg font-bold tabular-nums text-slate-900 md:text-base lg:text-xl">{value}</p>
       </div>
     </div>
   );
@@ -50,14 +50,14 @@ function ZonePanel({ stock, summary, onAction }: { stock: YarnZoneStock; summary
     <section className="flex min-w-0 flex-col overflow-hidden rounded-2xl border bg-white shadow-soft" style={{ borderColor: c.accent.border }}>
       <Link to={`/yarn/${z}`} className="group flex-1 p-4 transition-colors hover:bg-slate-50/60 md:p-3.5 lg:p-5" aria-label={`Open ${c.label}`}>
         <div className="flex items-center gap-3">
-          <span className="flex size-11 shrink-0 items-center justify-center rounded-xl md:size-10 lg:size-12" style={{ backgroundColor: c.accent.soft, color: c.accent.solid }}>
+          <span className="flex size-11 shrink-0 items-center justify-center rounded-xl md:size-9 lg:size-12" style={{ backgroundColor: c.accent.soft, color: c.accent.solid }}>
             <Icon className="size-6" aria-hidden />
           </span>
           <div className="min-w-0 flex-1">
-            <h2 className="truncate text-lg font-bold leading-tight text-slate-900 lg:text-xl">{c.label}</h2>
+            <h2 className="truncate text-lg font-bold leading-tight text-slate-900 md:whitespace-normal md:text-base lg:text-xl">{c.label}</h2>
             <p className="truncate text-xs text-slate-500 md:hidden lg:block">{c.description}</p>
           </div>
-          <ChevronRight className="size-5 shrink-0 text-slate-300 transition-colors group-hover:text-slate-500" aria-hidden />
+          <ChevronRight className="size-5 shrink-0 text-slate-300 transition-colors group-hover:text-slate-500 md:hidden lg:block" aria-hidden />
         </div>
         <div className="mt-3 divide-y divide-border">
           <Stat label="Raw yarn">
@@ -123,7 +123,7 @@ export default function YarnInventoryPage() {
         <KpiTile label="Beams" value={data.totals.beams} icon={Cylinder} />
         <KpiTile label="TFO running" value={data.tfo.runningSections} icon={RotateCw} tone={YARN_ZONE_CONFIG.tfo.accent.solid} />
         <div className="col-span-2 md:col-span-1">
-          <KpiTile label="Warping in process" value={data.warping.inProcess} icon={Waves} tone={YARN_ZONE_CONFIG.warping.accent.solid} />
+          <KpiTile label="Warping jobs" value={data.warping.inProcess} icon={Waves} tone={YARN_ZONE_CONFIG.warping.accent.solid} />
         </div>
       </div>
 
