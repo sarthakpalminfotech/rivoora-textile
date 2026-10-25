@@ -87,8 +87,8 @@ export function YarnQualityFormDialog({ open, onOpenChange, quality = null, read
       }
     >
       <form id="yarn-quality-form" onSubmit={onSubmit} noValidate>
-        <fieldset disabled={readOnly} className="grid gap-4 md:grid-cols-2 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)]">
-          <Field label="Name" htmlFor="yq-name" required error={errors.name?.message} hint="e.g. 75D/36F Semi dull" className="md:col-span-2 lg:col-span-1">
+        <fieldset disabled={readOnly} className="grid gap-4 md:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)]">
+          <Field label="Name" htmlFor="yq-name" required error={errors.name?.message} hint="e.g. 75D/36F Semi dull">
             <Input id="yq-name" autoFocus={!readOnly} autoComplete="off" invalid={!!errors.name} {...register('name')} />
           </Field>
           <Field label="Denier" htmlFor="yq-denier" error={errors.denier?.message}>
@@ -97,7 +97,7 @@ export function YarnQualityFormDialog({ open, onOpenChange, quality = null, read
           <Field label="Filament" htmlFor="yq-filament" error={errors.filament?.message}>
             <Input id="yq-filament" autoComplete="off" placeholder="e.g. 36" {...register('filament')} />
           </Field>
-          <Field label="Notes" htmlFor="yq-notes" error={errors.notes?.message} className="md:col-span-2 lg:col-span-3">
+          <Field label="Notes" htmlFor="yq-notes" error={errors.notes?.message} className="md:col-span-3">
             <Textarea id="yq-notes" rows={3} {...register('notes')} />
           </Field>
         </fieldset>

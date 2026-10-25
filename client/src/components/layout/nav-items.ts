@@ -65,6 +65,7 @@ export const NAV_ITEMS: NavItem[] = [
   // Gaurang receive from the order's Outside production tab instead, so it is not in their nav.
   { to: '/receive-goods', label: 'Receive goods', icon: PackageSearch, permission: 'canReceiveOutside', group: 'main', hideWith: 'canViewOrders' },
   // Sprint 17: yarn (Jenish, Gaurang, the Supervisor, the Godown supervisor) — not in the bar, they go into More.
+  { to: '/yarn', label: 'Yarn inventory', icon: Spool, permission: 'canUseYarnInventory', group: 'main' },
   { to: '/yarn-po', label: 'Yarn PO', icon: ReceiptText, permission: 'canViewYarn', group: 'main' },
   // One Masters entry; the page lists every master the role may open.
   { to: '/masters', label: 'Masters', icon: Database, permission: 'canViewMasters', group: 'main' },

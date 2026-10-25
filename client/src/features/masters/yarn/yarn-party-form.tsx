@@ -97,8 +97,8 @@ export function YarnPartyFormDialog({ open, onOpenChange, party = null, readOnly
       }
     >
       <form id="yarn-party-form" onSubmit={onSubmit} noValidate>
-        <fieldset disabled={readOnly} className="grid gap-4 md:grid-cols-2 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)]">
-          <Field label="Name" htmlFor="yp-name" required error={errors.name?.message} className="md:col-span-2 lg:col-span-1">
+        <fieldset disabled={readOnly} className="grid gap-4 md:grid-cols-[minmax(0,1fr)_10rem_12rem]">
+          <Field label="Name" htmlFor="yp-name" required error={errors.name?.message} >
             <Input id="yp-name" autoFocus={!readOnly} autoComplete="off" invalid={!!errors.name} {...register('name')} />
           </Field>
           <Field label="Mobile" htmlFor="yp-mobile" error={errors.mobile?.message}>
@@ -107,10 +107,10 @@ export function YarnPartyFormDialog({ open, onOpenChange, party = null, readOnly
           <Field label="GSTIN" htmlFor="yp-gstin" error={errors.gstin?.message}>
             <Input id="yp-gstin" autoComplete="off" className="uppercase" {...register('gstin')} />
           </Field>
-          <Field label="Address" htmlFor="yp-address" error={errors.address?.message} className="md:col-span-2 lg:col-span-3">
+          <Field label="Address" htmlFor="yp-address" error={errors.address?.message} className="md:col-span-3">
             <Textarea id="yp-address" rows={3} {...register('address')} />
           </Field>
-          <Field label="Notes" htmlFor="yp-notes" error={errors.notes?.message} className="md:col-span-2 lg:col-span-3">
+          <Field label="Notes" htmlFor="yp-notes" error={errors.notes?.message} className="md:col-span-3">
             <Textarea id="yp-notes" rows={3} {...register('notes')} />
           </Field>
         </fieldset>
