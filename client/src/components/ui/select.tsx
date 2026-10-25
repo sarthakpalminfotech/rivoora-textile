@@ -36,6 +36,8 @@ interface BaseProps<V extends string | number> {
   triggerClassName?: string;
   /** Rendered beside the trigger, e.g. a ➕ button. */
   action?: ReactNode;
+  /** Extra classes for the dropdown panel (e.g. a min width wider than a narrow trigger). */
+  panelClassName?: string;
   'aria-label'?: string;
 }
 
@@ -103,6 +105,7 @@ function DropdownCore<V extends string | number>({
   className,
   triggerClassName,
   action,
+  panelClassName,
   triggerText,
   isSelected,
   onPick,
@@ -251,7 +254,10 @@ function DropdownCore<V extends string | number>({
               (searchable && !isTouchDevice() ? searchRef.current : listRef.current)?.focus({ preventScroll: true });
             }}
             onKeyDown={onKeyDown}
-            className="z-[60] flex w-[var(--radix-popover-trigger-width)] min-w-[200px] max-w-[calc(100vw-24px)] flex-col overflow-hidden rounded-[10px] border border-slate-200 bg-white shadow-pop outline-none animate-in fade-in-0 zoom-in-[0.98]"
+            className={cn(
+              'z-[60] flex w-[var(--radix-popover-trigger-width)] min-w-[200px] max-w-[calc(100vw-24px)] flex-col overflow-hidden rounded-[10px] border border-slate-200 bg-white shadow-pop outline-none animate-in fade-in-0 zoom-in-[0.98]',
+              panelClassName,
+            )}
             style={{ maxHeight: 'min(340px, var(--radix-popover-content-available-height))' }}
           >
             {searchable && (

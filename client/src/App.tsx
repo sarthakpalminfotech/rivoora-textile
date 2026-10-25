@@ -64,6 +64,11 @@ const UsersPage = lazy(() => import('@/features/masters/users/users-page'));
 const YarnPartiesPage = lazy(() => import('@/features/masters/yarn/yarn-parties-page'));
 const YarnQualitiesPage = lazy(() => import('@/features/masters/yarn/yarn-qualities-page'));
 const TfoMachinesPage = lazy(() => import('@/features/masters/yarn/tfo-machines-page'));
+const YarnPoListPage = lazy(() => import('@/features/yarn/po-list-page'));
+const YarnPoDetailsPage = lazy(() => import('@/features/yarn/po-details-page'));
+const YarnPoFormPage = lazy(() => import('@/features/yarn/po-form-page'));
+const YarnReceivePage = lazy(() => import('@/features/yarn/receive-page'));
+const YarnPoPrintPage = lazy(() => import('@/features/yarn/po-print-page'));
 const LoginPage = lazy(() => import('@/features/auth/login-page'));
 const NotFoundPage = lazy(() => import('@/pages/not-found-page'));
 
@@ -159,6 +164,47 @@ const router = createBrowserRouter([
           </Suspense>
         ),
       },
+      // Sprint 17: Yarn PO full-screen forms + print.
+      {
+        path: '/yarn-po/new',
+        element: (
+          <Suspense fallback={<PageSkeleton />}>
+            <RequirePermission permission="canManageYarnPo">
+              <YarnPoFormPage />
+            </RequirePermission>
+          </Suspense>
+        ),
+      },
+      {
+        path: '/yarn-po/:id/edit',
+        element: (
+          <Suspense fallback={<PageSkeleton />}>
+            <RequirePermission permission="canManageYarnPo">
+              <YarnPoFormPage />
+            </RequirePermission>
+          </Suspense>
+        ),
+      },
+      {
+        path: '/yarn-po/:id/receive',
+        element: (
+          <Suspense fallback={<PageSkeleton />}>
+            <RequirePermission permission="canReceiveYarn">
+              <YarnReceivePage />
+            </RequirePermission>
+          </Suspense>
+        ),
+      },
+      {
+        path: '/print/yarn-po/:id',
+        element: (
+          <Suspense fallback={<PageSkeleton />}>
+            <RequirePermission permission="canManageYarnPo">
+              <YarnPoPrintPage />
+            </RequirePermission>
+          </Suspense>
+        ),
+      },
       {
         path: '/outside-pos/:id/receive',
         element: (
@@ -224,6 +270,9 @@ const router = createBrowserRouter([
           { path: 'dispatched/:orderId', element: guard('canDispatch', <DispatchedOrderPage />) },
           { path: 'dispatched/:orderId/challans/:challanId/gr', element: guard('canGoodsReturn', <GoodsReturnPage />) },
           { path: 'users', element: guard('canManageUsers', <UsersPage />) },
+          // Sprint 17: Yarn PO (view: Jenish, Gaurang, both supervisors).
+          { path: 'yarn-po', element: guard('canViewYarn', <YarnPoListPage />) },
+          { path: 'yarn-po/:id', element: guard('canViewYarn', <YarnPoDetailsPage />) },
           // Sprint 17: yarn masters.
           { path: 'yarn-parties', element: guard('canManageYarnMasters', <YarnPartiesPage />) },
           { path: 'yarn-qualities', element: guard('canManageYarnMasters', <YarnQualitiesPage />) },

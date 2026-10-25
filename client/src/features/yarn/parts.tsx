@@ -151,6 +151,7 @@ export function QualitySelect({ value, onChange, id, invalid, placeholder = 'Sel
       invalid={invalid}
       disabled={disabled}
       className={className}
+      panelClassName="min-w-[min(300px,calc(100vw-24px))]"
       selectedLabel={selectedLabel}
       aria-label={placeholder}
       action={
