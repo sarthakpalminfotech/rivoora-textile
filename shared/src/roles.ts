@@ -94,6 +94,16 @@ export interface RolePermissions {
   canReceiveOutside: boolean;
   /** Sprint 16: Close order. */
   canCloseOrder: boolean;
+  /** Sprint 17: Yarn parties, Yarn qualities and TFO machines masters. */
+  canManageYarnMasters: boolean;
+  /** Sprint 17: create / edit / cancel / close / print Yarn POs. */
+  canManageYarnPo: boolean;
+  /** Sprint 17: receive yarn challans against a Yarn PO (into a zone). */
+  canReceiveYarn: boolean;
+  /** Sprint 17: the Yarn PO module (`/yarn-po`), read. */
+  canViewYarn: boolean;
+  /** Sprint 17: Yarn inventory (`/yarn`): zones, transfer, withdraw, TFO programs, warping. */
+  canUseYarnInventory: boolean;
 }
 
 export interface RoleConfig {
@@ -127,7 +137,14 @@ const NO_SPRINT12 = {
   canCreateOutsidePo: false,
   canReceiveOutside: false,
   canCloseOrder: false,
+  canManageYarnMasters: false,
+  canManageYarnPo: false,
+  canReceiveYarn: false,
+  canViewYarn: false,
+  canUseYarnInventory: false,
 };
+/** Sprint 17: the yarn area for the production / godown supervisors — view + receive Yarn POs, the whole Yarn inventory. */
+const YARN_FLOOR = { canReceiveYarn: true, canViewYarn: true, canUseYarnInventory: true };
 /** Jenish + Gaurang: all the Sprint 12 owner permissions. */
 const OWNER_SPRINT12 = {
   canReworkTakas: true,
@@ -146,6 +163,12 @@ const OWNER_SPRINT12 = {
   canCreateOutsidePo: true,
   canReceiveOutside: true,
   canCloseOrder: true,
+  // Sprint 17: yarn masters, Yarn POs, Yarn inventory.
+  canManageYarnMasters: true,
+  canManageYarnPo: true,
+  canReceiveYarn: true,
+  canViewYarn: true,
+  canUseYarnInventory: true,
 };
 
 const NO_TAKAS = { canUseTakaModules: false, canEnterTakas: false, canEditTakas: false, canViewTakas: false };
@@ -292,6 +315,8 @@ export const ROLES: Record<RoleKey, RoleConfig> = {
       ...NO_MILL,
       ...NO_SPRINT12,
       canViewProductionOrders: true,
+      // Sprint 17: Yarn PO (view + receive) and Yarn inventory.
+      ...YARN_FLOOR,
     },
   },
   taka_entry: {
@@ -337,7 +362,7 @@ export const ROLES: Record<RoleKey, RoleConfig> = {
     // Sprint 12: the godown Orders module moved to Dhruvil — he keeps Butta cutting and Mill.
     // Sprint 15: + the read-only Orders module (butta cutting onwards): order, takas, damages, docs — no client, no rate.
     // Sprint 16: + Receive goods (outside weavers' challans, FG purchases) — never the client or rate there.
-    permissions: { ...NOTHING, canUseButtaModule: true, canUseMillModule: true, canViewGodownOrders: true, canViewTakas: true, canReceiveOutside: true },
+    permissions: { ...NOTHING, canUseButtaModule: true, canUseMillModule: true, canViewGodownOrders: true, canViewTakas: true, canReceiveOutside: true, ...YARN_FLOOR },
   },
   // One person does both QCs: the Butta QC and the Mill QC share this role and one screen (/qc).
   qc: {

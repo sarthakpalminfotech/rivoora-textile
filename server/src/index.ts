@@ -29,6 +29,9 @@ import { uploadsRouter } from './routes/uploads';
 import { dispatchRouter, dispatchedRouter } from './routes/dispatch';
 import { weaversRouter } from './routes/weavers';
 import { outsidePosRouter, receiveGoodsRouter } from './routes/outside';
+import { tfoMachinesRouter, yarnPartiesRouter, yarnQualitiesRouter } from './routes/yarn-masters';
+import { yarnPosRouter } from './routes/yarn-po';
+import { yarnRouter } from './routes/yarn';
 
 const app = express();
 app.disable('x-powered-by');
@@ -84,6 +87,12 @@ api.use('/dispatched', dispatchedRouter);
 api.use('/weavers', weaversRouter);
 api.use('/outside-pos', outsidePosRouter);
 api.use('/receive-goods', receiveGoodsRouter);
+// Sprint 17: yarn (not linked to orders, so the hold guard never touches these).
+api.use('/yarn-parties', yarnPartiesRouter);
+api.use('/yarn-qualities', yarnQualitiesRouter);
+api.use('/tfo-machines', tfoMachinesRouter);
+api.use('/yarn-pos', yarnPosRouter);
+api.use('/yarn', yarnRouter);
 api.use('/lookup', lookupRouter);
 api.use('/uploads', uploadsRouter);
 api.use(notFoundHandler);

@@ -29,6 +29,19 @@ import type {
   TakaSource,
   TakaStage,
   Unit,
+  BeamMoveKind,
+  BeamStatus,
+  BeamZone,
+  TfoSection,
+  TwistDirection,
+  WarpingStatus,
+  YarnItem,
+  YarnMoveKind,
+  YarnPoEventKind,
+  YarnPoStatus,
+  YarnRefType,
+  YarnStockWhat,
+  YarnZone,
 } from '@rivoora/shared';
 
 const nowIso = sql`(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`;
@@ -894,3 +907,345 @@ export const counters = sqliteTable('counters', {
   name: text('name').primaryKey(),
   value: integer('value').notNull().default(0),
 });
+
+/* ------------------------------------------------------------------ */
+/* Sprint 17: yarn — masters, Yarn POs, the stock ledger, TFO, warping */
+/* Not linked to orders. Yarn quantities are INTEGER GRAMS (`*_g`),     */
+/* rates integer paise per kg — totals never drift.                     */
+/* ------------------------------------------------------------------ */
+
+export const yarnParties = sqliteTable(
+  'yarn_parties',
+  {
+    id: id(),
+    name: text('name').notNull(),
+    mobile: text('mobile'),
+    address: text('address'),
+    gstin: text('gstin'),
+    notes: text('notes'),
+    isDeleted: isDeleted(),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [uniqueIndex('yarn_parties_name_active_unique').on(sql`lower(${t.name})`).where(sql`${t.isDeleted} = 0`)],
+);
+
+/** Used for raw AND twisted yarn. */
+export const yarnQualities = sqliteTable(
+  'yarn_qualities',
+  {
+    id: id(),
+    name: text('name').notNull(),
+    denier: text('denier'),
+    filament: text('filament'),
+    notes: text('notes'),
+    isDeleted: isDeleted(),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [uniqueIndex('yarn_qualities_name_active_unique').on(sql`lower(${t.name})`).where(sql`${t.isDeleted} = 0`)],
+);
+
+/** TFO machines: each has two sections, A (top) and B (bottom) — "1A / 1B". */
+export const tfoMachines = sqliteTable(
+  'tfo_machines',
+  {
+    id: id(),
+    machineNo: integer('machine_no').notNull(),
+    name: text('name'),
+    isActive: integer('is_active', { mode: 'boolean' }).notNull().default(true),
+    isDeleted: isDeleted(),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [uniqueIndex('tfo_machines_machine_no_active_unique').on(t.machineNo).where(sql`${t.isDeleted} = 0`)],
+);
+
+/** Yarn purchase orders. `po_no` is typed by the user and unique among every PO (cancelled ones keep theirs). */
+export const yarnPos = sqliteTable(
+  'yarn_pos',
+  {
+    id: id(),
+    poNo: integer('po_no').notNull(),
+    /** yyyy-MM-dd */
+    poDate: text('po_date').notNull(),
+    partyId: integer('party_id')
+      .notNull()
+      .references(() => yarnParties.id),
+    remark: text('remark'),
+    status: text('status').$type<YarnPoStatus>().notNull().default('open'),
+    createdBy: text('created_by').$type<RoleKey>().notNull(),
+    createdByUserId: integer('created_by_user_id'),
+    closedAt: text('closed_at'),
+    closedByUserId: integer('closed_by_user_id'),
+    cancelledAt: text('cancelled_at'),
+    cancelledByUserId: integer('cancelled_by_user_id'),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    uniqueIndex('yarn_pos_po_no_unique').on(t.poNo),
+    index('yarn_pos_party_idx').on(t.partyId),
+    index('yarn_pos_status_idx').on(t.status),
+    index('yarn_pos_date_idx').on(t.poDate),
+  ],
+);
+
+export const yarnPoLines = sqliteTable(
+  'yarn_po_lines',
+  {
+    id: id(),
+    poId: integer('po_id')
+      .notNull()
+      .references(() => yarnPos.id),
+    qualityId: integer('quality_id')
+      .notNull()
+      .references(() => yarnQualities.id),
+    qtyG: integer('qty_g').notNull(),
+    /** ₹/kg in paise. */
+    ratePaise: integer('rate_paise').notNull(),
+    sortOrder: integer('sort_order').notNull().default(0),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index('yarn_po_lines_po_idx').on(t.poId), index('yarn_po_lines_quality_idx').on(t.qualityId)],
+);
+
+/** A party's challan received against a PO, into one zone. */
+export const yarnReceipts = sqliteTable(
+  'yarn_receipts',
+  {
+    id: id(),
+    poId: integer('po_id')
+      .notNull()
+      .references(() => yarnPos.id),
+    /** The party's challan number, as typed. */
+    challanNo: text('challan_no').notNull(),
+    /** yyyy-MM-dd */
+    receiptDate: text('receipt_date').notNull(),
+    zone: text('zone').$type<YarnZone>().notNull(),
+    notes: text('notes'),
+    receivedBy: text('received_by').$type<RoleKey>().notNull(),
+    receivedByUserId: integer('received_by_user_id'),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index('yarn_receipts_po_idx').on(t.poId)],
+);
+
+export const yarnReceiptLines = sqliteTable(
+  'yarn_receipt_lines',
+  {
+    id: id(),
+    receiptId: integer('receipt_id')
+      .notNull()
+      .references(() => yarnReceipts.id),
+    poLineId: integer('po_line_id')
+      .notNull()
+      .references(() => yarnPoLines.id),
+    qualityId: integer('quality_id')
+      .notNull()
+      .references(() => yarnQualities.id),
+    qtyG: integer('qty_g').notNull(),
+    boxes: integer('boxes'),
+  },
+  (t) => [index('yarn_receipt_lines_receipt_idx').on(t.receiptId), index('yarn_receipt_lines_po_line_idx').on(t.poLineId)],
+);
+
+/** Yarn PO activity: created / edited / received / closed / cancelled. */
+export const yarnPoEvents = sqliteTable(
+  'yarn_po_events',
+  {
+    id: id(),
+    poId: integer('po_id')
+      .notNull()
+      .references(() => yarnPos.id),
+    kind: text('kind').$type<YarnPoEventKind>().notNull(),
+    note: text('note'),
+    role: text('role').$type<RoleKey>(),
+    userId: integer('user_id'),
+    createdAt: createdAt(),
+  },
+  (t) => [index('yarn_po_events_po_idx').on(t.poId)],
+);
+
+/** One transfer between zones (its yarn ledger rows / beam moves point here with ref_type `transfer`). */
+export const yarnTransfers = sqliteTable('yarn_transfers', {
+  id: id(),
+  fromZone: text('from_zone').$type<YarnZone>().notNull(),
+  toZone: text('to_zone').$type<YarnZone>().notNull(),
+  what: text('what').$type<YarnStockWhat>().notNull(),
+  note: text('note'),
+  role: text('role').$type<RoleKey>(),
+  userId: integer('user_id'),
+  createdAt: createdAt(),
+});
+
+/** One withdraw (Direct consumption): yarn used, or beams consumed (ref_type `withdrawal`). */
+export const yarnWithdrawals = sqliteTable('yarn_withdrawals', {
+  id: id(),
+  zone: text('zone').$type<YarnZone>().notNull(),
+  what: text('what').$type<YarnStockWhat>().notNull(),
+  note: text('note'),
+  role: text('role').$type<RoleKey>(),
+  userId: integer('user_id'),
+  createdAt: createdAt(),
+});
+
+/**
+ * THE stock ledger — the single source of truth for yarn quantities. Balance = SUM(qty_g) per zone + item + quality;
+ * every write checks it inside the transaction, so it never goes below zero.
+ */
+export const yarnStockMoves = sqliteTable(
+  'yarn_stock_moves',
+  {
+    id: id(),
+    zone: text('zone').$type<YarnZone>().notNull(),
+    item: text('item').$type<YarnItem>().notNull(),
+    qualityId: integer('quality_id')
+      .notNull()
+      .references(() => yarnQualities.id),
+    /** Signed grams: + in, − out. */
+    qtyG: integer('qty_g').notNull(),
+    kind: text('kind').$type<YarnMoveKind>().notNull(),
+    refType: text('ref_type').$type<YarnRefType>(),
+    refId: integer('ref_id'),
+    note: text('note'),
+    role: text('role').$type<RoleKey>(),
+    userId: integer('user_id'),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index('yarn_stock_moves_balance_idx').on(t.zone, t.item, t.qualityId),
+    index('yarn_stock_moves_created_idx').on(t.createdAt),
+    index('yarn_stock_moves_ref_idx').on(t.refType, t.refId),
+  ],
+);
+
+/** Warping jobs (WJ-n, counter `warping_job_no`): inputs leave Warping stock at start, beams come out at done. */
+export const warpingJobs = sqliteTable(
+  'warping_jobs',
+  {
+    id: id(),
+    jobNo: integer('job_no').notNull(),
+    status: text('status').$type<WarpingStatus>().notNull().default('in_process'),
+    note: text('note'),
+    startedAt: text('started_at').notNull(),
+    startedByUserId: integer('started_by_user_id'),
+    startedRole: text('started_role').$type<RoleKey>(),
+    doneAt: text('done_at'),
+    doneByUserId: integer('done_by_user_id'),
+    doneRole: text('done_role').$type<RoleKey>(),
+    doneNote: text('done_note'),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [uniqueIndex('warping_jobs_job_no_unique').on(t.jobNo), index('warping_jobs_status_idx').on(t.status)],
+);
+
+export const warpingJobInputs = sqliteTable(
+  'warping_job_inputs',
+  {
+    id: id(),
+    jobId: integer('job_id')
+      .notNull()
+      .references(() => warpingJobs.id),
+    item: text('item').$type<YarnItem>().notNull(),
+    qualityId: integer('quality_id')
+      .notNull()
+      .references(() => yarnQualities.id),
+    qtyG: integer('qty_g').notNull(),
+  },
+  (t) => [index('warping_job_inputs_job_idx').on(t.jobId)],
+);
+
+/** Beams made on warping (BM-n, counter `beam_no`), kept in Direct consumption or Warping. */
+export const beams = sqliteTable(
+  'beams',
+  {
+    id: id(),
+    beamNo: integer('beam_no').notNull(),
+    zone: text('zone').$type<BeamZone>().notNull(),
+    qualityId: integer('quality_id')
+      .notNull()
+      .references(() => yarnQualities.id),
+    taar: integer('taar').notNull(),
+    panna: real('panna').notNull(),
+    meters: real('meters').notNull(),
+    status: text('status').$type<BeamStatus>().notNull().default('in_stock'),
+    warpingJobId: integer('warping_job_id').references(() => warpingJobs.id),
+    consumedAt: text('consumed_at'),
+    consumedByUserId: integer('consumed_by_user_id'),
+    consumedNote: text('consumed_note'),
+    createdByUserId: integer('created_by_user_id'),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [uniqueIndex('beams_beam_no_unique').on(t.beamNo), index('beams_zone_status_idx').on(t.zone, t.status)],
+);
+
+/** Beam history: created / transfer out / transfer in / consumed (one row per beam per action and zone). */
+export const beamMoves = sqliteTable(
+  'beam_moves',
+  {
+    id: id(),
+    beamId: integer('beam_id')
+      .notNull()
+      .references(() => beams.id),
+    kind: text('kind').$type<BeamMoveKind>().notNull(),
+    zone: text('zone').$type<BeamZone>().notNull(),
+    refType: text('ref_type').$type<YarnRefType>(),
+    refId: integer('ref_id'),
+    note: text('note'),
+    role: text('role').$type<RoleKey>(),
+    userId: integer('user_id'),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index('beam_moves_beam_idx').on(t.beamId),
+    index('beam_moves_created_idx').on(t.createdAt),
+    index('beam_moves_ref_idx').on(t.refType, t.refId),
+  ],
+);
+
+/** A TFO program on one machine section. One RUNNING program per (machine, section) — partial unique index. */
+export const tfoPrograms = sqliteTable(
+  'tfo_programs',
+  {
+    id: id(),
+    machineId: integer('machine_id')
+      .notNull()
+      .references(() => tfoMachines.id),
+    section: text('section').$type<TfoSection>().notNull(),
+    rawQualityId: integer('raw_quality_id')
+      .notNull()
+      .references(() => yarnQualities.id),
+    rawG: integer('raw_g').notNull(),
+    outputQualityId: integer('output_quality_id')
+      .notNull()
+      .references(() => yarnQualities.id),
+    windingMeter: real('winding_meter'),
+    denierFilament: text('denier_filament'),
+    tpm: real('tpm').notNull(),
+    direction: text('direction').$type<TwistDirection>().notNull(),
+    note: text('note'),
+    status: text('status').$type<'running' | 'completed'>().notNull().default('running'),
+    startedAt: text('started_at').notNull(),
+    startedByUserId: integer('started_by_user_id'),
+    startedRole: text('started_role').$type<RoleKey>(),
+    stoppedAt: text('stopped_at'),
+    stoppedByUserId: integer('stopped_by_user_id'),
+    stoppedRole: text('stopped_role').$type<RoleKey>(),
+    twistedG: integer('twisted_g'),
+    twistedMeters: real('twisted_meters'),
+    returnedRawG: integer('returned_raw_g'),
+    stopNote: text('stop_note'),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    uniqueIndex('tfo_programs_running_unique').on(t.machineId, t.section).where(sql`${t.status} = 'running'`),
+    index('tfo_programs_machine_idx').on(t.machineId, t.section),
+    index('tfo_programs_status_idx').on(t.status),
+  ],
+);

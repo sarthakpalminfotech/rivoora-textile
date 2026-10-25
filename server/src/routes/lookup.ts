@@ -8,6 +8,7 @@ import { lookupDamages } from '../services/damages';
 import { lookupMachines } from '../services/machines';
 import { lookupMaterials } from '../services/materials';
 import { lookupWeavers } from '../services/weavers';
+import { lookupYarnParties, lookupYarnQualities } from '../services/yarn-masters';
 
 /** Lightweight id + name endpoints for dropdowns. */
 export const lookupRouter = Router();
@@ -98,5 +99,25 @@ lookupRouter.get(
   ah(async (req, res) => {
     res.set('Cache-Control', 'private, max-age=10');
     res.json(await lookupMachines(querySchema.parse(req.query).search));
+  }),
+);
+
+/** Sprint 17: yarn parties for the Yarn PO form and the PO list filter. */
+lookupRouter.get(
+  '/yarn-parties',
+  requirePermission('canManageYarnMasters', 'canManageYarnPo', 'canViewYarn'),
+  ah(async (req, res) => {
+    res.set('Cache-Control', 'private, max-age=10');
+    res.json(await lookupYarnParties(querySchema.parse(req.query).search));
+  }),
+);
+
+/** Sprint 17: yarn qualities (PO lines, receipts, transfers, TFO programs, warping, beams). */
+lookupRouter.get(
+  '/yarn-qualities',
+  requirePermission('canManageYarnMasters', 'canManageYarnPo', 'canUseYarnInventory', 'canReceiveYarn', 'canViewYarn'),
+  ah(async (req, res) => {
+    res.set('Cache-Control', 'private, max-age=10');
+    res.json(await lookupYarnQualities(querySchema.parse(req.query).search));
   }),
 );

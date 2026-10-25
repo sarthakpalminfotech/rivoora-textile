@@ -13,6 +13,9 @@ const DESCRIPTIONS: Record<string, string> = {
   '/butta-parties': 'Butta cutting parties',
   '/mill-parties': 'Mill (dyeing) parties',
   '/weavers': 'Outside weavers',
+  '/yarn-parties': 'Parties yarn is bought from',
+  '/yarn-qualities': 'Raw and twisted yarn qualities',
+  '/tfo-machines': 'TFO machines (sections A / B)',
   '/users': 'People who can log in',
 };
 

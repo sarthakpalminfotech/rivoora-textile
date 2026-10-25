@@ -17,12 +17,14 @@ const prefixes = [
   'orders', 'customers', 'materials', 'damages', 'designs', 'machines', 'jobsheets', 'machine-view', 'taka', 'takas',
   'butta-parties', 'mill-parties', 'butta/counts', 'mill/counts', 'butta-qc/pending', 'mill-qc/pending', 'godown/orders',
   'inventory/summary', 'dispatch/challans/1', 'dispatched', 'lookup/customers', 'users', 'auth/me',
+  // Sprint 17: yarn.
+  'yarn-parties', 'yarn-qualities', 'tfo-machines', 'yarn-pos', 'yarn/summary', 'yarn/tfo/board', 'lookup/yarn-qualities',
 ];
 for (const p of prefixes) {
   const res = await fetch(`${base}/api/${p}`, { headers: { 'X-Role': 'jemish' } });
   check(res.status === 401, `GET /api/${p} without a session → ${res.status}`);
 }
-for (const [method, p] of [['POST', 'orders'], ['PUT', 'orders/1'], ['POST', 'uploads'], ['POST', 'orders/1/takas/move-to-inventory'], ['POST', 'users']]) {
+for (const [method, p] of [['POST', 'orders'], ['PUT', 'orders/1'], ['POST', 'uploads'], ['POST', 'orders/1/takas/move-to-inventory'], ['POST', 'users'], ['POST', 'yarn/transfers'], ['POST', 'yarn-pos/1/receipts']]) {
   const res = await fetch(`${base}/api/${p}`, { method, headers: { 'Content-Type': 'application/json' }, body: '{}' });
   check(res.status === 401, `${method} /api/${p} without a session → ${res.status}`);
 }

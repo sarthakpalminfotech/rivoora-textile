@@ -11,7 +11,9 @@ import {
   Layers,
   Palette,
   PackageSearch,
+  RotateCw,
   ScanLine,
+  Spool,
   Scissors,
   Store,
   Truck,
@@ -71,6 +73,10 @@ export const NAV_ITEMS: NavItem[] = [
   { to: '/butta-parties', label: 'Butta parties', icon: Store, permission: 'canManageButtaParties', group: 'masters' },
   { to: '/mill-parties', label: 'Mill parties', icon: Store, permission: 'canManageMillParties', group: 'masters' },
   { to: '/weavers', label: 'Weavers', icon: Store, permission: 'canManageWeavers', group: 'masters' },
+  // Sprint 17: yarn masters (Jenish, Gaurang).
+  { to: '/yarn-parties', label: 'Yarn parties', icon: Store, permission: 'canManageYarnMasters', group: 'masters' },
+  { to: '/yarn-qualities', label: 'Yarn qualities', icon: Spool, permission: 'canManageYarnMasters', group: 'masters' },
+  { to: '/tfo-machines', label: 'TFO machines', icon: RotateCw, permission: 'canManageYarnMasters', group: 'masters' },
   { to: '/users', label: 'Users', icon: UserCog, permission: 'canManageUsers', group: 'masters' },
 ];
 

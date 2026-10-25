@@ -61,6 +61,9 @@ const DispatchedPage = lazy(() => import('@/features/dispatch/dispatched-page'))
 const DispatchedOrderPage = lazy(() => import('@/features/dispatch/dispatched-order-page'));
 const GoodsReturnPage = lazy(() => import('@/features/dispatch/goods-return-page'));
 const UsersPage = lazy(() => import('@/features/masters/users/users-page'));
+const YarnPartiesPage = lazy(() => import('@/features/masters/yarn/yarn-parties-page'));
+const YarnQualitiesPage = lazy(() => import('@/features/masters/yarn/yarn-qualities-page'));
+const TfoMachinesPage = lazy(() => import('@/features/masters/yarn/tfo-machines-page'));
 const LoginPage = lazy(() => import('@/features/auth/login-page'));
 const NotFoundPage = lazy(() => import('@/pages/not-found-page'));
 
@@ -221,6 +224,10 @@ const router = createBrowserRouter([
           { path: 'dispatched/:orderId', element: guard('canDispatch', <DispatchedOrderPage />) },
           { path: 'dispatched/:orderId/challans/:challanId/gr', element: guard('canGoodsReturn', <GoodsReturnPage />) },
           { path: 'users', element: guard('canManageUsers', <UsersPage />) },
+          // Sprint 17: yarn masters.
+          { path: 'yarn-parties', element: guard('canManageYarnMasters', <YarnPartiesPage />) },
+          { path: 'yarn-qualities', element: guard('canManageYarnMasters', <YarnQualitiesPage />) },
+          { path: 'tfo-machines', element: guard('canManageYarnMasters', <TfoMachinesPage />) },
           { path: 'jobsheets', element: <JobsheetsRoute /> },
           // The supervisor's Order view: one order's jobsheets.
           { path: 'jobsheets/order/:orderId', element: guard('canViewJobsheetsModule', <SupervisorOrderJobsheetsPage />) },
