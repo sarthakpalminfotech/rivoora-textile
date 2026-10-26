@@ -32,6 +32,7 @@ export function useOrders(filters: OrderFilters) {
     party: filters.parties,
     type: filters.types,
     kind: filters.kinds,
+    outside: filters.outside,
     from: filters.from,
     to: filters.to,
   });

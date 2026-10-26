@@ -1,6 +1,6 @@
 import { X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ORDER_KIND_LABEL, ORDER_KINDS, ORDER_TYPE_LABEL, ORDER_TYPES, type LookupItem, type OrderStatusKey } from '@rivoora/shared';
+import { ORDER_KIND_LABEL, ORDER_KINDS, ORDER_TYPE_LABEL, ORDER_TYPES, OUTSIDE_ORDER_FILTERS, type LookupItem, type OrderStatusKey } from '@rivoora/shared';
 import { Button } from '@/components/ui/button';
 import { DateRangePicker } from '@/components/ui/date-picker';
 import { Field } from '@/components/ui/field';
@@ -15,7 +15,10 @@ import { useCustomerLookup, useMaterialLookup } from '../masters/api';
 import { DATE_PRESETS, type OrderFilters } from './filters';
 
 type Draft = Omit<OrderFilters, 'search'>;
-const EMPTY_DRAFT: Draft = { statuses: [], materials: [], parties: [], types: [], kinds: [], from: undefined, to: undefined };
+const EMPTY_DRAFT: Draft = { statuses: [], materials: [], parties: [], types: [], kinds: [], outside: [], from: undefined, to: undefined };
+
+/** Sprint 18: the Outside order filter's two options. */
+const OUTSIDE_LABEL = { yes: 'Outside order', no: 'Not outside order' } as const;
 
 /** Remembers names seen in lookups (materials / parties), so chips / selections keep their labels. */
 function useLookupNames(items: LookupItem[] | undefined) {
@@ -49,7 +52,7 @@ export function OrderFiltersDialog({ open, onOpenChange, value, onApply }: Order
 
   useEffect(() => {
     if (open) {
-      setDraft({ statuses: value.statuses, materials: value.materials, parties: value.parties, types: value.types, kinds: value.kinds, from: value.from, to: value.to });
+      setDraft({ statuses: value.statuses, materials: value.materials, parties: value.parties, types: value.types, kinds: value.kinds, outside: value.outside, from: value.from, to: value.to });
     }
   }, [open, value]);
 
@@ -166,6 +169,29 @@ export function OrderFiltersDialog({ open, onOpenChange, value, onApply }: Order
             })}
           </div>
         </Field>
+        {canParty && (
+          <Field label="Outside order" hint="Orders made for another party (not Outside production)">
+            <div className="flex flex-wrap gap-2" role="group" aria-label="Outside order">
+              {OUTSIDE_ORDER_FILTERS.map((k) => {
+                const on = draft.outside.includes(k);
+                return (
+                  <button
+                    key={k}
+                    type="button"
+                    aria-pressed={on}
+                    onClick={() => setDraft((d) => ({ ...d, outside: on ? d.outside.filter((x) => x !== k) : [...d.outside, k] }))}
+                    className={cn(
+                      'min-h-9 rounded-full border px-3.5 text-sm font-medium transition-colors',
+                      on ? 'border-primary bg-primary-soft text-primary' : 'border-input bg-white text-slate-700 hover:bg-muted',
+                    )}
+                  >
+                    {OUTSIDE_LABEL[k]}
+                  </button>
+                );
+              })}
+            </div>
+          </Field>
+        )}
         <Field label="Order date">
           <div className="space-y-2.5">
             <div className="flex flex-wrap gap-2">
@@ -243,6 +269,11 @@ export function FilterChips({ filters, onChange }: FilterChipsProps) {
       key: `k-${k}`,
       label: ORDER_KIND_LABEL[k],
       remove: () => onChange({ kinds: filters.kinds.filter((x) => x !== k) }),
+    })),
+    ...filters.outside.map((k) => ({
+      key: `o-${k}`,
+      label: OUTSIDE_LABEL[k],
+      remove: () => onChange({ outside: filters.outside.filter((x) => x !== k) }),
     })),
   ];
   if (filters.from || filters.to) {

@@ -25,6 +25,7 @@ import { DocsTab } from './dashboard/docs-tab';
 import { DashboardSkeleton, DashboardTab } from './dashboard/dashboard-tab';
 import { OrderHeader } from './dashboard/order-header';
 import { useOrderView, type OrderTab } from './dashboard/view-state';
+import { OutsideOrderTag } from './outside-order-tag';
 import { BlouseTag } from '../free-stock/blouse';
 import { CloseOrderDialog } from './close/close-order-dialog';
 import { HistoryTab } from './history-tab';
@@ -64,6 +65,11 @@ function DetailsTab({ order }: { order: OrderDetail }) {
             <Item label="Order type">{ORDER_TYPE_LABEL[order.orderType]}</Item>
             <Item label="Blouse">{order.blouseOption ? <BlouseTag option={order.blouseOption} /> : <span className="font-normal text-slate-400">Not set</span>}</Item>
             {can('canSeeClient') && <Item label="Client">{order.customer.name}</Item>}
+            {can('canSeeClient') && order.isOutsideOrder && (
+              <Item label="Outside order">
+                <OutsideOrderTag order={order} />
+              </Item>
+            )}
             {can('canSeeClient') && (
               <Item label="Broker">{order.broker ? order.broker.name : <span className="font-normal text-slate-400">—</span>}</Item>
             )}

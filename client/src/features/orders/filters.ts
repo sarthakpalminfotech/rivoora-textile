@@ -1,7 +1,7 @@
 import { endOfMonth, startOfMonth, subDays } from 'date-fns';
 import { useCallback, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { isOrderKind, isOrderType, isStatusKey, type OrderKind, type OrderStatusKey, type OrderType } from '@rivoora/shared';
+import { isOrderKind, isOrderType, isOutsideOrderFilter, isStatusKey, type OrderKind, type OrderStatusKey, type OrderType, type OutsideOrderFilter } from '@rivoora/shared';
 import { toApiDate } from '@/lib/format';
 
 export interface OrderFilters {
@@ -14,6 +14,8 @@ export interface OrderFilters {
   types: OrderType[];
   /** Sprint 16: order kind (In-house / Outside production / FG purchase). */
   kinds: OrderKind[];
+  /** Sprint 18: Outside order yes / no (only for roles that see the client). */
+  outside: OutsideOrderFilter[];
   from?: string;
   to?: string;
 }
@@ -35,6 +37,7 @@ export function useOrderFilters() {
       parties: list('party').map(Number).filter((n) => Number.isInteger(n) && n > 0),
       types: list('type').filter(isOrderType),
       kinds: list('kind').filter(isOrderKind),
+      outside: list('outside').filter(isOutsideOrderFilter),
       from: DATE_RE.test(from) ? from : undefined,
       to: DATE_RE.test(to) ? to : undefined,
     };
@@ -52,6 +55,7 @@ export function useOrderFilters() {
           if ('parties' in patch) set('party', patch.parties?.join(','));
           if ('types' in patch) set('type', patch.types?.join(','));
           if ('kinds' in patch) set('kind', patch.kinds?.join(','));
+          if ('outside' in patch) set('outside', patch.outside?.join(','));
           if ('from' in patch) set('from', patch.from);
           if ('to' in patch) set('to', patch.to);
           return next;
@@ -68,6 +72,7 @@ export function useOrderFilters() {
     filters.parties.length +
     filters.types.length +
     filters.kinds.length +
+    filters.outside.length +
     (filters.from || filters.to ? 1 : 0);
 
   return { filters, setFilters, activeCount };

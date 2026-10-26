@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { STATUS, type OrderListItem } from '@rivoora/shared';
 import { OrderStepsTag } from './order-steps-tag';
+import { OutsideOrderTag } from './outside-order-tag';
 import { OrderTypeTag } from './order-type-tag';
 import { usePageTitle } from '@/components/layout/page-title';
 import { ErrorState, Fab, FetchingIndicator, LoadMore, SearchBar } from '@/components/list-parts';
@@ -314,6 +315,7 @@ export default function OrdersPage() {
                           <OrderTypeTag type={o.orderType} />
                           <BlouseTag option={o.blouseOption} />
                           <OrderStepsTag steps={o} />
+                          <OutsideOrderTag order={o} />
                         </div>
                         {can('canSeeClient') && o.brokerName && <Field label="Broker" value={o.brokerName} />}
                       </dl>

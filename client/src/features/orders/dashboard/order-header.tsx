@@ -13,6 +13,7 @@ import {
 } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { OrderStepsTag } from "../order-steps-tag";
+import { OutsideOrderTag } from "../outside-order-tag";
 import { OrderTypeTag } from "../order-type-tag";
 import { BlouseTag } from '../../free-stock/blouse';
 import { HoldButtons, ON_HOLD_HINT, OnHoldBadge } from '../hold/hold-order';
@@ -225,6 +226,7 @@ export function OrderHeader({
             <OrderTypeTag type={order.orderType} className="text-xs" />
             <BlouseTag option={order.blouseOption} />
             <OrderStepsTag steps={order} />
+            <OutsideOrderTag order={order} />
             <StatusBadge status={order.status} />
             {order.isOnHold && <OnHoldBadge />}
           </div>
