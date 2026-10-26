@@ -1,7 +1,7 @@
 import { AlertTriangle, X } from 'lucide-react';
 import { useMemo, type ReactNode } from 'react';
 import { z } from 'zod';
-import { JOBSHEET_STATUS, type JobsheetMachine } from '@rivoora/shared';
+import { JOBSHEET_STATUS, MAX_SECTIONS_PER_BEAM, SECTIONS_PER_BEAM, type JobsheetMachine } from '@rivoora/shared';
 import { MultiSelect, type SelectOption } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
 import { useMachineLookup } from '../masters/api';
@@ -21,6 +21,12 @@ export function parseIntOrNull(v: string | undefined): number | null {
   const n = Number(v);
   return n >= 1 ? n : null;
 }
+
+/** Sprint 18: "Sections per beam" text field (1–12; pcs per frame). */
+export const sectionsField = intField('the sections per beam', MAX_SECTIONS_PER_BEAM);
+
+/** Sections the forms start with: the default 3 (Sprint 18 spec). */
+export const DEFAULT_SECTIONS_TEXT = String(SECTIONS_PER_BEAM);
 
 /** "7, 9" */
 export function machineNumbers(machines: Pick<JobsheetMachine, 'machineNo'>[]): string {

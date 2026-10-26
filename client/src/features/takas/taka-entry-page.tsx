@@ -14,7 +14,6 @@ import {
   parseMeters,
   parsePcs,
   PCS_ERROR_TEXT,
-  SECTIONS_PER_BEAM,
   TAKA_ENTRY_DEFAULT_ROWS,
   totalMeters,
   totalPcs,
@@ -207,7 +206,7 @@ function SuccessView({ js, saved, autoCompleted, onAddMore }: { js: JobsheetDeta
 }
 
 /** Small warning (English + Hindi): the pcs entered don't match what the frames should make. */
-function PcsMismatchNote({ entered, expected, frames, className }: { entered: number; expected: number; frames: number; className?: string }) {
+function PcsMismatchNote({ entered, expected, frames, sections, className }: { entered: number; expected: number; frames: number; sections: number; className?: string }) {
   return (
     <p
       className={cn('mt-3 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-2.5 text-sm font-medium text-amber-900', className)}
@@ -215,9 +214,9 @@ function PcsMismatchNote({ entered, expected, frames, className }: { entered: nu
     >
       <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-500" aria-hidden />
       <span>
-        Pcs entered: {entered}. Expected {expected} ({frames} frames × {SECTIONS_PER_BEAM}). Please check.
+        Pcs entered: {entered}. Expected {expected} ({frames} frames × {sections}). Please check.
         <span lang="hi" className="block">
-          दर्ज पीस: {entered}। अपेक्षित {expected} ({frames} फ्रेम × {SECTIONS_PER_BEAM})। कृपया जाँच लें।
+          दर्ज पीस: {entered}। अपेक्षित {expected} ({frames} फ्रेम × {sections})। कृपया जाँच लें।
         </span>
       </span>
     </p>
@@ -268,8 +267,8 @@ export default function TakaEntryPage() {
     return map;
   }, [rows, filled.length, nextNumbers.data]);
   const canSubmit = filled.length > 0 && meterErrors.every((e) => e === null) && !!nextNumbers.data;
-  // Expected pcs for the frames of this jobsheet (frames × sections per beam) vs. everything entered.
-  const expectedPcs = js ? (js.completedFrames ?? js.frames) * SECTIONS_PER_BEAM : 0;
+  // Expected pcs for the frames of this jobsheet (frames × ITS sections per beam — Sprint 18) vs. everything entered.
+  const expectedPcs = js ? (js.completedFrames ?? js.frames) * js.sections : 0;
   const enteredPcs = (totalPcs(existing) ?? 0) + (totalPcs(filled.map((r) => ({ pcs: parsePcs(r.pcs).pcs }))) ?? 0);
   const pcsMismatch = filled.some((r) => parsePcs(r.pcs).pcs !== null) && enteredPcs !== expectedPcs;
 
@@ -572,7 +571,7 @@ export default function TakaEntryPage() {
           <Plus className="!size-5" />
           <Bi en="Add more" hi="और जोड़ें" layout="inline" />
         </Button>
-        {pcsMismatch && <PcsMismatchNote entered={enteredPcs} expected={expectedPcs} frames={js.completedFrames ?? js.frames} />}
+        {pcsMismatch && <PcsMismatchNote entered={enteredPcs} expected={expectedPcs} frames={js.completedFrames ?? js.frames} sections={js.sections} />}
       </Section>
 
       <Section title={<Bi en="Note" hi="नोट" layout="inline" />}>
@@ -639,7 +638,7 @@ export default function TakaEntryPage() {
           <span lang="hi">{filled.length} टाका</span>
           {filledTotals && ` · ${filledTotals}`}
         </p>
-        {pcsMismatch && <PcsMismatchNote entered={enteredPcs} expected={expectedPcs} frames={js.completedFrames ?? js.frames} className="mb-3 mt-0" />}
+        {pcsMismatch && <PcsMismatchNote entered={enteredPcs} expected={expectedPcs} frames={js.completedFrames ?? js.frames} sections={js.sections} className="mb-3 mt-0" />}
         <ul className="divide-y divide-border rounded-xl border border-border">
           {filled.map((r) => {
             const meters = parseMeters(r.meters).meters;

@@ -25,7 +25,7 @@ import { errorMessage } from '@/lib/api';
 import { formatOrderNo } from '@/lib/format';
 import { applyServerFieldError } from '@/lib/form';
 import { useAddJobsheet, useGenerateJobsheets } from './api';
-import { intField, MachinesSelect, parseIntOrNull, WarningList } from './parts';
+import { DEFAULT_SECTIONS_TEXT, intField, MachinesSelect, parseIntOrNull, sectionsField, WarningList } from './parts';
 
 interface FormDialogProps {
   open: boolean;
@@ -56,11 +56,12 @@ function FormFooter({ formId, onCancel, pending, disabled, label }: { formId: st
 const multiSchema = z
   .object({
     pieces: intField('the number of pieces'),
+    sections: sectionsField,
     framesPerJobsheet: intField('the frames per jobsheet', 100_000),
     machineIds: machinesField,
   })
   .superRefine((v, ctx) => {
-    const plan = planJobsheets(Number(v.pieces), Number(v.framesPerJobsheet));
+    const plan = planJobsheets(Number(v.pieces), Number(v.framesPerJobsheet), Number(v.sections) || SECTIONS_PER_BEAM);
     if (plan && plan.jobsheetCount > MAX_JOBSHEETS_PER_RUN) {
       ctx.addIssue({
         code: 'custom',
@@ -88,6 +89,7 @@ export function CreateJobsheetsDialog({ open, onOpenChange, data }: FormDialogPr
     const prefill = remainingPieces(coverage.orderedPieces, coverage.jobsheetPieces);
     reset({
       pieces: prefill ? String(prefill) : '',
+      sections: DEFAULT_SECTIONS_TEXT,
       framesPerJobsheet: data.framesPerJobsheet ? String(data.framesPerJobsheet) : '',
       machineIds: [],
     });
@@ -95,15 +97,16 @@ export function CreateJobsheetsDialog({ open, onOpenChange, data }: FormDialogPr
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
-  const [piecesText, fpjText] = useWatch({ control, name: ['pieces', 'framesPerJobsheet'] });
+  const [piecesText, fpjText, sectionsText] = useWatch({ control, name: ['pieces', 'framesPerJobsheet', 'sections'] });
   const pieces = parseIntOrNull(piecesText);
-  const plan = pieces && parseIntOrNull(fpjText) ? planJobsheets(pieces, Number(fpjText)) : null;
-  // Live: the frames already in the active jobsheets + the frames of this run (Sprint 15).
-  const qtyWarning = pieces ? jobsheetQuantityWarning(coverage.orderedPieces, coverage.jobsheetPieces, framesForPieces(pieces)) : null;
+  const sections = parseIntOrNull(sectionsText);
+  const plan = pieces && sections && parseIntOrNull(fpjText) ? planJobsheets(pieces, Number(fpjText), sections) : null;
+  // Live: the pcs already in the active jobsheets + this run's frames × its sections (Sprint 15 / 18).
+  const qtyWarning = pieces && sections ? jobsheetQuantityWarning(coverage.orderedPieces, coverage.jobsheetPieces, framesForPieces(pieces, sections), sections) : null;
 
   const onSubmit = handleSubmit((v) =>
     generate.mutate(
-      { pieces: Number(v.pieces), framesPerJobsheet: Number(v.framesPerJobsheet), machineIds: v.machineIds },
+      { pieces: Number(v.pieces), framesPerJobsheet: Number(v.framesPerJobsheet), sections: Number(v.sections), machineIds: v.machineIds },
       {
         onSuccess: ({ created, orderNo }) => {
           const first = created[0]?.jobsheetNo;
@@ -116,7 +119,7 @@ export function CreateJobsheetsDialog({ open, onOpenChange, data }: FormDialogPr
           onOpenChange(false);
         },
         onError: (err) => {
-          if (!applyServerFieldError(err, setError, ['pieces', 'framesPerJobsheet', 'machineIds'])) {
+          if (!applyServerFieldError(err, setError, ['pieces', 'sections', 'framesPerJobsheet', 'machineIds'])) {
             toast.error(errorMessage(err));
           }
         },
@@ -142,7 +145,7 @@ export function CreateJobsheetsDialog({ open, onOpenChange, data }: FormDialogPr
       }
     >
       <form id="jobsheets-create-form" onSubmit={onSubmit} noValidate className="grid gap-5">
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <Field
             label="Number of pieces"
             htmlFor="js-pieces"
@@ -152,12 +155,15 @@ export function CreateJobsheetsDialog({ open, onOpenChange, data }: FormDialogPr
           >
             <NumberInput id="js-pieces" inputMode="numeric" autoFocus placeholder="e.g. 300" suffix={<span className="pr-1.5 text-sm text-slate-400">pcs</span>} invalid={!!errors.pieces} {...register('pieces')} />
           </Field>
+          <Field label="Sections per beam" htmlFor="js-sections" required error={errors.sections?.message} hint="1–12 · pcs per frame">
+            <NumberInput id="js-sections" inputMode="numeric" placeholder="3" invalid={!!errors.sections} {...register('sections')} />
+          </Field>
           <Field
-            label="Number of frames per jobsheet"
+            label="Frames per jobsheet"
             htmlFor="js-fpj"
             required
             error={errors.framesPerJobsheet?.message}
-            className="sm:col-span-2"
+            className="sm:col-span-2 lg:col-span-1"
           >
             <NumberInput id="js-fpj" inputMode="numeric" placeholder="e.g. 10" invalid={!!errors.framesPerJobsheet} {...register('framesPerJobsheet')} />
           </Field>
@@ -167,7 +173,7 @@ export function CreateJobsheetsDialog({ open, onOpenChange, data }: FormDialogPr
             required
             error={errors.machineIds?.message}
             hint="Applied to all jobsheets; you can change machines per jobsheet later."
-            className="sm:col-span-2"
+            className="sm:col-span-2 lg:col-span-3"
           >
             <Controller
               control={control}
@@ -188,7 +194,7 @@ export function CreateJobsheetsDialog({ open, onOpenChange, data }: FormDialogPr
           {plan ? (
             <div className="space-y-1.5 text-[15px] text-slate-700">
               <p>
-                {plan.pieces} pcs ÷ {SECTIONS_PER_BEAM} sections ={' '}
+                {plan.pieces} pcs ÷ {plan.sections} sections ={' '}
                 {Number.isInteger(plan.exactFrames) ? (
                   <strong className="text-slate-900">{plan.totalFrames} frames</strong>
                 ) : (
@@ -206,7 +212,7 @@ export function CreateJobsheetsDialog({ open, onOpenChange, data }: FormDialogPr
               {coverage.jobsheetCount > 0 && (
                 <p className="text-slate-500">
                   Total after this run: {coverage.jobsheetCount + plan.jobsheetCount} jobsheets,{' '}
-                  {coverage.totalFrames + plan.totalFrames} frames
+                  {coverage.totalFrames + plan.totalFrames} frames, {coverage.jobsheetPieces + plan.totalFrames * plan.sections} pcs
                 </p>
               )}
             </div>
@@ -225,6 +231,7 @@ export function CreateJobsheetsDialog({ open, onOpenChange, data }: FormDialogPr
 
 const singleSchema = z.object({
   frames: intField('the frames', 100_000),
+  sections: sectionsField,
   machineIds: machinesField,
 });
 type SingleValues = z.infer<typeof singleSchema>;
@@ -243,24 +250,25 @@ export function AddJobsheetDialog({ open, onOpenChange, data }: FormDialogProps)
 
   useEffect(() => {
     if (!open) return;
-    reset({ frames: '', machineIds: [] });
+    reset({ frames: '', sections: DEFAULT_SECTIONS_TEXT, machineIds: [] });
   }, [open, reset]);
 
   // Pieces are read-only: frames × sections per beam, so the stored numbers can never disagree.
-  const framesText = useWatch({ control, name: 'frames' });
+  const [framesText, sectionsText] = useWatch({ control, name: ['frames', 'sections'] });
   const frames = parseIntOrNull(framesText);
-  const qtyWarning = frames ? jobsheetQuantityWarning(coverage.orderedPieces, coverage.jobsheetPieces, frames) : null;
+  const sections = parseIntOrNull(sectionsText);
+  const qtyWarning = frames && sections ? jobsheetQuantityWarning(coverage.orderedPieces, coverage.jobsheetPieces, frames, sections) : null;
 
   const onSubmit = handleSubmit((v) =>
     add.mutate(
-      { frames: Number(v.frames), machineIds: v.machineIds },
+      { frames: Number(v.frames), sections: Number(v.sections), machineIds: v.machineIds },
       {
         onSuccess: ({ created, orderNo }) => {
           toast.success(`Jobsheet ${jobsheetRefShort(orderNo, created[0]?.jobsheetNo)} created`);
           onOpenChange(false);
         },
         onError: (err) => {
-          if (!applyServerFieldError(err, setError, ['frames', 'machineIds'])) toast.error(errorMessage(err));
+          if (!applyServerFieldError(err, setError, ['frames', 'sections', 'machineIds'])) toast.error(errorMessage(err));
         },
       },
     ),
@@ -283,22 +291,25 @@ export function AddJobsheetDialog({ open, onOpenChange, data }: FormDialogProps)
       }
     >
       <form id="jobsheet-add-form" onSubmit={onSubmit} noValidate className="grid gap-5">
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid gap-4 sm:grid-cols-3">
           <Field label="Frames" htmlFor="js1-frames" required error={errors.frames?.message}>
             <NumberInput id="js1-frames" inputMode="numeric" autoFocus placeholder="e.g. 10" invalid={!!errors.frames} {...register('frames')} />
           </Field>
-          <Field label="Pieces" htmlFor="js1-pieces" hint={`Frames × ${SECTIONS_PER_BEAM}`}>
+          <Field label="Sections per beam" htmlFor="js1-sections" required error={errors.sections?.message} hint="1–12">
+            <NumberInput id="js1-sections" inputMode="numeric" placeholder="3" invalid={!!errors.sections} {...register('sections')} />
+          </Field>
+          <Field label="Pieces" htmlFor="js1-pieces" hint={sections ? `Frames × ${sections}` : 'Frames × sections'}>
             <NumberInput
               id="js1-pieces"
               readOnly
               tabIndex={-1}
-              value={frames ? String(piecesForFrames(frames)) : ''}
+              value={frames && sections ? String(piecesForFrames(frames, sections)) : ''}
               placeholder="—"
               suffix={<span className="pr-1.5 text-sm text-slate-400">pcs</span>}
               className="bg-slate-50 text-slate-600"
             />
           </Field>
-          <Field label="Machines" htmlFor="js1-machines" required error={errors.machineIds?.message} className="sm:col-span-2">
+          <Field label="Machines" htmlFor="js1-machines" required error={errors.machineIds?.message} className="sm:col-span-3">
             <Controller
               control={control}
               name="machineIds"

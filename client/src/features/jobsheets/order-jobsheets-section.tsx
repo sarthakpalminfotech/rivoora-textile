@@ -2,7 +2,7 @@ import { ArrowUpFromLine, ClipboardList, CornerDownRight, FilePlus2, Hourglass, 
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
-import { isReadyOrLater, JOBSHEET_STATUS, jobsheetRef, type JobsheetListItem, type OrderDetail } from '@rivoora/shared';
+import { isReadyOrLater, JOBSHEET_STATUS, jobsheetRef, SECTIONS_PER_BEAM, type JobsheetListItem, type OrderDetail } from '@rivoora/shared';
 import { ErrorState } from '@/components/list-parts';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -113,6 +113,7 @@ function JobsheetCard({ js, selecting, checked, onClick, onToggle }: CardProps) 
         <dl className="mt-auto grid w-full grid-cols-2 gap-2 border-t border-border pt-3">
           <Detail label="Frames">
             <FramesValue status={js.status} frames={js.frames} completedFrames={js.completedFrames} />
+            {js.sections !== SECTIONS_PER_BEAM && <span className="ml-1 text-xs font-medium text-slate-500">× {js.sections} sections</span>}
           </Detail>
           {machineDetail}
         </dl>
@@ -281,7 +282,8 @@ export function OrderJobsheetsSection({ order }: { order: OrderDetail }) {
         <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-[repeat(auto-fill,minmax(9.5rem,1fr))]">
           <StatTile label="Order quantity" value={`${c.orderedPieces} pcs`} />
           <StatTile label="Jobsheet quantity" value={`${c.jobsheetPieces} pcs`} />
-          <StatTile label="Frames needed" value={c.targetFrames} />
+          {/* Sprint 18: frames needed are counted at the latest run's sections per beam (3 when there are no jobsheets). */}
+          <StatTile label={`Frames needed (at ${c.sections} sections)`} value={c.targetFrames} />
           <StatTile label="Frames in jobsheets" value={c.totalFrames} />
           <StatTile label="Jobsheets" value={c.jobsheetCount} />
           <StatTile label="Completed" value={`${data.completedCount} of ${c.jobsheetCount}`} />

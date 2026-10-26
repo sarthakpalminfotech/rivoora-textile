@@ -187,7 +187,11 @@ function FrontPage({ js, qrSvg }: { js: JobsheetPrintItem; qrSvg: string | undef
                 <span className="jsp-lbl">Frame:</span>
                 <div className="jsp-vbox jsp-val">{js.frames}</div>
               </div>
-              <div className="jsp-qty">{js.jobsheetPieces} pcs</div>
+              <div className="jsp-qty">
+                {js.jobsheetPieces} pcs
+                {/* Sprint 18: sections per beam, small (every jobsheet stores its own). */}
+                <span style={{ display: 'block', fontSize: '9pt', fontWeight: 600 }}>Sections: {js.sections}</span>
+              </div>
             </div>
             <div className="jsp-ops jsp-b">
               <div className="jsp-oprow">

@@ -4,7 +4,7 @@ import { useMemo } from 'react';
 import { Controller, useForm, useWatch } from 'react-hook-form';
 import { toast } from 'sonner';
 import { z } from 'zod';
-import { coverageWarnings, jobsheetRefShort, piecesForFrames, planFramesEdit, type JobsheetDetail, type JobsheetUpdateResult } from '@rivoora/shared';
+import { coverageWarnings, jobsheetRefShort, orderJobsheetPlan, planFramesEdit, type JobsheetDetail, type JobsheetUpdateResult } from '@rivoora/shared';
 import { ErrorState } from '@/components/list-parts';
 import { Button } from '@/components/ui/button';
 import { Field } from '@/components/ui/field';
@@ -14,17 +14,19 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { errorMessage } from '@/lib/api';
 import { applyServerFieldError } from '@/lib/form';
 import { useJobsheet, useUpdateJobsheet } from './api';
-import { intField, MachinesSelect, parseIntOrNull, WarningList } from './parts';
+import { intField, MachinesSelect, parseIntOrNull, sectionsField, WarningList } from './parts';
 
 const schema = z.object({
   frames: intField('the frames', 100_000),
+  sections: sectionsField,
   machineIds: z.array(z.number()).min(1, 'Select at least one machine'),
 });
 type FormValues = z.infer<typeof schema>;
 
 /** Human-readable "What will change" lines + coverage warnings for a frames edit (shared calculation). */
-export function describeFramesEdit(js: JobsheetDetail, newFrames: number | null) {
-  if (newFrames === null || newFrames === js.frames || !js.order || !js.coverage) return null;
+export function describeFramesEdit(js: JobsheetDetail, newFrames: number | null, newSections: number | null = js.sections) {
+  const sections = newSections ?? js.sections;
+  if (newFrames === null || (newFrames === js.frames && sections === js.sections) || !js.order || !js.coverage) return null;
   // Only Pending jobsheets are adjusted; the last PENDING one absorbs the change.
   const plan = planFramesEdit({
     jobsheets: js.siblings,
@@ -39,17 +41,27 @@ export function describeFramesEdit(js: JobsheetDetail, newFrames: number | null)
     ),
     ...plan.created.map((c) => `New jobsheet will be created with ${c.frames} frame${c.frames === 1 ? '' : 's'}`),
     ...plan.removed.map((r) => `${jobsheetRefShort(js.orderNo, r.jobsheetNo)} will be removed`),
+    ...(sections !== js.sections ? [`Sections per beam: ${js.sections} → ${sections} (${newFrames * sections} pcs on this jobsheet)`] : []),
   ];
-  const warnings = coverageWarnings({
-    ...js.coverage,
-    totalFrames: plan.totalFramesAfter,
-    jobsheetPieces: piecesForFrames(plan.totalFramesAfter),
-    jobsheetCount: js.siblings.length + plan.created.length - plan.removed.length,
-  })
+  // Sprint 18: the jobsheets as they will be (frames AND each one's sections), through the shared plan.
+  const removed = new Set(plan.removed.map((r) => r.id));
+  const lastSections = plan.last.id === js.id ? sections : (js.siblings.find((x) => x.id === plan.last.id)?.sections ?? js.sections);
+  const after = [
+    ...js.siblings
+      .filter((x) => !removed.has(x.id))
+      .map((x) => ({
+        ...x,
+        frames: plan.updated.find((u) => u.id === x.id)?.to ?? x.frames,
+        sections: x.id === js.id ? sections : x.sections,
+      })),
+    ...plan.created.map((c, i) => ({ frames: c.frames, sections: lastSections, jobsheetNo: Number.MAX_SAFE_INTEGER - plan.created.length + i })),
+  ];
+  const afterPlan = orderJobsheetPlan(js.coverage.orderedPieces, after);
+  const warnings = coverageWarnings(afterPlan)
     // Editing the last jobsheet upwards is fine — no "more than needed" warning there.
     .filter((w) => !(plan.editedIsLast && w.kind === 'frames_over'))
     .map((w) => w.message);
-  return { lines, warnings, totalAfter: plan.totalFramesAfter };
+  return { lines, warnings, totalAfter: plan.totalFramesAfter, pcsAfter: afterPlan.jobsheetPieces, neededFrames: afterPlan.targetFrames };
 }
 
 /** Toasts summarising what the server changed. */
@@ -74,22 +86,22 @@ function EditForm({ js, onDone, formId, update }: { js: JobsheetDetail; onDone: 
     formState: { errors },
   } = useForm<FormValues>({
     resolver: zodResolver(schema),
-    defaultValues: { frames: String(js.frames), machineIds: js.machines.map((m) => m.id) },
+    defaultValues: { frames: String(js.frames), sections: String(js.sections), machineIds: js.machines.map((m) => m.id) },
   });
 
-  const framesText = useWatch({ control, name: 'frames' });
-  const preview = useMemo(() => describeFramesEdit(js, parseIntOrNull(framesText)), [js, framesText]);
+  const [framesText, sectionsText] = useWatch({ control, name: ['frames', 'sections'] });
+  const preview = useMemo(() => describeFramesEdit(js, parseIntOrNull(framesText), parseIntOrNull(sectionsText)), [js, framesText, sectionsText]);
 
   const onSubmit = handleSubmit((v) =>
     update.mutate(
-      { frames: Number(v.frames), machineIds: v.machineIds },
+      { frames: Number(v.frames), sections: Number(v.sections), machineIds: v.machineIds },
       {
         onSuccess: (res) => {
           toastUpdateResult(res, js.jobsheetNo);
           onDone();
         },
         onError: (err) => {
-          if (!applyServerFieldError(err, setError, ['frames', 'machineIds'])) toast.error(errorMessage(err));
+          if (!applyServerFieldError(err, setError, ['frames', 'sections', 'machineIds'])) toast.error(errorMessage(err));
         },
       },
     ),
@@ -100,6 +112,9 @@ function EditForm({ js, onDone, formId, update }: { js: JobsheetDetail; onDone: 
       <div className="grid gap-4 sm:grid-cols-2">
         <Field label="Frames" htmlFor="jse-frames" required error={errors.frames?.message}>
           <NumberInput id="jse-frames" inputMode="numeric" autoFocus invalid={!!errors.frames} {...register('frames')} />
+        </Field>
+        <Field label="Sections per beam" htmlFor="jse-sections" required error={errors.sections?.message} hint="1–12 · pcs per frame">
+          <NumberInput id="jse-sections" inputMode="numeric" invalid={!!errors.sections} {...register('sections')} />
         </Field>
         <Field
           label="Machines"
@@ -136,7 +151,7 @@ function EditForm({ js, onDone, formId, update }: { js: JobsheetDetail; onDone: 
             ))}
           </ul>
           <p className="mt-2 text-sm text-slate-500">
-            Frames in jobsheets after saving: {preview.totalAfter} (needed: {js.order?.targetFrames ?? 0})
+            After saving: {preview.totalAfter} frames = {preview.pcsAfter} pcs (frames needed at the latest run's sections: {preview.neededFrames})
           </p>
           <WarningList messages={preview.warnings} className="mt-3" />
         </section>

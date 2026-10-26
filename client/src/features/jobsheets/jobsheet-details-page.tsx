@@ -247,6 +247,9 @@ export default function JobsheetDetailsPage() {
               <Item label={isCompleted ? 'Frames (made / assigned)' : 'Frames'}>
                 <FramesValue status={js.status} frames={js.frames} completedFrames={js.completedFrames} withUnit />
               </Item>
+              <Item label="Sections per beam">
+                {js.sections} <span className="text-sm font-normal text-slate-500">({(js.completedFrames ?? js.frames) * js.sections} pcs)</span>
+              </Item>
               <Item label="Machines">
                 {machineNumbers(js.machines)}
                 {js.machines.some((m) => !m.isActive) && (
