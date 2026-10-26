@@ -15,7 +15,7 @@ const WIPE = [
   'outside_receipts', 'outside_pos', 'order_events',
   'order_hold_events', 'order_status_history', 'order_note_images', 'orders', 'counters',
 ];
-const KEPT = ['users', 'customers', 'customer_brokers', 'materials', 'designs', 'design_variations', 'machines', 'damages', 'butta_parties', 'mill_parties', 'weavers'];
+const KEPT = ['users', 'customers', 'customer_brokers', 'materials', 'designs', 'design_qualities', 'design_variations', 'design_variation_map', 'machines', 'damages', 'butta_parties', 'mill_parties', 'weavers'];
 
 async function main() {
   if (!process.argv.includes('--yes')) throw new Error('Refusing to run without --yes');

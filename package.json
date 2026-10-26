@@ -16,6 +16,7 @@
     "db:migrate": "npm run db:migrate -w server",
     "db:seed": "npm run db:seed -w server",
     "db:rename-owner": "npm run db:rename-owner -w server",
+    "db:s18-report": "npm run db:s18-report -w server",
     "test": "npm run test -w shared"
   },
   "devDependencies": {

@@ -10,7 +10,9 @@ const WIPE = [
   'jobsheet_machines', 'jobsheet_events', 'jobsheets', 'machines',
   // Sprint 16 (missing in an older DB → skipped).
   'outside_receipts', 'outside_pos', 'weavers', 'order_events', 'order_hold_events',
-  'order_status_history', 'order_note_images', 'orders', 'materials', 'customer_brokers', 'customers',
+  'order_status_history', 'order_note_images', 'orders',
+  // Sprint 18: a design's qualities point to materials (wiped below); the designs themselves are kept.
+  'design_qualities', 'materials', 'customer_brokers', 'customers',
   // Sprint 17: yarn (children first).
   'beam_moves', 'tfo_programs', 'warping_job_inputs', 'beams', 'warping_jobs', 'yarn_stock_moves', 'yarn_transfers',
   'yarn_withdrawals', 'yarn_receipt_lines', 'yarn_receipts', 'yarn_po_events', 'yarn_po_lines', 'yarn_pos', 'yarn_parties',

@@ -39,11 +39,35 @@ import {
   type TakaStage,
 } from '@rivoora/shared';
 import { db } from '../db/client';
-import { customers, designVariations, designs, jobsheets, materials, orders, takas } from '../db/schema';
+import { customers, designVariationMap, designs, jobsheets, orders, takas } from '../db/schema';
 import { badRequest, notFound } from '../lib/errors';
 import { likePattern, paginationSchema } from '../lib/http';
 import { parseDamagesJson, takaDamagesJson } from './taka-shared';
 import { takaNotFree, takaOrderId } from './free-stock';
+import { designQualityNames } from './designs';
+
+/**
+ * Sprint 18: item keys are `d-<designId>` | `none`. An old `v-<variationId>` key (a link from before the variations
+ * became designs) is mapped through `design_variation_map` to the design it became; unknown keys stay as they are
+ * (the services answer 400 / 404).
+ */
+export async function resolveInventoryKey(key: string): Promise<string> {
+  const parts = parseInventoryKey(key);
+  if (parts?.kind !== 'legacy_variation') return key;
+  const [row] = await db
+    .select({ designId: designVariationMap.newDesignId })
+    .from(designVariationMap)
+    .where(eq(designVariationMap.variationId, parts.id));
+  if (!row) throw notFound('Design');
+  return inventoryKey({ designId: row.designId });
+}
+
+/** Orders of one item: `d-<id>` → that design; `none` → orders without a design. */
+function itemCondition(key: string): SQL {
+  const parts = parseInventoryKey(key);
+  if (!parts || parts.kind === 'legacy_variation') throw badRequest('Invalid inventory item');
+  return parts.kind === 'design' ? eq(orders.designId, parts.id) : sql`${orders.designId} IS NULL`;
+}
 
 /**
  * Inventory (Jenish / Gaurang): design-wise pcs. The rows are loaded with a few aggregate queries (one per table,
@@ -62,7 +86,6 @@ interface OrderPcs {
   status: OrderStatusKey;
   customerName: string;
   designId: number | null;
-  variationId: number | null;
   blouseOption: BlouseOption | null;
   /** Sprint 15: on hold (shown with a badge; cannot receive free stock). */
   isOnHold: boolean;
@@ -76,16 +99,10 @@ const blouseParam = z
   .optional()
   .transform((v): BlouseFilter => (isBlouseFilter(v) ? v : 'all'));
 
-/** Orders the role may see, optionally narrowed to one item (design / variation / without design). */
+/** Orders the role may see, optionally narrowed to one item (a design / without design). */
 function orderScope(role: RoleKey, key?: string): SQL {
   const conds: SQL[] = [inArray(orders.status, visibleStatusKeys(role))];
-  if (key) {
-    const parts = parseInventoryKey(key);
-    if (!parts) throw badRequest('Invalid inventory item');
-    if (parts.kind === 'variation') conds.push(eq(orders.variationId, parts.id));
-    else if (parts.kind === 'design') conds.push(and(eq(orders.designId, parts.id), sql`${orders.variationId} IS NULL`)!);
-    else conds.push(and(sql`${orders.designId} IS NULL`, sql`${orders.variationId} IS NULL`)!);
-  }
+  if (key) conds.push(itemCondition(key));
   return and(...conds)!;
 }
 
@@ -102,7 +119,6 @@ async function loadOrderPcs(role: RoleKey, key?: string): Promise<{ list: OrderP
         unit: orders.unit,
         quantity: orders.quantity,
         designId: orders.designId,
-        variationId: orders.variationId,
         blouseOption: orders.blouseOption,
         isOnHold: orders.isOnHold,
         isClosed: orders.isClosed,
@@ -120,6 +136,7 @@ async function loadOrderPcs(role: RoleKey, key?: string): Promise<{ list: OrderP
         status: jobsheets.status,
         frames: jobsheets.frames,
         completedFrames: jobsheets.completedFrames,
+        sections: jobsheets.sections,
       })
       .from(jobsheets)
       .innerJoin(orders, eq(orders.id, jobsheets.orderId))
@@ -176,7 +193,6 @@ async function loadOrderPcs(role: RoleKey, key?: string): Promise<{ list: OrderP
       status: o.status,
       customerName: o.customerName,
       designId: o.designId,
-      variationId: o.variationId,
       blouseOption: o.blouseOption,
       isOnHold: o.isOnHold,
       key: inventoryKey(o),
@@ -206,14 +222,7 @@ interface FreeRow extends FreeStockTaka {
  * Not narrowed by the role's visible order statuses: Dhruvil (Move to inventory) uses it too.
  */
 async function loadFreeStock(key?: string): Promise<FreeRow[]> {
-  const conds: SQL[] = [];
-  if (key) {
-    const parts = parseInventoryKey(key);
-    if (!parts) throw badRequest('Invalid inventory item');
-    if (parts.kind === 'variation') conds.push(eq(orders.variationId, parts.id));
-    else if (parts.kind === 'design') conds.push(and(eq(orders.designId, parts.id), sql`${orders.variationId} IS NULL`)!);
-    else conds.push(and(sql`${orders.designId} IS NULL`, sql`${orders.variationId} IS NULL`)!);
-  }
+  const conds: SQL[] = key ? [itemCondition(key)] : [];
   const rows = await db
     .select({
       id: takas.id,
@@ -229,16 +238,15 @@ async function loadFreeStock(key?: string): Promise<FreeRow[]> {
       damagedPcs: sql<number | null>`(SELECT COALESCE(SUM(MAX(d.pcs - d.resolved_pcs, 0)), 0) FROM taka_damages d WHERE d.taka_id = "takas"."id" AND d.is_deleted = 0 AND d.status = 'open')`,
       blouseOption: orders.blouseOption,
       designId: orders.designId,
-      variationId: orders.variationId,
     })
     .from(takas)
     .innerJoin(jobsheets, eq(jobsheets.id, takas.jobsheetId))
     .innerJoin(orders, eq(orders.id, takas.orderId))
     .where(and(eq(takas.isFreeStock, true), eq(takas.isDeleted, false), eq(jobsheets.isDeleted, false), eq(orders.unit, 'pcs'), ...conds))
     .orderBy(takas.id);
-  return rows.map(({ designId, variationId, damagedPcs, ...r }) => ({
+  return rows.map(({ designId, damagedPcs, ...r }) => ({
     ...r,
-    key: inventoryKey({ designId, variationId }),
+    key: inventoryKey({ designId }),
     damagedPcs: Number(damagedPcs ?? 0),
   }));
 }
@@ -297,55 +305,24 @@ function blouseCountsOf(list: readonly OrderPcs[], free: readonly FreeRow[]): Bl
 /* item headers                                                         */
 /* ------------------------------------------------------------------ */
 
-const WITHOUT_DESIGN: InventoryItemHeader = { key: NO_DESIGN_KEY, code: null, name: null, variationOf: null, quality: null, thumbUrl: null, imageUrl: null };
+const WITHOUT_DESIGN: InventoryItemHeader = { key: NO_DESIGN_KEY, code: null, name: null, quality: null, thumbUrl: null, imageUrl: null };
 
-/** Headers (code, name, image, quality) of the given item keys — two queries however many items there are. */
+/** Headers (code, name, image, qualities) of the given item keys — one query however many items there are. */
 async function loadHeaders(keys: readonly string[]): Promise<Map<string, InventoryItemHeader>> {
   const designIds: number[] = [];
-  const variationIds: number[] = [];
   for (const k of keys) {
     const p = parseInventoryKey(k);
     if (p?.kind === 'design') designIds.push(p.id);
-    else if (p?.kind === 'variation') variationIds.push(p.id);
   }
   const headers = new Map<string, InventoryItemHeader>();
   if (keys.includes(NO_DESIGN_KEY)) headers.set(NO_DESIGN_KEY, WITHOUT_DESIGN);
-  const [designRows, variationRows] = await db.batch([
-    db
-      .select({ id: designs.id, code: designs.code, name: designs.name, thumbUrl: designs.thumbUrl, imageUrl: designs.imageUrl, quality: materials.name })
-      .from(designs)
-      .leftJoin(materials, eq(materials.id, designs.materialId))
-      .where(designIds.length ? inArray(designs.id, designIds) : sql`0`),
-    db
-      .select({
-        id: designVariations.id,
-        code: designVariations.code,
-        thumbUrl: designVariations.thumbUrl,
-        imageUrl: designVariations.imageUrl,
-        baseCode: designs.code,
-        baseName: designs.name,
-        baseThumbUrl: designs.thumbUrl,
-        baseImageUrl: designs.imageUrl,
-        quality: materials.name,
-      })
-      .from(designVariations)
-      .innerJoin(designs, eq(designs.id, designVariations.designId))
-      .leftJoin(materials, eq(materials.id, designs.materialId))
-      .where(variationIds.length ? inArray(designVariations.id, variationIds) : sql`0`),
-  ]);
+  if (!designIds.length) return headers;
+  const designRows = await db
+    .select({ id: designs.id, code: designs.code, name: designs.name, thumbUrl: designs.thumbUrl, imageUrl: designs.imageUrl, quality: designQualityNames })
+    .from(designs)
+    .where(inArray(designs.id, designIds));
   for (const d of designRows) {
-    headers.set(`d-${d.id}`, { key: `d-${d.id}`, code: d.code, name: d.name, variationOf: null, quality: d.quality, thumbUrl: d.thumbUrl, imageUrl: d.imageUrl });
-  }
-  for (const v of variationRows) {
-    headers.set(`v-${v.id}`, {
-      key: `v-${v.id}`,
-      code: v.code,
-      name: v.baseName,
-      variationOf: v.baseCode,
-      quality: v.quality,
-      thumbUrl: v.thumbUrl ?? v.baseThumbUrl,
-      imageUrl: v.imageUrl ?? v.baseImageUrl,
-    });
+    headers.set(`d-${d.id}`, { key: `d-${d.id}`, code: d.code, name: d.name, quality: d.quality, thumbUrl: d.thumbUrl, imageUrl: d.imageUrl });
   }
   return headers;
 }
@@ -358,7 +335,7 @@ async function loadHeader(key: string): Promise<InventoryItemHeader> {
 
 const searchMatches = (h: InventoryItemHeader, term: string) => {
   const t = term.toLowerCase();
-  return [h.code, h.name, h.variationOf].some((v) => v?.toLowerCase().includes(t));
+  return [h.code, h.name, h.quality].some((v) => v?.toLowerCase().includes(t));
 };
 
 /* ------------------------------------------------------------------ */

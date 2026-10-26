@@ -72,6 +72,8 @@ export const NAV_ITEMS: NavItem[] = [
   { to: '/customers', label: 'Customers', icon: Users, permission: 'canViewMasters', group: 'masters' },
   { to: '/materials', label: 'Materials', icon: Layers, permission: 'canViewMasters', group: 'masters' },
   { to: '/designs', label: 'Designs', icon: Palette, permission: 'canViewMasters', group: 'masters' },
+  // Sprint 18: Dhruvil's view-only Design library (roles with masters reach it through the Masters page).
+  { to: '/designs', label: 'Design library', icon: Palette, permission: 'canViewDesignLibrary', group: 'main', hideWith: 'canViewMasters' },
   { to: '/machines', label: 'Machines', icon: Factory, permission: 'canViewMasters', group: 'masters' },
   { to: '/damages', label: 'Damage master', icon: Bandage, permission: 'canViewMasters', group: 'masters' },
   { to: '/butta-parties', label: 'Butta parties', icon: Store, permission: 'canManageButtaParties', group: 'masters' },

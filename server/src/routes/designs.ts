@@ -1,28 +1,37 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { codeSchema } from '@rivoora/shared';
-import { ah, paginationSchema, parseId } from '../lib/http';
+import { ah, parseId } from '../lib/http';
 import { requirePermission } from '../middleware/role';
 import {
-  addVariation,
   createDesign,
+  createDesignsBulk,
   deleteDesign,
-  deleteVariation,
   getDesign,
   isDesignCodeTaken,
   listDesigns,
+  listQualityGroups,
+  takenDesignCodes,
   updateDesign,
 } from '../services/designs';
 
 export const designsRouter = Router();
-// Masters are hidden from roles without master access (the supervisor).
-designsRouter.use(requirePermission('canViewMasters'));
-const manage = requirePermission('canManageMasters');
+// Sprint 18: the design library — Jenish / Gaurang (manage) and Dhruvil (view only). Hidden from every other role.
+designsRouter.use(requirePermission('canViewDesignLibrary'));
+const manage = requirePermission('canManageDesigns');
 
 designsRouter.get(
   '/',
   ah(async (req, res) => {
-    res.json(await listDesigns(paginationSchema.parse(req.query)));
+    res.json(await listDesigns(req.query));
+  }),
+);
+
+/** The library's first level: one group per quality (+ "No quality"), with counts and the newest designs. */
+designsRouter.get(
+  '/qualities',
+  ah(async (req, res) => {
+    res.json(await listQualityGroups(req.query));
   }),
 );
 
@@ -33,6 +42,16 @@ designsRouter.get(
       .object({ code: codeSchema, exceptId: z.coerce.number().int().positive().optional() })
       .parse(req.query);
     res.json({ code, available: !(await isDesignCodeTaken(code, exceptId)) });
+  }),
+);
+
+/** "Upload many": which of these codes are already used (`?codes=D1,D2`) — the review page's live check. */
+designsRouter.get(
+  '/check-codes',
+  ah(async (req, res) => {
+    const { codes } = z.object({ codes: z.string().max(4000).default('') }).parse(req.query);
+    const list = codes.split(',').map((c) => c.trim()).filter(Boolean).slice(0, 200);
+    res.json({ taken: [...(await takenDesignCodes(list))] });
   }),
 );
 
@@ -51,6 +70,14 @@ designsRouter.post(
   }),
 );
 
+designsRouter.post(
+  '/bulk',
+  manage,
+  ah(async (req, res) => {
+    res.status(201).json(await createDesignsBulk(req.body));
+  }),
+);
+
 designsRouter.put(
   '/:id',
   manage,
@@ -64,30 +91,6 @@ designsRouter.delete(
   manage,
   ah(async (req, res) => {
     await deleteDesign(parseId(req.params.id));
-    res.status(204).end();
-  }),
-);
-
-designsRouter.get(
-  '/:id/variations',
-  ah(async (req, res) => {
-    res.json((await getDesign(parseId(req.params.id))).variations);
-  }),
-);
-
-designsRouter.post(
-  '/:id/variations',
-  manage,
-  ah(async (req, res) => {
-    res.status(201).json(await addVariation(parseId(req.params.id), req.body));
-  }),
-);
-
-designsRouter.delete(
-  '/:id/variations/:variationId',
-  manage,
-  ah(async (req, res) => {
-    await deleteVariation(parseId(req.params.id), parseId(req.params.variationId, 'variation id'));
     res.status(204).end();
   }),
 );

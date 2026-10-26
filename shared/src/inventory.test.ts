@@ -100,14 +100,13 @@ describe('orderInventoryPcs', () => {
 });
 
 describe('item keys and grouping', () => {
-  it('variation wins over its base design; no design is its own item', () => {
-    expect(inventoryKey({ designId: 3, variationId: 9 })).toBe('v-9');
-    expect(inventoryKey({ designId: 3, variationId: null })).toBe('d-3');
-    expect(inventoryKey({ designId: null, variationId: null })).toBe('none');
+  it('a design is an item; no design is its own item (Sprint 18: no variations)', () => {
+    expect(inventoryKey({ designId: 3 })).toBe('d-3');
+    expect(inventoryKey({ designId: null })).toBe('none');
   });
 
-  it('parses keys', () => {
-    expect(parseInventoryKey('v-9')).toEqual({ kind: 'variation', id: 9 });
+  it('parses keys (an old v- link is a legacy variation, mapped by the server)', () => {
+    expect(parseInventoryKey('v-9')).toEqual({ kind: 'legacy_variation', id: 9 });
     expect(parseInventoryKey('d-3')).toEqual({ kind: 'design', id: 3 });
     expect(parseInventoryKey('none')).toEqual({ kind: 'none' });
     expect(parseInventoryKey('x-1')).toBeNull();

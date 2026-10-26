@@ -1,4 +1,4 @@
-import { coverageWarnings, effectiveFrames, coverageFrames, jobsheetRef, orderJobsheetPlan, type CoverageWarningKind } from './jobsheets';
+import { coverageWarnings, effectiveFrames, coverageFrames, jobsheetRef, orderJobsheetPlan, sectionsOf, type CoverageWarningKind } from './jobsheets';
 import {
   ALERT_NOT_STARTED_HOURS,
   DAMAGE_TYPE_CONFIG,
@@ -16,7 +16,6 @@ import {
   type StageUnit,
   type SubStageKey,
 } from './pipeline';
-import { SECTIONS_PER_BEAM } from './production';
 import type { JobsheetStatusKey, OrderStatusKey } from './statuses';
 import { ALL_STEPS, orderKind, type OrderKind, type OrderSteps } from './orderSteps';
 import { EMPTY_OUTSIDE_TOTALS, type OutsidePoTotals } from './outside';
@@ -47,6 +46,8 @@ export interface DashboardJobsheetInput {
   startedAt: string | null;
   completedAt: string | null;
   runningMachineId: number | null;
+  /** Sprint 18: sections per beam of the jobsheet (default 3). */
+  sections?: number | null;
 }
 
 /** Active takas — one row per taka, or aggregated rows with a `count` (default 1). */
@@ -287,6 +288,7 @@ export function buildOrderDashboard(input: DashboardInput, now: Date = new Date(
   const addPcs = (stage: MainStageKey, n: number) => barPcs.set(stage, barPcs.get(stage)! + n);
   const loomMachines = new Set<number>();
   let wovenFrames = 0;
+  let wovenPcs = 0;
   let onLoomFrames = 0;
   const alerts: DashboardAlert[] = [];
   const sorted = [...jobsheets].sort((a, b) => a.jobsheetNo - b.jobsheetNo);
@@ -295,8 +297,13 @@ export function buildOrderDashboard(input: DashboardInput, now: Date = new Date(
     const frames = effectiveFrames({ frames: j.frames, status: j.status as JobsheetStatusKey, completedFrames: j.completedFrames });
     const perMain = takasByJobsheet.get(j.id);
     const jsTakas = perMain ? [...perMain.values()].reduce((s, n) => s + n, 0) : 0;
+    // Sprint 18: every jobsheet has its own sections per beam.
+    const sheetPcs = frames * sectionsOf(j);
 
-    if (j.status === 'completed') wovenFrames += frames;
+    if (j.status === 'completed') {
+      wovenFrames += frames;
+      wovenPcs += sheetPcs;
+    }
     if (j.status === 'ongoing') {
       onLoomFrames += frames;
       if (j.runningMachineId !== null) loomMachines.add(j.runningMachineId);
@@ -326,12 +333,12 @@ export function buildOrderDashboard(input: DashboardInput, now: Date = new Date(
       }
     }
 
-    // Bar (in pcs): no takas → the jobsheet's frames × sections per beam, still Production; otherwise every taka counts
-    // its own pcs, and a taka without pcs gets its share of the jobsheet's frames × sections.
+    // Bar (in pcs): no takas → the jobsheet's frames × its sections per beam, still Production; otherwise every taka
+    // counts its own pcs, and a taka without pcs gets its share of the jobsheet's frames × sections.
     if (!perMain || jsTakas === 0) {
-      addPcs('production', frames * SECTIONS_PER_BEAM);
+      addPcs('production', sheetPcs);
     } else {
-      const perTaka = (frames * SECTIONS_PER_BEAM) / jsTakas;
+      const perTaka = sheetPcs / jsTakas;
       for (const [main, p] of pcsByJobsheet.get(j.id) ?? []) addPcs(main, p.pcs + p.without * perTaka);
     }
   }
@@ -357,7 +364,7 @@ export function buildOrderDashboard(input: DashboardInput, now: Date = new Date(
   // Sprint 16: pcs given outside on pcs POs don't need jobsheets.
   const livePlan = orderJobsheetPlan(
     Math.max(0, order.quantity - outside.pcsCommitted),
-    jobsheets.map((j) => ({ frames: j.frames, status: j.status as JobsheetStatusKey, completedFrames: j.completedFrames })),
+    jobsheets.map((j) => ({ frames: j.frames, status: j.status as JobsheetStatusKey, completedFrames: j.completedFrames, sections: j.sections, jobsheetNo: j.jobsheetNo })),
   );
   // Rule 2: the coverage warnings (frames short / over, jobsheet quantity less / more), texts unchanged.
   if (isPcs && jobsheets.length > 0) {
@@ -446,7 +453,6 @@ export function buildOrderDashboard(input: DashboardInput, now: Date = new Date(
   const shownKeys = new Set(mainStages.map((m) => m.key));
   const bar = allBar.filter((b) => shownKeys.has(b.stage));
 
-  const wovenPcs = wovenFrames * SECTIONS_PER_BEAM;
   // In-house: the jobsheet quantity (+ what is given outside); outside / FG orders: the order quantity.
   const targetPcs = kind === 'in_house' && jobsheets.length > 0 ? livePlan.jobsheetPieces + outside.pcsCommitted : order.quantity;
   const damageCounts = new Map<DamageType, { count: number; pcs: number | null }>();

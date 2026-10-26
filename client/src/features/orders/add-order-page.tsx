@@ -17,7 +17,9 @@ import {
   UNITS,
   withStep,
   normalizeCode,
+  qualityOnPick,
   type BlouseOption,
+  type DesignQuality,
   type OrderDetail,
   type OrderType,
   type StepKey,
@@ -34,6 +36,7 @@ import { ImageDropzone, ImagePickButton } from '@/components/ui/image-upload';
 import { Input, NumberInput, Textarea } from '@/components/ui/input';
 import { Segmented } from '@/components/ui/segmented';
 import { Select } from '@/components/ui/select';
+import { TickBox } from '@/components/ui/tick-box';
 import { Tooltip } from '@/components/ui/tooltip';
 import { useDebounce } from '@/hooks/useDebounce';
 import { useRole } from '@/hooks/useRole';
@@ -47,7 +50,7 @@ import { BUTTA_OPTIONS, designCodeField, useCodeAvailability, type ButtaChoice }
 import { useCreateOrder, useUpdateOrder } from './api';
 import { DesignStockPanel } from './design-stock-panel';
 import { StepsPills } from './order-steps-tag';
-import { SavedDesignsDrawer, type SavedDesignPick } from './saved-designs-drawer';
+import { QualityChooser, SavedDesignsDrawer, type SavedDesignPick } from './saved-designs-drawer';
 
 type DesignAttachment =
   | ({ kind: 'saved' } & SavedDesignPick)
@@ -60,6 +63,9 @@ const schema = z
     orderType: z.enum(ORDER_TYPES).nullable(),
     /** Optional (Sprint 13): With blouse / Without blouse; null = not set. */
     blouseOption: z.enum(BLOUSE_OPTIONS).nullable(),
+    /** Sprint 18: Outside order (making for another party) + that party's name (typed, required when ticked). */
+    isOutsideOrder: z.boolean(),
+    outsidePartyName: z.string().max(120, 'At most 120 characters'),
     /** Sprint 16: which of Production / Butta cutting / Mill happen in our system. */
     steps: z.object({ hasProduction: z.boolean(), hasButta: z.boolean(), hasMill: z.boolean() }),
     materialId: z.number().nullable(),
@@ -78,6 +84,7 @@ const schema = z
     if (!v.customerId) ctx.addIssue({ code: 'custom', path: ['customerId'], message: 'Select a client' });
     if (!v.orderType) ctx.addIssue({ code: 'custom', path: ['orderType'], message: 'Pick the order type' });
     if (!v.materialId) ctx.addIssue({ code: 'custom', path: ['materialId'], message: 'Select a material' });
+    if (v.isOutsideOrder && !v.outsidePartyName.trim()) ctx.addIssue({ code: 'custom', path: ['outsidePartyName'], message: 'Enter the party name' });
     const q = toNumber(v.quantity);
     if (!v.quantity) ctx.addIssue({ code: 'custom', path: ['quantity'], message: 'Enter the quantity' });
     else if (q === undefined || q <= 0) ctx.addIssue({ code: 'custom', path: ['quantity'], message: 'Quantity must be more than 0' });
@@ -99,6 +106,8 @@ const defaults = (): FormValues => ({
   // Nothing pre-selected on a new order: the type is a required choice.
   orderType: null,
   blouseOption: null,
+  isOutsideOrder: false,
+  outsidePartyName: '',
   steps: { ...ALL_STEPS },
   materialId: null,
   design: null,
@@ -114,23 +123,23 @@ const defaults = (): FormValues => ({
 
 /** Form values of an existing order (edit mode). */
 const fromOrder = (o: OrderDetail): FormValues => {
-  const image = o.variation ?? o.design;
   return {
     customerId: o.customer.id,
     brokerId: o.broker?.id ?? null,
     orderType: o.orderType,
     blouseOption: o.blouseOption,
+    isOutsideOrder: o.isOutsideOrder,
+    outsidePartyName: o.outsidePartyName ?? '',
     steps: { hasProduction: o.hasProduction, hasButta: o.hasButta, hasMill: o.hasMill },
     materialId: o.material.id,
     design: o.design
       ? {
           kind: 'saved',
           designId: o.design.id,
-          variationId: o.variation?.id ?? null,
-          code: o.variation?.code ?? o.design.code,
-          imageUrl: image?.imageUrl ?? null,
-          thumbUrl: image?.thumbUrl ?? null,
-          material: null,
+          code: o.design.code,
+          imageUrl: o.design.imageUrl,
+          thumbUrl: o.design.thumbUrl,
+          qualities: [],
         }
       : null,
     newDesignCode: '',
@@ -187,10 +196,12 @@ export function OrderForm({ order }: { order?: OrderDetail }) {
     formState: { errors, isDirty },
   } = useForm<FormValues>({ resolver: zodResolver(schema), defaultValues: order ? fromOrder(order) : defaults() });
 
-  const [customerId, design, noteImages, newDesignCode, steps, newDesignButta] = useWatch({
+  const [customerId, design, noteImages, newDesignCode, steps, newDesignButta, materialId, isOutsideOrder] = useWatch({
     control,
-    name: ['customerId', 'design', 'noteImages', 'newDesignCode', 'steps', 'newDesignButta'],
+    name: ['customerId', 'design', 'noteImages', 'newDesignCode', 'steps', 'newDesignButta', 'materialId', 'isOutsideOrder'],
   });
+  /** Sprint 18: a picked design in several qualities → "Which quality?". */
+  const [chooser, setChooser] = useState<{ code: string; options: DesignQuality[] } | null>(null);
   // Sprint 16: the Butta step follows the design's "Goes for butta cutting" until the user taps it themselves.
   const [buttaTouched, setButtaTouched] = useState(false);
   useEffect(() => {
@@ -215,7 +226,7 @@ export function OrderForm({ order }: { order?: OrderDetail }) {
   const [labels, setLabels] = useState<{ customer?: string; material?: string }>(
     order ? { customer: order.customer.name, material: order.material.name } : {},
   );
-  /** Design code whose fixed material was pre-selected (cleared when the user changes the material). */
+  /** Design code whose quality was filled in (cleared when the user changes the material). */
   const [materialFromDesign, setMaterialFromDesign] = useState<string | null>(null);
 
   const customerOptions = useMemo(
@@ -260,6 +271,12 @@ export function OrderForm({ order }: { order?: OrderDetail }) {
     setValue('design', d, { shouldDirty: true });
     clearErrors(['newDesignCode', 'newDesignButta']);
   };
+  /** The order's quality from the picked design (the hint under the field says where it came from). */
+  const setQuality = (q: DesignQuality, designCode: string) => {
+    setValue('materialId', q.id, { shouldDirty: true, shouldValidate: true });
+    setLabels((l) => ({ ...l, material: q.name }));
+    setMaterialFromDesign(designCode);
+  };
 
   const onSubmit = handleSubmit((v) => {
     if (design?.kind === 'upload' && codeCheck.data?.available === false) {
@@ -271,12 +288,13 @@ export function OrderForm({ order }: { order?: OrderDetail }) {
       brokerId: v.brokerId,
       orderType: v.orderType!,
       blouseOption: v.blouseOption,
+      isOutsideOrder: v.isOutsideOrder,
+      outsidePartyName: v.isOutsideOrder ? v.outsidePartyName : null,
       hasProduction: v.steps.hasProduction,
       hasButta: v.steps.hasButta,
       hasMill: v.steps.hasMill,
       materialId: v.materialId!,
       designId: v.design?.kind === 'saved' ? v.design.designId : null,
-      variationId: v.design?.kind === 'saved' ? v.design.variationId : null,
       newDesign:
         v.design?.kind === 'upload'
           ? { code: v.newDesignCode, imageUrl: v.design.imageUrl, thumbUrl: v.design.thumbUrl, buttaCutting: v.newDesignButta === 'yes' }
@@ -289,7 +307,7 @@ export function OrderForm({ order }: { order?: OrderDetail }) {
       noteImages: v.noteImages,
     };
     const onError = (err: unknown) => {
-      const handled = applyServerFieldError(err, setError, ['customerId', 'brokerId', 'orderType', 'blouseOption', 'materialId', 'quantity', 'unit', 'rate', 'orderDate', 'newDesignCode', 'newDesignButta', 'notes'], {
+      const handled = applyServerFieldError(err, setError, ['customerId', 'brokerId', 'orderType', 'blouseOption', 'outsidePartyName', 'materialId', 'quantity', 'unit', 'rate', 'orderDate', 'newDesignCode', 'newDesignButta', 'notes'], {
         designCode: 'newDesignCode',
         'newDesign.code': 'newDesignCode',
       });
@@ -430,7 +448,7 @@ export function OrderForm({ order }: { order?: OrderDetail }) {
               htmlFor="order-material"
               required
               error={errors.materialId?.message}
-              hint={materialFromDesign ? `Pre-selected from design ${materialFromDesign}` : undefined}
+              hint={materialFromDesign ? `Filled in from design ${materialFromDesign} (you can change it)` : undefined}
             >
               <Controller
                 control={control}
@@ -493,6 +511,42 @@ export function OrderForm({ order }: { order?: OrderDetail }) {
                 )}
               />
             </Field>
+            {/* Sprint 18: Outside order — making for another party (not "Outside production", which is an unticked step). */}
+            <div className="grid gap-3 rounded-xl border border-teal-200 bg-teal-50/40 p-3 md:col-span-2 md:grid-cols-2 md:items-start">
+              <div className="flex items-start gap-3 py-1">
+                <Controller
+                  control={control}
+                  name="isOutsideOrder"
+                  render={({ field }) => (
+                    <TickBox
+                      id="outside-order"
+                      size="lg"
+                      checked={field.value}
+                      onCheckedChange={(v) => {
+                        field.onChange(v);
+                        if (!v) clearErrors('outsidePartyName');
+                      }}
+                    />
+                  )}
+                />
+                <label htmlFor="outside-order" className="cursor-pointer select-none">
+                  <span className="block text-[15px] font-semibold text-slate-900">Outside order</span>
+                  <span className="block text-[13px] text-slate-500">Making for another party (their name is shown with the order)</span>
+                </label>
+              </div>
+              {isOutsideOrder && (
+                <Field label="Party name" htmlFor="outside-party" required error={errors.outsidePartyName?.message}>
+                  <Input
+                    id="outside-party"
+                    placeholder="Who the order is made for"
+                    autoComplete="off"
+                    maxLength={120}
+                    invalid={!!errors.outsidePartyName}
+                    {...register('outsidePartyName')}
+                  />
+                </Field>
+              )}
+            </div>
           </div>
         </SectionCard>
 
@@ -527,9 +581,7 @@ export function OrderForm({ order }: { order?: OrderDetail }) {
               <div className="flex min-w-0 flex-1 flex-col gap-3">
                 {design.kind === 'saved' ? (
                   <div>
-                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                      {design.variationId ? 'Variation' : 'Design'}
-                    </p>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Design</p>
                     <p className="text-xl font-bold text-slate-900">{design.code}</p>
                   </div>
                 ) : (
@@ -621,7 +673,7 @@ export function OrderForm({ order }: { order?: OrderDetail }) {
               </div>
             </div>
             {design.kind === 'saved' && (
-              <DesignStockPanel designId={design.designId} variationId={design.variationId} />
+              <DesignStockPanel designId={design.designId} />
             )}
             </div>
           )}
@@ -763,18 +815,27 @@ export function OrderForm({ order }: { order?: OrderDetail }) {
         onOpenChange={setDrawerOpen}
         customerId={customerId}
         customerName={labels.customer}
-        current={design?.kind === 'saved' ? { designId: design.designId, variationId: design.variationId } : null}
+        current={design?.kind === 'saved' ? { designId: design.designId } : null}
+        materialId={materialId}
         onPick={(p) => {
           setDesign({ kind: 'saved', ...p });
-          // A design made only in one material pre-selects it (still changeable).
-          if (p.material) {
-            setValue('materialId', p.material.id, { shouldDirty: true, shouldValidate: true });
-            setLabels((l) => ({ ...l, material: p.material!.name }));
-            setMaterialFromDesign(p.code);
-          } else {
-            setMaterialFromDesign(null);
-          }
+          // Sprint 18: one quality → filled in (still changeable); several → "Which quality?"; the order's quality stays
+          // when the design is made in it.
+          const next = qualityOnPick(p.qualities, getValues('materialId'));
+          if (next.kind === 'set') setQuality(next.quality, p.code);
+          else if (next.kind === 'choose') setChooser({ code: p.code, options: next.options });
+          else if (next.kind === 'none') setMaterialFromDesign(null);
         }}
+      />
+      <QualityChooser
+        open={!!chooser}
+        designCode={chooser?.code ?? ''}
+        options={chooser?.options ?? []}
+        onChoose={(q) => {
+          setQuality(q, chooser!.code);
+          setChooser(null);
+        }}
+        onCancel={() => setChooser(null)}
       />
       <ConfirmDialog
         open={blocker.state === 'blocked'}

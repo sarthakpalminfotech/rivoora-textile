@@ -7,7 +7,7 @@ import { useRole } from '@/hooks/useRole';
 const DESCRIPTIONS: Record<string, string> = {
   '/customers': 'Clients and their brokers',
   '/materials': 'Cloth materials',
-  '/designs': 'Designs and variations',
+  '/designs': 'Design library by quality',
   '/machines': 'Looms and their status',
   '/damages': 'Damage names used on takas',
   '/butta-parties': 'Butta cutting parties',

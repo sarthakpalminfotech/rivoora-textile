@@ -26,6 +26,7 @@ const CustomersPage = lazy(() => import('@/features/masters/customers/customers-
 const MaterialsPage = lazy(() => import('@/features/masters/materials/materials-page'));
 const DesignsPage = lazy(() => import('@/features/masters/designs/designs-page'));
 const DesignDetailPage = lazy(() => import('@/features/masters/designs/design-detail-page'));
+const UploadManyDesignsPage = lazy(() => import('@/features/masters/designs/upload-many-page'));
 const MachinesPage = lazy(() => import('@/features/masters/machines/machines-page'));
 const DamagesPage = lazy(() => import('@/features/masters/damages/damages-page'));
 const JobsheetDetailsPage = lazy(() => import('@/features/jobsheets/jobsheet-details-page'));
@@ -167,6 +168,17 @@ const router = createBrowserRouter([
           </Suspense>
         ),
       },
+      // Sprint 18: Upload many designs (full screen: pick images → review grid → Add all).
+      {
+        path: '/designs/upload',
+        element: (
+          <Suspense fallback={<PageSkeleton />}>
+            <RequirePermission permission="canManageDesigns">
+              <UploadManyDesignsPage />
+            </RequirePermission>
+          </Suspense>
+        ),
+      },
       // Sprint 17: Yarn PO full-screen forms + print.
       {
         path: '/yarn-po/new',
@@ -239,8 +251,9 @@ const router = createBrowserRouter([
           { path: 'masters', element: guard('canViewMasters', <MastersPage />) },
           { path: 'customers', element: guard('canViewMasters', <CustomersPage />) },
           { path: 'materials', element: guard('canViewMasters', <MaterialsPage />) },
-          { path: 'designs', element: guard('canViewMasters', <DesignsPage />) },
-          { path: 'designs/:id', element: guard('canViewMasters', <DesignDetailPage />) },
+          // Sprint 18: the Design library — also Dhruvil (view only).
+          { path: 'designs', element: guard('canViewDesignLibrary', <DesignsPage />) },
+          { path: 'designs/:id', element: guard('canViewDesignLibrary', <DesignDetailPage />) },
           { path: 'machines', element: guard('canViewMasters', <MachinesPage />) },
           { path: 'damages', element: guard('canViewMasters', <DamagesPage />) },
           { path: 'orders/:orderId/takas/:takaId/damages', element: guard(['canEditTakas', 'canViewProductionOrders', 'canViewGodownOrders'], <DamageDetailsPage />) },

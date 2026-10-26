@@ -51,6 +51,30 @@ async function buttaChallanCounts(): Promise<{ challans: number; takas: number }
   return { challans: Number(challans.rows[0]?.n ?? 0), takas: Number(takas.rows[0]?.n ?? 0) };
 }
 
+const countOf = async (sql: string) => Number((await libsql.execute(sql)).rows[0]?.n ?? 0);
+
+/**
+ * Sprint 18 (migration 0017) turns every design variation into a standalone design. Before it runs we print exactly
+ * what it will change; afterwards the same figures are counted again. Returns null when it has already been applied.
+ */
+async function variationPlan(): Promise<{ variations: number; ordersOnVariation: number; designsWithMaterial: number } | null> {
+  const applied = await libsql.execute(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'design_variation_map'`);
+  if (applied.rows.length > 0) return null;
+  const old = await libsql.execute(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'design_variations'`);
+  if (old.rows.length === 0) return null; // fresh database
+  const plan = {
+    variations: await countOf('SELECT COUNT(*) AS n FROM design_variations'),
+    ordersOnVariation: await countOf('SELECT COUNT(*) AS n FROM orders WHERE variation_id IS NOT NULL'),
+    designsWithMaterial: await countOf('SELECT COUNT(*) AS n FROM designs WHERE material_id IS NOT NULL'),
+  };
+  console.log(
+    `Sprint 18 design change: ${plan.variations} variation(s) become designs, ${plan.ordersOnVariation} order(s) move from a\n` +
+      `variation to its new design, ${plan.designsWithMaterial} design(s) get their material as a quality (+ the new designs\n` +
+      'of their variations). The whole migration is one transaction: if a check fails, nothing is changed.',
+  );
+  return plan;
+}
+
 /**
  * Sprint 8 (migration 0009) moves the butta challans into the generic `challans` / `challan_takas` tables. The SQL
  * itself compares the counts and fails (rolling everything back) if anything is off; this wrapper counts before and
@@ -60,9 +84,18 @@ async function main() {
   console.log('Applying migrations…');
   await assertNoDuplicateTakaNumbers();
   const before = await buttaChallanCounts();
+  const s18 = await variationPlan();
   try {
     await migrate(db, { migrationsFolder: resolve(SERVER_ROOT, 'drizzle') });
   } catch (err) {
+    if (String(err).includes('__s18_check')) {
+      console.error(
+        '\nMigration stopped: turning the design variations into designs did not add up (designs created, the map, the\n' +
+          'orders that moved, duplicate codes or qualities). Nothing was changed. Run `npm run db:s18-report` to see why.\n',
+      );
+      libsql.close();
+      process.exit(1);
+    }
     if (String(err).includes('__s8_check')) {
       console.error(
         '\nMigration stopped: the butta challans could not be moved to the new challan tables without losing something\n' +
@@ -86,6 +119,17 @@ async function main() {
       process.exit(1);
     }
     console.log(`Butta challans moved to the generic challan tables: ${after.challans} challans, ${after.takas} taka rows (counts match).`);
+  }
+  if (s18) {
+    const mapped = await countOf('SELECT COUNT(*) AS n FROM design_variation_map');
+    const moved = await countOf('SELECT COUNT(*) AS n FROM orders WHERE design_id IN (SELECT new_design_id FROM design_variation_map)');
+    const qualities = await countOf('SELECT COUNT(*) AS n FROM design_qualities');
+    if (mapped !== s18.variations || moved !== s18.ordersOnVariation) {
+      console.error(`\nCheck failed: ${s18.variations} variations / ${s18.ordersOnVariation} orders before, ${mapped} mapped / ${moved} moved after.\n`);
+      libsql.close();
+      process.exit(1);
+    }
+    console.log(`Variations → designs: ${mapped} designs created (design_variation_map), ${moved} orders moved, ${qualities} design qualities (counts match).`);
   }
   console.log('Migrations applied.');
   // Sprint 12: the default logins (a phone that already exists is left alone).

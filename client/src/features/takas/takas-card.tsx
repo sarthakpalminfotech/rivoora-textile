@@ -479,7 +479,7 @@ export function OrderTakasCard({ order }: { order: OrderDetail }) {
             onOpenChange={setMoveOpen}
             orderId={order.id}
             orderNo={order.orderNo}
-            designCode={order.variation?.code ?? order.design?.code ?? null}
+            designCode={order.design?.code ?? null}
             takas={lump ? [...picked.values()] : undefined}
             availablePcs={godownPcs}
             onDone={stopSelecting}
@@ -491,9 +491,9 @@ export function OrderTakasCard({ order }: { order: OrderDetail }) {
               orderId: order.id,
               orderNo: order.orderNo,
               orderType: order.orderType,
-              designCode: order.variation?.code ?? order.design?.code ?? null,
+              designCode: order.design?.code ?? null,
               blouseOption: order.blouseOption,
-              itemKey: itemKeyOf(order.design?.id, order.variation?.id),
+              itemKey: itemKeyOf(order.design?.id),
             }}
           />
         </>

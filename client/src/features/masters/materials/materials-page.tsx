@@ -25,16 +25,19 @@ const schema = z.object({
 });
 type FormValues = z.infer<typeof schema>;
 
-function MaterialFormDialog({
+/** Add / edit / view a material. Sprint 18: also the quick-add of the design form's Qualities (`onSaved`). */
+export function MaterialFormDialog({
   open,
   onOpenChange,
   material,
   readOnly,
+  onSaved,
 }: {
   open: boolean;
   onOpenChange: (o: boolean) => void;
   material: Material | null;
   readOnly: boolean;
+  onSaved?: (material: Material) => void;
 }) {
   const save = useSaveMaterial();
   const {
@@ -56,6 +59,7 @@ function MaterialFormDialog({
         onSuccess: (m) => {
           toast.success(material ? 'Material updated' : `Material "${m.name}" added`);
           onOpenChange(false);
+          onSaved?.(m);
         },
         onError: (err) => {
           if (!applyServerFieldError(err, setError, ['name', 'code', 'notes'])) toast.error(errorMessage(err));

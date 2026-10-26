@@ -1,5 +1,4 @@
 import { sql } from 'drizzle-orm';
-import { SECTIONS_PER_BEAM } from '@rivoora/shared';
 
 /**
  * Live jobsheet figures of an order (Sprint 15). `orders.jobsheet_pieces` / `target_frames` are deprecated and no
@@ -8,5 +7,8 @@ import { SECTIONS_PER_BEAM } from '@rivoora/shared';
  */
 export const liveJobsheetFrames = sql<number>`COALESCE((SELECT SUM(CASE WHEN j.status = 'completed' AND j.completed_frames IS NOT NULL THEN j.completed_frames ELSE j.frames END) FROM jobsheets j WHERE j.order_id = "orders"."id" AND j.is_deleted = 0 AND j.is_external = 0), 0)`;
 
-/** Jobsheet quantity in pcs = frames in jobsheets × SECTIONS_PER_BEAM. */
-export const liveJobsheetPieces = sql<number>`${liveJobsheetFrames} * ${SECTIONS_PER_BEAM}`;
+/**
+ * Jobsheet quantity in pcs = Σ effective frames × each jobsheet's own sections per beam (Sprint 18) — the SQL twin of
+ * the shared `coveragePieces`.
+ */
+export const liveJobsheetPieces = sql<number>`COALESCE((SELECT SUM((CASE WHEN j.status = 'completed' AND j.completed_frames IS NOT NULL THEN j.completed_frames ELSE j.frames END) * j.sections) FROM jobsheets j WHERE j.order_id = "orders"."id" AND j.is_deleted = 0 AND j.is_external = 0), 0)`;

@@ -9,16 +9,17 @@ import type {
   Damage,
   DamageInput,
   Design,
+  DesignBulkInput,
+  DesignBulkResult,
   DesignInput,
   DesignListItem,
-  DesignVariation,
+  DesignQualityGroup,
   LookupItem,
   Machine,
   MachineInput,
   MachineLookupItem,
   Material,
   MaterialInput,
-  VariationInput,
   Weaver,
   WeaverInput,
   WeaverLookupItem,
@@ -180,8 +181,46 @@ export function useDeleteDamage() {
 
 /* ---------- designs ---------- */
 
-export const useDesigns = (search: string, enabled = true) =>
-  useInfiniteList<DesignListItem>([...masterKeys.designs, 'list'], '/designs', { search }, enabled);
+/**
+ * Designs, newest first — every design or one quality (`quality` = a material id or `none` = "No quality").
+ * Sprint 18: no variations; each design lists its qualities.
+ */
+export const useDesigns = (search: string, enabled = true, quality?: number | 'none' | null) =>
+  useInfiniteList<DesignListItem>([...masterKeys.designs, 'list'], '/designs', { search, quality: quality ?? undefined }, enabled);
+
+/**
+ * The library's quality groups (`GET /designs/qualities`): `search` filters designs (code / name — the drawer),
+ * `qualitySearch` filters quality names (the Design master), `designs` = tiles returned per group.
+ */
+export function useDesignQualityGroups(params: { search?: string; qualitySearch?: string; designs?: number }, enabled = true) {
+  return useQuery({
+    queryKey: [...masterKeys.designs, 'qualities', params],
+    queryFn: ({ signal }) => api.get<DesignQualityGroup[]>('/designs/qualities', params, signal),
+    placeholderData: keepPreviousData,
+    enabled,
+  });
+}
+
+/** "Upload many": codes among `codes` that are already used by a design (live check of the review page). */
+export function useTakenDesignCodes(codes: string[]) {
+  const key = [...new Set(codes)].sort().join(',');
+  return useQuery({
+    queryKey: [...masterKeys.designs, 'check-codes', key],
+    queryFn: ({ signal }) => api.get<{ taken: string[] }>('/designs/check-codes', { codes: key }, signal),
+    enabled: key.length > 0,
+    placeholderData: keepPreviousData,
+    staleTime: 10_000,
+  });
+}
+
+export function useCreateDesignsBulk() {
+  const qc = useQueryClient();
+  return useMutation({
+    meta: { silentFieldErrors: true },
+    mutationFn: (data: DesignBulkInput) => api.post<DesignBulkResult>('/designs/bulk', data),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: masterKeys.designs }),
+  });
+}
 
 export function useDesign(id: number | null) {
   return useQuery({
@@ -200,6 +239,7 @@ export function useSaveDesign() {
     onSuccess: (design) => {
       qc.setQueryData(masterKeys.design(design.id), design);
       void qc.invalidateQueries({ queryKey: [...masterKeys.designs, 'list'] });
+      void qc.invalidateQueries({ queryKey: [...masterKeys.designs, 'qualities'] });
       void qc.invalidateQueries({ queryKey: ['orders', 'detail'] });
     },
   });
@@ -212,32 +252,7 @@ export function useDeleteDesign() {
     onSuccess: (_d, id) => {
       qc.removeQueries({ queryKey: masterKeys.design(id) });
       void qc.invalidateQueries({ queryKey: [...masterKeys.designs, 'list'] });
-    },
-  });
-}
-
-export function useAddVariation(designId: number) {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (data: VariationInput) => api.post<DesignVariation>(`/designs/${designId}/variations`, data),
-    onSuccess: (variation) => {
-      qc.setQueryData<Design>(masterKeys.design(designId), (d) =>
-        d ? { ...d, variations: [...d.variations, variation] } : d,
-      );
-      void qc.invalidateQueries({ queryKey: [...masterKeys.designs, 'list'] });
-    },
-  });
-}
-
-export function useDeleteVariation(designId: number) {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (variationId: number) => api.delete(`/designs/${designId}/variations/${variationId}`),
-    onSuccess: (_r, variationId) => {
-      qc.setQueryData<Design>(masterKeys.design(designId), (d) =>
-        d ? { ...d, variations: d.variations.filter((v) => v.id !== variationId) } : d,
-      );
-      void qc.invalidateQueries({ queryKey: [...masterKeys.designs, 'list'] });
+      void qc.invalidateQueries({ queryKey: [...masterKeys.designs, 'qualities'] });
     },
   });
 }

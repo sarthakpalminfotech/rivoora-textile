@@ -104,6 +104,10 @@ export interface RolePermissions {
   canViewYarn: boolean;
   /** Sprint 17: Yarn inventory (`/yarn`): zones, transfer, withdraw, TFO programs, warping. */
   canUseYarnInventory: boolean;
+  /** Sprint 18: the Design library (/designs: qualities → designs → design), read. */
+  canViewDesignLibrary: boolean;
+  /** Sprint 18: add / edit / delete designs and Upload many (Jenish + Gaurang). */
+  canManageDesigns: boolean;
 }
 
 export interface RoleConfig {
@@ -142,6 +146,8 @@ const NO_SPRINT12 = {
   canReceiveYarn: false,
   canViewYarn: false,
   canUseYarnInventory: false,
+  canViewDesignLibrary: false,
+  canManageDesigns: false,
 };
 /** Sprint 17: the yarn area for the production / godown supervisors — view + receive Yarn POs, the whole Yarn inventory. */
 const YARN_FLOOR = { canReceiveYarn: true, canViewYarn: true, canUseYarnInventory: true };
@@ -169,6 +175,9 @@ const OWNER_SPRINT12 = {
   canReceiveYarn: true,
   canViewYarn: true,
   canUseYarnInventory: true,
+  // Sprint 18: the design library — both manage designs (add / edit / delete, Upload many).
+  canViewDesignLibrary: true,
+  canManageDesigns: true,
 };
 
 const NO_TAKAS = { canUseTakaModules: false, canEnterTakas: false, canEditTakas: false, canViewTakas: false };
@@ -392,6 +401,8 @@ export const ROLES: Record<RoleKey, RoleConfig> = {
       canMoveToInventory: true,
       // Sprint 16: Receive goods (outside weavers' challans, FG purchases).
       canReceiveOutside: true,
+      // Sprint 18: the Design library, view only.
+      canViewDesignLibrary: true,
     },
   },
 };

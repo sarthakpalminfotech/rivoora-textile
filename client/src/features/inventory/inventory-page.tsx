@@ -143,7 +143,7 @@ function ItemCard({ item, from }: { item: InventoryItemCard; from: string }) {
           <CardThumb item={item} />
           <div className="min-w-0">
             <p className="truncate text-[17px] font-bold leading-tight text-slate-900">{item.code ?? 'Without design'}</p>
-            <p className="truncate text-[13px] text-slate-500">{item.variationOf ? `Variation of ${item.variationOf}` : (item.name ?? ' ')}</p>
+            <p className="truncate text-[13px] text-slate-500">{[item.name, item.quality].filter(Boolean).join(' · ') || ' '}</p>
           </div>
         </div>
         <div className="grid grid-cols-3 gap-2">
@@ -173,7 +173,7 @@ function DamagedCard({ item, from }: { item: DamagedItemCard; from: string }) {
           <CardThumb item={item} />
           <div className="min-w-0">
             <p className="truncate text-[17px] font-bold leading-tight text-slate-900">{item.code ?? 'Without design'}</p>
-            <p className="truncate text-[13px] text-slate-500">{item.variationOf ? `Variation of ${item.variationOf}` : (item.name ?? ' ')}</p>
+            <p className="truncate text-[13px] text-slate-500">{[item.name, item.quality].filter(Boolean).join(' · ') || ' '}</p>
           </div>
         </div>
         <div className="flex items-end justify-between gap-3">

@@ -37,7 +37,7 @@ export async function holdOrder(role: RoleKey, orderId: number, input: unknown):
     if (order.isOnHold) throw conflict(`Order #${order.orderNo} is already on hold.`);
 
     const ongoing = await tx
-      .select({ id: jobsheets.id, jobsheetNo: jobsheets.jobsheetNo, frames: jobsheets.frames, runningMachineId: jobsheets.runningMachineId })
+      .select({ id: jobsheets.id, jobsheetNo: jobsheets.jobsheetNo, frames: jobsheets.frames, sections: jobsheets.sections, runningMachineId: jobsheets.runningMachineId })
       .from(jobsheets)
       .where(and(eq(jobsheets.orderId, orderId), eq(jobsheets.isDeleted, false), eq(jobsheets.status, JOBSHEET_STATUS.ONGOING)))
       .orderBy(asc(jobsheets.jobsheetNo));
@@ -70,6 +70,8 @@ export async function holdOrder(role: RoleKey, orderId: number, input: unknown):
           machineRows.map((m) => m.machineId),
           {
             parentJobsheetId: c.jobsheetId,
+            // Sprint 18: the remaining frames keep the sections per beam of the jobsheet they come from.
+            sections: js.sections,
             note: `${c.remainingFrames} frame${c.remainingFrames === 1 ? '' : 's'} left after hold (continued from #${order.orderNo} (${js.jobsheetNo}))`,
           },
         );

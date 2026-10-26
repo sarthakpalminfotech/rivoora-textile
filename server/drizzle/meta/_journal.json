@@ -120,6 +120,13 @@
       "when": 1792962934035,
       "tag": "0016_sprint17_yarn",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "6",
+      "when": 1793009774087,
+      "tag": "0017_sprint18_designs_sections_outside",
+      "breakpoints": true
     }
   ]
 }

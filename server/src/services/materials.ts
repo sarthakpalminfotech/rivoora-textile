@@ -1,7 +1,7 @@
 import { and, asc, count, eq, ne, or, sql } from 'drizzle-orm';
 import { materialInputSchema, type LookupItem, type Material, type Paginated } from '@rivoora/shared';
 import { db } from '../db/client';
-import { designs, materials, orders } from '../db/schema';
+import { designQualities, materials, orders } from '../db/schema';
 import { conflict, notFound } from '../lib/errors';
 import { likePattern, type PaginationQuery } from '../lib/http';
 
@@ -98,9 +98,9 @@ export async function deleteMaterial(id: number): Promise<void> {
       `This material can't be deleted because it is used in ${used} order${used === 1 ? '' : 's'}.`,
     );
   }
-  // Designs only use the material as a default, so they are simply unlinked.
+  // Sprint 18: designs lose this quality (a design left with none shows under "No quality" until it is edited).
   await db.batch([
-    db.update(designs).set({ materialId: null }).where(eq(designs.materialId, id)),
+    db.delete(designQualities).where(eq(designQualities.materialId, id)),
     db.update(materials).set({ isDeleted: true }).where(eq(materials.id, id)),
   ]);
 }

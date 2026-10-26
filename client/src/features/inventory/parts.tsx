@@ -154,12 +154,13 @@ export function ItemHeader({ item }: { item: InventoryItemHeader }) {
       />
       <div className="min-w-0">
         <h1 className="truncate text-2xl font-extrabold leading-tight tracking-tight text-slate-900">{item.code ?? 'Without design'}</h1>
-        {(item.name || item.variationOf) && (
+        {(item.name || item.quality) && (
           <p className="truncate text-[15px] font-medium text-slate-600">
             {item.name}
-            {item.variationOf && (
+            {item.quality && (
               <span className="text-slate-500">
-                {item.name ? ' · ' : ''}Variation of {item.variationOf}
+                {item.name ? ' · ' : ''}
+                {item.quality}
               </span>
             )}
           </p>

@@ -6,6 +6,7 @@ import {
   canRoleSeeStatus,
   isOrderKind,
   isOrderType,
+  isOutsideOrderFilter,
   isStatusKey,
   orderKind,
   parsePoNo,
@@ -30,7 +31,6 @@ import { db, type Tx } from '../db/client';
 import {
   customerBrokers,
   customers,
-  designVariations,
   designs,
   materials,
   orderEvents,
@@ -41,7 +41,7 @@ import {
 } from '../db/schema';
 import { badRequest, conflict, notFound } from '../lib/errors';
 import { csv, likePattern, paginationSchema } from '../lib/http';
-import { insertDesign } from './designs';
+import { designQualitiesJson, insertDesignFromOrder, parseQualities } from './designs';
 import { countActiveJobsheets, recomputeOrderStatus } from './jobsheets';
 import { applyStepsChange, stepLocksOf } from './order-steps';
 import { liveJobsheetPieces } from './jobsheet-live';
@@ -65,6 +65,8 @@ export const orderListQuerySchema = paginationSchema.extend({
   type: z.string().optional().transform((v) => parseKeyList(v, isOrderType)),
   /** Sprint 16: order kind filter: `kind=in_house,outside_production,fg_purchase`. */
   kind: z.string().optional().transform((v) => parseKeyList(v, isOrderKind)),
+  /** Sprint 18: Outside order filter: `outside=yes` / `outside=no` (only honoured for roles that see the client). */
+  outside: z.string().optional().transform((v) => parseKeyList(v, isOutsideOrderFilter)),
   from: dateString,
   to: dateString,
 });
@@ -105,6 +107,7 @@ export async function listOrders(role: RoleKey, q: OrderListQuery): Promise<Pagi
   if (q.material.length) conditions.push(inArray(orders.materialId, q.material));
   if (q.type.length) conditions.push(inArray(orders.orderType, q.type));
   if (q.party.length && can(role, 'canSeeClient')) conditions.push(inArray(orders.customerId, q.party));
+  if (q.outside.length === 1 && can(role, 'canSeeClient')) conditions.push(eq(orders.isOutsideOrder, q.outside[0] === 'yes'));
   if (q.search) {
     const term = q.search.replace(/^#/, '').trim();
     const p = likePattern(term);
@@ -113,9 +116,10 @@ export async function listOrders(role: RoleKey, q: OrderListQuery): Promise<Pagi
     const parts: (SQL | undefined)[] = [
       seesClient ? sql`${customers.name} LIKE ${p} ESCAPE '\\'` : undefined,
       seesClient ? sql`${customerBrokers.name} LIKE ${p} ESCAPE '\\'` : undefined,
+      // Sprint 18: the outside order's party name.
+      seesClient ? sql`${orders.outsidePartyName} LIKE ${p} ESCAPE '\\'` : undefined,
       sql`${materials.name} LIKE ${p} ESCAPE '\\'`,
       sql`${designs.code} LIKE ${codeP} ESCAPE '\\'`,
-      sql`${designVariations.code} LIKE ${codeP} ESCAPE '\\'`,
     ];
     if (/^\d+(\.\d+)?$/.test(term)) {
       if (/^\d+$/.test(term)) parts.push(eq(orders.orderNo, Number(term)));
@@ -149,8 +153,10 @@ export async function listOrders(role: RoleKey, q: OrderListQuery): Promise<Pagi
         status: orders.status,
         isOnHold: orders.isOnHold,
         orderDate: orders.orderDate,
-        designCode: sql<string | null>`COALESCE(${designVariations.code}, ${designs.code})`,
-        designThumbUrl: sql<string | null>`COALESCE(${designVariations.thumbUrl}, ${designs.thumbUrl})`,
+        designCode: designs.code,
+        designThumbUrl: designs.thumbUrl,
+        isOutsideOrder: orders.isOutsideOrder,
+        outsidePartyName: orders.outsidePartyName,
         hasProduction: orders.hasProduction,
         hasButta: orders.hasButta,
         hasMill: orders.hasMill,
@@ -161,7 +167,6 @@ export async function listOrders(role: RoleKey, q: OrderListQuery): Promise<Pagi
       .leftJoin(customerBrokers, eq(customerBrokers.id, orders.brokerId))
       .innerJoin(materials, eq(materials.id, orders.materialId))
       .leftJoin(designs, eq(designs.id, orders.designId))
-      .leftJoin(designVariations, eq(designVariations.id, orders.variationId))
       .where(where)
       .orderBy(desc(orders.orderNo))
       .limit(q.limit)
@@ -173,12 +178,11 @@ export async function listOrders(role: RoleKey, q: OrderListQuery): Promise<Pagi
       .leftJoin(customerBrokers, eq(customerBrokers.id, orders.brokerId))
       .innerJoin(materials, eq(materials.id, orders.materialId))
       .leftJoin(designs, eq(designs.id, orders.designId))
-      .leftJoin(designVariations, eq(designVariations.id, orders.variationId))
       .where(where),
   ]);
-  // Roles without `canSeeClient` (the supervisor) never get client or broker names.
+  // Roles without `canSeeClient` (the supervisor) never get client, broker or outside party names.
   const hideClient = !can(role, 'canSeeClient');
-  const shown = hideClient ? items.map((i) => ({ ...i, customerName: '', brokerName: null })) : items;
+  const shown = hideClient ? items.map((i) => ({ ...i, customerName: '', brokerName: null, outsidePartyName: null })) : items;
   return { items: shown, page: q.page, limit: q.limit, total, hasMore: q.page * q.limit < total };
 }
 
@@ -221,10 +225,8 @@ export async function getOrder(role: RoleKey, id: number): Promise<OrderDetail> 
         designName: designs.name,
         designImageUrl: designs.imageUrl,
         designThumbUrl: designs.thumbUrl,
-        variationId: designVariations.id,
-        variationCode: designVariations.code,
-        variationImageUrl: designVariations.imageUrl,
-        variationThumbUrl: designVariations.thumbUrl,
+        isOutsideOrder: orders.isOutsideOrder,
+        outsidePartyName: orders.outsidePartyName,
       })
       .from(orders)
       .innerJoin(customers, eq(customers.id, orders.customerId))
@@ -232,7 +234,6 @@ export async function getOrder(role: RoleKey, id: number): Promise<OrderDetail> 
       .leftJoin(customerBrokers, eq(customerBrokers.id, orders.brokerId))
       .innerJoin(materials, eq(materials.id, orders.materialId))
       .leftJoin(designs, eq(designs.id, orders.designId))
-      .leftJoin(designVariations, eq(designVariations.id, orders.variationId))
       .where(eq(orders.id, id)),
     db
       .select({ id: orderNoteImages.id, imageUrl: orderNoteImages.imageUrl, thumbUrl: orderNoteImages.thumbUrl })
@@ -282,10 +283,8 @@ export async function getOrder(role: RoleKey, id: number): Promise<OrderDetail> 
       r.designId !== null && r.designCode !== null
         ? { id: r.designId, code: r.designCode, name: r.designName, imageUrl: r.designImageUrl, thumbUrl: r.designThumbUrl }
         : null,
-    variation:
-      r.variationId !== null && r.variationCode !== null
-        ? { id: r.variationId, code: r.variationCode, imageUrl: r.variationImageUrl, thumbUrl: r.variationThumbUrl }
-        : null,
+    isOutsideOrder: r.isOutsideOrder,
+    outsidePartyName: can(role, 'canSeeClient') ? r.outsidePartyName : null,
     noteImages,
     history,
     isOnHold: r.isOnHold,
@@ -318,18 +317,14 @@ async function listOrderEvents(orderId: number): Promise<OrderEventEntry[]> {
     .orderBy(asc(orderEvents.createdAt), asc(orderEvents.id));
 }
 
-type OrderData = Pick<z.infer<typeof orderCreateSchema>, 'customerId' | 'brokerId' | 'materialId' | 'designId' | 'variationId' | 'newDesign'>;
+type OrderData = Pick<z.infer<typeof orderCreateSchema>, 'customerId' | 'brokerId' | 'materialId' | 'designId' | 'newDesign'>;
 
 /**
- * Checks the client / broker / material / design references of an order form and returns the design + variation
- * ids (a design uploaded from the form is saved into the Design Master here). Shared by create and update.
+ * Checks the client / broker / material / design references of an order form and returns the design id (a design
+ * uploaded from the form is saved into the Design Master here, in the order's quality). Shared by create and update.
  * `keepBrokerId` = the order's current broker, which may stay even if it was removed from the customer since.
  */
-async function resolveOrderRefs(
-  tx: Tx,
-  data: OrderData,
-  keepBrokerId: number | null = null,
-): Promise<{ designId: number | null; variationId: number | null }> {
+async function resolveOrderRefs(tx: Tx, data: OrderData, keepBrokerId: number | null = null): Promise<{ designId: number | null }> {
   const [customer] = await tx
     .select({ id: customers.id })
     .from(customers)
@@ -352,43 +347,25 @@ async function resolveOrderRefs(
   }
 
   let designId = data.designId;
-  let variationId = data.variationId;
   if (designId) {
     const [design] = await tx
       .select({ id: designs.id })
       .from(designs)
       .where(and(eq(designs.id, designId), eq(designs.isDeleted, false)));
     if (!design) throw badRequest('Selected design no longer exists', 'designId');
-    if (variationId) {
-      const [variation] = await tx
-        .select({ id: designVariations.id })
-        .from(designVariations)
-        .where(and(eq(designVariations.id, variationId), eq(designVariations.designId, designId)));
-      if (!variation) throw badRequest('Selected variation no longer exists', 'variationId');
-    }
   } else if (data.newDesign) {
-    // A design uploaded from the order form is saved into the Design Master.
-    const created = await insertDesign(
-      tx,
-      {
-        code: data.newDesign.code,
-        imageUrl: data.newDesign.imageUrl,
-        thumbUrl: data.newDesign.thumbUrl,
-        buttaCutting: data.newDesign.buttaCutting,
-      },
-      'designCode',
-    );
+    // A design uploaded from the order form is saved into the Design Master, in the order's quality.
+    const created = await insertDesignFromOrder(tx, data.newDesign, data.materialId);
     designId = created.id;
-    variationId = null;
   }
-  return { designId, variationId };
+  return { designId };
 }
 
 export async function createOrder(role: RoleKey, input: unknown): Promise<{ id: number; orderNo: number }> {
   const data = orderCreateSchema.parse(input);
 
   return db.transaction(async (tx) => {
-    const { designId, variationId } = await resolveOrderRefs(tx, data);
+    const { designId } = await resolveOrderRefs(tx, data);
 
     // Order number is assigned inside the write transaction, never by the client.
     const [order] = await tx
@@ -399,9 +376,10 @@ export async function createOrder(role: RoleKey, input: unknown): Promise<{ id: 
         brokerId: data.brokerId,
         orderType: data.orderType,
         blouseOption: data.blouseOption,
+        isOutsideOrder: data.isOutsideOrder,
+        outsidePartyName: data.isOutsideOrder ? data.outsidePartyName : null,
         materialId: data.materialId,
         designId,
-        variationId,
         quantity: data.quantity,
         unit: data.unit,
         rate: data.rate,
@@ -460,7 +438,7 @@ export async function updateOrder(role: RoleKey, id: number, input: unknown): Pr
       throw badRequest('The unit cannot change once the order has jobsheets', 'unit');
     }
 
-    const { designId, variationId } = await resolveOrderRefs(tx, data, current.brokerId);
+    const { designId } = await resolveOrderRefs(tx, data, current.brokerId);
     await tx
       .update(orders)
       .set({
@@ -468,9 +446,12 @@ export async function updateOrder(role: RoleKey, id: number, input: unknown): Pr
         brokerId: data.brokerId,
         orderType: data.orderType,
         blouseOption: data.blouseOption,
+        isOutsideOrder: data.isOutsideOrder,
+        outsidePartyName: data.isOutsideOrder ? data.outsidePartyName : null,
         materialId: data.materialId,
         designId,
-        variationId,
+        // DEPRECATED column: always NULL since Sprint 18.
+        variationId: null,
         quantity: data.quantity,
         unit: data.unit,
         rate: can(role, 'canSeeRate') ? data.rate : current.rate,
@@ -560,52 +541,37 @@ export async function undoSendToProduction(role: RoleKey, id: number): Promise<v
   if (updated.length === 0) throw conflict('This order was changed by someone else. Refresh and try again.');
 }
 
-/** Distinct design / variation combinations used in a client's earlier orders, most recent first. */
+/** Distinct designs used in a client's earlier orders (the latest order of each), most recent first. */
 export async function previousDesigns(customerId: number): Promise<PreviousDesign[]> {
   const rows = await db
     .select({
       designId: designs.id,
-      variationId: designVariations.id,
-      designCode: designs.code,
-      variationCode: designVariations.code,
-      designImageUrl: designs.imageUrl,
-      designThumbUrl: designs.thumbUrl,
-      variationImageUrl: designVariations.imageUrl,
-      variationThumbUrl: designVariations.thumbUrl,
+      code: designs.code,
+      imageUrl: designs.imageUrl,
+      thumbUrl: designs.thumbUrl,
       orderId: orders.id,
       orderNo: orders.orderNo,
       orderDate: orders.orderDate,
       notes: orders.notes,
-      materialId: materials.id,
-      materialName: materials.name,
-      timesUsed: sql<number>`(SELECT COUNT(*) FROM ${orders} o3 WHERE o3.customer_id = ${orders.customerId} AND o3.design_id = ${orders.designId} AND o3.variation_id IS ${orders.variationId})`,
+      qualitiesJson: designQualitiesJson,
+      timesUsed: sql<number>`(SELECT COUNT(*) FROM ${orders} o3 WHERE o3.customer_id = ${orders.customerId} AND o3.design_id = ${orders.designId})`,
     })
     .from(orders)
     .innerJoin(designs, and(eq(designs.id, orders.designId), eq(designs.isDeleted, false)))
-    .leftJoin(designVariations, eq(designVariations.id, orders.variationId))
-    .leftJoin(materials, and(eq(materials.id, designs.materialId), eq(materials.isDeleted, false)))
     .where(
       and(
         eq(orders.customerId, customerId),
-        // keep only the latest order for each design/variation pair
-        sql`${orders.orderNo} = (SELECT MAX(o2.order_no) FROM ${orders} o2 WHERE o2.customer_id = ${orders.customerId} AND o2.design_id = ${orders.designId} AND o2.variation_id IS ${orders.variationId})`,
+        // keep only the latest order for each design
+        sql`${orders.orderNo} = (SELECT MAX(o2.order_no) FROM ${orders} o2 WHERE o2.customer_id = ${orders.customerId} AND o2.design_id = ${orders.designId})`,
       ),
     )
     .orderBy(desc(orders.orderNo))
     .limit(60);
 
-  return rows.map((r) => ({
-    key: `${r.designId}-${r.variationId ?? 0}`,
-    designId: r.designId,
-    variationId: r.variationId,
-    code: r.variationCode ?? r.designCode,
-    imageUrl: r.variationImageUrl ?? r.designImageUrl,
-    thumbUrl: r.variationThumbUrl ?? r.designThumbUrl,
-    orderId: r.orderId,
-    orderNo: r.orderNo,
-    orderDate: r.orderDate,
-    notes: r.notes,
+  return rows.map(({ qualitiesJson, ...r }) => ({
+    ...r,
+    key: String(r.designId),
     timesUsed: Number(r.timesUsed),
-    material: r.materialId !== null && r.materialName !== null ? { id: r.materialId, name: r.materialName } : null,
+    qualities: parseQualities(qualitiesJson),
   }));
 }

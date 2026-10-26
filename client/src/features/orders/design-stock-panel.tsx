@@ -2,12 +2,12 @@ import { blouseBreakdownText, inventoryKey } from '@rivoora/shared';
 import { useInventoryItem } from '../inventory/api';
 
 /**
- * Display-only stock of the chosen design / variation, shown beside it on the order form. ALWAYS all stock of the
+ * Display-only stock of the chosen design, shown beside it on the order form. ALWAYS all stock of the
  * design: the order's With / Without blouse option does not filter it. A quiet blouse breakdown line is shown for
  * information. Free stock (belongs to no order) is included.
  */
-export function DesignStockPanel({ designId, variationId }: { designId: number; variationId: number | null }) {
-  const { data, isLoading, isError } = useInventoryItem(inventoryKey({ designId, variationId }), 'all');
+export function DesignStockPanel({ designId }: { designId: number }) {
+  const { data, isLoading, isError } = useInventoryItem(inventoryKey({ designId }), 'all');
 
   const tiles = data
     ? [

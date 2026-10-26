@@ -46,7 +46,6 @@ import {
   challanTakas,
   challans,
   damages as damageMaster,
-  designVariations,
   designs,
   jobsheets,
   materials,
@@ -760,9 +759,9 @@ export async function checkTakaNo(no: string): Promise<TakaAvailability> {
   return row ? { available: false, usedBy: { orderNo: row.orderNo, jobsheetNo: row.jobsheetNo } } : { available: true };
 }
 
-const designCodeSql = sql<string | null>`COALESCE(${designVariations.code}, ${designs.code})`;
-const designThumbSql = sql<string | null>`CASE WHEN ${designVariations.id} IS NOT NULL THEN ${designVariations.thumbUrl} ELSE ${designs.thumbUrl} END`;
-const designImageSql = sql<string | null>`CASE WHEN ${designVariations.id} IS NOT NULL THEN ${designVariations.imageUrl} ELSE ${designs.imageUrl} END`;
+const designCodeSql = sql<string | null>`${designs.code}`;
+const designThumbSql = sql<string | null>`${designs.thumbUrl}`;
+const designImageSql = sql<string | null>`${designs.imageUrl}`;
 
 /** Photos of damages, grouped by damage id (oldest first). */
 export async function damageImagesOf(damageIds: readonly number[]): Promise<Map<number, DamageImage[]>> {
@@ -821,7 +820,6 @@ async function loadTakaDetail(role: RoleKey, where: SQL): Promise<TakaDetail> {
     .innerJoin(orders, eq(orders.id, takaOrderId))
     .innerJoin(materials, eq(materials.id, orders.materialId))
     .leftJoin(designs, eq(designs.id, orders.designId))
-    .leftJoin(designVariations, eq(designVariations.id, orders.variationId))
     .where(and(eq(takas.isDeleted, false), where))
     .limit(1);
   if (!row) throw notFound('Taka');
@@ -1052,7 +1050,6 @@ export async function listTakaJobsheets(role: RoleKey, q: TakaListQuery): Promis
       .from(jobsheets)
       .innerJoin(orders, eq(orders.id, jobsheets.orderId))
       .leftJoin(designs, eq(designs.id, orders.designId))
-      .leftJoin(designVariations, eq(designVariations.id, orders.variationId))
       .leftJoin(runningMachine, eq(runningMachine.id, jobsheets.runningMachineId))
       .where(and(...base, tabWhere))
       .orderBy(...order)
@@ -1066,7 +1063,6 @@ export async function listTakaJobsheets(role: RoleKey, q: TakaListQuery): Promis
       .from(jobsheets)
       .innerJoin(orders, eq(orders.id, jobsheets.orderId))
       .leftJoin(designs, eq(designs.id, orders.designId))
-      .leftJoin(designVariations, eq(designVariations.id, orders.variationId))
       .where(and(...base)),
   ]);
 

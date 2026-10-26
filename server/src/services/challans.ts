@@ -5,7 +5,6 @@ import {
   dispatchChallanLabel,
   mergeOrderChallans,
   CHALLAN_KIND_CONFIG,
-  SECTIONS_PER_BEAM,
   canRoleSeeStatus,
   challanCreateSchema,
   challanLabel,
@@ -46,7 +45,6 @@ import {
   challanTakas,
   challans,
   counters,
-  designVariations,
   designs,
   dispatchChallanTakas,
   dispatchChallans,
@@ -84,9 +82,9 @@ const KIND_EVENTS: Record<ChallanKind, { sent: TakaEventKind; received: TakaEven
 /** The party master table of a kind (same columns). */
 const partyTable = (kind: ChallanKind) => (kind === 'butta' ? buttaParties : millParties);
 
-const designCodeSql = sql<string | null>`COALESCE(${designVariations.code}, ${designs.code})`;
-const designThumbSql = sql<string | null>`CASE WHEN ${designVariations.id} IS NOT NULL THEN ${designVariations.thumbUrl} ELSE ${designs.thumbUrl} END`;
-const designImageSql = sql<string | null>`CASE WHEN ${designVariations.id} IS NOT NULL THEN ${designVariations.imageUrl} ELSE ${designs.imageUrl} END`;
+const designCodeSql = sql<string | null>`${designs.code}`;
+const designThumbSql = sql<string | null>`${designs.thumbUrl}`;
+const designImageSql = sql<string | null>`${designs.imageUrl}`;
 /** The party name of a challan, from the master of its kind (outer table written explicitly — see the Drizzle gotcha). */
 const partyNameSql = sql<string>`CASE WHEN "challans"."kind" = 'mill' THEN (SELECT name FROM mill_parties WHERE id = "challans"."party_id") ELSE (SELECT name FROM butta_parties WHERE id = "challans"."party_id") END`;
 
@@ -161,8 +159,8 @@ function toPendingOrder(r: {
 }
 
 /**
- * Mill (Send tab only): takas still to come from jobsheets that have NO takas entered yet — approx frames × 3 each
- * (`SECTIONS_PER_BEAM`; the actual frames once completed). Once taka entry is done the approximation drops out and the
+ * Mill (Send tab only): takas still to come from jobsheets that have NO takas entered yet — approx frames × sections each
+ * (the jobsheet's own sections per beam — Sprint 18; the actual frames once completed). Once taka entry is done the approximation drops out and the
  * real taka count takes over. Butta cutting and the Refinish list don't use it (always 0).
  */
 async function expectedMoreByOrder(kind: ChallanKind, mode: SendMode, orderIds: number[]): Promise<Map<number, number>> {
@@ -171,7 +169,7 @@ async function expectedMoreByOrder(kind: ChallanKind, mode: SendMode, orderIds: 
   const rows = await db
     .select({
       orderId: jobsheets.orderId,
-      expected: sql<number>`COALESCE(SUM(COALESCE(${jobsheets.completedFrames}, ${jobsheets.frames}) * ${SECTIONS_PER_BEAM}), 0)`,
+      expected: sql<number>`COALESCE(SUM(COALESCE(${jobsheets.completedFrames}, ${jobsheets.frames}) * ${jobsheets.sections}), 0)`,
     })
     .from(jobsheets)
     .where(
@@ -214,7 +212,6 @@ export async function listPendingOrders(kind: ChallanKind, q: ButtaListQuery, mo
       .innerJoin(orders, eq(orders.id, takaOrderId))
       .innerJoin(materials, eq(materials.id, orders.materialId))
       .leftJoin(designs, eq(designs.id, orders.designId))
-      .leftJoin(designVariations, eq(designVariations.id, orders.variationId))
       .where(and(notSentWhere(kind, mode), search, filters))
       .groupBy(orders.id)
       .having(hasReady)
@@ -227,7 +224,6 @@ export async function listPendingOrders(kind: ChallanKind, q: ButtaListQuery, mo
       .innerJoin(jobsheets, eq(jobsheets.id, takas.jobsheetId))
       .innerJoin(orders, eq(orders.id, takaOrderId))
       .leftJoin(designs, eq(designs.id, orders.designId))
-      .leftJoin(designVariations, eq(designVariations.id, orders.variationId))
       .where(and(notSentWhere(kind, mode), isReadySql(kind, mode), search, filters)),
   ]);
   const count = Number(total);
@@ -254,7 +250,6 @@ export async function listPendingOrderTakas(
       .innerJoin(orders, eq(orders.id, takaOrderId))
       .innerJoin(materials, eq(materials.id, orders.materialId))
       .leftJoin(designs, eq(designs.id, orders.designId))
-      .leftJoin(designVariations, eq(designVariations.id, orders.variationId))
       .where(and(notSentWhere(kind, mode), eq(orders.id, orderId), filters))
       .groupBy(orders.id),
     db
@@ -506,14 +501,13 @@ export async function listChallans(kind: ChallanKind, q: ChallanListQuery): Prom
       .select({
         challanId: challanTakas.challanId,
         orderNo: orders.orderNo,
-        designCode: sql<string | null>`COALESCE(${designVariations.code}, ${designs.code})`,
-        thumbUrl: sql<string | null>`COALESCE(${designVariations.thumbUrl}, ${designs.thumbUrl})`,
-        imageUrl: sql<string | null>`COALESCE(${designVariations.imageUrl}, ${designs.imageUrl})`,
+        designCode: sql<string | null>`${designs.code}`,
+        thumbUrl: sql<string | null>`${designs.thumbUrl}`,
+        imageUrl: sql<string | null>`${designs.imageUrl}`,
       })
       .from(challanTakas)
       .innerJoin(orders, eq(orders.id, challanTakas.orderId))
       .leftJoin(designs, eq(designs.id, orders.designId))
-      .leftJoin(designVariations, eq(designVariations.id, orders.variationId))
       .where(
         inArray(
           challanTakas.challanId,
@@ -598,7 +592,6 @@ async function loadChallan(kind: ChallanKind, id: number) {
       .innerJoin(orders, eq(orders.id, challanTakas.orderId))
       .innerJoin(materials, eq(materials.id, orders.materialId))
       .leftJoin(designs, eq(designs.id, orders.designId))
-      .leftJoin(designVariations, eq(designVariations.id, orders.variationId))
       .where(eq(challanTakas.challanId, id)),
   ]);
   const challan = header[0];

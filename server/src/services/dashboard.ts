@@ -70,6 +70,7 @@ export async function getOrderDashboard(role: RoleKey, orderId: number): Promise
         status: jobsheets.status,
         frames: jobsheets.frames,
         completedFrames: jobsheets.completedFrames,
+        sections: jobsheets.sections,
         sentAt: jobsheets.sentAt,
         startedAt: jobsheets.startedAt,
         completedAt: jobsheets.completedAt,

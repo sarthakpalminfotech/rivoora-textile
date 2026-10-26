@@ -7,7 +7,7 @@ import { api, errorMessage } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
 export const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
-const ACCEPT = 'image/jpeg,image/png,image/webp,image/heic,image/heif,.jpg,.jpeg,.png,.webp,.heic,.heif';
+export const IMAGE_ACCEPT = 'image/jpeg,image/png,image/webp,image/heic,image/heif,.jpg,.jpeg,.png,.webp,.heic,.heif';
 
 export function validateImage(file: File): string | null {
   const okType = /^image\/(jpeg|png|webp|heic|heif)$/.test(file.type) || /\.(jpe?g|png|webp|heic|heif)$/i.test(file.name);
@@ -84,7 +84,7 @@ export function ImagePickButton({
       <input
         ref={inputRef}
         type="file"
-        accept={ACCEPT}
+        accept={IMAGE_ACCEPT}
         multiple={multiple}
         className="sr-only"
         tabIndex={-1}
@@ -155,7 +155,7 @@ export function ImageDropzone({ folder, onUploaded, label = 'Upload image', hint
       <input
         ref={inputRef}
         type="file"
-        accept={ACCEPT}
+        accept={IMAGE_ACCEPT}
         className="sr-only"
         tabIndex={-1}
         onChange={(e) => {

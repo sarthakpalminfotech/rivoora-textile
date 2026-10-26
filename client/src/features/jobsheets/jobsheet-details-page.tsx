@@ -296,7 +296,6 @@ export default function JobsheetDetailsPage() {
                 <ImageThumb thumbUrl={design.thumbUrl} fullUrl={design.imageUrl} alt={`Design ${design.code}`} className="aspect-square w-full" rounded="rounded-xl" />
                 <div>
                   <p className="text-xl font-bold text-slate-900">{design.code}</p>
-                  {design.baseCode && <p className="text-sm text-slate-500">Variation of {design.baseCode}</p>}
                 </div>
               </div>
             ) : (

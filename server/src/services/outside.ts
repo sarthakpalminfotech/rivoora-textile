@@ -38,7 +38,7 @@ import {
   type TakaStage,
 } from '@rivoora/shared';
 import { db, type DbOrTx, type Tx } from '../db/client';
-import { counters, designVariations, designs, materials, orders, outsidePos, outsideReceipts, takas, weavers } from '../db/schema';
+import { counters, designs, materials, orders, outsidePos, outsideReceipts, takas, weavers } from '../db/schema';
 import { badRequest, conflict, notFound } from '../lib/errors';
 import { currentUserId } from '../lib/request-context';
 import { likePattern } from '../lib/http';
@@ -61,8 +61,8 @@ import { allocateTakaNumbers, chunk, initialStageForOrder, refreshIsDamaged, use
 const now = () => new Date().toISOString();
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
-const designCodeSql = sql<string | null>`COALESCE(${designVariations.code}, ${designs.code})`;
-const designThumbSql = sql<string | null>`CASE WHEN ${designVariations.id} IS NOT NULL THEN ${designVariations.thumbUrl} ELSE ${designs.thumbUrl} END`;
+const designCodeSql = sql<string | null>`${designs.code}`;
+const designThumbSql = sql<string | null>`${designs.thumbUrl}`;
 
 /* ------------------------------------------------------------------ */
 /* PO rows                                                              */
@@ -363,7 +363,6 @@ export async function getOutsidePoPrint(role: RoleKey, id: number): Promise<Outs
     .innerJoin(weavers, eq(weavers.id, outsidePos.weaverId))
     .innerJoin(materials, eq(materials.id, outsidePos.materialId))
     .leftJoin(designs, eq(designs.id, orders.designId))
-    .leftJoin(designVariations, eq(designVariations.id, orders.variationId))
     .where(eq(outsidePos.id, id));
   if (!row) throw notFound('PO');
   return {
@@ -476,7 +475,6 @@ async function formOrderInfo(tx: DbOrTx, orderId: number) {
     .from(orders)
     .innerJoin(materials, eq(materials.id, orders.materialId))
     .leftJoin(designs, eq(designs.id, orders.designId))
-    .leftJoin(designVariations, eq(designVariations.id, orders.variationId))
     .where(eq(orders.id, orderId));
   if (!row) throw notFound('Order');
   const { hasProduction, hasButta, hasMill, ...rest } = row;
@@ -794,7 +792,6 @@ export async function listReceiveGoods(role: RoleKey, search?: string): Promise<
       .innerJoin(weavers, eq(weavers.id, outsidePos.weaverId))
       .innerJoin(materials, eq(materials.id, outsidePos.materialId))
       .leftJoin(designs, eq(designs.id, orders.designId))
-      .leftJoin(designVariations, eq(designVariations.id, orders.variationId))
       .where(and(inArray(outsidePos.status, ['open', 'partly_received']), eq(orders.isClosed, false), orderNotHeldFor(role), poSearch))
       .orderBy(asc(outsidePos.poNo))
       .limit(200),
@@ -816,7 +813,6 @@ export async function listReceiveGoods(role: RoleKey, search?: string): Promise<
       .from(orders)
       .innerJoin(materials, eq(materials.id, orders.materialId))
       .leftJoin(designs, eq(designs.id, orders.designId))
-      .leftJoin(designVariations, eq(designVariations.id, orders.variationId))
       .where(
         and(
           FG_KIND,

@@ -11,7 +11,8 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx src/db/migrate.ts",
     "db:seed": "tsx src/db/seed.ts",
-    "db:rename-owner": "tsx src/db/rename-owner.ts"
+    "db:rename-owner": "tsx src/db/rename-owner.ts",
+    "db:s18-report": "tsx src/db/s18-report.ts"
   },
   "dependencies": {
     "@libsql/client": "^0.18.0",

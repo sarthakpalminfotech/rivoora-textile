@@ -39,8 +39,8 @@ function HeaderItem({
 /** Design thumbnail: opens the full image in the Lightbox; a neutral, non-clickable placeholder without a design. */
 function DesignThumb({ order }: { order: OrderDetail }) {
   const [open, setOpen] = useState(false);
-  const image = order.variation ?? order.design;
-  const code = order.variation?.code ?? order.design?.code;
+  const image = order.design;
+  const code = order.design?.code;
   const size = "size-16 md:size-[88px]";
 
   if (!image?.thumbUrl) {
@@ -110,7 +110,7 @@ export function OrderHeader({
   const [more, setMore] = useState(false);
   const { can } = useRole();
   const seesClient = can("canSeeClient");
-  const code = order.variation?.code ?? order.design?.code;
+  const code = order.design?.code;
 
   const items: { label: string; value: ReactNode }[] = [
     ...(seesClient
@@ -142,15 +142,7 @@ export function OrderHeader({
     {
       label: "Design",
       value: code ? (
-        <>
-          {code}
-          {order.variation && order.design && (
-            <span className="font-normal text-slate-500">
-              {" "}
-              · of {order.design.code}
-            </span>
-          )}
-        </>
+        <>{code}</>
       ) : (
         <span className="font-normal text-slate-400">—</span>
       ),

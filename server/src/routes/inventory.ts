@@ -12,6 +12,7 @@ import {
   listDamagedTakas,
   listInventoryItemOrders,
   listInventoryItems,
+  resolveInventoryKey,
 } from '../services/inventory';
 
 /** Inventory (Jenish / Gaurang): design-wise pcs and damaged stock. Live numbers — never cached. */
@@ -19,6 +20,13 @@ export const inventoryRouter = Router();
 inventoryRouter.use((_req, res, next) => {
   res.set('Cache-Control', 'no-store');
   next();
+});
+// Sprint 18: an old `v-<variationId>` item key is answered as the design the variation became (the screen redirects).
+inventoryRouter.param('key', (req, _res, next, key: string) => {
+  resolveInventoryKey(key).then((resolved) => {
+    req.params.key = resolved;
+    next();
+  }, next);
 });
 // Sprint 13: Dhruvil (Add from free stock) reads the free stock of an item without the Inventory permission.
 inventoryRouter.get(

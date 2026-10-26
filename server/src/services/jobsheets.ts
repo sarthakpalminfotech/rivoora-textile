@@ -5,7 +5,6 @@ import {
   can,
   canRoleSeeJobsheetStatus,
   canRoleSeeStatus,
-  coverageFrames,
   coverageWarnings,
   orderJobsheetPlan,
   isReadyOrLater,
@@ -25,6 +24,7 @@ import {
   orderStatusForJobsheets,
   planFramesEdit,
   planJobsheets,
+  SECTIONS_PER_BEAM,
   STATUS,
   type Coverage,
   type JobsheetActionResult,
@@ -61,7 +61,6 @@ import {
   customers,
   dispatchChallans,
   goodsReturns,
-  designVariations,
   designs,
   jobsheetEvents,
   jobsheetMachines,
@@ -197,6 +196,8 @@ interface InsertOptions {
   suggestedMachineId?: number;
   /** Note on the "created" event. */
   note?: string;
+  /** Sprint 18: sections per beam (default 3); jobsheets made from another one copy its value. */
+  sections?: number;
 }
 
 export async function insertJobsheets(
@@ -218,6 +219,7 @@ export async function insertJobsheets(
         jobsheetNo: numbers[i],
         orderId,
         frames: f,
+        sections: opts.sections ?? SECTIONS_PER_BEAM,
         createdBy: role,
         status,
         sentAt,
@@ -306,13 +308,14 @@ async function activeJobsheets(tx: DbOrTx, orderId: number) {
       frames: jobsheets.frames,
       status: jobsheets.status,
       completedFrames: jobsheets.completedFrames,
+      sections: jobsheets.sections,
     })
     .from(jobsheets)
     .where(and(eq(jobsheets.orderId, orderId), eq(jobsheets.isDeleted, false), realJobsheet))
     .orderBy(asc(jobsheets.jobsheetNo));
 }
 
-type CoverageSheet = Parameters<typeof coverageFrames>[0][number];
+type CoverageSheet = Parameters<typeof orderJobsheetPlan>[1][number];
 
 /**
  * Live figures from the active jobsheets (Sprint 15) — never from the deprecated order counters. Sprint 16: pcs given
@@ -380,7 +383,7 @@ function assertPending(status: JobsheetStatusKey) {
 /** 7.1 — a whole multi-jobsheet run in one transaction. */
 export async function generateJobsheets(role: RoleKey, orderId: number, input: unknown): Promise<JobsheetCreateResult> {
   const data = jobsheetGenerateSchema.parse(input);
-  const plan = planJobsheets(data.pieces, data.framesPerJobsheet);
+  const plan = planJobsheets(data.pieces, data.framesPerJobsheet, data.sections);
   if (!plan) throw badRequest('Enter whole numbers of at least 1');
   if (plan.jobsheetCount > MAX_JOBSHEETS_PER_RUN) {
     throw badRequest(
@@ -393,7 +396,7 @@ export async function generateJobsheets(role: RoleKey, orderId: number, input: u
     const order = await loadVisibleOrder(tx, role, orderId);
     assertJobsheetsAllowed(order);
     await assertMachines(tx, data.machineIds);
-    const created = await insertJobsheets(tx, role, orderId, plan.frames, data.machineIds);
+    const created = await insertJobsheets(tx, role, orderId, plan.frames, data.machineIds, { sections: data.sections });
     await tx.update(orders).set({ framesPerJobsheet: data.framesPerJobsheet }).where(eq(orders.id, orderId));
     const statusChanged = await recomputeOrderStatus(orderId, role, tx);
     return { orderNo: order.orderNo, created, statusChanged };
@@ -407,7 +410,7 @@ export async function addSingleJobsheet(role: RoleKey, orderId: number, input: u
     const order = await loadVisibleOrder(tx, role, orderId);
     assertJobsheetsAllowed(order);
     await assertMachines(tx, data.machineIds);
-    const created = await insertJobsheets(tx, role, orderId, [data.frames], data.machineIds);
+    const created = await insertJobsheets(tx, role, orderId, [data.frames], data.machineIds, { sections: data.sections });
     const statusChanged = await recomputeOrderStatus(orderId, role, tx);
     return { orderNo: order.orderNo, created, statusChanged };
   });
@@ -427,6 +430,7 @@ export async function listOrderJobsheets(role: RoleKey, orderId: number): Promis
         status: jobsheets.status,
         frames: jobsheets.frames,
         completedFrames: jobsheets.completedFrames,
+        sections: jobsheets.sections,
         sentAt: jobsheets.sentAt,
         startedAt: jobsheets.startedAt,
         completedAt: jobsheets.completedAt,
@@ -461,6 +465,7 @@ export async function listOrderJobsheets(role: RoleKey, orderId: number): Promis
         status: r.status,
         frames: r.frames,
         completedFrames: r.completedFrames,
+        sections: r.sections,
         machines: [],
         runningMachine: toMachineRef(r),
         parentJobsheetNo: r.parentJobsheetNo,
@@ -499,6 +504,7 @@ export async function getJobsheet(role: RoleKey, id: number): Promise<JobsheetDe
         status: jobsheets.status,
         frames: jobsheets.frames,
         completedFrames: jobsheets.completedFrames,
+        sections: jobsheets.sections,
         createdBy: jobsheets.createdBy,
         isDeleted: jobsheets.isDeleted,
         createdAt: jobsheets.createdAt,
@@ -523,16 +529,12 @@ export async function getJobsheet(role: RoleKey, id: number): Promise<JobsheetDe
         designCode: designs.code,
         designImageUrl: designs.imageUrl,
         designThumbUrl: designs.thumbUrl,
-        variationCode: designVariations.code,
-        variationImageUrl: designVariations.imageUrl,
-        variationThumbUrl: designVariations.thumbUrl,
       })
       .from(jobsheets)
       .innerJoin(orders, eq(orders.id, jobsheets.orderId))
       .innerJoin(customers, eq(customers.id, orders.customerId))
       .innerJoin(materials, eq(materials.id, orders.materialId))
       .leftJoin(designs, eq(designs.id, orders.designId))
-      .leftJoin(designVariations, eq(designVariations.id, orders.variationId))
       .leftJoin(runningMachine, eq(runningMachine.id, jobsheets.runningMachineId))
       .where(eq(jobsheets.id, id)),
     db
@@ -548,6 +550,7 @@ export async function getJobsheet(role: RoleKey, id: number): Promise<JobsheetDe
         frames: jobsheets.frames,
         status: jobsheets.status,
         completedFrames: jobsheets.completedFrames,
+        sections: jobsheets.sections,
       })
       .from(jobsheets)
       .where(
@@ -590,7 +593,6 @@ export async function getJobsheet(role: RoleKey, id: number): Promise<JobsheetDe
   const restricted = isRestricted(role);
   if (!restricted && !canRoleSeeStatus(role, r.order.status)) throw notFound('Jobsheet');
 
-  const code = r.variationCode ?? r.designCode;
   const coverage = restricted ? null : coverageOf(r.order, siblings, await outsideCommittedPcs(db, r.order.id));
   // Takas are hidden from roles that can't see them (the supervisor) — including their activity entries.
   const seesTakas = can(role, 'canViewTakas');
@@ -603,6 +605,7 @@ export async function getJobsheet(role: RoleKey, id: number): Promise<JobsheetDe
     status: r.status,
     frames: r.frames,
     completedFrames: r.completedFrames,
+    sections: r.sections,
     createdBy: r.createdBy,
     createdAt: r.createdAt,
     updatedAt: r.updatedAt,
@@ -617,14 +620,7 @@ export async function getJobsheet(role: RoleKey, id: number): Promise<JobsheetDe
     children,
     events: seesTakas ? events : events.filter((e) => !TAKA_EVENTS.has(e.event)),
     orderNo: r.order.orderNo,
-    design: code
-      ? {
-          code,
-          baseCode: r.variationCode ? r.designCode : null,
-          imageUrl: r.variationCode ? r.variationImageUrl : r.designImageUrl,
-          thumbUrl: r.variationCode ? r.variationThumbUrl : r.designThumbUrl,
-        }
-      : null,
+    design: r.designCode ? { code: r.designCode, imageUrl: r.designImageUrl, thumbUrl: r.designThumbUrl } : null,
     order:
       restricted || !coverage
         ? null
@@ -668,18 +664,18 @@ export async function printJobsheets(role: RoleKey, ids: number[]): Promise<Jobs
         id: jobsheets.id,
         jobsheetNo: jobsheets.jobsheetNo,
         frames: jobsheets.frames,
+        sections: jobsheets.sections,
         status: jobsheets.status,
         orderNo: orders.orderNo,
         orderStatus: orders.status,
         jobsheetPieces: liveJobsheetPieces,
         orderType: orders.orderType,
         blouseOption: orders.blouseOption,
-        designCode: sql<string | null>`COALESCE(${designVariations.code}, ${designs.code})`,
+        designCode: sql<string | null>`${designs.code}`,
       })
       .from(jobsheets)
       .innerJoin(orders, eq(orders.id, jobsheets.orderId))
       .leftJoin(designs, eq(designs.id, orders.designId))
-      .leftJoin(designVariations, eq(designVariations.id, orders.variationId))
       .where(and(inArray(jobsheets.id, ids), eq(jobsheets.isDeleted, false), realJobsheet)),
     db
       .select(machineColumns)
@@ -705,6 +701,7 @@ export async function printJobsheets(role: RoleKey, ids: number[]): Promise<Jobs
       frames: r.frames,
       machineNos: (machinesById.get(r.id) ?? []).map((m) => m.machineNo),
       jobsheetPieces: r.jobsheetPieces,
+      sections: r.sections,
       designCode: r.designCode,
       orderType: r.orderType,
       blouseOption: r.blouseOption,
@@ -738,15 +735,14 @@ const supervisorOrder = [
 const searchTerm = (search: string) => search.replace(/^(#|order\s*#?|jobsheet\s*#?)/i, '').trim() || search;
 
 /**
- * Search by order number or jobsheet number (prefix) or design / variation code. A leading `#` is ignored.
- * The query must join `orders`, `designs` and `design_variations`.
+ * Search by order number or jobsheet number (prefix) or design code. A leading `#` is ignored.
+ * The query must join `orders` and `designs`.
  */
 export function jobsheetSearch(search: string): SQL | undefined {
   const term = searchTerm(search);
   const codeP = likePattern(normalizeCode(term));
   const parts: (SQL | undefined)[] = [
     sql`${designs.code} LIKE ${codeP} ESCAPE '\\'`,
-    sql`${designVariations.code} LIKE ${codeP} ESCAPE '\\'`,
   ];
   if (/^\d+$/.test(term)) {
     const numP = likePattern(term, 'prefix');
@@ -756,9 +752,9 @@ export function jobsheetSearch(search: string): SQL | undefined {
   return or(...parts);
 }
 
-const designCodeCol = sql<string | null>`COALESCE(${designVariations.code}, ${designs.code})`;
-const designThumbCol = sql<string | null>`CASE WHEN ${designVariations.id} IS NOT NULL THEN ${designVariations.thumbUrl} ELSE ${designs.thumbUrl} END`;
-const designImageCol = sql<string | null>`CASE WHEN ${designVariations.id} IS NOT NULL THEN ${designVariations.imageUrl} ELSE ${designs.imageUrl} END`;
+const designCodeCol = sql<string | null>`${designs.code}`;
+const designThumbCol = sql<string | null>`${designs.thumbUrl}`;
+const designImageCol = sql<string | null>`${designs.imageUrl}`;
 
 /** The jobsheet statuses the supervisor's module shows (never Pending = not yet sent). */
 const supervisorStatuses = (role: RoleKey) => jobsheetStatusesForRole(role).filter((s) => s !== JOBSHEET_STATUS.PENDING);
@@ -790,7 +786,6 @@ export async function listSupervisorJobsheets(role: RoleKey, q: JobsheetListQuer
       .from(jobsheets)
       .innerJoin(orders, eq(orders.id, jobsheets.orderId))
       .leftJoin(designs, eq(designs.id, orders.designId))
-      .leftJoin(designVariations, eq(designVariations.id, orders.variationId))
       .where(and(...scope))
       .limit(1);
     if (!header) throw notFound('Order');
@@ -822,7 +817,6 @@ export async function listSupervisorJobsheets(role: RoleKey, q: JobsheetListQuer
       .innerJoin(orders, eq(orders.id, jobsheets.orderId))
       .innerJoin(materials, eq(materials.id, orders.materialId))
       .leftJoin(designs, eq(designs.id, orders.designId))
-      .leftJoin(designVariations, eq(designVariations.id, orders.variationId))
       .leftJoin(runningMachine, eq(runningMachine.id, jobsheets.runningMachineId))
       .where(listWhere)
       .orderBy(...supervisorOrder)
@@ -833,14 +827,12 @@ export async function listSupervisorJobsheets(role: RoleKey, q: JobsheetListQuer
       .from(jobsheets)
       .innerJoin(orders, eq(orders.id, jobsheets.orderId))
       .leftJoin(designs, eq(designs.id, orders.designId))
-      .leftJoin(designVariations, eq(designVariations.id, orders.variationId))
       .where(listWhere),
     db
       .select({ status: jobsheets.status, n: count() })
       .from(jobsheets)
       .innerJoin(orders, eq(orders.id, jobsheets.orderId))
       .leftJoin(designs, eq(designs.id, orders.designId))
-      .leftJoin(designVariations, eq(designVariations.id, orders.variationId))
       .where(and(...base))
       .groupBy(jobsheets.status),
   ]);
@@ -896,7 +888,6 @@ export async function listSupervisorOrders(role: RoleKey, q: SupervisorOrderList
     const codeP = likePattern(normalizeCode(term));
     const parts: (SQL | undefined)[] = [
       sql`${designs.code} LIKE ${codeP} ESCAPE '\\'`,
-      sql`${designVariations.code} LIKE ${codeP} ESCAPE '\\'`,
     ];
     if (/^\d+$/.test(term)) parts.push(sql`CAST(${orders.orderNo} AS TEXT) LIKE ${likePattern(term, 'prefix')} ESCAPE '\\'`);
     where.push(or(...parts));
@@ -932,7 +923,6 @@ export async function listSupervisorOrders(role: RoleKey, q: SupervisorOrderList
       .innerJoin(orders, eq(orders.id, jobsheets.orderId))
       .innerJoin(materials, eq(materials.id, orders.materialId))
       .leftJoin(designs, eq(designs.id, orders.designId))
-      .leftJoin(designVariations, eq(designVariations.id, orders.variationId))
       .where(and(...where))
       .groupBy(orders.id);
 
@@ -951,7 +941,6 @@ export async function listSupervisorOrders(role: RoleKey, q: SupervisorOrderList
       .from(jobsheets)
       .innerJoin(orders, eq(orders.id, jobsheets.orderId))
       .leftJoin(designs, eq(designs.id, orders.designId))
-      .leftJoin(designVariations, eq(designVariations.id, orders.variationId))
       .where(and(...where)),
   ]);
   const n = Number(total);
@@ -1030,9 +1019,13 @@ export async function updateJobsheet(role: RoleKey, id: number, input: unknown):
     // The edited jobsheet: frames + machines.
     const sameMachines =
       currentIds.length === data.machineIds.length && currentIds.every((m) => data.machineIds.includes(m));
-    const detailsChanged = !sameMachines;
+    // Sprint 18: sections per beam are editable while Pending (omitted = unchanged).
+    const editedSheet = active.find((j) => j.id === id)!;
+    const sections = data.sections ?? editedSheet.sections;
+    const sectionsChanged = sections !== editedSheet.sections;
+    const detailsChanged = !sameMachines || sectionsChanged;
     if (detailsChanged || plan.updated.some((u) => u.id === id)) {
-      await tx.update(jobsheets).set({ frames: data.frames }).where(eq(jobsheets.id, id));
+      await tx.update(jobsheets).set({ frames: data.frames, sections }).where(eq(jobsheets.id, id));
     }
     if (!sameMachines) {
       await tx.delete(jobsheetMachines).where(eq(jobsheetMachines.jobsheetId, id));
@@ -1069,12 +1062,15 @@ export async function updateJobsheet(role: RoleKey, id: number, input: unknown):
                 .from(jobsheetMachines)
                 .where(eq(jobsheetMachines.jobsheetId, last.id))
             ).map((m) => m.machineId);
+      // ... and its sections per beam.
+      const lastSections = last.id === id ? sections : (active.find((j) => j.id === last.id)?.sections ?? SECTIONS_PER_BEAM);
       created = await insertJobsheets(
         tx,
         role,
         orderId,
         plan.created.map((c) => c.frames),
         lastMachines,
+        { sections: lastSections },
       );
     }
 
@@ -1191,6 +1187,7 @@ async function loadJobsheetForRun(tx: Tx, role: RoleKey, id: number) {
       orderId: jobsheets.orderId,
       status: jobsheets.status,
       frames: jobsheets.frames,
+      sections: jobsheets.sections,
       runningMachineId: jobsheets.runningMachineId,
       isDeleted: jobsheets.isDeleted,
       isExternal: jobsheets.isExternal,
@@ -1300,6 +1297,8 @@ export async function changeMachine(role: RoleKey, id: number, input: unknown): 
       {
         status: JOBSHEET_STATUS.SENT,
         parentJobsheetId: id,
+        // Sprint 18: the continuation keeps the sections per beam.
+        sections: js.sections,
         note: `Continued from ${jobsheetRefShort(js.orderNo, js.jobsheetNo)}`,
       },
     );

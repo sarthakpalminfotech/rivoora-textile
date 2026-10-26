@@ -2,7 +2,7 @@
  * Jobsheet calculations — the single source of truth.
  * Used by the server (the real write) and by the client (live previews). Pure functions only.
  */
-import { SECTIONS_PER_BEAM } from './production';
+import { MAX_SECTIONS_PER_BEAM, SECTIONS_PER_BEAM } from './production';
 import { JOBSHEET_STATUS, type JobsheetStatusKey } from './statuses';
 
 const isPositiveInt = (n: unknown): n is number => typeof n === 'number' && Number.isInteger(n) && n >= 1;
@@ -14,6 +14,8 @@ const isPositiveInt = (n: unknown): n is number => typeof n === 'number' && Numb
 export interface JobsheetPlan {
   pieces: number;
   framesPerJobsheet: number;
+  /** Sections per beam of the run (one frame = this many pcs). */
+  sections: number;
   /** pieces ÷ sections, before rounding (e.g. 101.33). */
   exactFrames: number;
   /** Always rounded up. */
@@ -23,14 +25,24 @@ export interface JobsheetPlan {
   frames: number[];
 }
 
-/** Frames needed for a number of pieces (always rounded up). */
-export function framesForPieces(pieces: number): number {
-  return Math.ceil(pieces / SECTIONS_PER_BEAM);
+/** Sprint 18: a valid sections-per-beam value (whole number 1–12). */
+export function isValidSections(n: unknown): n is number {
+  return isPositiveInt(n) && n <= MAX_SECTIONS_PER_BEAM;
 }
 
-/** Default pieces for a number of frames (one piece per beam section). */
-export function piecesForFrames(frames: number): number {
-  return frames * SECTIONS_PER_BEAM;
+/** The sections of a jobsheet (older rows / inputs without one = the default 3). */
+export function sectionsOf(j: { sections?: number | null }): number {
+  return isValidSections(j.sections) ? j.sections : SECTIONS_PER_BEAM;
+}
+
+/** Frames needed for a number of pieces (always rounded up) at `sections` per beam. */
+export function framesForPieces(pieces: number, sections: number = SECTIONS_PER_BEAM): number {
+  return Math.ceil(pieces / sections);
+}
+
+/** Pieces of a number of frames (one piece per beam section). */
+export function piecesForFrames(frames: number, sections: number = SECTIONS_PER_BEAM): number {
+  return frames * sections;
 }
 
 /** Splits a total number of frames into jobsheets of `framesPerJobsheet`; the last one gets the remainder. */
@@ -42,15 +54,16 @@ export function splitFrames(totalFrames: number, framesPerJobsheet: number): num
   return frames;
 }
 
-/** Plans a multi-jobsheet run. Returns null when the inputs aren't positive integers. */
-export function planJobsheets(pieces: number, framesPerJobsheet: number): JobsheetPlan | null {
-  if (!isPositiveInt(pieces) || !isPositiveInt(framesPerJobsheet)) return null;
-  const totalFrames = framesForPieces(pieces);
+/** Plans a multi-jobsheet run. Returns null when the inputs aren't positive integers (sections: 1–12). */
+export function planJobsheets(pieces: number, framesPerJobsheet: number, sections: number = SECTIONS_PER_BEAM): JobsheetPlan | null {
+  if (!isPositiveInt(pieces) || !isPositiveInt(framesPerJobsheet) || !isValidSections(sections)) return null;
+  const totalFrames = framesForPieces(pieces, sections);
   const frames = splitFrames(totalFrames, framesPerJobsheet);
   return {
     pieces,
     framesPerJobsheet,
-    exactFrames: pieces / SECTIONS_PER_BEAM,
+    sections,
+    exactFrames: pieces / sections,
     totalFrames,
     jobsheetCount: frames.length,
     frames,
@@ -93,6 +106,8 @@ export interface AdjustJobsheet {
   status?: JobsheetStatusKey;
   /** Actual frames made (Completed jobsheets only). */
   completedFrames?: number | null;
+  /** Sprint 18: sections per beam of this jobsheet (default 3). */
+  sections?: number | null;
 }
 
 /** Frames a jobsheet counts for in the coverage: the actual frames once Completed, otherwise the assigned frames. */
@@ -105,6 +120,27 @@ export function effectiveFrames(j: Pick<AdjustJobsheet, 'frames' | 'status' | 'c
 /** Sum of the effective frames. */
 export function coverageFrames(list: Pick<AdjustJobsheet, 'frames' | 'status' | 'completedFrames'>[]): number {
   return list.reduce((s, j) => s + effectiveFrames(j), 0);
+}
+
+/** Sprint 18: pcs of one jobsheet = its effective frames × its own sections. */
+export function jobsheetPcs(j: Pick<AdjustJobsheet, 'frames' | 'status' | 'completedFrames' | 'sections'>): number {
+  return effectiveFrames(j) * sectionsOf(j);
+}
+
+/** Sprint 18: pcs of the jobsheets = Σ effective frames × each jobsheet's sections. */
+export function coveragePieces(list: readonly Pick<AdjustJobsheet, 'frames' | 'status' | 'completedFrames' | 'sections'>[]): number {
+  return list.reduce((s, j) => s + jobsheetPcs(j), 0);
+}
+
+/**
+ * Sprint 18: the sections of the latest run — the highest-numbered jobsheet's (the last one in the list when there are
+ * no numbers), or the default 3 when there are no jobsheets. "Frames needed" is counted with it.
+ */
+export function latestSections(list: readonly { sections?: number | null; jobsheetNo?: number }[]): number {
+  if (list.length === 0) return SECTIONS_PER_BEAM;
+  let latest = list[list.length - 1];
+  for (const j of list) if ((j.jobsheetNo ?? -Infinity) > (latest.jobsheetNo ?? -Infinity)) latest = j;
+  return sectionsOf(latest);
 }
 
 const isPendingSheet = (j: AdjustJobsheet) => (j.status ?? JOBSHEET_STATUS.PENDING) === JOBSHEET_STATUS.PENDING;
@@ -200,10 +236,12 @@ export function planFramesEdit({ jobsheets, editedId, newFrames, framesPerJobshe
 
 export interface Coverage {
   orderedPieces: number;
-  /** Live: frames in the active jobsheets × SECTIONS_PER_BEAM (see `orderJobsheetPlan`). */
+  /** Live: Σ frames in the active jobsheets × each jobsheet's sections (see `orderJobsheetPlan`). */
   jobsheetPieces: number;
-  /** Live: frames the order needs = ceil(ordered pieces ÷ SECTIONS_PER_BEAM). */
+  /** Live: frames the order needs = ceil(ordered pieces ÷ `sections`). */
   targetFrames: number;
+  /** Sprint 18: the sections per beam "Frames needed" is counted with — the latest run's, or the default 3. */
+  sections: number;
   /** Sum of the active jobsheets' frames (actual frames for Completed ones — see `coverageFrames`). */
   totalFrames: number;
   jobsheetCount: number;
@@ -211,21 +249,32 @@ export interface Coverage {
 
 /**
  * The order's jobsheet figures, computed LIVE from its active jobsheets (never from stored counters, which used to
- * go stale on delete / edit). Frames needed = ceil(pieces ÷ 3); frames in jobsheets = `coverageFrames`;
- * jobsheet quantity = frames in jobsheets × 3.
+ * go stale on delete / edit). Sprint 18: jobsheet quantity = Σ effective frames × each jobsheet's own sections; frames
+ * needed = ceil(pieces ÷ the latest run's sections) (3 when there are no jobsheets); frames in jobsheets =
+ * `coverageFrames`.
  */
 export function orderJobsheetPlan(
   orderedPieces: number,
-  list: Pick<AdjustJobsheet, 'frames' | 'status' | 'completedFrames'>[],
+  list: readonly (Pick<AdjustJobsheet, 'frames' | 'status' | 'completedFrames' | 'sections'> & { jobsheetNo?: number })[],
 ): Coverage {
-  const totalFrames = coverageFrames(list);
+  const sections = latestSections(list);
   return {
     orderedPieces,
-    jobsheetPieces: piecesForFrames(totalFrames),
-    targetFrames: framesForPieces(orderedPieces),
-    totalFrames,
+    jobsheetPieces: coveragePieces(list),
+    targetFrames: framesForPieces(orderedPieces, sections),
+    sections,
+    totalFrames: coverageFrames([...list]),
     jobsheetCount: list.length,
   };
+}
+
+/**
+ * Sprint 18: the jobsheets are "on target" when their pcs cover the order by less than one frame (of the latest run's
+ * sections). With one sections value for every jobsheet this is exactly "frames = frames needed".
+ */
+function onTarget(c: Coverage): boolean {
+  const s = sectionsOf(c);
+  return c.jobsheetPieces >= c.orderedPieces && c.jobsheetPieces - c.orderedPieces < s;
 }
 
 export type CoverageWarningKind = 'pieces_less' | 'pieces_more' | 'frames_short' | 'frames_over';
@@ -242,7 +291,8 @@ const fmt = (n: number) => n.toLocaleString('en-IN', { maximumFractionDigits: 3 
  * match the frames needed (the jobsheet quantity is frames × 3, so a 200 pcs order with 67 frames is on target).
  */
 export function coverageWarnings(c: Coverage): CoverageWarning[] {
-  if (c.jobsheetCount === 0 || c.totalFrames === c.targetFrames) return [];
+  if (c.jobsheetCount === 0 || onTarget(c)) return [];
+  const s = sectionsOf(c);
   const out: CoverageWarning[] = [];
   if (c.jobsheetPieces < c.orderedPieces) {
     out.push({
@@ -255,29 +305,37 @@ export function coverageWarnings(c: Coverage): CoverageWarning[] {
       message: `Jobsheet quantity (${fmt(c.jobsheetPieces)} pcs) is more than the order (${fmt(c.orderedPieces)} pcs).`,
     });
   }
-  if (c.totalFrames < c.targetFrames) {
+  // Frames short / over at the latest run's sections (with one sections value: frames in jobsheets vs frames needed).
+  if (c.jobsheetPieces < c.orderedPieces) {
+    const short = Math.ceil((c.orderedPieces - c.jobsheetPieces) / s);
     out.push({
       kind: 'frames_short',
-      message: `Jobsheets cover ${fmt(c.totalFrames)} frames, but ${fmt(c.targetFrames)} frames are needed (${fmt(c.targetFrames - c.totalFrames)} short).`,
+      message: `Jobsheets cover ${fmt(c.totalFrames)} frames, but ${fmt(c.totalFrames + short)} frames are needed (${fmt(short)} short).`,
     });
   } else {
+    const over = Math.floor((c.jobsheetPieces - c.orderedPieces) / s);
     out.push({
       kind: 'frames_over',
-      message: `Jobsheets cover ${fmt(c.totalFrames)} frames, which is ${fmt(c.totalFrames - c.targetFrames)} more than the ${fmt(c.targetFrames)} needed.`,
+      message: `Jobsheets cover ${fmt(c.totalFrames)} frames, which is ${fmt(over)} more than the ${fmt(c.totalFrames - over)} needed.`,
     });
   }
   return out;
 }
 
 /**
- * Live warning in the create forms: what the jobsheet quantity becomes after adding `addFrames` frames to the
- * `currentFrames` already in the active jobsheets. Null when the frames then match what the order needs.
+ * Live warning in the create forms: what the jobsheet quantity becomes after adding `addFrames` frames at `sections`
+ * per beam to the `currentPieces` already in the active jobsheets (Sprint 18: pcs, because jobsheets may differ in
+ * sections). Null when the pcs then cover the order by less than one frame.
  */
-export function jobsheetQuantityWarning(orderedPieces: number, currentFrames: number, addFrames: number): string | null {
-  if (!isPositiveInt(addFrames)) return null;
-  const framesAfter = currentFrames + addFrames;
-  if (framesAfter === framesForPieces(orderedPieces)) return null;
-  const after = piecesForFrames(framesAfter);
+export function jobsheetQuantityWarning(
+  orderedPieces: number,
+  currentPieces: number,
+  addFrames: number,
+  sections: number = SECTIONS_PER_BEAM,
+): string | null {
+  if (!isPositiveInt(addFrames) || !isValidSections(sections)) return null;
+  const after = currentPieces + piecesForFrames(addFrames, sections);
+  if (after >= orderedPieces && after - orderedPieces < sections) return null;
   const diff = Math.abs(after - orderedPieces);
   if (diff === 0) return null;
   return `This makes the jobsheet quantity ${fmt(after)} pcs — ${fmt(diff)} ${after < orderedPieces ? 'less' : 'more'} than the order (${fmt(orderedPieces)} pcs).`;

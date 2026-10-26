@@ -123,8 +123,9 @@ describe('planFramesEdit (7.4)', () => {
     // #2 is untouched
     expect(p.updated.map((u) => u.id)).toEqual([1]);
     expect(p.totalFramesAfter).toBe(30);
-    const warnings = coverageWarnings({ orderedPieces: 72, jobsheetPieces: 72, targetFrames: 24, totalFrames: 30, jobsheetCount: 2 });
-    expect(warnings.map((w) => w.kind)).toEqual(['frames_over']);
+    const after = [{ frames: 20 }, { frames: 10 }];
+    const warnings = coverageWarnings(orderJobsheetPlan(72, after));
+    expect(warnings.map((w) => w.kind)).toEqual(['pieces_more', 'frames_over']);
   });
 
   it('F = null: the last just grows', () => {
@@ -170,31 +171,31 @@ describe('planFramesEdit (7.4)', () => {
 
 describe('coverage (7.5)', () => {
   it('no warnings when everything matches or there are no jobsheets', () => {
-    expect(coverageWarnings({ orderedPieces: 300, jobsheetPieces: 300, targetFrames: 100, totalFrames: 100, jobsheetCount: 10 })).toEqual([]);
-    expect(coverageWarnings({ orderedPieces: 300, jobsheetPieces: 0, targetFrames: 0, totalFrames: 0, jobsheetCount: 0 })).toEqual([]);
+    expect(coverageWarnings(orderJobsheetPlan(300, sheets(Array(10).fill(10))))).toEqual([]);
+    expect(coverageWarnings(orderJobsheetPlan(300, []))).toEqual([]);
     // 200 pcs needs 67 frames = 201 pcs: on target, no "extra pcs" noise.
     expect(coverageWarnings(orderJobsheetPlan(200, [{ frames: 67 }]))).toEqual([]);
   });
 
   it('pieces and frames messages', () => {
-    const w = coverageWarnings({ orderedPieces: 300, jobsheetPieces: 304, targetFrames: 102, totalFrames: 95, jobsheetCount: 10 });
+    const w = coverageWarnings(orderJobsheetPlan(300, sheets([...Array(9).fill(10), 5])));
     expect(w.map((x) => x.message)).toEqual([
-      'Jobsheet quantity (304 pcs) is more than the order (300 pcs).',
-      'Jobsheets cover 95 frames, but 102 frames are needed (7 short).',
+      'Jobsheet quantity (285 pcs) is less than the order (300 pcs).',
+      'Jobsheets cover 95 frames, but 100 frames are needed (5 short).',
     ]);
-    const w2 = coverageWarnings({ orderedPieces: 300, jobsheetPieces: 290, targetFrames: 100, totalFrames: 103, jobsheetCount: 11 });
+    const w2 = coverageWarnings(orderJobsheetPlan(300, sheets([...Array(10).fill(10), 3])));
     expect(w2.map((x) => x.message)).toEqual([
-      'Jobsheet quantity (290 pcs) is less than the order (300 pcs).',
+      'Jobsheet quantity (309 pcs) is more than the order (300 pcs).',
       'Jobsheets cover 103 frames, which is 3 more than the 100 needed.',
     ]);
   });
 
-  it('jobsheet quantity warning in the forms (frames based)', () => {
+  it('jobsheet quantity warning in the forms (pcs already in jobsheets + new frames × sections)', () => {
     // 97 frames = 291 pcs against 300.
     expect(jobsheetQuantityWarning(300, 0, 97)).toBe('This makes the jobsheet quantity 291 pcs — 9 less than the order (300 pcs).');
-    // already 100 frames (300 pcs) + 1 frame = 303 pcs.
-    expect(jobsheetQuantityWarning(300, 100, 1)).toBe('This makes the jobsheet quantity 303 pcs — 3 more than the order (300 pcs).');
-    expect(jobsheetQuantityWarning(300, 40, 60)).toBeNull();
+    // already 300 pcs + 1 frame = 303 pcs.
+    expect(jobsheetQuantityWarning(300, 300, 1)).toBe('This makes the jobsheet quantity 303 pcs — 3 more than the order (300 pcs).');
+    expect(jobsheetQuantityWarning(300, 120, 60)).toBeNull();
     // 200 pcs → 67 frames is exactly right even though 67 × 3 = 201.
     expect(jobsheetQuantityWarning(200, 0, 67)).toBeNull();
   });
@@ -233,8 +234,8 @@ describe('orderJobsheetPlan — live numbers (Sprint 15)', () => {
 
   it('single add preview: no false "extra pcs" when the frames fit', () => {
     const current = orderJobsheetPlan(300, list([30, 30]));
-    expect(jobsheetQuantityWarning(300, current.totalFrames, 40)).toBeNull();
-    expect(jobsheetQuantityWarning(300, current.totalFrames, 41)).toBe(
+    expect(jobsheetQuantityWarning(300, current.jobsheetPieces, 40)).toBeNull();
+    expect(jobsheetQuantityWarning(300, current.jobsheetPieces, 41)).toBe(
       'This makes the jobsheet quantity 303 pcs — 3 more than the order (300 pcs).',
     );
   });
@@ -332,14 +333,15 @@ describe('coverage with actual frames', () => {
 
   it('a shortfall of actual frames shows as a warning (no auto-adjust)', () => {
     const list = withStatus([[10, 'completed', 8], [10, 'completed', 10]]);
-    const w = coverageWarnings({ orderedPieces: 60, jobsheetPieces: 60, targetFrames: 20, totalFrames: coverageFrames(list), jobsheetCount: 2 });
-    expect(w.map((x) => x.kind)).toEqual(['frames_short']);
-    expect(w[0].message).toBe('Jobsheets cover 18 frames, but 20 frames are needed (2 short).');
+    const w = coverageWarnings(orderJobsheetPlan(60, list));
+    expect(w.map((x) => x.kind)).toEqual(['pieces_less', 'frames_short']);
+    expect(w[1].message).toBe('Jobsheets cover 18 frames, but 20 frames are needed (2 short).');
   });
 
   it('change machine: 4 done on the old jobsheet + 6 on the new one still covers the plan', () => {
     const list = withStatus([[10, 'completed', 4], [6, 'sent']]);
-    expect(coverageWarnings({ orderedPieces: 30, jobsheetPieces: 30, targetFrames: 10, totalFrames: coverageFrames(list), jobsheetCount: 2 })).toEqual([]);
+    expect(coverageFrames(list)).toBe(10);
+    expect(coverageWarnings(orderJobsheetPlan(30, list))).toEqual([]);
   });
 });
 

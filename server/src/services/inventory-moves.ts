@@ -96,7 +96,6 @@ async function loadOrder(tx: Tx, orderId: number) {
       unit: orders.unit,
       status: orders.status,
       designId: orders.designId,
-      variationId: orders.variationId,
     })
     .from(orders)
     .where(eq(orders.id, orderId));
@@ -274,10 +273,10 @@ export async function moveToInventory(role: RoleKey, orderId: number, input: unk
 /* Add from free stock                                                  */
 /* ------------------------------------------------------------------ */
 
-/** Free takas of the same item (design + variation) as the order, with their origin order. */
-async function loadFreeCandidates(tx: Tx, order: { designId: number | null; variationId: number | null }, ids?: readonly number[], blouse: BlouseFilter = 'all') {
+/** Free takas of the same item (design) as the order, with their origin order. */
+async function loadFreeCandidates(tx: Tx, order: { designId: number | null }, ids?: readonly number[], blouse: BlouseFilter = 'all') {
   const rows = await tx
-    .select({ ...takaSelect, originDesignId: orders.designId, originVariationId: orders.variationId, blouseOption: orders.blouseOption })
+    .select({ ...takaSelect, originDesignId: orders.designId, blouseOption: orders.blouseOption })
     .from(takas)
     .innerJoin(orders, eq(orders.id, takas.orderId))
     .innerJoin(jobsheets, eq(jobsheets.id, takas.jobsheetId))
@@ -290,7 +289,7 @@ async function loadFreeCandidates(tx: Tx, order: { designId: number | null; vari
       ),
     );
   const key = inventoryKey(order);
-  return rows.filter((r) => inventoryKey({ designId: r.originDesignId, variationId: r.originVariationId }) === key && matchesBlouse(blouse, r.blouseOption));
+  return rows.filter((r) => inventoryKey({ designId: r.originDesignId }) === key && matchesBlouse(blouse, r.blouseOption));
 }
 
 /**

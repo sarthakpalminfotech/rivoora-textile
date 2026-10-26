@@ -238,7 +238,7 @@ describe('butta bodies', () => {
 
   it('design: "goes for butta cutting" must be chosen (no default)', () => {
     expect(designInputSchema.safeParse({ code: 'D1' }).success).toBe(false);
-    expect(designInputSchema.parse({ code: 'D1', buttaCutting: false }).buttaCutting).toBe(false);
+    expect(designInputSchema.parse({ code: 'D1', buttaCutting: false, materialIds: [1] }).buttaCutting).toBe(false);
   });
 });
 

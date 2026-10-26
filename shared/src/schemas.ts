@@ -19,6 +19,7 @@ import {
   WEAVER_TAKA_NO_REGEX,
 } from './takas';
 import { PO_UNITS } from './outside';
+import { MAX_SECTIONS_PER_BEAM, MIN_SECTIONS_PER_BEAM, SECTIONS_PER_BEAM } from './production';
 
 export const PHONE_REGEX = /^[6-9]\d{9}$/;
 
@@ -125,25 +126,46 @@ const buttaCuttingChoice = z.boolean({
   invalid_type_error: 'Choose Yes or No',
 });
 
+/** Sprint 18: the qualities (Material master ids) of a design — at least one, duplicates dropped. */
+export const designQualityIds = z
+  .array(z.number().int().positive(), { required_error: 'Pick at least one quality', invalid_type_error: 'Pick at least one quality' })
+  .min(1, 'Pick at least one quality')
+  .max(50, 'At most 50 qualities')
+  .transform((ids) => [...new Set(ids)]);
+
 export const designInputSchema = z.object({
   code: codeSchema,
   name: optText(120),
   notes: optText(1000),
   imageUrl: imageUrl.nullish().transform((v) => v ?? null),
   thumbUrl: imageUrl.nullish().transform((v) => v ?? null),
-  /** Fixed material for this design (optional) — pre-selected when the design is picked on an order. */
-  materialId: z.number().int().positive().nullish().transform((v) => v ?? null),
+  /** Sprint 18: the qualities the design belongs to (required, one or more). Replaces the old optional `materialId`. */
+  materialIds: designQualityIds,
   /** Goes for butta cutting? Required (no default) — decides where takas go after taka entry. */
   buttaCutting: buttaCuttingChoice,
 });
 export type DesignInput = z.input<typeof designInputSchema>;
 
-export const variationInputSchema = z.object({
-  code: codeSchema,
-  imageUrl,
-  thumbUrl: imageUrl,
+/** Sprint 18: most designs one "Upload many" may save at once. */
+export const MAX_BULK_DESIGNS = 100;
+
+/** Sprint 18: POST /designs/bulk — "Upload many": every row is a full new design; saved all or nothing. */
+export const designBulkSchema = z.object({
+  designs: z
+    .array(
+      z.object({
+        code: codeSchema,
+        name: optText(120),
+        imageUrl,
+        thumbUrl: imageUrl,
+        materialIds: designQualityIds,
+        buttaCutting: buttaCuttingChoice,
+      }),
+    )
+    .min(1, 'Add at least one design')
+    .max(MAX_BULK_DESIGNS, `At most ${MAX_BULK_DESIGNS} designs at once`),
 });
-export type VariationInput = z.input<typeof variationInputSchema>;
+export type DesignBulkInput = z.input<typeof designBulkSchema>;
 
 /** Sprint 16: the three steps of an order (all ticked by default on a new order). */
 const stepFlag = z.boolean({ invalid_type_error: 'Tick or untick the step' });
@@ -158,9 +180,12 @@ const orderBaseShape = {
     }),
     /** Sprint 13: optional blouse option; null = not set. */
     blouseOption: z.enum(BLOUSE_OPTIONS).nullish().transform((v) => v ?? null),
+    /** Sprint 18: Outside order — made for another party; the party name is then required (typed, no master). */
+    isOutsideOrder: z.boolean({ invalid_type_error: 'Tick or untick Outside order' }).default(false),
+    outsidePartyName: optText(120),
     materialId: z.number().int().positive('Select a material'),
     designId: z.number().int().positive().nullish().transform((v) => v ?? null),
-    variationId: z.number().int().positive().nullish().transform((v) => v ?? null),
+    /** A new design uploaded from the order form gets the order's quality (Sprint 18). */
     newDesign: z
       .object({ code: codeSchema, imageUrl, thumbUrl: imageUrl, buttaCutting: buttaCuttingChoice })
       .nullish()
@@ -182,9 +207,9 @@ const orderBaseShape = {
 };
 
 const designOk = (v: { newDesign: unknown; designId: unknown }) => !(v.newDesign && v.designId);
-const variationOk = (v: { variationId: unknown; designId: unknown }) => !v.variationId || !!v.designId;
 const DESIGN_REFINE = { message: 'Pick either a saved design or upload a new one', path: ['designId'] };
-const VARIATION_REFINE = { message: 'Variation needs a design', path: ['variationId'] };
+const outsideOk = (v: { isOutsideOrder: boolean; outsidePartyName: string | null }) => !v.isOutsideOrder || !!v.outsidePartyName;
+const OUTSIDE_REFINE = { message: 'Enter the party name', path: ['outsidePartyName'] };
 
 /** POST /orders — Sprint 16: + the steps (an old client that sends none gets all three, the old flow). */
 export const orderCreateSchema = z
@@ -195,7 +220,7 @@ export const orderCreateSchema = z
     hasMill: stepFlag.default(true),
   })
   .refine(designOk, DESIGN_REFINE)
-  .refine(variationOk, VARIATION_REFINE);
+  .refine(outsideOk, OUTSIDE_REFINE);
 export type OrderCreateInput = z.input<typeof orderCreateSchema>;
 
 /**
@@ -210,7 +235,7 @@ export const orderUpdateSchema = z
     hasMill: stepFlag.optional(),
   })
   .refine(designOk, DESIGN_REFINE)
-  .refine(variationOk, VARIATION_REFINE);
+  .refine(outsideOk, OUTSIDE_REFINE);
 
 /** PUT /orders/:id/steps */
 export const orderStepsSchema = z.object({ hasProduction: stepFlag, hasButta: stepFlag, hasMill: stepFlag });
@@ -286,21 +311,32 @@ const machineIds = z
 /** Upper limit for one multi-jobsheet run, so a typo can't create thousands of jobsheets. */
 export const MAX_JOBSHEETS_PER_RUN = 500;
 
+/** Sprint 18: sections per beam of a jobsheet run (1–12). An older client that sends none gets the default 3. */
+const sectionsField = z
+  .number({ required_error: 'Enter the sections per beam', invalid_type_error: 'Enter the sections per beam' })
+  .int('Use a whole number')
+  .min(MIN_SECTIONS_PER_BEAM, `At least ${MIN_SECTIONS_PER_BEAM}`)
+  .max(MAX_SECTIONS_PER_BEAM, `At most ${MAX_SECTIONS_PER_BEAM}`);
+
 export const jobsheetGenerateSchema = z.object({
   pieces: posInt('the number of pieces', 10_000_000),
   framesPerJobsheet: posInt('frames per jobsheet', 100_000),
+  sections: sectionsField.default(SECTIONS_PER_BEAM),
   machineIds,
 });
 export type JobsheetGenerateInput = z.input<typeof jobsheetGenerateSchema>;
 
 export const jobsheetSingleSchema = z.object({
   frames: posInt('the frames', 100_000),
+  sections: sectionsField.default(SECTIONS_PER_BEAM),
   machineIds,
 });
 export type JobsheetSingleInput = z.input<typeof jobsheetSingleSchema>;
 
+/** Edit (Pending only). `sections` omitted = unchanged. */
 export const jobsheetUpdateSchema = z.object({
   frames: posInt('the frames', 100_000),
+  sections: sectionsField.optional(),
   machineIds,
 });
 export type JobsheetUpdateInput = z.input<typeof jobsheetUpdateSchema>;

@@ -1,10 +1,9 @@
-import { effectiveFrames } from './jobsheets';
-import { SECTIONS_PER_BEAM } from './production';
+import { jobsheetPcs } from './jobsheets';
 import type { JobsheetStatusKey } from './statuses';
 
 /**
- * Inventory (Sprint 10): design-wise pcs. An inventory item = a design OR a variation (orders without a design go into
- * one "Without design" item). Only pcs-unit orders count. Everything is pcs, using the ACTUAL pcs of takas.
+ * Inventory (Sprint 10): design-wise pcs. An inventory item = a design (orders without a design go into one "Without
+ * design" item; Sprint 18: variations are gone). Only pcs-unit orders count. Everything is pcs, using the ACTUAL pcs of takas.
  *
  * `orderInventoryPcs` is the ONE definition of the figures; the server loads aggregate rows per order and calls it, so
  * the Inventory screens, the item details and the order dashboard bar always agree (see inventory.test.ts).
@@ -26,6 +25,8 @@ export interface InventoryJobsheetInput {
   status: string;
   frames: number;
   completedFrames: number | null;
+  /** Sprint 18: sections per beam of the jobsheet (default 3). */
+  sections?: number | null;
 }
 
 /** Active takas — one row per taka or aggregated rows (`count`, default 1), per jobsheet and stage. */
@@ -92,7 +93,7 @@ export function orderInventoryPcs(
   const framePcs = new Map<number, number>();
   let inMaking = Math.max(0, pendingOutsidePcs);
   for (const j of jobsheets) {
-    const pcs = effectiveFrames({ frames: j.frames, status: j.status as JobsheetStatusKey, completedFrames: j.completedFrames }) * SECTIONS_PER_BEAM;
+    const pcs = jobsheetPcs({ frames: j.frames, status: j.status as JobsheetStatusKey, completedFrames: j.completedFrames, sections: j.sections });
     if ((takaCount.get(j.id) ?? 0) === 0) inMaking += pcs;
     else framePcs.set(j.id, pcs / takaCount.get(j.id)!);
   }
@@ -128,20 +129,22 @@ export function orderInventoryPcs(
 
 export const NO_DESIGN_KEY = 'none';
 
-/** `v-<variationId>` | `d-<designId>` | `none`. A variation wins over its base design. */
-export function inventoryKey(o: { designId: number | null; variationId: number | null }): string {
-  if (o.variationId != null) return `v-${o.variationId}`;
-  if (o.designId != null) return `d-${o.designId}`;
-  return NO_DESIGN_KEY;
+/** `d-<designId>` | `none` (Sprint 18: designs only — variations became designs). */
+export function inventoryKey(o: { designId: number | null }): string {
+  return o.designId != null ? `d-${o.designId}` : NO_DESIGN_KEY;
 }
 
-export type InventoryKeyParts = { kind: 'variation' | 'design'; id: number } | { kind: 'none' };
+/**
+ * `legacy_variation` = an old `v-<variationId>` link (bookmarks from before Sprint 18): the server maps it to the design
+ * the variation became (`design_variation_map`) and the screen redirects there.
+ */
+export type InventoryKeyParts = { kind: 'design' | 'legacy_variation'; id: number } | { kind: 'none' };
 
 export function parseInventoryKey(key: string): InventoryKeyParts | null {
   if (key === NO_DESIGN_KEY) return { kind: 'none' };
   const m = /^([dv])-(\d{1,9})$/.exec(key);
   if (!m) return null;
-  return { kind: m[1] === 'v' ? 'variation' : 'design', id: Number(m[2]) };
+  return { kind: m[1] === 'v' ? 'legacy_variation' : 'design', id: Number(m[2]) };
 }
 
 /** Cards: the items with the most In making + Ready first, then by code; "Without design" always last. */

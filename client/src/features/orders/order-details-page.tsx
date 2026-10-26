@@ -54,8 +54,8 @@ function Item({ label, children, className }: { label: string; children: ReactNo
 /** Order details tab: notes, dates and the design (the header holds the main fields). */
 function DetailsTab({ order }: { order: OrderDetail }) {
   const { can } = useRole();
-  const image = order.variation ?? order.design;
-  const code = order.variation?.code ?? order.design?.code;
+  const image = order.design;
+  const code = order.design?.code;
   return (
     <div className="flex flex-col gap-4 lg:grid lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start">
       <div className="min-w-0 space-y-4">
@@ -127,13 +127,7 @@ function DetailsTab({ order }: { order: OrderDetail }) {
             <ImageThumb thumbUrl={image.thumbUrl} fullUrl={image.imageUrl} alt={`Design ${code}`} className="aspect-square w-full" rounded="rounded-xl" />
             <div>
               <p className="text-xl font-bold text-slate-900">{code}</p>
-              {order.variation && order.design && (
-                <p className="text-sm text-slate-500">
-                  Variation of {order.design.code}
-                  {order.design.name ? ` · ${order.design.name}` : ''}
-                </p>
-              )}
-              {!order.variation && order.design?.name && <p className="text-sm text-slate-500">{order.design.name}</p>}
+              {order.design?.name && <p className="text-sm text-slate-500">{order.design.name}</p>}
             </div>
           </div>
         ) : (

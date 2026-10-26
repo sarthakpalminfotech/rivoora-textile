@@ -123,7 +123,10 @@ export const designs = sqliteTable(
     imageUrl: text('image_url'),
     thumbUrl: text('thumb_url'),
     notes: text('notes'),
-    /** Optional fixed material — pre-selected on new orders using this design. */
+    /**
+     * DEPRECATED (Sprint 18): replaced by `design_qualities` (a design can be in several qualities). Backfilled into it
+     * by migration 0017; never read or written since.
+     */
     materialId: integer('material_id').references(() => materials.id),
     /** Goes for butta cutting? Decides the stage of takas entered from now on (existing designs were backfilled true). */
     buttaCutting: integer('butta_cutting', { mode: 'boolean' }).notNull().default(true),
@@ -138,6 +141,32 @@ export const designs = sqliteTable(
   ],
 );
 
+/**
+ * Sprint 18: the qualities (materials) a design belongs to — one or more. The design master is grouped by quality; a
+ * design in several qualities appears under each of them.
+ */
+export const designQualities = sqliteTable(
+  'design_qualities',
+  {
+    id: id(),
+    designId: integer('design_id')
+      .notNull()
+      .references(() => designs.id),
+    materialId: integer('material_id')
+      .notNull()
+      .references(() => materials.id),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex('design_qualities_design_material_unique').on(t.designId, t.materialId),
+    index('design_qualities_material_idx').on(t.materialId),
+  ],
+);
+
+/**
+ * DEPRECATED (Sprint 18): variations are gone — migration 0017 turned every variation into a standalone design
+ * (`design_variation_map`). The table stays in the database, unused; no code reads it.
+ */
 export const designVariations = sqliteTable(
   'design_variations',
   {
@@ -159,6 +188,17 @@ export const designVariations = sqliteTable(
   ],
 );
 
+/** Sprint 18: which design each old variation became (migration 0017) — keeps old `v-<id>` links and data traceable. */
+export const designVariationMap = sqliteTable('design_variation_map', {
+  variationId: integer('variation_id')
+    .primaryKey()
+    .references(() => designVariations.id),
+  newDesignId: integer('new_design_id')
+    .notNull()
+    .references(() => designs.id),
+  createdAt: createdAt(),
+});
+
 export const orders = sqliteTable(
   'orders',
   {
@@ -173,10 +213,14 @@ export const orders = sqliteTable(
     orderType: text('order_type').$type<OrderType>().notNull().default('pcs_to_pcs'),
     /** Sprint 13: optional blouse option (`with_blouse` | `without_blouse`); null = not set. */
     blouseOption: text('blouse_option').$type<BlouseOption>(),
+    /** Sprint 18: "Outside order" — made for another party (typed name, no master). Not Sprint 16's outside production. */
+    isOutsideOrder: integer('is_outside_order', { mode: 'boolean' }).notNull().default(false),
+    outsidePartyName: text('outside_party_name'),
     materialId: integer('material_id')
       .notNull()
       .references(() => materials.id),
     designId: integer('design_id').references(() => designs.id),
+    /** DEPRECATED (Sprint 18): always NULL since migration 0017 (orders point to the design the variation became). */
     variationId: integer('variation_id').references(() => designVariations.id),
     quantity: real('quantity').notNull(),
     unit: text('unit').$type<Unit>().notNull(),
@@ -321,6 +365,11 @@ export const jobsheets = sqliteTable(
       .references(() => orders.id),
     /** Assigned frames. */
     frames: integer('frames').notNull(),
+    /**
+     * Sprint 18: sections per beam this jobsheet was made with (1–12, default 3) — one frame makes this many pcs.
+     * Change machine / hold remaining / auto-adjust copy it from the jobsheet they come from.
+     */
+    sections: integer('sections').notNull().default(3),
     /** DEPRECATED (Sprint 15): picks are no longer entered, read or written (printed blank for handwriting). */
     picks: text('picks'),
     createdBy: text('created_by').$type<RoleKey>().notNull(),

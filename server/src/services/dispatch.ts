@@ -35,7 +35,6 @@ import {
   counters,
   customerBrokers,
   customers,
-  designVariations,
   designs,
   dispatchChallanTakas,
   dispatchChallans,
@@ -63,9 +62,9 @@ import { orderNotOnHoldFor } from './hold';
 const now = () => new Date().toISOString();
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
-const designCodeSql = sql<string | null>`COALESCE(${designVariations.code}, ${designs.code})`;
-const designThumbSql = sql<string | null>`CASE WHEN ${designVariations.id} IS NOT NULL THEN ${designVariations.thumbUrl} ELSE ${designs.thumbUrl} END`;
-const designImageSql = sql<string | null>`CASE WHEN ${designVariations.id} IS NOT NULL THEN ${designVariations.imageUrl} ELSE ${designs.imageUrl} END`;
+const designCodeSql = sql<string | null>`${designs.code}`;
+const designThumbSql = sql<string | null>`${designs.thumbUrl}`;
+const designImageSql = sql<string | null>`${designs.imageUrl}`;
 
 /* ------------------------------------------------------------------ */
 /* Create the dispatch                                                  */
@@ -175,7 +174,6 @@ export async function getDispatchChallan(id: number): Promise<DispatchChallanDet
       .innerJoin(customers, eq(customers.id, orders.customerId))
       .leftJoin(customerBrokers, eq(customerBrokers.id, orders.brokerId))
       .leftJoin(designs, eq(designs.id, orders.designId))
-      .leftJoin(designVariations, eq(designVariations.id, orders.variationId))
       .where(eq(dispatchChallans.id, id)),
     db
       .select({
@@ -281,7 +279,6 @@ export async function listDispatchedOrders(role: RoleKey, q: DispatchedListQuery
     .innerJoin(materials, eq(materials.id, orders.materialId))
     .leftJoin(customerBrokers, eq(customerBrokers.id, orders.brokerId))
     .leftJoin(designs, eq(designs.id, orders.designId))
-    .leftJoin(designVariations, eq(designVariations.id, orders.variationId))
     // Sprint 15: Dhruvil does not see held orders (Jenish / Gaurang do, with an "On hold" badge).
     // Sprint 16: a CLOSED order stays here for what was dispatched (hold only, not the closed filter).
     .where(and(sql`EXISTS (SELECT 1 FROM dispatch_challans c WHERE c.order_id = "orders"."id")`, statusFilter, orderNotOnHoldFor(role), search));
@@ -294,7 +291,6 @@ export async function listDispatchedOrders(role: RoleKey, q: DispatchedListQuery
       .innerJoin(materials, eq(materials.id, orders.materialId))
       .leftJoin(customerBrokers, eq(customerBrokers.id, orders.brokerId))
       .leftJoin(designs, eq(designs.id, orders.designId))
-      .leftJoin(designVariations, eq(designVariations.id, orders.variationId))
       .where(and(sql`EXISTS (SELECT 1 FROM dispatch_challans c WHERE c.order_id = "orders"."id")`, statusFilter, orderNotOnHoldFor(role), search)),
   ]);
   const ids = items.map((i) => i.latestId);
@@ -343,7 +339,6 @@ export async function getDispatchedOrder(role: RoleKey, orderId: number): Promis
       .innerJoin(customers, eq(customers.id, orders.customerId))
       .innerJoin(materials, eq(materials.id, orders.materialId))
       .leftJoin(designs, eq(designs.id, orders.designId))
-      .leftJoin(designVariations, eq(designVariations.id, orders.variationId))
       .where(eq(orders.id, orderId)),
     db
       .select({

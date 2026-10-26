@@ -39,9 +39,8 @@ export interface FreeStockTarget {
   itemKey: string;
 }
 
-/** Key of an order's inventory item from its design / variation ids. */
-export const itemKeyOf = (designId: number | null | undefined, variationId: number | null | undefined) =>
-  inventoryKey({ designId: designId ?? null, variationId: variationId ?? null });
+/** Key of an order's inventory item from its design id. */
+export const itemKeyOf = (designId: number | null | undefined) => inventoryKey({ designId: designId ?? null });
 
 interface Props {
   open: boolean;

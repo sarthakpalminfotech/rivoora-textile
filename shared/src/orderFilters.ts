@@ -19,3 +19,8 @@ export function parseKeyList<T extends string>(value: string | null | undefined,
   }
   return out;
 }
+
+/** Sprint 18: the Outside order filter (`outside=yes` / `outside=no`; both or none = no filter). */
+export const OUTSIDE_ORDER_FILTERS = ['yes', 'no'] as const;
+export type OutsideOrderFilter = (typeof OUTSIDE_ORDER_FILTERS)[number];
+export const isOutsideOrderFilter = (v: string): v is OutsideOrderFilter => (OUTSIDE_ORDER_FILTERS as readonly string[]).includes(v);

@@ -99,7 +99,7 @@ export function CreateJobsheetsDialog({ open, onOpenChange, data }: FormDialogPr
   const pieces = parseIntOrNull(piecesText);
   const plan = pieces && parseIntOrNull(fpjText) ? planJobsheets(pieces, Number(fpjText)) : null;
   // Live: the frames already in the active jobsheets + the frames of this run (Sprint 15).
-  const qtyWarning = pieces ? jobsheetQuantityWarning(coverage.orderedPieces, coverage.totalFrames, framesForPieces(pieces)) : null;
+  const qtyWarning = pieces ? jobsheetQuantityWarning(coverage.orderedPieces, coverage.jobsheetPieces, framesForPieces(pieces)) : null;
 
   const onSubmit = handleSubmit((v) =>
     generate.mutate(
@@ -249,7 +249,7 @@ export function AddJobsheetDialog({ open, onOpenChange, data }: FormDialogProps)
   // Pieces are read-only: frames × sections per beam, so the stored numbers can never disagree.
   const framesText = useWatch({ control, name: 'frames' });
   const frames = parseIntOrNull(framesText);
-  const qtyWarning = frames ? jobsheetQuantityWarning(coverage.orderedPieces, coverage.totalFrames, frames) : null;
+  const qtyWarning = frames ? jobsheetQuantityWarning(coverage.orderedPieces, coverage.jobsheetPieces, frames) : null;
 
   const onSubmit = handleSubmit((v) =>
     add.mutate(

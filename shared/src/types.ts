@@ -70,14 +70,10 @@ export interface Damage {
   updatedAt: string;
 }
 
-export interface DesignVariation {
+/** Sprint 18: a quality (material) a design belongs to. */
+export interface DesignQuality {
   id: number;
-  designId: number;
-  variationNo: number;
-  code: string;
-  imageUrl: string | null;
-  thumbUrl: string | null;
-  createdAt: string;
+  name: string;
 }
 
 export interface DesignListItem {
@@ -86,8 +82,8 @@ export interface DesignListItem {
   name: string | null;
   thumbUrl: string | null;
   imageUrl: string | null;
-  variationCount: number;
-  materialName: string | null;
+  /** Sprint 18: every quality the design is in, by name (empty = "No quality"). */
+  qualities: DesignQuality[];
   /** Goes for butta cutting (shows a "Butta" tag). */
   buttaCutting: boolean;
 }
@@ -99,13 +95,30 @@ export interface Design {
   imageUrl: string | null;
   thumbUrl: string | null;
   notes: string | null;
-  /** Fixed material for this design, if any. */
-  material: { id: number; name: string } | null;
+  /** Sprint 18: the qualities (materials) the design belongs to, by name — one or more (older designs may have none). */
+  qualities: DesignQuality[];
   /** Goes for butta cutting — decides where takas go after taka entry (changing it affects takas entered from then on). */
   buttaCutting: boolean;
   createdAt: string;
   updatedAt: string;
-  variations: DesignVariation[];
+}
+
+/**
+ * Sprint 18: one quality group of the design library (`GET /designs/qualities`): the Design master's first level and
+ * the Saved designs drawer. `materialId: null` = "No quality" (designs that have none yet).
+ */
+export interface DesignQualityGroup {
+  materialId: number | null;
+  name: string;
+  /** Designs in the group (matching the search, if any). */
+  designCount: number;
+  /** The first designs of the group (newest first) — the card's thumbnail strip / the drawer's tiles. */
+  designs: DesignListItem[];
+}
+
+/** Sprint 18: POST /designs/bulk — the designs saved by "Upload many" (all in one transaction). */
+export interface DesignBulkResult {
+  created: { id: number; code: string }[];
 }
 
 export interface OrderListItem {
@@ -123,10 +136,12 @@ export interface OrderListItem {
   /** Sprint 15: on hold (only Jenish / Gaurang ever receive a held order). */
   isOnHold: boolean;
   orderDate: string;
-  /** Variation code if the order uses one, otherwise the design code. */
   designCode: string | null;
-  /** Thumbnail of the variation (or design) — the list never returns full images. */
+  /** Thumbnail of the design — the list never returns full images. */
   designThumbUrl: string | null;
+  /** Sprint 18: Outside order (made for another party) + that party's name (blank for roles that don't see the client). */
+  isOutsideOrder: boolean;
+  outsidePartyName: string | null;
   /** Sprint 16: the order's steps (the card shows "P · B · M" or an Outside production / FG purchase tag). */
   hasProduction: boolean;
   hasButta: boolean;
@@ -203,7 +218,9 @@ export interface OrderDetail {
   broker: Broker | null;
   material: { id: number; name: string; code: string | null };
   design: { id: number; code: string; name: string | null; imageUrl: string | null; thumbUrl: string | null } | null;
-  variation: { id: number; code: string; imageUrl: string | null; thumbUrl: string | null } | null;
+  /** Sprint 18: Outside order (made for another party) + the party's name (null / blank for roles without the client). */
+  isOutsideOrder: boolean;
+  outsidePartyName: string | null;
   noteImages: OrderImage[];
   history: OrderStatusHistoryEntry[];
   /** Sprint 15: hold state + its timeline entries (empty / false for roles that never see held orders). */
@@ -234,7 +251,6 @@ export interface OrderDetail {
 export interface PreviousDesign {
   key: string;
   designId: number;
-  variationId: number | null;
   code: string;
   imageUrl: string | null;
   thumbUrl: string | null;
@@ -244,8 +260,8 @@ export interface PreviousDesign {
   /** Notes of that (latest) order, if any. */
   notes: string | null;
   timesUsed: number;
-  /** The design's fixed material, if any. */
-  material: { id: number; name: string } | null;
+  /** Sprint 18: the design's qualities (one → pre-selected on the order; several → the user picks one). */
+  qualities: DesignQuality[];
 }
 
 export interface UploadResult {
@@ -300,6 +316,8 @@ export interface JobsheetListItem {
   frames: number;
   /** Actual frames made (Completed only). */
   completedFrames: number | null;
+  /** Sprint 18: sections per beam (pcs per frame). */
+  sections: number;
   machines: JobsheetMachine[];
   /** The machine it was started on (Ongoing / Completed). */
   runningMachine: MachineRef | null;
@@ -369,13 +387,12 @@ export interface JobsheetSibling {
   frames: number;
   status: JobsheetStatusKey;
   completedFrames: number | null;
+  /** Sprint 18: sections per beam. */
+  sections: number;
 }
 
 export interface JobsheetDesign {
-  /** Variation code if the order has one, otherwise the design code. */
   code: string;
-  /** Base design code when `code` is a variation. */
-  baseCode: string | null;
   imageUrl: string | null;
   thumbUrl: string | null;
 }
@@ -388,6 +405,8 @@ export interface JobsheetDetail {
   status: JobsheetStatusKey;
   frames: number;
   completedFrames: number | null;
+  /** Sprint 18: sections per beam this jobsheet was made with (pcs per frame; editable while Pending). */
+  sections: number;
   createdBy: RoleKey;
   createdAt: string;
   updatedAt: string;
@@ -535,7 +554,8 @@ export interface JobsheetPrintItem {
   machineNos: number[];
   /** The order's jobsheet quantity (pcs). */
   jobsheetPieces: number;
-  /** Variation code if the order has one, otherwise the design code. */
+  /** Sprint 18: sections per beam of this jobsheet (printed small: "Sections: 4"). */
+  sections: number;
   designCode: string | null;
   /** Lump or Pcs to pcs — printed under the design number. */
   orderType: OrderType;
@@ -1064,10 +1084,10 @@ export type ButtaPendingOrderTakas = ChallanPendingOrderTakas;
 
 export type ChallanStatus = 'active' | 'cancelled';
 
-/** A design on a challan card: one entry per order + design / variation (the thumbnails and the design preview). */
+/** A design on a challan card: one entry per order + design (the thumbnails and the design preview). */
 export interface ChallanDesign {
   orderNo: number;
-  /** The variation code when the order has one, else the design code. */
+  /** The design code. */
   designCode: string;
   thumbUrl: string | null;
   /** Full image — loaded only in the design preview. */
@@ -1391,16 +1411,14 @@ export interface InventorySummary {
   excludedOrders: number;
 }
 
-/** The header of an inventory item (a design or a variation, or "Without design"). */
+/** The header of an inventory item (a design, or "Without design"). */
 export interface InventoryItemHeader {
-  /** `d-<designId>` | `v-<variationId>` | `none` */
+  /** `d-<designId>` | `none` (an old `v-<variationId>` link is answered with the key of the design it became). */
   key: string;
   /** Null for "Without design". */
   code: string | null;
   name: string | null;
-  /** The base design's code when the item is a variation. */
-  variationOf: string | null;
-  /** The design's default quality (material), if any. */
+  /** Sprint 18: the design's qualities, comma-separated (null when it has none). */
   quality: string | null;
   thumbUrl: string | null;
   imageUrl: string | null;

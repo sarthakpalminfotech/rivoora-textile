@@ -1,6 +1,7 @@
 /**
  * Demo data. Safe to run more than once:
- * - customers / materials / designs / variations are matched by name / code and only inserted when missing;
+ * - customers / materials / designs are matched by name / code and only inserted when missing (Sprint 18: the old
+ *   colour variations are standalone designs D101N1…, every design gets its qualities);
  * - orders are only seeded when the orders table is empty;
  * - machines 1–12 are inserted when missing;
  * - Sprint 16: one demo weaver (code S) when missing.
@@ -10,12 +11,12 @@ import { format, subDays } from 'date-fns';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import sharp from 'sharp';
-import { STATUS, variationCode, type OrderStatusKey, type Unit } from '@rivoora/shared';
+import { STATUS, type OrderStatusKey, type Unit } from '@rivoora/shared';
 import { env } from '../env';
 import { storage } from '../storage';
 import { db, libsql } from './client';
 import { PATTERNS, type Palette, type PatternName } from './patterns';
-import { customerBrokers, customers, designVariations, designs, machines, materials, orderStatusHistory, orders, weavers } from './schema';
+import { customerBrokers, customers, designQualities, designs, machines, materials, orderStatusHistory, orders, weavers } from './schema';
 
 /** Demo brokers per customer name (added only when the customer has none). */
 const BROKERS: Record<string, string[]> = {
@@ -55,13 +56,17 @@ const P = {
   black: { base: '#F5F5F4', main: '#1C1917', accent: '#C9A227', light: '#A8A29E' },
 } satisfies Record<string, Palette>;
 
-const DESIGNS: { code: string; name: string; pattern: PatternName; palette: Palette; variations: Palette[] }[] = [
-  { code: 'D101', name: 'Zari Stripes', pattern: 'stripes', palette: P.maroon, variations: [P.navy, P.green, P.black] },
-  { code: 'D102', name: 'Madras Checks', pattern: 'checks', palette: P.teal, variations: [P.maroon, P.orange] },
-  { code: 'D103', name: 'Paisley Buta', pattern: 'paisley', palette: P.maroon, variations: [P.purple, P.green, P.navy] },
-  { code: 'D104', name: 'Temple Border', pattern: 'border', palette: P.green, variations: [P.maroon, P.magenta] },
-  { code: 'D105', name: 'Chevron Lehar', pattern: 'chevron', palette: P.magenta, variations: [P.teal, P.orange] },
-  { code: 'D106', name: 'Floral Butti', pattern: 'butti', palette: P.purple, variations: [P.maroon, P.teal, P.orange] },
+/**
+ * Demo designs. `colours` become their own designs `<code>N1`, `<code>N2`… (Sprint 18: no variations); `qualities` are
+ * indexes into MATERIALS (a design may be in several qualities).
+ */
+const DESIGNS: { code: string; name: string; pattern: PatternName; palette: Palette; colours: Palette[]; qualities: number[] }[] = [
+  { code: 'D101', name: 'Zari Stripes', pattern: 'stripes', palette: P.maroon, colours: [P.navy, P.green, P.black], qualities: [0] },
+  { code: 'D102', name: 'Madras Checks', pattern: 'checks', palette: P.teal, colours: [P.maroon, P.orange], qualities: [1, 3] },
+  { code: 'D103', name: 'Paisley Buta', pattern: 'paisley', palette: P.maroon, colours: [P.purple, P.green, P.navy], qualities: [2] },
+  { code: 'D104', name: 'Temple Border', pattern: 'border', palette: P.green, colours: [P.maroon, P.magenta], qualities: [3, 4] },
+  { code: 'D105', name: 'Chevron Lehar', pattern: 'chevron', palette: P.magenta, colours: [P.teal, P.orange], qualities: [5, 1] },
+  { code: 'D106', name: 'Floral Butti', pattern: 'butti', palette: P.purple, colours: [P.maroon, P.teal, P.orange], qualities: [0, 2] },
 ];
 
 async function demoImage(name: string, svg: string) {
@@ -106,38 +111,32 @@ async function seedMaterials() {
   return ids;
 }
 
-async function seedDesigns() {
-  const result: { designId: number; variationIds: number[] }[] = [];
+/** One demo design (inserted with its qualities when its code doesn't exist yet). */
+async function seedDesign(code: string, name: string, svg: string, materialIds: number[]): Promise<number> {
+  const img = await demoImage(code.toLowerCase(), svg);
+  const [found] = await db
+    .select({ id: designs.id })
+    .from(designs)
+    .where(and(eq(designs.code, code), eq(designs.isDeleted, false)));
+  if (found) return found.id;
+  const [design] = await db
+    .insert(designs)
+    .values({ code, name, imageUrl: img.url, thumbUrl: img.thumbUrl, notes: 'Demo design' })
+    .returning({ id: designs.id });
+  await db.insert(designQualities).values(materialIds.map((materialId) => ({ designId: design.id, materialId })));
+  return design.id;
+}
+
+async function seedDesigns(materialIds: number[]) {
+  const result: { designId: number; colourIds: number[] }[] = [];
   for (const d of DESIGNS) {
-    const img = await demoImage(d.code.toLowerCase(), PATTERNS[d.pattern](d.palette));
-    let [design] = await db
-      .select({ id: designs.id })
-      .from(designs)
-      .where(and(eq(designs.code, d.code), eq(designs.isDeleted, false)));
-    if (!design) {
-      [design] = await db
-        .insert(designs)
-        .values({ code: d.code, name: d.name, imageUrl: img.url, thumbUrl: img.thumbUrl, notes: 'Demo design' })
-        .returning({ id: designs.id });
+    const qualities = d.qualities.map((i) => materialIds[i]);
+    const designId = await seedDesign(d.code, d.name, PATTERNS[d.pattern](d.palette), qualities);
+    const colourIds: number[] = [];
+    for (let i = 0; i < d.colours.length; i++) {
+      colourIds.push(await seedDesign(`${d.code}N${i + 1}`, d.name, PATTERNS[d.pattern](d.colours[i]), qualities));
     }
-    const variationIds: number[] = [];
-    for (let i = 0; i < d.variations.length; i++) {
-      const no = i + 1;
-      const code = variationCode(d.code, no);
-      const vImg = await demoImage(code.toLowerCase(), PATTERNS[d.pattern](d.variations[i]));
-      let [variation] = await db
-        .select({ id: designVariations.id })
-        .from(designVariations)
-        .where(and(eq(designVariations.designId, design.id), eq(designVariations.variationNo, no)));
-      if (!variation) {
-        [variation] = await db
-          .insert(designVariations)
-          .values({ designId: design.id, variationNo: no, code, imageUrl: vImg.url, thumbUrl: vImg.thumbUrl })
-          .returning({ id: designVariations.id });
-      }
-      variationIds.push(variation.id);
-    }
-    result.push({ designId: design.id, variationIds });
+    result.push({ designId, colourIds });
   }
   return result;
 }
@@ -150,7 +149,7 @@ async function seedOrders(customerIds: number[], materialIds: number[], designRe
   }
 
   const units: Unit[] = ['meters', 'meters', 'kg', 'pcs', 'meters', 'g'];
-  // [customerIdx, materialIdx, designIdx | -1, variationIdx | -1, qty, unitIdx, rate | null, daysAgo, ready?]
+  // [customerIdx, materialIdx, designIdx | -1, colourIdx | -1 (the <code>N<n> design), qty, unitIdx, rate | null, daysAgo, ready?]
   const plan: [number, number, number, number, number, number, number | null, number, boolean][] = [
     [0, 0, 0, -1, 250, 0, 185, 44, true],
     [1, 2, 2, 0, 120, 0, 640, 42, true],
@@ -193,8 +192,7 @@ async function seedOrders(customerIds: number[], materialIds: number[], designRe
         orderNo: i + 1,
         customerId: customerIds[ci],
         materialId: materialIds[mi],
-        designId: design?.designId ?? null,
-        variationId: design && vi >= 0 ? (design.variationIds[vi] ?? null) : null,
+        designId: design ? (vi >= 0 ? design.colourIds[vi] : design.designId) : null,
         quantity,
         unit: units[ui],
         rate,
@@ -247,8 +245,8 @@ async function main() {
   console.log(`  customers: ${customerIds.length}`);
   const materialIds = await seedMaterials();
   console.log(`  materials: ${materialIds.length}`);
-  const designRefs = await seedDesigns();
-  console.log(`  designs: ${designRefs.length} (with variations)`);
+  const designRefs = await seedDesigns(materialIds);
+  console.log(`  designs: ${designRefs.reduce((n, d) => n + 1 + d.colourIds.length, 0)} (with qualities)`);
   await seedOrders(customerIds, materialIds, designRefs);
   console.log(`  machines: 1–${await seedMachines()}`);
   await seedWeaver();

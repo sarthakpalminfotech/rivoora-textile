@@ -36,7 +36,6 @@ import {
   customerBrokers,
   customers,
   damages as damageMaster,
-  designVariations,
   designs,
   jobsheets,
   materials,
@@ -63,9 +62,9 @@ import { orderNotHeldFor } from './hold';
 
 const now = () => new Date().toISOString();
 
-const designCodeSql = sql<string | null>`COALESCE(${designVariations.code}, ${designs.code})`;
-const designThumbSql = sql<string | null>`CASE WHEN ${designVariations.id} IS NOT NULL THEN ${designVariations.thumbUrl} ELSE ${designs.thumbUrl} END`;
-const designImageSql = sql<string | null>`CASE WHEN ${designVariations.id} IS NOT NULL THEN ${designVariations.imageUrl} ELSE ${designs.imageUrl} END`;
+const designCodeSql = sql<string | null>`${designs.code}`;
+const designThumbSql = sql<string | null>`${designs.thumbUrl}`;
+const designImageSql = sql<string | null>`${designs.imageUrl}`;
 
 /** Stages of takas that have passed (or are about to leave) the Mill QC — what makes an order visible here. */
 const POST_QC = ['final', 'refinish', 'ready_dispatch'] as const;
@@ -120,7 +119,6 @@ export async function listGodownOrders(role: RoleKey, q: GodownListQuery): Promi
     .innerJoin(orders, eq(orders.id, takaOrderId))
     .innerJoin(customers, eq(customers.id, orders.customerId))
     .leftJoin(designs, eq(designs.id, orders.designId))
-    .leftJoin(designVariations, eq(designVariations.id, orders.variationId))
     // Sprint 15: Dhruvil does not see held orders (Jenish / Gaurang do, with an "On hold" badge).
     .where(and(takaNotFree, eq(takas.isDeleted, false), eq(jobsheets.isDeleted, false), orderNotHeldFor(role), search))
     .groupBy(orders.id)
@@ -174,7 +172,6 @@ export async function getGodownOrder(role: RoleKey, orderId: number): Promise<Go
         blouseOption: orders.blouseOption,
         isOnHold: orders.isOnHold,
         designId: orders.designId,
-        variationId: orders.variationId,
         status: orders.status,
         hasProduction: orders.hasProduction,
         hasButta: orders.hasButta,
@@ -191,7 +188,6 @@ export async function getGodownOrder(role: RoleKey, orderId: number): Promise<Go
       .innerJoin(customers, eq(customers.id, orders.customerId))
       .leftJoin(customerBrokers, eq(customerBrokers.id, orders.brokerId))
       .leftJoin(designs, eq(designs.id, orders.designId))
-      .leftJoin(designVariations, eq(designVariations.id, orders.variationId))
       .where(eq(orders.id, orderId)),
     db
       .select({
@@ -233,7 +229,7 @@ export async function getGodownOrder(role: RoleKey, orderId: number): Promise<Go
   ]);
   const row = orderRows[0];
   if (!row) throw notFound('Order');
-  const { customerId, customerName, customerPhone, customerAddress, customerGstin, brokerName, rate, designId, variationId, hasProduction, hasButta, hasMill, ...order } = row;
+  const { customerId, customerName, customerPhone, customerAddress, customerGstin, brokerName, rate, designId, hasProduction, hasButta, hasMill, ...order } = row;
   const orderSteps = { hasProduction, hasButta, hasMill };
   const seesClient = can(role, 'canSeeClient');
   const kpis = godownKpis(takaRows.map((t) => ({ stage: t.stage, pcs: t.pcs, actualPcs: t.actualPcs, checked: t.godownCheckedAt !== null })));
@@ -253,7 +249,7 @@ export async function getGodownOrder(role: RoleKey, orderId: number): Promise<Go
     ...order,
     orderSteps,
     kind: orderKind(orderSteps),
-    inventoryKey: inventoryKey({ designId, variationId }),
+    inventoryKey: inventoryKey({ designId }),
     customer: seesClient ? { id: customerId, name: customerName, phone: customerPhone, address: customerAddress || null, gstin: customerGstin } : null,
     brokerName: seesClient ? brokerName : null,
     rate: can(role, 'canSeeRate') ? rate : null,

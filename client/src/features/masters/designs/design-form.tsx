@@ -1,11 +1,11 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useQuery } from '@tanstack/react-query';
-import { RefreshCw, Trash2, X } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { RefreshCw, Trash2 } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 import { z } from 'zod';
-import { normalizeCode, type Design, type UploadResult } from '@rivoora/shared';
+import { normalizeCode, type Design, type DesignQuality, type UploadResult } from '@rivoora/shared';
 import { Button } from '@/components/ui/button';
 import { Field } from '@/components/ui/field';
 import { ImageThumb } from '@/components/ui/image-thumb';
@@ -13,11 +13,11 @@ import { ImageDropzone, ImagePickButton } from '@/components/ui/image-upload';
 import { Input, Textarea } from '@/components/ui/input';
 import { ResponsiveModal } from '@/components/ui/modal';
 import { Segmented } from '@/components/ui/segmented';
-import { Select } from '@/components/ui/select';
 import { useDebounce } from '@/hooks/useDebounce';
 import { api, errorMessage } from '@/lib/api';
 import { applyServerFieldError } from '@/lib/form';
-import { useMaterialLookup, useSaveDesign } from '../api';
+import { useSaveDesign } from '../api';
+import { QualitiesSelect } from './qualities-select';
 
 export const designCodeField = z
   .string()
@@ -27,7 +27,7 @@ export const designCodeField = z
   .regex(/^[A-Za-z0-9_\-/.\s]+$/, 'Use only letters, numbers and - / _ .');
 
 
-/** Live "is this code free?" check — design and variation codes share one namespace. */
+/** Live "is this code free?" check (design codes are unique among active designs). */
 export function useCodeAvailability(code: string, enabled: boolean) {
   const debounced = useDebounce(normalizeCode(code), 400);
   const valid = designCodeField.safeParse(debounced).success;
@@ -50,7 +50,8 @@ const schema = z.object({
   code: designCodeField,
   name: z.string().max(120),
   notes: z.string().max(1000),
-  materialId: z.number().nullable(),
+  /** Sprint 18: one or more qualities (required). */
+  qualities: z.array(z.custom<DesignQuality>()).min(1, 'Pick at least one quality'),
   buttaCutting: z
     .enum(['yes', 'no'])
     .nullable()
@@ -63,18 +64,13 @@ interface DesignFormDialogProps {
   onOpenChange: (o: boolean) => void;
   design?: Design | null;
   onSaved?: (design: Design) => void;
+  /** Sprint 18: a new design opened from a quality page starts in that quality. */
+  initialQualities?: DesignQuality[];
 }
 
-export function DesignFormDialog({ open, onOpenChange, design, onSaved }: DesignFormDialogProps) {
+export function DesignFormDialog({ open, onOpenChange, design, onSaved, initialQualities }: DesignFormDialogProps) {
   const save = useSaveDesign();
   const [image, setImage] = useState<UploadResult | null>(null);
-  const [materialSearch, setMaterialSearch] = useState('');
-  const [materialLabel, setMaterialLabel] = useState<string>();
-  const materials = useMaterialLookup(useDebounce(materialSearch.trim(), 300));
-  const materialOptions = useMemo(
-    () => (materials.data ?? []).map((m) => ({ value: m.id, label: m.name, description: m.code })),
-    [materials.data],
-  );
   const {
     control,
     register,
@@ -90,18 +86,27 @@ export function DesignFormDialog({ open, onOpenChange, design, onSaved }: Design
       code: design?.code ?? '',
       name: design?.name ?? '',
       notes: design?.notes ?? '',
-      materialId: design?.material?.id ?? null,
+      qualities: design?.qualities ?? initialQualities ?? [],
       buttaCutting: design ? (design.buttaCutting ? 'yes' : 'no') : null,
     });
-    setMaterialLabel(design?.material?.name);
     setImage(design?.imageUrl && design.thumbUrl ? { url: design.imageUrl, thumbUrl: design.thumbUrl } : null);
+    // initialQualities is read only when the dialog opens (a new array on every parent render must not reset the form).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, design, reset]);
 
   const onSubmit = handleSubmit((values) =>
     save.mutate(
       {
         id: design?.id,
-        data: { ...values, buttaCutting: values.buttaCutting === 'yes', imageUrl: image?.url ?? null, thumbUrl: image?.thumbUrl ?? null },
+        data: {
+          code: values.code,
+          name: values.name,
+          notes: values.notes,
+          materialIds: values.qualities.map((q) => q.id),
+          buttaCutting: values.buttaCutting === 'yes',
+          imageUrl: image?.url ?? null,
+          thumbUrl: image?.thumbUrl ?? null,
+        },
       },
       {
         onSuccess: (saved) => {
@@ -110,7 +115,7 @@ export function DesignFormDialog({ open, onOpenChange, design, onSaved }: Design
           onSaved?.(saved);
         },
         onError: (err) => {
-          if (!applyServerFieldError(err, setError, ['code', 'name', 'notes', 'materialId', 'buttaCutting'])) toast.error(errorMessage(err));
+          if (!applyServerFieldError(err, setError, ['code', 'name', 'notes', 'buttaCutting', 'qualities'], { materialIds: 'qualities' })) toast.error(errorMessage(err));
         },
       },
     ),
@@ -156,56 +161,26 @@ export function DesignFormDialog({ open, onOpenChange, design, onSaved }: Design
           )}
         </Field>
         <div className="grid content-start gap-4">
-          <Field label="Design code" htmlFor="d-code" required error={errors.code?.message} hint="Must be unique, e.g. D107">
-            <Input id="d-code" autoFocus className="uppercase" autoComplete="off" invalid={!!errors.code} {...register('code')} />
-          </Field>
-          <Field label="Name" htmlFor="d-name" error={errors.name?.message}>
-            <Input id="d-name" placeholder="Optional" {...register('name')} />
-          </Field>
+          <div className="grid gap-4 md:grid-cols-2">
+            <Field label="Design code" htmlFor="d-code" required error={errors.code?.message} hint="Must be unique, e.g. D107">
+              <Input id="d-code" autoFocus className="uppercase" autoComplete="off" invalid={!!errors.code} {...register('code')} />
+            </Field>
+            <Field label="Name" htmlFor="d-name" error={errors.name?.message}>
+              <Input id="d-name" placeholder="Optional" {...register('name')} />
+            </Field>
+          </div>
           <Field
-            label="Material / Quality"
-            htmlFor="d-material"
-            error={errors.materialId?.message}
-            hint="Optional · set it if this design is made only in one material — it is pre-selected on new orders"
+            label="Qualities"
+            htmlFor="d-qualities"
+            required
+            error={errors.qualities?.message}
+            hint="The design shows under each of these qualities. Picking it on an order fills in the quality (or asks, if there are several)."
           >
             <Controller
               control={control}
-              name="materialId"
+              name="qualities"
               render={({ field }) => (
-                <Select
-                  id="d-material"
-                  value={field.value}
-                  onChange={(id, opt) => {
-                    field.onChange(id);
-                    setMaterialLabel(opt.label);
-                  }}
-                  selectedLabel={materialLabel}
-                  options={materialOptions}
-                  placeholder="Any material"
-                  searchable
-                  searchPlaceholder="Search materials…"
-                  onSearchChange={setMaterialSearch}
-                  loading={materials.isFetching}
-                  emptyText="No materials found"
-                  invalid={!!errors.materialId}
-                  action={
-                    field.value ? (
-                      <Button
-                        variant="secondary"
-                        size="icon"
-                        className="shrink-0"
-                        onClick={() => {
-                          field.onChange(null);
-                          setMaterialLabel(undefined);
-                        }}
-                        aria-label="Clear material"
-                        title="Clear material"
-                      >
-                        <X className="!size-5" />
-                      </Button>
-                    ) : undefined
-                  }
-                />
+                <QualitiesSelect id="d-qualities" value={field.value ?? []} onChange={field.onChange} invalid={!!errors.qualities} />
               )}
             />
           </Field>

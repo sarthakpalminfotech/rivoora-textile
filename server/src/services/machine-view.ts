@@ -3,7 +3,7 @@ import type { RoleKey } from '@rivoora/shared';
 import { orderNotHeldFor } from './hold';
 import { JOBSHEET_STATUS, type MachineViewData, type MachineViewJobsheet, type MachineViewMachine } from '@rivoora/shared';
 import { db } from '../db/client';
-import { designVariations, designs, jobsheets, machines, orders } from '../db/schema';
+import { designs, jobsheets, machines, orders } from '../db/schema';
 
 /** The machine floor board: every machine with its ongoing jobsheets, in one round trip (two queries). */
 export async function getMachineView(role: RoleKey): Promise<MachineViewData> {
@@ -28,13 +28,12 @@ export async function getMachineView(role: RoleKey): Promise<MachineViewData> {
         frames: jobsheets.frames,
         machineId: jobsheets.runningMachineId,
         startedAt: jobsheets.startedAt,
-        designCode: sql<string | null>`COALESCE(${designVariations.code}, ${designs.code})`,
-        thumbUrl: sql<string | null>`CASE WHEN ${designVariations.id} IS NOT NULL THEN ${designVariations.thumbUrl} ELSE ${designs.thumbUrl} END`,
+        designCode: sql<string | null>`${designs.code}`,
+        thumbUrl: sql<string | null>`${designs.thumbUrl}`,
       })
       .from(jobsheets)
       .innerJoin(orders, eq(orders.id, jobsheets.orderId))
       .leftJoin(designs, eq(designs.id, orders.designId))
-      .leftJoin(designVariations, eq(designVariations.id, orders.variationId))
       // Sprint 15: a held order's jobsheets are completed when it is put on hold; this also hides any leftover from the supervisor.
       .where(and(eq(jobsheets.status, JOBSHEET_STATUS.ONGOING), eq(jobsheets.isDeleted, false), eq(jobsheets.isExternal, false), orderNotHeldFor(role)))
       .orderBy(asc(jobsheets.startedAt), asc(jobsheets.jobsheetNo)),
