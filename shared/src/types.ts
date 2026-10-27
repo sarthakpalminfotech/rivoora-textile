@@ -1461,6 +1461,23 @@ export interface InventoryOrderRow {
   isOnHold: boolean;
 }
 
+/** Inventory → item → Dispatched history: one fully dispatched (Dispatched / Returned) order of the design. */
+export interface InventoryDispatchedOrderRow {
+  orderId: number;
+  orderNo: number;
+  customerName: string;
+  status: OrderStatusKey;
+  orderDate: string;
+  orderedPcs: number;
+  /** Pcs of the order's dispatched takas (actual pcs). */
+  dispatchedPcs: number;
+  /** Date (yyyy-MM-dd) of the latest delivery challan, null when none. */
+  lastDispatchDate: string | null;
+  /** Delivery challans of the order (revisions not counted twice). */
+  challanCount: number;
+  blouseOption: BlouseOption | null;
+}
+
 /** One card of the Damaged grid. */
 export interface DamagedItemCard extends InventoryItemHeader {
   damaged: number;

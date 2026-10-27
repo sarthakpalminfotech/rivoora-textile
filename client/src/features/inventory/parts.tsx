@@ -177,11 +177,11 @@ export function CardThumb({ item }: { item: InventoryItemHeader }) {
 }
 
 /** "← Inventory" — returns to the list the user came from (section + search kept), else to the Inventory home. */
-export function BackLink({ fallback = '/inventory' }: { fallback?: string }) {
+export function BackLink({ fallback = '/inventory', label = 'Inventory' }: { fallback?: string; label?: string }) {
   const from = (useLocation().state as { from?: string } | null)?.from;
   return (
     <Link to={from ?? fallback} className="inline-flex h-11 items-center gap-1.5 rounded-lg pr-3 text-sm font-semibold text-slate-600 outline-none hover:text-slate-900 focus-visible:ring-2 focus-visible:ring-primary/40">
-      <ArrowLeft className="size-4" aria-hidden /> Inventory
+      <ArrowLeft className="size-4" aria-hidden /> {label}
     </Link>
   );
 }

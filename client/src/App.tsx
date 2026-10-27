@@ -57,6 +57,7 @@ const SplitPage = lazy(() => import('@/features/godown/split-page'));
 const InventoryPage = lazy(() => import('@/features/inventory/inventory-page'));
 const InventoryItemDetailsPage = lazy(() => import('@/features/inventory/item-details-page'));
 const DamagedDetailsPage = lazy(() => import('@/features/inventory/damaged-details-page'));
+const DispatchedHistoryPage = lazy(() => import('@/features/inventory/dispatched-history-page'));
 const DispatchPrintPage = lazy(() => import('@/features/dispatch/print-page'));
 const DispatchedPage = lazy(() => import('@/features/dispatch/dispatched-page'));
 const DispatchedOrderPage = lazy(() => import('@/features/dispatch/dispatched-order-page'));
@@ -280,6 +281,7 @@ const router = createBrowserRouter([
           // Inventory (Jenish / Gaurang): design-wise pcs, damaged stock.
           { path: 'inventory', element: guard('canViewInventory', <InventoryPage />) },
           { path: 'inventory/items/:key', element: guard('canViewInventory', <InventoryItemDetailsPage />) },
+          { path: 'inventory/items/:key/dispatched', element: guard('canViewInventory', <DispatchedHistoryPage />) },
           { path: 'inventory/damaged/:key', element: guard('canViewInventory', <DamagedDetailsPage />) },
           // Dispatch (Dhruvil; Jenish / Gaurang too): the Dispatched module and goods return.
           { path: 'dispatched', element: guard('canDispatch', <DispatchedPage />) },

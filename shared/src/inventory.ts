@@ -11,6 +11,13 @@ import type { JobsheetStatusKey } from './statuses';
 
 /** Takas in these stages are "in making" (everything before the godown). */
 export const MAKING_STAGES: readonly string[] = ['entered', 'rework_butta', 'at_butta', 'butta_qc', 'waiting_mill', 'at_mill', 'mill_qc'];
+/**
+ * Fully dispatched orders (Dispatched / Returned) are out of the inventory: their pcs are not "Ordered" any more and
+ * they are listed only in the design's Dispatched history. Partly dispatched orders stay (they still have stock).
+ */
+export const DISPATCHED_ORDER_STATUSES: readonly string[] = ['dispatched', 'returned'];
+export const isFullyDispatchedStatus = (status: string) => DISPATCHED_ORDER_STATUSES.includes(status);
+
 /** Damaged stock that is physically in the godown. */
 export const DAMAGED_STOCK_STAGES: readonly string[] = ['final', 'ready_dispatch'];
 

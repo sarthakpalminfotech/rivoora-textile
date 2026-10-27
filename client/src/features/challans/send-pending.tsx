@@ -1,5 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, CheckCircle2, Loader2, PackageOpen, Scissors, SearchX, Send, X } from 'lucide-react';
+import { AlertTriangle, ArrowUpRight, CheckCircle2, Loader2, PackageOpen, Scissors, SearchX, Send, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
@@ -158,6 +158,20 @@ function OrderCard({
             </p>
           )}
         </div>
+        {/* Choose takas: opens the side panel with the order's ready takas pre-selected (untick the ones to keep back). */}
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onOpen();
+          }}
+          onKeyDown={(e) => e.stopPropagation()}
+          aria-label={`Choose takas of order ${formatOrderNo(order.orderNo)}`}
+          title="Choose takas"
+          className="-mr-1 -mt-1 flex size-9 shrink-0 items-center justify-center rounded-full border border-border bg-white text-slate-500 outline-none transition hover:border-primary/40 hover:text-primary focus-visible:ring-2 focus-visible:ring-primary/40"
+        >
+          <ArrowUpRight className="size-4" aria-hidden />
+        </button>
       </div>
       <div className="flex flex-1 flex-col gap-1 px-4 pb-4">
         {mode === 'refinish' ? (

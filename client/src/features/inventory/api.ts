@@ -5,6 +5,7 @@ import type {
   DamagedItemDetail,
   DamagedTakaRow,
   DamageType,
+  InventoryDispatchedOrderRow,
   InventoryItemCard,
   InventoryItemDetail,
   InventoryOrderRow,
@@ -25,6 +26,7 @@ export const inventoryKeys = {
   items: ['inventory', 'items'] as const,
   item: (key: string, blouse = 'all') => ['inventory', 'item', key, blouse] as const,
   itemOrders: (key: string, search: string, filter = '', blouse = 'all') => ['inventory', 'item-orders', key, search, filter, blouse] as const,
+  itemDispatched: (key: string) => ['inventory', 'item-dispatched', key] as const,
   damaged: ['inventory', 'damaged'] as const,
   damagedItem: (key: string) => ['inventory', 'damaged-item', key] as const,
   damagedTakas: (key: string, type: string, refinish: boolean, search: string) => ['inventory', 'damaged-takas', key, type, refinish, search] as const,
@@ -58,6 +60,15 @@ export function useInventoryItemOrders(key: string, search: string, filter = '',
   return useQuery({
     queryKey: inventoryKeys.itemOrders(key, search, filter, blouse),
     queryFn: ({ signal }) => api.get<InventoryOrderRow[]>(`/inventory/items/${key}/orders`, { search, filter, blouse: blouse === 'all' ? undefined : blouse }, signal),
+    ...live,
+  });
+}
+
+/** The design's fully dispatched orders (Dispatched history). */
+export function useInventoryItemDispatched(key: string) {
+  return useQuery({
+    queryKey: inventoryKeys.itemDispatched(key),
+    queryFn: ({ signal }) => api.get<InventoryDispatchedOrderRow[]>(`/inventory/items/${key}/dispatched`, undefined, signal),
     ...live,
   });
 }

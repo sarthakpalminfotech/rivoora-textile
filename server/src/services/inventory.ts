@@ -1,4 +1,4 @@
-import { and, eq, inArray, sql, type SQL } from 'drizzle-orm';
+import { and, eq, inArray, notInArray, sql, type SQL } from 'drizzle-orm';
 import { z } from 'zod';
 import {
   addInventoryPcs,
@@ -17,6 +17,7 @@ import {
   compareInventoryItems,
   compareTakaNo,
   DAMAGE_TYPES,
+  DISPATCHED_ORDER_STATUSES,
   EMPTY_INVENTORY_PCS,
   inventoryKey,
   NO_DESIGN_KEY,
@@ -31,6 +32,7 @@ import {
   type InventoryItemCard,
   type InventoryItemDetail,
   type InventoryItemHeader,
+  type InventoryDispatchedOrderRow,
   type InventoryOrderRow,
   type InventorySummary,
   type OrderStatusKey,
@@ -39,7 +41,7 @@ import {
   type TakaStage,
 } from '@rivoora/shared';
 import { db } from '../db/client';
-import { customers, designVariationMap, designs, jobsheets, orders, takas } from '../db/schema';
+import { customers, designVariationMap, designs, dispatchChallans, jobsheets, orders, takas } from '../db/schema';
 import { badRequest, notFound } from '../lib/errors';
 import { likePattern, paginationSchema } from '../lib/http';
 import { parseDamagesJson, takaDamagesJson } from './taka-shared';
@@ -106,9 +108,12 @@ function orderScope(role: RoleKey, key?: string): SQL {
   return and(...conds)!;
 }
 
-/** Pcs figures of every pcs order in scope, plus how many non-pcs orders were left out. */
+/**
+ * Pcs figures of every pcs order in scope, plus how many non-pcs orders were left out. Fully dispatched orders
+ * (Dispatched / Returned) are not inventory any more: they are left out here (see `listDispatchedItemOrders`).
+ */
 async function loadOrderPcs(role: RoleKey, key?: string): Promise<{ list: OrderPcs[]; excluded: number }> {
-  const scope = orderScope(role, key);
+  const scope = and(orderScope(role, key), notInArray(orders.status, DISPATCHED_ORDER_STATUSES as OrderStatusKey[]))!;
   const [orderRows, sheetRows, takaRows] = await db.batch([
     db
       .select({
@@ -388,13 +393,15 @@ export async function listInventoryItems(role: RoleKey, query: unknown): Promise
   const list = all.filter((o) => matchesBlouse(blouse, o.blouseOption));
   const freeMap = freeByKey(freeAll.filter((t) => matchesBlouse(blouse, t.blouseOption)));
   const grouped = groupByItem(list);
+  // An item whose orders are all dispatched can still hold free stock (e.g. from a goods return): keep it listed.
+  for (const key of freeMap.keys()) if (!grouped.has(key)) grouped.set(key, EMPTY_INVENTORY_PCS);
   const headers = await loadHeaders([...grouped.keys()]);
   const cards: InventoryItemCard[] = [];
   for (const [key, pcs] of grouped) {
     const header = headers.get(key);
-    if (!header || pcs.ordered <= 0) continue; // items with nothing ordered are not shown
-    if (search && !searchMatches(header, search)) continue;
     const freePcs = freeFigures(freeMap.get(key) ?? []).total;
+    if (!header || (pcs.ordered <= 0 && freePcs <= 0)) continue; // nothing ordered and no free stock: not shown
+    if (search && !searchMatches(header, search)) continue;
     if (kpi.length && !kpi.some((k) => kpiPcs(pcs, k, freePcs) > 0)) continue;
     cards.push({ ...header, pcs, freePcs });
   }
@@ -521,6 +528,44 @@ export async function listInventoryItemOrders(role: RoleKey, key: string, query:
       blouseOption: o.blouseOption,
       isOnHold: o.isOnHold,
     }));
+}
+
+/**
+ * GET /inventory/items/:key/dispatched — the design's fully dispatched orders (Dispatched / Returned), latest dispatch
+ * first. Dispatched pcs = the order's dispatched takas (actual pcs); the date / count come from its delivery challans.
+ */
+export async function listDispatchedItemOrders(role: RoleKey, key: string): Promise<InventoryDispatchedOrderRow[]> {
+  await loadHeader(key);
+  const rows = await db
+    .select({
+      orderId: orders.id,
+      orderNo: orders.orderNo,
+      customerName: customers.name,
+      status: orders.status,
+      orderDate: orders.orderDate,
+      quantity: orders.quantity,
+      blouseOption: orders.blouseOption,
+      dispatchedPcs: sql<number>`COALESCE((SELECT SUM(COALESCE(t.actual_pcs, t.pcs, 0)) FROM takas t WHERE COALESCE(t.allocated_order_id, t.order_id) = "orders"."id" AND t.is_free_stock = 0 AND t.is_deleted = 0 AND t.stage = 'dispatched'), 0)`,
+      lastDispatchDate: sql<string | null>`(SELECT MAX(c.challan_date) FROM ${dispatchChallans} c WHERE c.order_id = "orders"."id")`,
+      challanCount: sql<number>`(SELECT COUNT(DISTINCT c.challan_no) FROM ${dispatchChallans} c WHERE c.order_id = "orders"."id")`,
+    })
+    .from(orders)
+    .innerJoin(customers, eq(customers.id, orders.customerId))
+    .where(and(orderScope(role, key), eq(orders.unit, 'pcs'), inArray(orders.status, DISPATCHED_ORDER_STATUSES as OrderStatusKey[])));
+  return rows
+    .map((r) => ({
+      orderId: r.orderId,
+      orderNo: r.orderNo,
+      customerName: r.customerName,
+      status: r.status,
+      orderDate: r.orderDate,
+      orderedPcs: r.quantity,
+      dispatchedPcs: Number(r.dispatchedPcs),
+      lastDispatchDate: r.lastDispatchDate,
+      challanCount: Number(r.challanCount),
+      blouseOption: r.blouseOption,
+    }))
+    .sort((a, b) => (b.lastDispatchDate ?? '').localeCompare(a.lastDispatchDate ?? '') || b.orderNo - a.orderNo);
 }
 
 /* ------------------------------------------------------------------ */

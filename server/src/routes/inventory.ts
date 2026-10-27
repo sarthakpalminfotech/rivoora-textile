@@ -10,6 +10,7 @@ import {
   getInventorySummary,
   listDamagedItems,
   listDamagedTakas,
+  listDispatchedItemOrders,
   listInventoryItemOrders,
   listInventoryItems,
   resolveInventoryKey,
@@ -40,6 +41,7 @@ inventoryRouter.get('/summary', ah(async (req, res) => res.json(await getInvento
 inventoryRouter.get('/items', ah(async (req, res) => res.json(await listInventoryItems(req.role, req.query))));
 inventoryRouter.get('/items/:key', ah(async (req, res) => res.json(await getInventoryItem(req.role, req.params.key, req.query))));
 inventoryRouter.get('/items/:key/orders', ah(async (req, res) => res.json(await listInventoryItemOrders(req.role, req.params.key, req.query))));
+inventoryRouter.get('/items/:key/dispatched', ah(async (req, res) => res.json(await listDispatchedItemOrders(req.role, req.params.key))));
 inventoryRouter.get(
   '/items/:key/assign-targets',
   requirePermission('canMoveToInventory'),

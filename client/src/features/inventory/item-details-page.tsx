@@ -1,4 +1,4 @@
-import { Boxes, ChevronRight, ClipboardList, PackagePlus } from 'lucide-react';
+import { Boxes, ChevronRight, ClipboardList, History, PackagePlus } from 'lucide-react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { Link } from 'react-router-dom';
 import { FREE_STOCK_REASON_LABEL, formatMeters, isBlouseFilter, takaStageShortLabel, type BlouseFilter, type FreeStockTaka, type InventoryOrderRow } from '@rivoora/shared';
@@ -246,7 +246,13 @@ export default function InventoryItemDetailsPage() {
               <h2 className={cn('text-[15px] font-semibold text-slate-900', search && 'hidden sm:block')}>
                 Orders {orders.data && <span className="font-medium text-slate-400">· {orders.data.length}</span>}
               </h2>
-              <ExpandingSearch value={search} onChange={setSearch} placeholder="Search order or taka no…" className={search ? 'flex-1 sm:flex-none' : undefined} />
+              <div className={cn('flex items-center gap-1', search && 'flex-1 sm:flex-none')}>
+                <ExpandingSearch value={search} onChange={setSearch} placeholder="Search order or taka no…" className={search ? 'flex-1 sm:flex-none' : undefined} />
+                {/* Fully dispatched orders are not listed here (nor counted in Ordered): they live in the History page. */}
+                <Button variant="secondary" size="sm" className="h-9 shrink-0" onClick={() => navigate(`/inventory/items/${key}/dispatched`, { state: { from } })}>
+                  <History /> History
+                </Button>
+              </div>
             </div>
             {orders.isPending ? (
               <div className="space-y-px p-3">
