@@ -210,6 +210,9 @@ const designOk = (v: { newDesign: unknown; designId: unknown }) => !(v.newDesign
 const DESIGN_REFINE = { message: 'Pick either a saved design or upload a new one', path: ['designId'] };
 const outsideOk = (v: { isOutsideOrder: boolean; outsidePartyName: string | null }) => !v.isOutsideOrder || !!v.outsidePartyName;
 const OUTSIDE_REFINE = { message: 'Enter the party name', path: ['outsidePartyName'] };
+/** Sprint 19: a meter (all-over) order is always lump — pcs-to-pcs doesn't exist for meters. */
+const meterOrderIsLump = (v: { unit: string; orderType: string }) => v.unit !== 'meters' || v.orderType === 'lump';
+const METER_LUMP_REFINE = { message: 'Meter orders are always lump', path: ['orderType'] };
 
 /** POST /orders — Sprint 16: + the steps (an old client that sends none gets all three, the old flow). */
 export const orderCreateSchema = z
@@ -220,7 +223,8 @@ export const orderCreateSchema = z
     hasMill: stepFlag.default(true),
   })
   .refine(designOk, DESIGN_REFINE)
-  .refine(outsideOk, OUTSIDE_REFINE);
+  .refine(outsideOk, OUTSIDE_REFINE)
+  .refine(meterOrderIsLump, METER_LUMP_REFINE);
 export type OrderCreateInput = z.input<typeof orderCreateSchema>;
 
 /**
@@ -235,7 +239,8 @@ export const orderUpdateSchema = z
     hasMill: stepFlag.optional(),
   })
   .refine(designOk, DESIGN_REFINE)
-  .refine(outsideOk, OUTSIDE_REFINE);
+  .refine(outsideOk, OUTSIDE_REFINE)
+  .refine(meterOrderIsLump, METER_LUMP_REFINE);
 
 /** PUT /orders/:id/steps */
 export const orderStepsSchema = z.object({ hasProduction: stepFlag, hasButta: stepFlag, hasMill: stepFlag });

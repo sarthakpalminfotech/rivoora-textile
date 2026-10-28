@@ -37,6 +37,8 @@ import {
   orderNoteImages,
   orderStatusHistory,
   orders,
+  outsidePos,
+  takas,
   users,
 } from '../db/schema';
 import { badRequest, conflict, notFound } from '../lib/errors';
@@ -406,8 +408,24 @@ export async function createOrder(role: RoleKey, input: unknown): Promise<{ id: 
 }
 
 /**
- * Edits an order the role can see (status unchanged). The unit is locked once the order has jobsheets;
- * note images are replaced by the submitted set; a role without `canSeeRate` keeps the stored rate.
+ * Sprint 19: the unit is locked once the order has jobsheets, takas, or outside POs — extends the old
+ * "jobsheets only" rule (kg/g orders could otherwise flip units after a PO or an FG receipt gave them takas).
+ */
+async function hasUnitLockingHistory(tx: Tx, orderId: number): Promise<boolean> {
+  if ((await countActiveJobsheets(tx, orderId)) > 0) return true;
+  const [takaRow] = await tx
+    .select({ id: takas.id })
+    .from(takas)
+    .where(and(eq(takas.orderId, orderId), eq(takas.isDeleted, false)))
+    .limit(1);
+  if (takaRow) return true;
+  const [poRow] = await tx.select({ id: outsidePos.id }).from(outsidePos).where(eq(outsidePos.orderId, orderId)).limit(1);
+  return !!poRow;
+}
+
+/**
+ * Edits an order the role can see (status unchanged). The unit is locked once the order has jobsheets, takas or
+ * outside POs; note images are replaced by the submitted set; a role without `canSeeRate` keeps the stored rate.
  */
 export async function updateOrder(role: RoleKey, id: number, input: unknown): Promise<OrderDetail> {
   const data = orderUpdateSchema.parse(input);
@@ -434,8 +452,8 @@ export async function updateOrder(role: RoleKey, id: number, input: unknown): Pr
         hasMill: data.hasMill ?? current.hasMill,
       });
     }
-    if (data.unit !== current.unit && (await countActiveJobsheets(tx, id)) > 0) {
-      throw badRequest('The unit cannot change once the order has jobsheets', 'unit');
+    if (data.unit !== current.unit && (await hasUnitLockingHistory(tx, id))) {
+      throw badRequest('The unit cannot change once the order has jobsheets, takas or outside POs', 'unit');
     }
 
     const { designId } = await resolveOrderRefs(tx, data, current.brokerId);

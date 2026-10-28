@@ -2,7 +2,7 @@ import { ArrowLeft, CalendarClock, Check, ImageOff, PackageCheck, Send, X as XIc
 import { useState, type ReactNode } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
-import { isReadyOrLater, ORDER_TYPE_LABEL, STEP_KEYS, STEP_LABEL, returnedSummary, stepOn, STATUS, type OrderDetail } from '@rivoora/shared';
+import { isMeterOrder, isReadyOrLater, ORDER_TYPE_LABEL, STEP_KEYS, STEP_LABEL, returnedSummary, stepOn, STATUS, type OrderDetail } from '@rivoora/shared';
 import { usePageTitle } from '@/components/layout/page-title';
 import { ErrorState } from '@/components/list-parts';
 import { Button } from '@/components/ui/button';
@@ -64,6 +64,11 @@ function DetailsTab({ order }: { order: OrderDetail }) {
           <dl className="grid grid-cols-1 gap-4 sm:grid-cols-3">
             <Item label="Order type">{ORDER_TYPE_LABEL[order.orderType]}</Item>
             <Item label="Blouse">{order.blouseOption ? <BlouseTag option={order.blouseOption} /> : <span className="font-normal text-slate-400">Not set</span>}</Item>
+            {isMeterOrder(order) && (
+              <Item label="Unit">
+                <span className="text-sky-700">All-over order (meters)</span>
+              </Item>
+            )}
             {can('canSeeClient') && <Item label="Client">{order.customer.name}</Item>}
             {can('canSeeClient') && order.isOutsideOrder && (
               <Item label="Outside order">

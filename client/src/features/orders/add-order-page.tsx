@@ -10,6 +10,7 @@ import {
   BLOUSE_LABEL,
   BLOUSE_OPTIONS,
   DEFAULT_UNIT,
+  isMeterOrder,
   ORDER_TYPE_LABEL,
   ORDER_TYPES,
   stepsHelperText,
@@ -153,7 +154,8 @@ const fromOrder = (o: OrderDetail): FormValues => {
   };
 };
 
-const unitOptions = UNITS.map((u) => ({ value: u, label: u }));
+/** Sprint 19: new orders only choose Pcs or Meters; kg / g stay valid on old orders (never offered on a new one). */
+const NEW_ORDER_UNITS: readonly Unit[] = ['pcs', 'meters'];
 const orderTypeOptions = ORDER_TYPES.map((t) => ({ value: t, label: ORDER_TYPE_LABEL[t] }));
 const blouseOptions = BLOUSE_OPTIONS.map((b) => ({ value: b, label: BLOUSE_LABEL[b] }));
 
@@ -181,8 +183,11 @@ export function OrderForm({ order }: { order?: OrderDetail }) {
   const create = useCreateOrder();
   const update = useUpdateOrder(order?.id ?? 0);
   const saving = create.isPending || update.isPending;
-  /** The unit can't change once the order has jobsheets (the server enforces the same rule). */
-  const unitLocked = !!order && order.jobsheetCount > 0;
+  /**
+   * Sprint 19: the unit can't change once the order has jobsheets, takas or outside POs (the server enforces the
+   * same rule — this is just the client's best-effort preview of it, from the fields on the order detail).
+   */
+  const unitLocked = !!order && (order.jobsheetCount > 0 || order.outsidePoCount > 0 || order.receiptCount > 0);
   const savedRef = useRef(false);
 
   const {
@@ -196,10 +201,24 @@ export function OrderForm({ order }: { order?: OrderDetail }) {
     formState: { errors, isDirty },
   } = useForm<FormValues>({ resolver: zodResolver(schema), defaultValues: order ? fromOrder(order) : defaults() });
 
-  const [customerId, design, noteImages, newDesignCode, steps, newDesignButta, materialId, isOutsideOrder] = useWatch({
+  const [customerId, design, noteImages, newDesignCode, steps, newDesignButta, materialId, isOutsideOrder, unit] = useWatch({
     control,
-    name: ['customerId', 'design', 'noteImages', 'newDesignCode', 'steps', 'newDesignButta', 'materialId', 'isOutsideOrder'],
+    name: ['customerId', 'design', 'noteImages', 'newDesignCode', 'steps', 'newDesignButta', 'materialId', 'isOutsideOrder', 'unit'],
   });
+  // Sprint 19: a meter order is always lump — force it the moment Meters is picked, and lock the field while it is.
+  useEffect(() => {
+    if (isMeterOrder({ unit }) && getValues('orderType') !== 'lump') {
+      setValue('orderType', 'lump', { shouldDirty: true, shouldValidate: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [unit]);
+  /** Sprint 19: only Pcs / Meters on a new choice; an existing kg / g order keeps showing its own (locked) value. */
+  const unitOptions = useMemo(() => {
+    const base = NEW_ORDER_UNITS.map((u) => ({ value: u, label: u }));
+    const current = order?.unit;
+    if (current && !NEW_ORDER_UNITS.includes(current)) return [{ value: current, label: current }, ...base];
+    return base;
+  }, [order?.unit]);
   /** Sprint 18: a picked design in several qualities → "Which quality?". */
   const [chooser, setChooser] = useState<{ code: string; options: DesignQuality[] } | null>(null);
   // Sprint 16: the Butta step follows the design's "Goes for butta cutting" until the user taps it themselves.
@@ -475,7 +494,13 @@ export function OrderForm({ order }: { order?: OrderDetail }) {
                 )}
               />
             </Field>
-            <Field label="Order type" htmlFor="order-type" required error={errors.orderType?.message}>
+            <Field
+              label="Order type"
+              htmlFor="order-type"
+              required
+              error={errors.orderType?.message}
+              hint={isMeterOrder({ unit }) ? 'Meter orders are always lump' : undefined}
+            >
               <Controller
                 control={control}
                 name="orderType"
@@ -490,6 +515,7 @@ export function OrderForm({ order }: { order?: OrderDetail }) {
                       clearErrors('orderType');
                     }}
                     invalid={!!errors.orderType}
+                    disabled={isMeterOrder({ unit })}
                   />
                 )}
               />
@@ -686,7 +712,7 @@ export function OrderForm({ order }: { order?: OrderDetail }) {
               htmlFor="order-qty"
               required
               error={errors.quantity?.message ?? errors.unit?.message}
-              hint={unitLocked ? 'The unit is fixed once jobsheets exist' : undefined}
+              hint={unitLocked ? 'The unit is fixed once jobsheets, takas or outside POs exist' : undefined}
               className="md:col-span-2"
             >
               <div className="grid grid-cols-[minmax(0,1fr)_120px] gap-2 sm:grid-cols-[minmax(0,1fr)_150px]">
