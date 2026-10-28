@@ -11,6 +11,7 @@ import {
   JOBSHEET_STATUS,
   jobsheetRef,
   METERS_ERROR_TEXT,
+  metersMismatchNote,
   parseMeters,
   parsePcs,
   PCS_ERROR_TEXT,
@@ -34,7 +35,7 @@ import { Bi, bi } from '@/lib/bilingual';
 import { formatDateTime, formatOrderNo } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { useJobsheet } from '../jobsheets/api';
-import { FramesValue, machineNumbers } from '../jobsheets/parts';
+import { FramesValue, MetersValue, machineNumbers } from '../jobsheets/parts';
 import { useEnterTakas, useNextTakaNumbers } from './api';
 import { entryLabel, entryPayload, TakaDamageControl, type DamageEntry } from './damage-dialog';
 import { TakaChip } from './taka-chip';
@@ -43,19 +44,19 @@ import { HoldNotice, isOnHoldError } from '../orders/hold/hold-notice';
 
 interface Row {
   key: number;
-  /** Meters as typed (optional). */
+  /** Meters as typed — required (and the only quantity) on a meter order's row, optional on a pcs order's. */
   meters: string;
-  /** Pcs as typed (required once the row has a number). */
+  /** Pcs as typed (required once the row has a number, pcs orders only). */
   pcs: string;
-  /** The user left the pcs field (its error shows from then on). */
-  pcsTouched: boolean;
-  /** Every damage of the taka (one or more; each with its damaged pcs). */
+  /** The user left the PRIMARY quantity field (pcs for a pcs order, meters for a meter order) — its error shows from then on. */
+  touched: boolean;
+  /** Every damage of the taka (one or more; each with its damaged pcs / metres). */
   damages: DamageEntry[];
 }
 
 let rowKey = 0;
 const emptyRows = (n: number): Row[] =>
-  Array.from({ length: n }, () => ({ key: ++rowKey, meters: '', pcs: '', pcsTouched: false, damages: [] }));
+  Array.from({ length: n }, () => ({ key: ++rowKey, meters: '', pcs: '', touched: false, damages: [] }));
 
 /** A row is in use as soon as something is typed in it (its number is system generated). */
 const isUsed = (r: Row) => r.pcs !== '' || r.meters !== '' || r.damages.length > 0;
@@ -108,7 +109,11 @@ function IdentityCard({ js }: { js: JobsheetDetail }) {
       <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 border-t border-border pt-3 text-sm text-slate-600">
         <StatusBadge kind="jobsheet" status={js.status} />
         <span className="font-semibold text-slate-800">
-          <FramesValue status={js.status} frames={js.frames} completedFrames={js.completedFrames} withUnit />
+          {js.meters !== null ? (
+            <MetersValue status={js.status} meters={js.meters} completedMeters={js.completedMeters} />
+          ) : (
+            <FramesValue status={js.status} frames={js.frames} completedFrames={js.completedFrames} withUnit />
+          )}
         </span>
         {machine && <span>{machine}</span>}
       </div>
@@ -132,7 +137,9 @@ function DetailsCard({ js }: { js: JobsheetDetail }) {
         <dl className="grid grid-cols-2 gap-x-4 gap-y-3">
           {item('Order', 'ऑर्डर', formatOrderNo(js.orderNo))}
           {item('Jobsheet', 'जॉबशीट', js.jobsheetNo)}
-          {item('Frames', 'फ्रेम', <FramesValue status={js.status} frames={js.frames} completedFrames={js.completedFrames} withUnit />)}
+          {js.meters !== null
+            ? item('Meters', 'मीटर', <MetersValue status={js.status} meters={js.meters} completedMeters={js.completedMeters} />)
+            : item('Frames', 'फ्रेम', <FramesValue status={js.status} frames={js.frames} completedFrames={js.completedFrames} withUnit />)}
           {item('Machines', 'मशीन', machineNumbers(js.machines))}
           {js.runningMachine && item('Made on', 'बनी मशीन', `Machine ${js.runningMachine.machineNo}`)}
           {js.startedAt && item('Started', 'शुरू', formatDateTime(js.startedAt))}
@@ -223,6 +230,24 @@ function PcsMismatchNote({ entered, expected, frames, sections, className }: { e
   );
 }
 
+/** Sprint 19: the meter twin of `PcsMismatchNote` — the metres entered don't match frames × sections. */
+function MetersMismatchNote({ note, className }: { note: string; className?: string }) {
+  return (
+    <p
+      className={cn('mt-3 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-2.5 text-sm font-medium text-amber-900', className)}
+      role="status"
+    >
+      <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-500" aria-hidden />
+      <span>
+        {note} Please check.
+        <span lang="hi" className="block">
+          कृपया जाँच लें।
+        </span>
+      </span>
+    </p>
+  );
+}
+
 const fieldBox = (invalid: boolean) =>
   cn(
     'h-14 w-full rounded-xl border bg-white tabular-nums text-slate-900 transition-colors placeholder:text-slate-300 focus:outline-none focus:ring-2 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:opacity-60',
@@ -237,7 +262,7 @@ export default function TakaEntryPage() {
   const enter = useEnterTakas(id);
   const [rows, setRows] = useState<Row[]>(() => emptyRows(TAKA_ENTRY_DEFAULT_ROWS));
   const [note, setNote] = useState('');
-  const [serverError, setServerError] = useState<{ key: number; field: 'pcs' | 'damages' | 'other'; message: string } | null>(null);
+  const [serverError, setServerError] = useState<{ key: number; field: 'pcs' | 'meters' | 'damages' | 'other'; message: string } | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [saved, setSaved] = useState<{ takas: Taka[]; autoCompleted: boolean } | null>(null);
   /** The taka number field that has focus (its – / helper keys are shown). */
@@ -249,11 +274,18 @@ export default function TakaEntryPage() {
     js ? bi(jobsheetRef(js.orderNo, js.jobsheetNo), `ऑर्डर #${js.orderNo} (${js.jobsheetNo})`) : bi('Taka entry', 'टाका एंट्री'),
   );
 
+  // Sprint 19: a meter jobsheet carries `meters` (frames stays the 0 sentinel) — the one reliable signal.
+  const meterOrder = js ? js.meters !== null : false;
   // Taka numbers are system generated (auto incremental, from 11). Shown before saving; confirmed on save.
   const nextNumbers = useNextTakaNumbers(rows.length);
   const meterErrors = useMemo(() => rows.map((r) => parseMeters(r.meters).error), [rows]);
-  // Pcs are required on every row that is in use.
-  const pcsErrors = useMemo(() => rows.map((r) => (isUsed(r) ? parsePcs(r.pcs).error : null)), [rows]);
+  // Pcs are required on every row that is in use (pcs orders only — meter orders don't use pcs at all).
+  const pcsErrors = useMemo(() => rows.map((r) => (meterOrder || !isUsed(r) ? null : parsePcs(r.pcs).error)), [rows, meterOrder]);
+  // Metres are required on every row that is in use (meter orders only).
+  const metersRequired = useMemo(
+    () => rows.map((r, i) => meterOrder && isUsed(r) && meterErrors[i] === null && r.meters.trim() === ''),
+    [rows, meterOrder, meterErrors],
+  );
   const filled = rows.filter(isUsed);
   // The numbers follow the order the rows are saved in: used rows first, then the free ones.
   const numberOf = useMemo(() => {
@@ -267,10 +299,16 @@ export default function TakaEntryPage() {
     return map;
   }, [rows, filled.length, nextNumbers.data]);
   const canSubmit = filled.length > 0 && meterErrors.every((e) => e === null) && !!nextNumbers.data;
-  // Expected pcs for the frames of this jobsheet (frames × ITS sections per beam — Sprint 18) vs. everything entered.
-  const expectedPcs = js ? (js.completedFrames ?? js.frames) * js.sections : 0;
+  // Expected quantity for the frames of this jobsheet (frames × ITS sections per beam — Sprint 18) vs. everything entered.
+  const expectedPcs = js && !meterOrder ? (js.completedFrames ?? js.frames) * js.sections : 0;
   const enteredPcs = (totalPcs(existing) ?? 0) + (totalPcs(filled.map((r) => ({ pcs: parsePcs(r.pcs).pcs }))) ?? 0);
-  const pcsMismatch = filled.some((r) => parsePcs(r.pcs).pcs !== null) && enteredPcs !== expectedPcs;
+  const pcsMismatch = !meterOrder && filled.some((r) => parsePcs(r.pcs).pcs !== null) && enteredPcs !== expectedPcs;
+  // Sprint 19: the meter twin — metres entered vs. (completed or assigned metres) × sections, > 2% off.
+  const enteredMeters = (totalMeters(existing) ?? 0) + (totalMeters(filled.map((r) => ({ meters: parseMeters(r.meters).meters }))) ?? 0);
+  const metersMismatch =
+    meterOrder && js && filled.some((r) => parseMeters(r.meters).meters !== null)
+      ? metersMismatchNote(enteredMeters, js.completedMeters ?? js.meters ?? 0, js.sections)
+      : null;
 
   const back = (
     <button
@@ -350,25 +388,37 @@ export default function TakaEntryPage() {
     setRows((prev) => prev.map((r) => (r.key === key ? { ...r, ...patch } : r)));
     if (serverError?.key === key) setServerError(null);
   };
+  // The PRIMARY quantity field: pcs for a pcs order, meters for a meter order (pcs is hidden there).
+  const primaryInputs = meterOrder ? meterInputs : pcsInputs;
   const addRow = () => {
     const [row] = emptyRows(1);
     setRows((prev) => [...prev, row]);
     // Focus the new field once it has rendered.
-    window.setTimeout(() => pcsInputs.current.get(row.key)?.focus(), 0);
+    window.setTimeout(() => primaryInputs.current.get(row.key)?.focus(), 0);
   };
   const focusNext = (index: number) => {
     const next = rows[index + 1];
-    if (next) pcsInputs.current.get(next.key)?.focus();
+    if (next) primaryInputs.current.get(next.key)?.focus();
     else (document.activeElement as HTMLElement | null)?.blur();
   };
 
   const trySubmit = () => {
-    // Missing pcs: show every pcs error and go to the first one.
-    const firstPcs = pcsErrors.findIndex((e) => e !== null);
-    if (firstPcs >= 0) {
-      setShowAllErrors(true);
-      pcsInputs.current.get(rows[firstPcs].key)?.focus();
-      return;
+    if (meterOrder) {
+      // Missing metres: show every error and go to the first one.
+      const firstMissing = metersRequired.findIndex(Boolean);
+      if (firstMissing >= 0) {
+        setShowAllErrors(true);
+        meterInputs.current.get(rows[firstMissing].key)?.focus();
+        return;
+      }
+    } else {
+      // Missing pcs: show every pcs error and go to the first one.
+      const firstPcs = pcsErrors.findIndex((e) => e !== null);
+      if (firstPcs >= 0) {
+        setShowAllErrors(true);
+        pcsInputs.current.get(rows[firstPcs].key)?.focus();
+        return;
+      }
     }
     setConfirmOpen(true);
   };
@@ -376,8 +426,8 @@ export default function TakaEntryPage() {
   const submit = () => {
     const toSave = filled.map((r) => ({
       meters: parseMeters(r.meters).meters,
-      pcs: parsePcs(r.pcs).pcs!,
-      damages: r.damages.map(entryPayload),
+      pcs: meterOrder ? undefined : parsePcs(r.pcs).pcs!,
+      damages: r.damages.map((e) => entryPayload(e, meterOrder)),
     }));
     enter.mutate(
       { takas: toSave, note: note.trim() || null },
@@ -393,13 +443,13 @@ export default function TakaEntryPage() {
         },
         onError: (err) => {
           setConfirmOpen(false);
-          // `takas.3.takaNo` / `takas.3.pcs` / `takas.3.damages.0.pcs` → the 4th filled row.
+          // `takas.3.takaNo` / `takas.3.pcs` / `takas.3.meters` / `takas.3.damages.0.pcs` → the 4th filled row.
           const m = err instanceof ApiError && err.field ? /^takas\.(\d+)\.(\w+)/.exec(err.field) : null;
           const row = m ? filled[Number(m[1])] : undefined;
           if (row) {
-            const field = m![2] === 'pcs' || m![2] === 'damages' ? m![2] : 'other';
+            const field = m![2] === 'pcs' || m![2] === 'meters' || m![2] === 'damages' ? m![2] : 'other';
             setServerError({ key: row.key, field, message: err.message });
-            pcsInputs.current.get(row.key)?.focus();
+            primaryInputs.current.get(row.key)?.focus();
           }
         },
       },
@@ -450,20 +500,29 @@ export default function TakaEntryPage() {
           {rows.map((r, i) => {
             const no = numberOf.get(r.key);
             const meterErr = meterErrors[i];
+            const meterRequiredErr = metersRequired[i];
             const pcsErr = pcsErrors[i];
             const server = serverError?.key === r.key ? serverError : null;
-            const showPcsErr = !!pcsErr && (r.pcsTouched || showAllErrors);
+            const showPcsErr = !!pcsErr && (r.touched || showAllErrors);
+            const showMeterRequiredErr = meterRequiredErr && (r.touched || showAllErrors);
             const pcsMessage = server?.field === 'pcs' ? server.message : null;
-            const otherMessage = server && server.field !== 'pcs' ? server.message : null;
+            const metersFieldMessage = server?.field === 'meters' ? server.message : null;
+            const otherMessage = server && server.field !== 'pcs' && server.field !== 'meters' ? server.message : null;
             const metersId = `taka-${r.key}-m`;
             const pcsId = `taka-${r.key}-p`;
+            const metersInvalid = !!meterErr || showMeterRequiredErr || !!metersFieldMessage;
             return (
               <li
                 key={r.key}
                 className={cn('-mx-2 rounded-xl px-2 py-1.5 transition-colors', r.damages.length > 0 && 'bg-red-50 ring-1 ring-red-200')}
               >
                 {/* Phones: number on its own line, then pcs + meters side by side, then Damage. md+: one row. */}
-                <div className="grid grid-cols-2 gap-x-2 gap-y-1 md:grid-cols-[minmax(0,1fr)_96px_112px_156px]">
+                <div
+                  className={cn(
+                    'grid grid-cols-2 gap-x-2 gap-y-1',
+                    meterOrder ? 'md:grid-cols-[minmax(0,1fr)_140px_156px]' : 'md:grid-cols-[minmax(0,1fr)_96px_112px_156px]',
+                  )}
+                >
                   <span className="col-span-2 text-sm font-semibold text-slate-600 md:col-span-1 md:row-start-1">
                     Taka number / <span lang="hi">टाका नंबर</span>
                   </span>
@@ -476,38 +535,46 @@ export default function TakaEntryPage() {
                   >
                     {no ?? '…'}
                   </div>
-                  <label htmlFor={pcsId} className="mt-1 text-sm font-semibold text-slate-600 md:row-start-1 md:mt-0">
-                    Pcs / <span lang="hi">पीस</span>
-                    <span className="text-destructive">*</span>
-                  </label>
-                  <label htmlFor={metersId} className="mt-1 text-sm font-semibold text-slate-600 md:row-start-1 md:mt-0">
+                  {!meterOrder && (
+                    <label htmlFor={pcsId} className="mt-1 text-sm font-semibold text-slate-600 md:row-start-1 md:mt-0">
+                      Pcs / <span lang="hi">पीस</span>
+                      <span className="text-destructive">*</span>
+                    </label>
+                  )}
+                  <label
+                    htmlFor={metersId}
+                    className={cn('mt-1 text-sm font-semibold text-slate-600 md:row-start-1 md:mt-0', meterOrder && 'col-span-2 md:col-span-1')}
+                  >
                     Meters / <span lang="hi">मीटर</span>
+                    {meterOrder && <span className="text-destructive">*</span>}
                   </label>
-                  <input
-                    ref={(el) => {
-                      if (el) pcsInputs.current.set(r.key, el);
-                      else pcsInputs.current.delete(r.key);
-                    }}
-                    id={pcsId}
-                    value={r.pcs}
-                    onChange={(e) => setRow(r.key, { pcs: cleanPcs(e.target.value) })}
-                    onBlur={() => isUsed(r) && !r.pcsTouched && setRow(r.key, { pcsTouched: true })}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault();
-                        meterInputs.current.get(r.key)?.focus();
-                      }
-                    }}
-                    inputMode="numeric"
-                    autoComplete="off"
-                    enterKeyHint="next"
-                    aria-required
-                    aria-invalid={showPcsErr || !!pcsMessage || undefined}
-                    aria-describedby={showPcsErr || pcsMessage ? `${pcsId}-err` : undefined}
-                    className={cn(fieldBox(showPcsErr || !!pcsMessage), 'self-start px-3 text-[20px] font-bold md:row-start-2')}
-                    placeholder="0"
-                  />
-                  <div className="relative self-start md:row-start-2">
+                  {!meterOrder && (
+                    <input
+                      ref={(el) => {
+                        if (el) pcsInputs.current.set(r.key, el);
+                        else pcsInputs.current.delete(r.key);
+                      }}
+                      id={pcsId}
+                      value={r.pcs}
+                      onChange={(e) => setRow(r.key, { pcs: cleanPcs(e.target.value) })}
+                      onBlur={() => isUsed(r) && !r.touched && setRow(r.key, { touched: true })}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          meterInputs.current.get(r.key)?.focus();
+                        }
+                      }}
+                      inputMode="numeric"
+                      autoComplete="off"
+                      enterKeyHint="next"
+                      aria-required
+                      aria-invalid={showPcsErr || !!pcsMessage || undefined}
+                      aria-describedby={showPcsErr || pcsMessage ? `${pcsId}-err` : undefined}
+                      className={cn(fieldBox(showPcsErr || !!pcsMessage), 'self-start px-3 text-[20px] font-bold md:row-start-2')}
+                      placeholder="0"
+                    />
+                  )}
+                  <div className={cn('relative self-start md:row-start-2', meterOrder && 'col-span-2 md:col-span-1')}>
                     <input
                       ref={(el) => {
                         if (el) meterInputs.current.set(r.key, el);
@@ -516,6 +583,7 @@ export default function TakaEntryPage() {
                       id={metersId}
                       value={r.meters}
                       onChange={(e) => setRow(r.key, { meters: cleanMeters(e.target.value) })}
+                      onBlur={() => meterOrder && isUsed(r) && !r.touched && setRow(r.key, { touched: true })}
                       onKeyDown={(e) => {
                         if (e.key === 'Enter') {
                           e.preventDefault();
@@ -525,9 +593,10 @@ export default function TakaEntryPage() {
                       inputMode="decimal"
                       autoComplete="off"
                       enterKeyHint={i === rows.length - 1 ? 'done' : 'next'}
-                      aria-invalid={!!meterErr || undefined}
-                      aria-describedby={meterErr ? `${metersId}-err` : undefined}
-                      className={cn(fieldBox(!!meterErr), 'pl-3 pr-7 text-[20px] font-bold')}
+                      aria-required={meterOrder || undefined}
+                      aria-invalid={metersInvalid || undefined}
+                      aria-describedby={metersInvalid ? `${metersId}-err` : undefined}
+                      className={cn(fieldBox(metersInvalid), 'pl-3 pr-7 text-[20px] font-bold')}
                       placeholder="0.0"
                     />
                     <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-base font-semibold text-slate-400" aria-hidden>
@@ -539,7 +608,9 @@ export default function TakaEntryPage() {
                     onChange={(damages) => setRow(r.key, { damages })}
                     takaLabel={bi(`Taka ${no ?? ''}`, `टाका ${no ?? ''}`)}
                     takaPcs={parsePcs(r.pcs).pcs}
-                    disabled={parsePcs(r.pcs).error !== null}
+                    meterOrder={meterOrder}
+                    takaMeters={parseMeters(r.meters).meters}
+                    disabled={meterOrder ? parseMeters(r.meters).meters === null : parsePcs(r.pcs).error !== null}
                     className="col-span-2 mt-1 md:col-span-1 md:row-start-2 md:mt-0"
                     types={damageTypeOptions({ source: 'production', ...js?.orderSteps })}
                   />
@@ -549,9 +620,19 @@ export default function TakaEntryPage() {
                     {otherMessage}
                   </p>
                 )}
-                {meterErr && (
+                {metersFieldMessage && (
+                  <p id={`${metersId}-err`} role="alert" className="mt-1 text-sm font-semibold text-destructive">
+                    {metersFieldMessage}
+                  </p>
+                )}
+                {!metersFieldMessage && meterErr && (
                   <p id={`${metersId}-err`} role="alert" className="mt-1 text-sm font-semibold text-destructive">
                     {METERS_ERROR_TEXT[meterErr].en} / <span lang="hi">{METERS_ERROR_TEXT[meterErr].hi}</span>
+                  </p>
+                )}
+                {!metersFieldMessage && !meterErr && showMeterRequiredErr && (
+                  <p id={`${metersId}-err`} role="alert" className="mt-1 text-sm font-semibold text-destructive">
+                    Enter the metres / <span lang="hi">मीटर लिखें</span>
                   </p>
                 )}
                 {(showPcsErr || pcsMessage) && (
@@ -572,6 +653,7 @@ export default function TakaEntryPage() {
           <Bi en="Add more" hi="और जोड़ें" layout="inline" />
         </Button>
         {pcsMismatch && <PcsMismatchNote entered={enteredPcs} expected={expectedPcs} frames={js.completedFrames ?? js.frames} sections={js.sections} />}
+        {metersMismatch && <MetersMismatchNote note={metersMismatch} />}
       </Section>
 
       <Section title={<Bi en="Note" hi="नोट" layout="inline" />}>
@@ -639,6 +721,7 @@ export default function TakaEntryPage() {
           {filledTotals && ` · ${filledTotals}`}
         </p>
         {pcsMismatch && <PcsMismatchNote entered={enteredPcs} expected={expectedPcs} frames={js.completedFrames ?? js.frames} sections={js.sections} className="mb-3 mt-0" />}
+        {metersMismatch && <MetersMismatchNote note={metersMismatch} className="mb-3 mt-0" />}
         <ul className="divide-y divide-border rounded-xl border border-border">
           {filled.map((r) => {
             const meters = parseMeters(r.meters).meters;

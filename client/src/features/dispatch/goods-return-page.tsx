@@ -79,7 +79,7 @@ function Form({ challan }: { challan: DispatchChallanDetail }) {
 
   const body = (): GoodsReturnInput =>
     lump
-      ? { returns: [...returned].map((takaId) => ({ takaId, damages: (damages[takaId] ?? []).map(grEntryPayload) })), date, note }
+      ? { returns: [...returned].map((takaId) => ({ takaId, damages: (damages[takaId] ?? []).map((e) => grEntryPayload(e)) })), date, note }
       : { returnedPcs: rp, damagedPcs: dp, ...(dp > 0 && pcsDamage ? { damage: grEntryPayload(pcsDamage) } : {}), date, note };
 
   const submit = () => {

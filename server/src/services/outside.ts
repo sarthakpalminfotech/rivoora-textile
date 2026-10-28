@@ -4,6 +4,7 @@ import {
   canRoleSeeStatus,
   fgReceiptSchema,
   FG_TAKA_PREFIX,
+  isMeterOrder,
   isReadyOrLater,
   orderKind,
   OUTSIDE_PO_COUNTER,
@@ -225,7 +226,8 @@ async function allocatePoNo(tx: Tx): Promise<number> {
 export async function createOutsidePo(role: RoleKey, orderId: number, input: unknown): Promise<OutsidePoCard> {
   const data = outsidePoInputSchema.parse(input);
   const id = await db.transaction(async (tx) => {
-    await loadOrderForPo(tx, role, orderId);
+    const order = await loadOrderForPo(tx, role, orderId);
+    if (isMeterOrder(order) && data.unit !== 'meters') throw badRequest('A meter order receives in metres.', 'unit');
     await assertWeaver(tx, data.weaverId);
     await assertMaterial(tx, data.materialId);
     const poNo = await allocatePoNo(tx);
@@ -260,7 +262,8 @@ export async function updateOutsidePo(role: RoleKey, id: number, input: unknown)
   const data = outsidePoInputSchema.parse(input);
   await db.transaction(async (tx) => {
     const po = await loadPo(tx, id);
-    await loadOrderForPo(tx, role, po.orderId);
+    const order = await loadOrderForPo(tx, role, po.orderId);
+    if (isMeterOrder(order) && data.unit !== 'meters') throw badRequest('A meter order receives in metres.', 'unit');
     if (!poCanEdit(po)) throw conflict(`${poLabel(po.poNo)} can't be changed any more â€” goods were already received on it (or it is closed).`);
     await assertWeaver(tx, data.weaverId);
     await assertMaterial(tx, data.materialId);
@@ -464,6 +467,7 @@ async function formOrderInfo(tx: DbOrTx, orderId: number) {
       orderId: orders.id,
       orderNo: orders.orderNo,
       orderType: orders.orderType,
+      unit: orders.unit,
       quality: materials.name,
       designCode: designCodeSql,
       thumbUrl: designThumbSql,
@@ -509,6 +513,8 @@ interface ReceiveContext {
   recordedAt: DamageRecordedAt;
   event: TakaEventKind;
   label: string;
+  /** Sprint 19: the ORDER is a meter order — rows carry meters only (pcs stays null, never required). */
+  meterOrder: boolean;
 }
 
 /**
@@ -542,7 +548,25 @@ async function saveReceivedTakas(tx: Tx, role: RoleKey, ctx: ReceiveContext, row
         : `Taka ${parsed[bad].weaverTakaNo || bad + 1}: ${OUTSIDE_ROW_ERROR_TEXT[err]}`;
     throw badRequest(message, `rows.${bad}.${field}`);
   }
-  parsed.forEach((r, i) => assertNewDamages(r.damages as NewDamageInput[], r.pcs, `rows.${i}.damages`));
+  parsed.forEach((r, i) => {
+    if (ctx.meterOrder) {
+      if (r.meters == null) throw badRequest('Enter the metres', `rows.${i}.meters`);
+    } else if (r.pcs == null) {
+      throw badRequest('Enter the pcs', `rows.${i}.pcs`);
+    }
+    assertNewDamages(r.damages as NewDamageInput[], ctx.meterOrder ? Number.MAX_SAFE_INTEGER : r.pcs!, `rows.${i}.damages`);
+    r.damages.forEach((d, j) => {
+      const nd = d as NewDamageInput;
+      if (ctx.meterOrder) {
+        if (nd.meters === undefined) throw badRequest('Enter the damaged metres', `rows.${i}.damages.${j}.meters`);
+        if (nd.meters > r.meters!) {
+          throw badRequest(`Taka ${r.weaverTakaNo || i + 1}: damaged metres can't be more than the taka's ${r.meters} m`, `rows.${i}.damages.${j}.meters`);
+        }
+      } else if (nd.pcs === undefined) {
+        throw badRequest('Enter the damaged pcs', `rows.${i}.damages.${j}.pcs`);
+      }
+    });
+  });
 
   const jobsheetId = await ensureExternalJobsheet(tx, ctx.orderId, role);
   const inserted: { id: number; takaNo: string; weaverTakaNo: string | null; pcs: number | null }[] = [];
@@ -556,7 +580,7 @@ async function saveReceivedTakas(tx: Tx, role: RoleKey, ctx: ReceiveContext, row
             orderId: ctx.orderId,
             takaNo,
             meters: r.meters ?? null,
-            pcs: r.pcs,
+            pcs: r.pcs ?? null,
             isDamaged: r.damages.length > 0,
             stage: ctx.stage,
             source: ctx.source,
@@ -596,14 +620,19 @@ async function insertReceipt(
   return row.id;
 }
 
-async function finishReceipt(tx: Tx, receiptId: number, takaRows: { pcs: number | null; meters?: number | null; damages?: { pcs: number }[] }[], damagedPcs?: number) {
+async function finishReceipt(
+  tx: Tx,
+  receiptId: number,
+  takaRows: { pcs?: number | null; meters?: number | null; damages?: { pcs?: number }[] }[],
+  damagedPcs?: number,
+) {
   await tx
     .update(outsideReceipts)
     .set({
       takas: takaRows.length,
       pcs: takaRows.reduce((s, t) => s + (t.pcs ?? 0), 0),
       meters: round2(takaRows.reduce((s, t) => s + (t.meters ?? 0), 0)),
-      damagedPcs: damagedPcs ?? takaRows.reduce((s, t) => s + (t.damages ?? []).reduce((n, d) => n + d.pcs, 0), 0),
+      damagedPcs: damagedPcs ?? takaRows.reduce((s, t) => s + (t.damages ?? []).reduce((n, d) => n + (d.pcs ?? 0), 0), 0),
     })
     .where(eq(outsideReceipts.id, receiptId));
 }
@@ -653,6 +682,7 @@ export async function createOutsideReceipt(role: RoleKey, poId: number, input: u
       at,
     );
     const stage = await initialStageForOrder(tx, po.orderId, 'outside_receipt');
+    const meterOrder = isMeterOrder(order);
     const { inserted, rows } = await saveReceivedTakas(
       tx,
       role,
@@ -667,13 +697,14 @@ export async function createOutsideReceipt(role: RoleKey, poId: number, input: u
         recordedAt: 'outside_receipt',
         event: 'received_outside',
         label: `${receiptLabel({ challanNo: data.challanNo, poNo: po.poNo })} Â· ${po.weaverName}`,
+        meterOrder,
       },
       data.rows,
       at,
     );
     await finishReceipt(tx, receiptId, rows);
     // The PO: what came (in its own unit) and its status.
-    const receivedQty = round2(po.receivedQty + receivedQtyOf(po.unit, rows));
+    const receivedQty = round2(po.receivedQty + receivedQtyOf(po.unit, rows.map((r) => ({ pcs: r.pcs ?? null, meters: r.meters }))));
     await tx
       .update(outsidePos)
       .set({
@@ -689,7 +720,7 @@ export async function createOutsideReceipt(role: RoleKey, poId: number, input: u
       orderId: po.orderId,
       orderNo: order.orderNo,
       takas: inserted,
-      pcs: rows.reduce((s, r) => s + r.pcs, 0),
+      pcs: rows.reduce((s, r) => s + (r.pcs ?? 0), 0),
       meters: round2(rows.reduce((s, r) => s + (r.meters ?? 0), 0)),
     };
   });
@@ -721,13 +752,25 @@ export async function createFgReceipt(role: RoleKey, orderId: number, input: unk
       const { inserted, rows } = await saveReceivedTakas(
         tx,
         role,
-        { orderId, orderNo: order.orderNo, receiptId, prefix: FG_TAKA_PREFIX, weaverId: null, source: 'fg_purchase', stage: 'final', recordedAt: 'fg_receipt', event: 'received_fg', label },
+        {
+          orderId,
+          orderNo: order.orderNo,
+          receiptId,
+          prefix: FG_TAKA_PREFIX,
+          weaverId: null,
+          source: 'fg_purchase',
+          stage: 'final',
+          recordedAt: 'fg_receipt',
+          event: 'received_fg',
+          label,
+          meterOrder: isMeterOrder(order),
+        },
         data.rows,
         at,
       );
       await finishReceipt(tx, receiptId, rows);
       await recomputeOrderStatus(orderId, role, tx);
-      return { receiptId, orderId, orderNo: order.orderNo, takas: inserted, pcs: rows.reduce((s, r) => s + r.pcs, 0), meters: round2(rows.reduce((s, r) => s + (r.meters ?? 0), 0)) };
+      return { receiptId, orderId, orderNo: order.orderNo, takas: inserted, pcs: rows.reduce((s, r) => s + (r.pcs ?? 0), 0), meters: round2(rows.reduce((s, r) => s + (r.meters ?? 0), 0)) };
     }
     // Pcs to pcs: one received lot.
     const lot = receivedLot(data.pcs, data.damagedPcs);

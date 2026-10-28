@@ -6,7 +6,7 @@ import { takas } from '../db/schema';
  * The taka's damages as a JSON array (all of them: open and resolved) — one query for a whole list, like
  * `machinesJson`. Outer column written explicitly — see the Drizzle gotcha.
  */
-export const takaDamagesJson = sql<string | null>`(SELECT json_group_array(json_object('id', d.id, 'damageId', d.damage_id, 'damageName', n.name, 'foundAt', d.found_at, 'recordedAt', d.recorded_at, 'pcs', d.pcs, 'resolvedPcs', d.resolved_pcs, 'status', d.status, 'resolvedAt', d.resolved_at, 'resolvedBy', d.resolved_by, 'resolvedStage', d.resolved_stage, 'createdAt', d.created_at)) FROM taka_damages d LEFT JOIN damages n ON n.id = d.damage_id WHERE d.taka_id = "takas"."id" AND d.is_deleted = 0)`;
+export const takaDamagesJson = sql<string | null>`(SELECT json_group_array(json_object('id', d.id, 'damageId', d.damage_id, 'damageName', n.name, 'foundAt', d.found_at, 'recordedAt', d.recorded_at, 'pcs', d.pcs, 'resolvedPcs', d.resolved_pcs, 'meters', d.meters, 'resolvedMeters', d.resolved_meters, 'status', d.status, 'resolvedAt', d.resolved_at, 'resolvedBy', d.resolved_by, 'resolvedStage', d.resolved_stage, 'createdAt', d.created_at)) FROM taka_damages d LEFT JOIN damages n ON n.id = d.damage_id WHERE d.taka_id = "takas"."id" AND d.is_deleted = 0)`;
 
 /** The latest challan the taka is on (the newest active challan row: butta cutting, later the mill), if any. */
 export const takaChallanId = sql<number | null>`(SELECT ct.challan_id FROM challan_takas ct WHERE ct.taka_id = "takas"."id" AND ct.is_active = 1 ORDER BY ct.id DESC LIMIT 1)`;
@@ -72,6 +72,8 @@ export function parseDamagesJson(raw: string | null): TakaDamage[] {
     recordedAt: string | null;
     pcs: number | null;
     resolvedPcs: number | null;
+    meters: number | null;
+    resolvedMeters: number | null;
     status: string;
     resolvedAt: string | null;
     resolvedBy: TakaDamage['resolvedBy'];
@@ -89,6 +91,8 @@ export function parseDamagesJson(raw: string | null): TakaDamage[] {
         recordedAt: isDamageRecordedAt(d.recordedAt) ? d.recordedAt : null,
         pcs: d.pcs,
         resolvedPcs: d.resolvedPcs ?? 0,
+        meters: d.meters,
+        resolvedMeters: d.resolvedMeters ?? 0,
         status: d.status === 'resolved' ? 'resolved' : 'open',
         resolvedAt: d.resolvedAt,
         resolvedBy: d.resolvedBy,

@@ -5,12 +5,16 @@ import {
   damageTypeLabelFor,
   damageTypeOptions,
   type TakaSource,
+  cleanMeters,
   cleanPcs,
   DAMAGE_NAME_MAX_LENGTH,
   DAMAGE_NOT_MARKED,
+  damageMetersErrorText,
   isChoosableDamageType,
   damageLabel,
   damagePcsErrorText,
+  formatMeters,
+  parseDamageMeters,
   parseDamagePcs,
   type ChoosableDamageType,
   type DamageImageInput,
@@ -43,8 +47,10 @@ export interface DamageEntry {
   id?: number;
   foundAt: DamageType;
   choice: DamageChoice;
-  /** Damaged pcs; null only on an older damage that never had a count. */
+  /** Damaged pcs; null only on an older damage that never had a count, or on a meter order's damage. */
   pcs: number | null;
+  /** Sprint 19: damaged metres — set instead of `pcs` for a meter order's damage. */
+  meters?: number | null;
   /** Photos (Butta QC new damages only). */
   images?: DamageImageInput[];
 }
@@ -55,8 +61,8 @@ export const nextEntryKey = () => ++entryKey;
 /** The damage name shown on a row ("Hole"), or null for an older damage without a name. */
 export const entryName = (e: Pick<DamageEntry, 'choice'>) => (e.choice.kind !== 'legacy' ? e.choice.name : null);
 
-/** "Machine damage · Hole · 2 pcs" */
-export const entryLabel = (e: DamageEntry) => damageLabel(e.foundAt, entryName(e), e.pcs);
+/** "Machine damage · Hole · 2 pcs" / "Machine damage · Hole · 5.5 m" (meter order) */
+export const entryLabel = (e: DamageEntry) => damageLabel(e.foundAt, entryName(e), e.pcs, e.meters);
 
 /** The open damages of a saved taka as form entries. */
 export function entriesOfTaka(t: { damages: TakaDamage[] }): DamageEntry[] {
@@ -68,44 +74,65 @@ export function entriesOfTaka(t: { damages: TakaDamage[] }): DamageEntry[] {
       foundAt: d.foundAt,
       choice: d.damageId !== null && d.damageName !== null ? { kind: 'master', damageId: d.damageId, name: d.damageName } : { kind: 'legacy' },
       pcs: d.pcs,
+      meters: d.meters,
     }));
 }
 
 /** Compare key of an entry (to tell whether a damage changed). */
 export const entrySignature = (e: DamageEntry) =>
-  `${e.id ?? 'new'}|${e.choice.kind === 'master' ? `#${e.choice.damageId}` : e.choice.kind === 'other' ? `~${e.choice.name.trim().toLowerCase()}` : 'legacy'}|${e.pcs ?? ''}`;
+  `${e.id ?? 'new'}|${e.choice.kind === 'master' ? `#${e.choice.damageId}` : e.choice.kind === 'other' ? `~${e.choice.name.trim().toLowerCase()}` : 'legacy'}|${e.pcs ?? ''}|${e.meters ?? ''}`;
 
 /** The type chosen with the radio (Machine / Butta cutting / Mill) — what every damage write sends as `type`. */
 const choosableType = (e: Pick<DamageEntry, 'foundAt'>): ChoosableDamageType => (isChoosableDamageType(e.foundAt) ? e.foundAt : 'machine');
 
-/** What Taka entry sends for one damage (type + pcs are required). */
+/**
+ * What Taka entry sends for one damage: pcs for a pcs order, metres for a meter order (`meterOrder`) — type +
+ * exactly that quantity are required.
+ */
 export function entryPayload(
   e: DamageEntry,
-): { type: ChoosableDamageType; damageId: number; pcs: number } | { type: ChoosableDamageType; otherName: string; pcs: number } {
-  const pcs = e.pcs ?? 0;
+  meterOrder = false,
+): { type: ChoosableDamageType; damageId: number; pcs: number } | { type: ChoosableDamageType; otherName: string; pcs: number }
+  | { type: ChoosableDamageType; damageId: number; meters: number } | { type: ChoosableDamageType; otherName: string; meters: number } {
   const type = choosableType(e);
+  if (meterOrder) {
+    const meters = e.meters ?? 0;
+    if (e.choice.kind === 'master') return { type, damageId: e.choice.damageId, meters };
+    return { type, otherName: e.choice.kind === 'other' ? e.choice.name.trim() : '', meters };
+  }
+  const pcs = e.pcs ?? 0;
   if (e.choice.kind === 'master') return { type, damageId: e.choice.damageId, pcs };
   return { type, otherName: e.choice.kind === 'other' ? e.choice.name.trim() : '', pcs };
 }
 
 /** What Butta QC / Mill QC / the godown send for a NEW damage: like Taka entry + its photos. */
-export function qcEntryPayload(e: DamageEntry) {
-  return { ...entryPayload(e), images: e.images ?? [] };
+export function qcEntryPayload(e: DamageEntry, meterOrder = false) {
+  return { ...entryPayload(e, meterOrder), images: e.images ?? [] };
 }
 
 /** Goods return: the type is optional — "not marked" is sent as `null`. */
-export function grEntryPayload(e: DamageEntry) {
-  const base = entryPayload(e);
+export function grEntryPayload(e: DamageEntry, meterOrder = false) {
+  const base = entryPayload(e, meterOrder);
   return { ...base, type: isChoosableDamageType(e.foundAt) ? e.foundAt : null, images: e.images ?? [] };
 }
 
-/** What Edit takas sends: existing open damages keep their `id`; an older nameless / pcs-less one stays as it is. */
+/** What Edit takas sends: existing open damages keep their `id`; an older nameless / qty-less one stays as it is. */
 export function editEntryPayload(
   e: DamageEntry,
-): { id?: number; type?: ChoosableDamageType; damageId: number | null; pcs: number | null } | { id?: number; type?: ChoosableDamageType; otherName: string; pcs: number } {
+  meterOrder = false,
+):
+  | { id?: number; type?: ChoosableDamageType; damageId: number | null; pcs: number | null }
+  | { id?: number; type?: ChoosableDamageType; otherName: string; pcs: number }
+  | { id?: number; type?: ChoosableDamageType; damageId: number | null; meters: number | null }
+  | { id?: number; type?: ChoosableDamageType; otherName: string; meters: number } {
   const id = e.id !== undefined ? { id: e.id } : {};
   // New rows always carry the chosen type; an existing damage keeps its (possibly older) type unless it was changed.
   const type = isChoosableDamageType(e.foundAt) ? { type: e.foundAt } : {};
+  if (meterOrder) {
+    if (e.choice.kind === 'master') return { ...id, ...type, damageId: e.choice.damageId, meters: e.meters ?? null };
+    if (e.choice.kind === 'other') return { ...id, ...type, otherName: e.choice.name.trim(), meters: e.meters ?? 0 };
+    return { ...id, ...type, damageId: null, meters: e.meters ?? null };
+  }
   if (e.choice.kind === 'master') return { ...id, ...type, damageId: e.choice.damageId, pcs: e.pcs };
   if (e.choice.kind === 'other') return { ...id, ...type, otherName: e.choice.name.trim(), pcs: e.pcs ?? 0 };
   return { ...id, ...type, damageId: null, pcs: e.pcs };
@@ -191,9 +218,13 @@ interface DamageDialogProps {
   typeOptional?: boolean;
   /** The taka's pcs: the damaged pcs may not be more. Null = unknown (older taka without pcs). */
   takaPcs: number | null;
+  /** Sprint 19: the taka is a meter order's — show "Damaged metres" instead of "Damaged pcs". */
+  meterOrder?: boolean;
+  /** The taka's metres (meter order only): the damaged metres may not be more. */
+  takaMeters?: number | null;
   /** The damage being changed (opening an existing damage offers Change / Remove). */
   value: DamageEntry | null;
-  onConfirm: (value: { type: DamageType; choice: DamageChoice; pcs: number; images: DamageImageInput[] }) => void;
+  onConfirm: (value: { type: DamageType; choice: DamageChoice; pcs: number | null; meters: number | null; images: DamageImageInput[] }) => void;
   onRemove?: () => void;
   /** Butta QC / Mill QC: a new damage can carry photos (Camera / Attach image). */
   allowImages?: boolean;
@@ -215,7 +246,7 @@ interface DamageDialogProps {
  * type it, and give the damaged pcs. A centred modal on md+, a bottom sheet on phones; bilingual for the Taka entry
  * and Butta QC roles.
  */
-export function DamageDialog({ open, onOpenChange, takaLabel, typeOptional, takaPcs, value, onConfirm, onRemove, allowImages, onRefinish, suggestedNames, types, source }: DamageDialogProps) {
+export function DamageDialog({ open, onOpenChange, takaLabel, typeOptional, takaPcs, meterOrder, takaMeters, value, onConfirm, onRemove, allowImages, onRefinish, suggestedNames, types, source }: DamageDialogProps) {
   const [images, setImages] = useState<DamageImageInput[]>([]);
   const [uploading, setUploading] = useState(false);
   const bilingual = useBilingual();
@@ -225,6 +256,7 @@ export function DamageDialog({ open, onOpenChange, takaLabel, typeOptional, taka
   const [selectedName, setSelectedName] = useState<string | undefined>();
   const [otherName, setOtherName] = useState('');
   const [pcsText, setPcsText] = useState('');
+  const [metersText, setMetersText] = useState('');
   const [error, setError] = useState<{ field: 'name' | 'pcs'; message: string } | null>(null);
   const [search, setSearch] = useState('');
   const lookup = useDamageLookup(useDebounce(search.trim(), 250), open);
@@ -236,6 +268,7 @@ export function DamageDialog({ open, onOpenChange, takaLabel, typeOptional, taka
     setImages(value?.images ?? []);
     setUploading(false);
     setPcsText(value?.pcs != null ? String(value.pcs) : '');
+    setMetersText(value?.meters != null ? String(value.meters) : '');
     // Nothing is pre-selected on a new damage (unless only one type applies); an existing one shows its saved type.
     setType(value && isChoosableDamageType(value.foundAt) ? value.foundAt : !value && !typeOptional && types?.length === 1 ? types[0] : null);
     const choice = value?.choice;
@@ -284,9 +317,15 @@ export function DamageDialog({ open, onOpenChange, takaLabel, typeOptional, taka
       setError({ field: 'name', message: t('Write the damage name', 'खराबी का नाम लिखें') });
       return;
     }
-    const parsed = parseDamagePcs(pcsText, takaPcs);
-    if (parsed.error) {
-      const m = damagePcsErrorText(parsed.error, takaPcs);
+    const pcsParsed = meterOrder ? null : parseDamagePcs(pcsText, takaPcs);
+    if (pcsParsed?.error) {
+      const m = damagePcsErrorText(pcsParsed.error, takaPcs);
+      setError({ field: 'pcs', message: bilingual ? `${m.en} / ${m.hi}` : m.en });
+      return;
+    }
+    const metersParsed = meterOrder ? parseDamageMeters(metersText, takaMeters ?? null) : null;
+    if (metersParsed?.error) {
+      const m = damageMetersErrorText(metersParsed.error, takaMeters ?? null);
       setError({ field: 'pcs', message: bilingual ? `${m.en} / ${m.hi}` : m.en });
       return;
     }
@@ -294,7 +333,13 @@ export function DamageDialog({ open, onOpenChange, takaLabel, typeOptional, taka
       selected === OTHER
         ? { kind: 'other', name }
         : { kind: 'master', damageId: selected, name: selectedName ?? options.find((o) => o.value === selected)?.label ?? '' };
-    onConfirm({ type: type ?? (legacyType ? value!.foundAt : DAMAGE_NOT_MARKED), choice, pcs: parsed.pcs!, images });
+    onConfirm({
+      type: type ?? (legacyType ? value!.foundAt : DAMAGE_NOT_MARKED),
+      choice,
+      pcs: meterOrder ? null : pcsParsed!.pcs!,
+      meters: meterOrder ? metersParsed!.meters! : null,
+      images,
+    });
     onOpenChange(false);
   };
 
@@ -392,33 +437,63 @@ export function DamageDialog({ open, onOpenChange, takaLabel, typeOptional, taka
             />
           </Field>
         )}
-        <Field
-          label={t('Damaged pcs', 'खराब पीस')}
-          htmlFor="damage-pcs"
-          required
-          error={pcsError}
-          hint={takaPcs !== null ? t(`1 to ${takaPcs} (the taka's pcs)`, `1 से ${takaPcs} (टाका के पीस)`) : undefined}
-        >
-          <Input
-            id="damage-pcs"
-            inputMode="numeric"
-            autoComplete="off"
-            value={pcsText}
-            invalid={!!pcsError}
-            className="h-12 text-lg font-bold tabular-nums"
-            placeholder="0"
-            onChange={(e) => {
-              setPcsText(cleanPcs(e.target.value));
-              setError(null);
-            }}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                e.preventDefault();
-                confirm();
-              }
-            }}
-          />
-        </Field>
+        {meterOrder ? (
+          <Field
+            label={t('Damaged metres', 'खराब मीटर')}
+            htmlFor="damage-meters"
+            required
+            error={pcsError}
+            hint={takaMeters != null ? t(`Up to ${takaMeters} m (the taka's metres)`, `ज़्यादा से ज़्यादा ${takaMeters} मीटर`) : undefined}
+          >
+            <Input
+              id="damage-meters"
+              inputMode="decimal"
+              autoComplete="off"
+              value={metersText}
+              invalid={!!pcsError}
+              className="h-12 text-lg font-bold tabular-nums"
+              placeholder="0.0"
+              onChange={(e) => {
+                setMetersText(cleanMeters(e.target.value));
+                setError(null);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  confirm();
+                }
+              }}
+            />
+          </Field>
+        ) : (
+          <Field
+            label={t('Damaged pcs', 'खराब पीस')}
+            htmlFor="damage-pcs"
+            required
+            error={pcsError}
+            hint={takaPcs !== null ? t(`1 to ${takaPcs} (the taka's pcs)`, `1 से ${takaPcs} (टाका के पीस)`) : undefined}
+          >
+            <Input
+              id="damage-pcs"
+              inputMode="numeric"
+              autoComplete="off"
+              value={pcsText}
+              invalid={!!pcsError}
+              className="h-12 text-lg font-bold tabular-nums"
+              placeholder="0"
+              onChange={(e) => {
+                setPcsText(cleanPcs(e.target.value));
+                setError(null);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  confirm();
+                }
+              }}
+            />
+          </Field>
+        )}
         {allowImages && (
           <Field label={t('Images', 'फोटो')} hint={t('Optional · up to 10', 'वैकल्पिक · 10 तक')}>
             <DamageImagePicker key={String(open)} value={images} onChange={setImages} onBusyChange={setUploading} />
@@ -453,7 +528,10 @@ interface TakaDamageControlProps {
   /** "Taka 6245" */
   takaLabel: string;
   takaPcs: number | null;
-  /** The taka needs its number and pcs first. */
+  /** Sprint 19: the taka is a meter order's — the damage dialog shows "Damaged metres" instead. */
+  meterOrder?: boolean;
+  takaMeters?: number | null;
+  /** The taka needs its number and pcs (or metres) first. */
   disabled?: boolean;
   /** `lg` = the big bilingual Taka entry button, `sm` = the compact Edit takas button. */
   size?: 'lg' | 'sm';
@@ -474,6 +552,8 @@ export function TakaDamageControl({
   onChange,
   takaLabel,
   takaPcs,
+  meterOrder,
+  takaMeters,
   disabled,
   size = 'lg',
   className,
@@ -487,15 +567,14 @@ export function TakaDamageControl({
   const editing = mode?.type === 'edit' ? entries.find((e) => e.key === mode.key) : undefined;
   const first = entries[0];
   const firstName = first ? entryName(first) : null;
-  const text = first
-    ? `Damage${firstName ? ` · ${firstName}` : ''}${first.pcs != null ? ` · ${first.pcs} pcs` : ''}${entries.length > 1 ? ` +${entries.length - 1}` : ''}`
-    : 'Damage';
+  const firstQty = first ? (first.pcs != null ? `${first.pcs} pcs` : first.meters != null ? formatMeters(first.meters) : null) : null;
+  const text = first ? `Damage${firstName ? ` · ${firstName}` : ''}${firstQty ? ` · ${firstQty}` : ''}${entries.length > 1 ? ` +${entries.length - 1}` : ''}` : 'Damage';
 
-  const confirm = (v: { type: DamageType; choice: DamageChoice; pcs: number; images: DamageImageInput[] }) => {
+  const confirm = (v: { type: DamageType; choice: DamageChoice; pcs: number | null; meters: number | null; images: DamageImageInput[] }) => {
     if (mode?.type === 'edit') {
-      onChange(entries.map((e) => (e.key === mode.key ? { ...e, foundAt: v.type, choice: v.choice, pcs: v.pcs, images: v.images } : e)));
+      onChange(entries.map((e) => (e.key === mode.key ? { ...e, foundAt: v.type, choice: v.choice, pcs: v.pcs, meters: v.meters, images: v.images } : e)));
     } else {
-      onChange([...entries, { key: nextEntryKey(), foundAt: v.type, choice: v.choice, pcs: v.pcs, images: v.images }]);
+      onChange([...entries, { key: nextEntryKey(), foundAt: v.type, choice: v.choice, pcs: v.pcs, meters: v.meters, images: v.images }]);
     }
   };
 
@@ -507,7 +586,7 @@ export function TakaDamageControl({
         disabled={disabled}
         aria-pressed={entries.length > 0}
         aria-label={entries.length ? t(`Damages on ${takaLabel}`, `${takaLabel} की खराबी`) : t(`Damage on ${takaLabel}`, `${takaLabel} में खराबी`)}
-        title={disabled ? t('Enter the taka number and pcs first', 'पहले टाका नंबर और पीस लिखें') : undefined}
+        title={disabled ? (meterOrder ? t('Enter the taka number and metres first', 'पहले टाका नंबर और मीटर लिखें') : t('Enter the taka number and pcs first', 'पहले टाका नंबर और पीस लिखें')) : undefined}
         className={cn(
           size === 'lg'
             ? 'flex min-h-12 min-w-0 items-center justify-center gap-1.5 rounded-xl border-2 px-2 text-sm font-bold transition-colors disabled:cursor-not-allowed disabled:opacity-40 md:h-14 md:self-start'
@@ -540,6 +619,8 @@ export function TakaDamageControl({
         onOpenChange={(o) => !o && setMode(entries.length > 1 && mode?.type === 'edit' ? { type: 'menu' } : null)}
         takaLabel={takaLabel}
         takaPcs={takaPcs}
+        meterOrder={meterOrder}
+        takaMeters={takaMeters}
         value={editing ?? null}
         onConfirm={confirm}
         onRemove={editing ? () => onChange(entries.filter((e) => e.key !== editing.key)) : undefined}

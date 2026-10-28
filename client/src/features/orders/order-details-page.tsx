@@ -332,7 +332,7 @@ export default function OrderDetailsPage() {
         {showOutside && (
           <TabsContent value="outside" className="mt-4">
             {ready ? (
-              <OutsideTab orderId={order.id} orderNo={order.orderNo} material={order.material} orderType={order.orderType} />
+              <OutsideTab orderId={order.id} orderNo={order.orderNo} material={order.material} orderType={order.orderType} unit={order.unit} />
             ) : (
               <NotSentCard />
             )}

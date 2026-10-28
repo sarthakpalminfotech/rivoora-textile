@@ -144,6 +144,8 @@ export interface DamageRow {
   takaId: number;
   damageId: number | null;
   pcs: number | null;
+  /** Sprint 19: the meter twin of `pcs` — damaged metres for a meter-order damage (null for a pcs order). */
+  meters?: number | null;
   /** The damage TYPE (machine / butta / mill / unmarked). */
   foundAt: DamageType;
   /** Where it was recorded. */
@@ -163,6 +165,7 @@ export async function insertTakaDamages(tx: Tx, role: RoleKey, rows: DamageRow[]
           takaId: r.takaId,
           damageId: r.damageId,
           pcs: r.pcs,
+          meters: r.meters ?? null,
           foundAt: r.foundAt,
           recordedAt: r.recordedAt,
           status: 'open' as const,

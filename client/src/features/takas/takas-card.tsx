@@ -268,7 +268,7 @@ function ReceiptGroup({
 }
 
 /** A receipt group's takas, ready for `EditReceiptTakasDialog` (skips groups with no real receipt — split leftovers). */
-const toReceiptTarget = (g: ReceiptTakaGroup, order: Pick<OrderDetail, 'orderNo' | 'hasButta' | 'hasMill'>): EditReceiptTarget => ({
+const toReceiptTarget = (g: ReceiptTakaGroup, order: Pick<OrderDetail, 'orderNo' | 'hasButta' | 'hasMill' | 'unit'>): EditReceiptTarget => ({
   jobsheetId: g.jobsheetId,
   receiptId: g.receiptId,
   orderNo: order.orderNo,
@@ -277,6 +277,7 @@ const toReceiptTarget = (g: ReceiptTakaGroup, order: Pick<OrderDetail, 'orderNo'
   partyName: g.partyName,
   kind: g.kind,
   prefix: g.prefix,
+  meterOrder: order.unit === 'meters',
   takas: g.takas.filter((t) => !t.isFreeStock && t.allocatedOrderNo === null),
   note: g.note,
   hasButta: order.hasButta,
@@ -303,6 +304,8 @@ export const toTarget = (g: JobsheetTakaGroup): EditTakasTarget => ({
   jobsheetNo: g.jobsheetNo,
   orderNo: g.orderNo,
   status: g.status,
+  // Sprint 19: a meter jobsheet carries `meters` (frames stays the sentinel) — the one reliable signal here.
+  meterOrder: g.meters != null,
   // Free stock / assigned-away takas are not part of the jobsheet's set any more.
   takas: g.takas.filter((t) => !t.isFreeStock && t.allocatedOrderNo === null),
   note: g.note,
@@ -517,6 +520,8 @@ export function JobsheetTakasCard({ js }: { js: JobsheetDetail }) {
     status: js.status,
     frames: js.frames,
     completedFrames: js.completedFrames,
+    meters: js.meters,
+    completedMeters: js.completedMeters,
     runningMachine: js.runningMachine,
     machines: js.machines,
     note: js.takaNote,

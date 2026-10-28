@@ -45,6 +45,7 @@ interface Row {
   meters: string;
   damages: DamageEntry[];
   weaverTouched: boolean;
+  /** The user left the PRIMARY quantity field (pcs for a pcs order, meters for a meter order). */
   pcsTouched: boolean;
 }
 
@@ -132,6 +133,7 @@ export function ReceiptEntryPage({ kind, id }: { kind: 'outside_po' | 'fg'; id: 
   const [serverError, setServerError] = useState<{ key: number; field: string; message: string } | null>(null);
   const weaverInputs = useRef(new Map<number, HTMLInputElement>());
   const pcsInputs = useRef(new Map<number, HTMLInputElement>());
+  const meterInputs = useRef(new Map<number, HTMLInputElement>());
   const filledOnceRef = useRef(false);
 
   usePageTitle(kind === 'outside_po' ? 'Receive challan' : 'Receive goods');
@@ -149,13 +151,17 @@ export function ReceiptEntryPage({ kind, id }: { kind: 'outside_po' | 'fg'; id: 
 
   const rowErrors = useRowErrors(rows, prefix);
   const filled = rows.filter(isUsed);
+  // Sprint 19: the ORDER's unit decides — a meter order's rows carry metres only (pcs hidden, never required).
+  const meterOrder = formQuery.data?.unit === 'meters';
   const meterErrors = filled.map((r) => parseMeters(r.meters).error);
-  const pcsErrors = filled.map((r) => parsePcs(r.pcs).error);
+  const metersRequiredErrors = filled.map((r) => meterOrder && parseMeters(r.meters).error === null && r.meters.trim() === '');
+  const pcsErrors = filled.map((r) => (meterOrder ? null : parsePcs(r.pcs).error));
   const canSubmit =
     filled.length > 0 &&
     filled.length <= MAX_TAKAS_PER_SUBMIT &&
     rowErrors.every((e) => e === null) &&
     meterErrors.every((e) => e === null) &&
+    !metersRequiredErrors.some(Boolean) &&
     pcsErrors.every((e) => e === null) &&
     challanNo.trim() !== '' &&
     (kind === 'outside_po' || supplierName.trim() !== '');
@@ -210,9 +216,9 @@ export function ReceiptEntryPage({ kind, id }: { kind: 'outside_po' | 'fg'; id: 
     const rowPayload = filled.map((r) => ({
       weaverTakaNo: cleanWeaverTakaNo(r.weaverNo),
       ourTakaNo: r.ourNo.trim() || null,
-      pcs: parsePcs(r.pcs).pcs!,
+      pcs: meterOrder ? undefined : parsePcs(r.pcs).pcs!,
       meters: parseMeters(r.meters).meters,
-      damages: r.damages.map(qcEntryPayload),
+      damages: r.damages.map((e) => qcEntryPayload(e, meterOrder)),
     }));
     const base = { challanNo: challanNo.trim(), date, notes: notes.trim() || null };
     const payload = kind === 'outside_po' ? { ...base, rows: rowPayload } : { ...base, supplierName: supplierName.trim(), rows: rowPayload };
@@ -227,6 +233,7 @@ export function ReceiptEntryPage({ kind, id }: { kind: 'outside_po' | 'fg'; id: 
         if (row) {
           setServerError({ key: row.key, field: m![2], message: err.message });
           if (m![2] === 'weaverTakaNo') weaverInputs.current.get(row.key)?.focus();
+          else if (m![2] === 'meters') meterInputs.current.get(row.key)?.focus();
           else pcsInputs.current.get(row.key)?.focus();
         } else {
           toast.error(errorMessage(err));
@@ -297,12 +304,16 @@ export function ReceiptEntryPage({ kind, id }: { kind: 'outside_po' | 'fg'; id: 
             const filledIndex = filled.indexOf(r);
             const rowErr = filledIndex >= 0 ? rowErrors[filledIndex] : null;
             const meterErr = filledIndex >= 0 ? meterErrors[filledIndex] : null;
+            const meterRequiredErr = filledIndex >= 0 ? metersRequiredErrors[filledIndex] : false;
             const pcsErr = filledIndex >= 0 ? pcsErrors[filledIndex] : null;
-            const server = serverError?.key === r.key ? serverError : null;
+            const metersFieldMessage = serverError?.key === r.key && serverError.field === 'meters' ? serverError.message : null;
+            const server = serverError?.key === r.key && serverError.field !== 'meters' ? serverError : null;
             const weaverFieldErr = rowErr && rowErr.startsWith('weaver') ? OUTSIDE_ROW_ERROR_TEXT[rowErr] : server?.field === 'weaverTakaNo' ? server.message : null;
             const ourFieldErr = rowErr && (rowErr.startsWith('own') || rowErr === 'system_used') ? OUTSIDE_ROW_ERROR_TEXT[rowErr] : server?.field === 'ourTakaNo' ? server.message : null;
             const showWeaverErr = !!weaverFieldErr && (r.weaverTouched || showAllErrors);
             const showPcsErr = !!pcsErr && (r.pcsTouched || showAllErrors);
+            const showMeterRequiredErr = meterRequiredErr && (r.pcsTouched || showAllErrors);
+            const metersInvalid = !!meterErr || showMeterRequiredErr || !!metersFieldMessage;
             return (
               <li key={r.key} className={cn('-mx-2 rounded-xl px-2 py-1.5 transition-colors', r.damages.length > 0 && 'bg-red-50 ring-1 ring-red-200')}>
                 {/* Flex-wrap, not a fixed grid: the weaver / our-number fields grow and shrink, and reflow onto their
@@ -346,38 +357,45 @@ export function ReceiptEntryPage({ kind, id }: { kind: 'outside_po' | 'fg'; id: 
                       />
                     </div>
                   )}
-                  <div className="w-[5.5rem] shrink-0">
-                    <label htmlFor={`r-${r.key}-p`} className="text-sm font-semibold text-slate-600">
-                      Pcs<span className="text-destructive">*</span>
+                  {!meterOrder && (
+                    <div className="w-[5.5rem] shrink-0">
+                      <label htmlFor={`r-${r.key}-p`} className="text-sm font-semibold text-slate-600">
+                        Pcs<span className="text-destructive">*</span>
+                      </label>
+                      <input
+                        ref={(el) => {
+                          if (el) pcsInputs.current.set(r.key, el);
+                          else pcsInputs.current.delete(r.key);
+                        }}
+                        id={`r-${r.key}-p`}
+                        value={r.pcs}
+                        onChange={(e) => setRow(r.key, { pcs: cleanPcs(e.target.value) })}
+                        onBlur={() => isUsed(r) && !r.pcsTouched && setRow(r.key, { pcsTouched: true })}
+                        inputMode="numeric"
+                        autoComplete="off"
+                        aria-invalid={showPcsErr || undefined}
+                        className={cn(fieldBox(showPcsErr), 'mt-1 w-full px-3 text-base font-bold')}
+                        placeholder="0"
+                      />
+                    </div>
+                  )}
+                  <div className={cn('relative shrink-0', meterOrder ? 'w-24' : 'w-[6.5rem]')}>
+                    <label htmlFor={`r-${r.key}-m`} className="text-sm font-semibold text-slate-600">
+                      Meters{meterOrder && <span className="text-destructive">*</span>}
                     </label>
                     <input
                       ref={(el) => {
-                        if (el) pcsInputs.current.set(r.key, el);
-                        else pcsInputs.current.delete(r.key);
+                        if (el) meterInputs.current.set(r.key, el);
+                        else meterInputs.current.delete(r.key);
                       }}
-                      id={`r-${r.key}-p`}
-                      value={r.pcs}
-                      onChange={(e) => setRow(r.key, { pcs: cleanPcs(e.target.value) })}
-                      onBlur={() => isUsed(r) && !r.pcsTouched && setRow(r.key, { pcsTouched: true })}
-                      inputMode="numeric"
-                      autoComplete="off"
-                      aria-invalid={showPcsErr || undefined}
-                      className={cn(fieldBox(showPcsErr), 'mt-1 w-full px-3 text-base font-bold')}
-                      placeholder="0"
-                    />
-                  </div>
-                  <div className="relative w-[6.5rem] shrink-0">
-                    <label htmlFor={`r-${r.key}-m`} className="text-sm font-semibold text-slate-600">
-                      Meters
-                    </label>
-                    <input
                       id={`r-${r.key}-m`}
                       value={r.meters}
                       onChange={(e) => setRow(r.key, { meters: cleanMeters(e.target.value) })}
+                      onBlur={() => meterOrder && isUsed(r) && !r.pcsTouched && setRow(r.key, { pcsTouched: true })}
                       inputMode="decimal"
                       autoComplete="off"
-                      aria-invalid={!!meterErr || undefined}
-                      className={cn(fieldBox(!!meterErr), 'mt-1 w-full px-3 pr-7 text-base font-bold')}
+                      aria-invalid={metersInvalid || undefined}
+                      className={cn(fieldBox(metersInvalid), 'mt-1 w-full px-3 pr-7 text-base font-bold')}
                       placeholder="0.0"
                     />
                     <span className="pointer-events-none absolute bottom-[13px] right-3 text-sm font-semibold text-slate-400">m</span>
@@ -387,7 +405,9 @@ export function ReceiptEntryPage({ kind, id }: { kind: 'outside_po' | 'fg'; id: 
                     onChange={(damages) => setRow(r.key, { damages })}
                     takaLabel={`Taka ${r.weaverNo || i + 1}`}
                     takaPcs={parsePcs(r.pcs).pcs}
-                    disabled={parsePcs(r.pcs).error !== null}
+                    meterOrder={meterOrder}
+                    takaMeters={parseMeters(r.meters).meters}
+                    disabled={meterOrder ? parseMeters(r.meters).meters === null : parsePcs(r.pcs).error !== null}
                     types={damageTypes}
                     source={(kind === 'outside_po' ? 'outside_po' : 'fg_purchase') as TakaSource}
                     allowImages
@@ -397,7 +417,9 @@ export function ReceiptEntryPage({ kind, id }: { kind: 'outside_po' | 'fg'; id: 
                 </div>
                 {showWeaverErr && <p className="mt-1 text-sm font-semibold text-destructive">{weaverFieldErr}</p>}
                 {ourFieldErr && <p className="mt-1 text-sm font-semibold text-destructive">{ourFieldErr}</p>}
-                {meterErr && <p className="mt-1 text-sm font-semibold text-destructive">{METERS_ERROR_TEXT[meterErr].en}</p>}
+                {metersFieldMessage && <p className="mt-1 text-sm font-semibold text-destructive">{metersFieldMessage}</p>}
+                {!metersFieldMessage && meterErr && <p className="mt-1 text-sm font-semibold text-destructive">{METERS_ERROR_TEXT[meterErr].en}</p>}
+                {!metersFieldMessage && !meterErr && showMeterRequiredErr && <p className="mt-1 text-sm font-semibold text-destructive">Enter the metres</p>}
                 {showPcsErr && <p className="mt-1 text-sm font-semibold text-destructive">{PCS_ERROR_TEXT[pcsErr!].en}</p>}
               </li>
             );

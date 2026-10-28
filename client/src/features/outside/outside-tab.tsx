@@ -2,7 +2,7 @@ import { Ban, CheckCircle2, MoreVertical, Package, PackagePlus, Pencil, Printer,
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
-import { formatPoQty, poIsOpen, type OrderOutside, type OutsidePoCard } from '@rivoora/shared';
+import { formatPoQty, poIsOpen, type OrderOutside, type OutsidePoCard, type Unit } from '@rivoora/shared';
 import { ErrorState } from '@/components/list-parts';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
@@ -120,7 +120,19 @@ function PoCard({ po, canManage, canReceive, onEdit }: { po: OutsidePoCard; canM
  * godown supervisor and Dhruvil may receive against them too). Shown for orders without Production, and on in-house
  * orders as "Give part outside".
  */
-export function OutsideTab({ orderId, orderNo, material, orderType }: { orderId: number; orderNo: number; material: { id: number; name: string }; orderType: OrderOutside['pos'][number]['orderType'] }) {
+export function OutsideTab({
+  orderId,
+  orderNo,
+  material,
+  orderType,
+  unit,
+}: {
+  orderId: number;
+  orderNo: number;
+  material: { id: number; name: string };
+  orderType: OrderOutside['pos'][number]['orderType'];
+  unit: Unit;
+}) {
   const { can } = useRole();
   const query = useOrderOutside(orderId);
   const canManage = can('canCreateOutsidePo');
@@ -139,7 +151,7 @@ export function OutsideTab({ orderId, orderNo, material, orderType }: { orderId:
     return <ErrorState error={query.error} onRetry={() => void query.refetch()} />;
   }
   const data = query.data;
-  const defaults: PoFormDefaults = { materialId: material.id, materialName: material.name, orderType };
+  const defaults: PoFormDefaults = { materialId: material.id, materialName: material.name, orderType, meterOrder: unit === 'meters' };
 
   return (
     <div className="space-y-4">

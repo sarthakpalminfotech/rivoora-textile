@@ -47,6 +47,8 @@ export interface EditReceiptTarget {
   kind: ReceiptKind;
   /** The weaver's short code, or `FG` — the prefix of a taka received without our own number. */
   prefix: string;
+  /** Sprint 19: a meter order's receipt rows carry metres, not pcs — pcs is hidden and metres become required. */
+  meterOrder: boolean;
   takas: Taka[];
   /** The external jobsheet's note, shared by every receipt of this order — sent back unchanged. */
   note: string | null;
@@ -94,10 +96,19 @@ const isChanged = (r: Row) =>
 
 const isUsed = (r: Row) => r.weaverNo.trim() !== '' || r.ourNo.trim() !== '' || r.pcs !== '' || r.meters !== '' || r.damages.length > 0;
 
-function pcsError(r: Row): PcsError | null {
+function pcsError(r: Row, meterOrder: boolean): PcsError | null {
+  if (meterOrder) return null;
   const { error } = parsePcs(r.pcs);
   if (error !== 'required') return error;
   const legacyUntouched = !!r.orig && r.orig.pcs === '' && !isChanged(r);
+  return legacyUntouched ? null : 'required';
+}
+
+/** Sprint 19: the meter twin of `pcsError` — a meter order's receipt row needs metres. */
+function metersRequiredError(r: Row, meterOrder: boolean): 'required' | null {
+  if (!meterOrder || parseMeters(r.meters).error) return null;
+  if (r.meters.trim() !== '') return null;
+  const legacyUntouched = !!r.orig && r.orig.meters === '' && !isChanged(r);
   return legacyUntouched ? null : 'required';
 }
 
@@ -121,6 +132,7 @@ export function EditReceiptTakasDialog({ target, onClose }: { target: EditReceip
   }, [target?.receiptId]);
 
   const prefix = target?.prefix ?? '';
+  const meterOrder = target?.meterOrder ?? false;
   const canAdd = true; // the external jobsheet is always "Completed" — new rows can always be added
   const kept = rows.filter((r) => r.id !== undefined || isUsed(r));
 
@@ -133,8 +145,13 @@ export function EditReceiptTakasDialog({ target, onClose }: { target: EditReceip
   const rowErrors = validateOutsideRows(kept.map((r) => ({ weaverTakaNo: r.weaverNo, ourTakaNo: r.ourNo || null })), prefix, { usedSystemNos: new Set(used.keys()) });
   const errors = new Map<number, OutsideRowError | null>(kept.map((r, i) => [r.key, rowErrors[i]]));
   const meterErrors = new Map(kept.map((r) => [r.key, parseMeters(r.meters).error]));
-  const pcsErrors = new Map(kept.map((r) => [r.key, pcsError(r)]));
-  const hasErrors = [...errors.values()].some(Boolean) || [...meterErrors.values()].some(Boolean) || [...pcsErrors.values()].some(Boolean);
+  const meterRequiredErrors = new Map(kept.map((r) => [r.key, metersRequiredError(r, meterOrder)]));
+  const pcsErrors = new Map(kept.map((r) => [r.key, pcsError(r, meterOrder)]));
+  const hasErrors =
+    [...errors.values()].some(Boolean) ||
+    [...meterErrors.values()].some(Boolean) ||
+    [...meterRequiredErrors.values()].some(Boolean) ||
+    [...pcsErrors.values()].some(Boolean);
   const totalM = totalMeters(kept.map((r) => ({ meters: parseMeters(r.meters).meters })));
   const totalP = totalPcs(kept.map((r) => ({ pcs: parsePcs(r.pcs).pcs })));
 
@@ -156,7 +173,7 @@ export function EditReceiptTakasDialog({ target, onClose }: { target: EditReceip
           weaverTakaNo: r.weaverNo.trim() || null,
           meters: parseMeters(r.meters).meters,
           pcs: parsePcs(r.pcs).pcs,
-          damages: r.damages.map(editEntryPayload),
+          damages: r.damages.map((e) => editEntryPayload(e, meterOrder)),
         })),
         // The note is shared by every receipt of this order — sent back exactly as it was read.
         note: target.note,
@@ -220,6 +237,7 @@ export function EditReceiptTakasDialog({ target, onClose }: { target: EditReceip
                 {rows.map((r, i) => {
                   const err = errors.get(r.key) ?? null;
                   const meterErr = meterErrors.get(r.key) ?? null;
+                  const meterRequiredErr = showErrors ? (meterRequiredErrors.get(r.key) ?? null) : null;
                   const pErr = showErrors ? (pcsErrors.get(r.key) ?? null) : null;
                   const weaverMsg =
                     serverError?.key === r.key && serverError.field === 'weaverTakaNo'
@@ -275,7 +293,7 @@ export function EditReceiptTakasDialog({ target, onClose }: { target: EditReceip
                           placeholder="Our no. (optional)"
                           className={cn(field(!!ourMsg), 'min-w-[7rem] flex-1 basis-[7rem] px-3 text-lg')}
                         />
-                        <div className="relative w-[5.5rem] shrink-0">
+                        <div className={cn('relative shrink-0', meterOrder ? 'w-24' : 'w-[5.5rem]')}>
                           <input
                             value={r.meters}
                             onChange={(e) => setRow(r.key, { meters: cleanMeters(e.target.value) })}
@@ -283,37 +301,42 @@ export function EditReceiptTakasDialog({ target, onClose }: { target: EditReceip
                             inputMode="decimal"
                             autoComplete="off"
                             aria-label={`Row ${i + 1} meters`}
-                            aria-invalid={!!meterErr || undefined}
+                            aria-required={meterOrder || undefined}
+                            aria-invalid={!!meterErr || !!meterRequiredErr || undefined}
                             placeholder="Meters"
-                            className={cn(field(!!meterErr), 'w-full pl-2.5 pr-6')}
+                            className={cn(field(!!meterErr || !!meterRequiredErr), 'w-full pl-2.5 pr-6')}
                           />
                           <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-sm font-semibold text-slate-400" aria-hidden>
                             m
                           </span>
                         </div>
-                        <div className="relative w-[4.75rem] shrink-0">
-                          <input
-                            value={r.pcs}
-                            onChange={(e) => setRow(r.key, { pcs: cleanPcs(e.target.value) })}
-                            disabled={!isUsed(r)}
-                            inputMode="numeric"
-                            autoComplete="off"
-                            aria-label={`Row ${i + 1} pcs`}
-                            aria-required
-                            aria-invalid={!!pErr || undefined}
-                            placeholder="Pcs"
-                            className={cn(field(!!pErr), 'w-full pl-2.5 pr-8')}
-                          />
-                          <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-xs font-semibold text-slate-400" aria-hidden>
-                            pcs
-                          </span>
-                        </div>
+                        {!meterOrder && (
+                          <div className="relative w-[4.75rem] shrink-0">
+                            <input
+                              value={r.pcs}
+                              onChange={(e) => setRow(r.key, { pcs: cleanPcs(e.target.value) })}
+                              disabled={!isUsed(r)}
+                              inputMode="numeric"
+                              autoComplete="off"
+                              aria-label={`Row ${i + 1} pcs`}
+                              aria-required
+                              aria-invalid={!!pErr || undefined}
+                              placeholder="Pcs"
+                              className={cn(field(!!pErr), 'w-full pl-2.5 pr-8')}
+                            />
+                            <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-xs font-semibold text-slate-400" aria-hidden>
+                              pcs
+                            </span>
+                          </div>
+                        )}
                         <div className="shrink-0">
                           <TakaDamageControl
                             entries={r.damages}
                             onChange={(damages) => setRow(r.key, { damages })}
                             takaLabel={`Taka ${r.weaverNo || i + 1}`}
                             takaPcs={parsePcs(r.pcs).pcs}
+                            meterOrder={meterOrder}
+                            takaMeters={parseMeters(r.meters).meters}
                             disabled={!isUsed(r)}
                             types={damageTypes}
                             source={source}
@@ -353,6 +376,11 @@ export function EditReceiptTakasDialog({ target, onClose }: { target: EditReceip
                       {meterErr && (
                         <p role="alert" className="ml-8 mt-1 text-[13px] font-medium text-destructive">
                           {METERS_ERROR_TEXT[meterErr].en}
+                        </p>
+                      )}
+                      {!meterErr && meterRequiredErr && (
+                        <p role="alert" className="ml-8 mt-1 text-[13px] font-medium text-destructive">
+                          Enter the metres
                         </p>
                       )}
                       {pErr && (

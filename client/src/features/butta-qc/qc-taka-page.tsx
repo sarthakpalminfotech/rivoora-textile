@@ -273,7 +273,7 @@ function QcForm({ taka }: { taka: TakaDetail }) {
     submitQc.mutate(
       {
         damageDecisions: open.map((d) => ({ takaDamageId: d.id, resolvedPcs: decisions.get(d.id) ?? 0, pcs: d.pcs === null ? typedPcs(d.id) : null })),
-        newDamages: added.map(qcEntryPayload),
+        newDamages: added.map((e) => qcEntryPayload(e)),
       },
       {
         onSuccess: () => {

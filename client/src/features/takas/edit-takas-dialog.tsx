@@ -38,6 +38,8 @@ export interface EditTakasTarget {
   jobsheetNo: number;
   orderNo: number;
   status: JobsheetStatusKey;
+  /** Sprint 19: a meter order's takas carry metres, not pcs — the pcs field is hidden and metres become required. */
+  meterOrder: boolean;
   takas: Taka[];
   note: string | null;
 }
@@ -79,12 +81,24 @@ const isChanged = (r: Row) =>
 
 /**
  * Pcs rule (the server checks the same): new and changed takas need pcs; an older taka that never had pcs may stay
- * without as long as it is not changed.
+ * without as long as it is not changed. Meter orders don't use pcs at all — never an error there.
  */
-function pcsError(r: Row): PcsError | null {
+function pcsError(r: Row, meterOrder: boolean): PcsError | null {
+  if (meterOrder) return null;
   const { error } = parsePcs(r.pcs);
   if (error !== 'required') return error;
   const legacyUntouched = !!r.orig && r.orig.pcs === '' && !isChanged(r);
+  return legacyUntouched ? null : 'required';
+}
+
+/**
+ * Sprint 19: the meter twin of `pcsError` — new and changed takas of a meter order need metres; an older taka that
+ * never had metres may stay without as long as it is not changed. Pcs orders don't require metres at all.
+ */
+function metersRequiredError(r: Row, meterOrder: boolean): 'required' | null {
+  if (!meterOrder || parseMeters(r.meters).error) return null;
+  if (r.meters.trim() !== '') return null;
+  const legacyUntouched = !!r.orig && r.orig.meters === '' && !isChanged(r);
   return legacyUntouched ? null : 'required';
 }
 
@@ -109,6 +123,7 @@ export function EditTakasDialog({ target, onClose }: { target: EditTakasTarget |
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [target?.jobsheetId]);
 
+  const meterOrder = target?.meterOrder ?? false;
   const canAdd = target?.status === JOBSHEET_STATUS.COMPLETED;
   // New empty rows are ignored on save; an emptied existing row is an error (remove it with ✕ instead).
   const kept = rows.filter((r) => r.id !== undefined || r.value.trim() !== '');
@@ -120,9 +135,13 @@ export function EditTakasDialog({ target, onClose }: { target: EditTakasTarget |
   const errorList = validateTakaNumbers(kept.map((r) => r.value), [], { used });
   const errors = new Map(kept.map((r, i) => [r.key, errorList[i]]));
   const meterErrors = new Map(kept.map((r) => [r.key, parseMeters(r.meters).error]));
-  const pcsErrors = new Map(kept.map((r) => [r.key, pcsError(r)]));
+  const meterRequiredErrors = new Map(kept.map((r) => [r.key, metersRequiredError(r, meterOrder)]));
+  const pcsErrors = new Map(kept.map((r) => [r.key, pcsError(r, meterOrder)]));
   const hasErrors =
-    [...errors.values()].some(Boolean) || [...meterErrors.values()].some(Boolean) || [...pcsErrors.values()].some(Boolean);
+    [...errors.values()].some(Boolean) ||
+    [...meterErrors.values()].some(Boolean) ||
+    [...meterRequiredErrors.values()].some(Boolean) ||
+    [...pcsErrors.values()].some(Boolean);
   const totalM = totalMeters(kept.map((r) => ({ meters: parseMeters(r.meters).meters })));
   const totalP = totalPcs(kept.map((r) => ({ pcs: parsePcs(r.pcs).pcs })));
 
@@ -142,7 +161,7 @@ export function EditTakasDialog({ target, onClose }: { target: EditTakasTarget |
           takaNo: r.value.trim(),
           meters: parseMeters(r.meters).meters,
           pcs: parsePcs(r.pcs).pcs,
-          damages: r.damages.map(editEntryPayload),
+          damages: r.damages.map((e) => editEntryPayload(e, meterOrder)),
         })),
         note: note.trim() || null,
       },
@@ -211,6 +230,7 @@ export function EditTakasDialog({ target, onClose }: { target: EditTakasTarget |
                 {rows.map((r, i) => {
                   const err = errors.get(r.key) ?? null;
                   const meterErr = meterErrors.get(r.key) ?? null;
+                  const meterRequiredErr = showErrors ? (meterRequiredErrors.get(r.key) ?? null) : null;
                   const pErr = showErrors ? (pcsErrors.get(r.key) ?? null) : null;
                   const message =
                     serverError?.key === r.key
@@ -219,9 +239,11 @@ export function EditTakasDialog({ target, onClose }: { target: EditTakasTarget |
                         ? takaErrorText(err, r.value, used).en
                         : meterErr
                           ? METERS_ERROR_TEXT[meterErr].en
-                          : pErr
-                            ? PCS_ERROR_TEXT[pErr].en
-                            : null;
+                          : meterRequiredErr
+                            ? 'Enter the metres'
+                            : pErr
+                              ? PCS_ERROR_TEXT[pErr].en
+                              : null;
                   const numberInvalid = (showErrors && !!err) || serverError?.key === r.key;
                   const removeButton = (className: string) => (
                     <button
@@ -263,7 +285,7 @@ export function EditTakasDialog({ target, onClose }: { target: EditTakasTarget |
                           {removeButton('flex md:hidden')}
                         </div>
                         <div className="flex items-center gap-2 pl-8 md:pl-0">
-                          <div className="relative w-[5.5rem] shrink-0 sm:w-24">
+                          <div className={cn('relative shrink-0', meterOrder ? 'w-24 sm:w-28' : 'w-[5.5rem] sm:w-24')}>
                             <input
                               value={r.meters}
                               onChange={(e) => setRow(r.key, { meters: cleanMeters(e.target.value) })}
@@ -271,36 +293,41 @@ export function EditTakasDialog({ target, onClose }: { target: EditTakasTarget |
                               inputMode="decimal"
                               autoComplete="off"
                               aria-label={`Taka ${i + 1} meters`}
-                              aria-invalid={!!meterErr || undefined}
+                              aria-required={meterOrder || undefined}
+                              aria-invalid={!!meterErr || !!meterRequiredErr || undefined}
                               placeholder="Meters"
-                              className={cn(field(!!meterErr), 'pl-2.5 pr-6')}
+                              className={cn(field(!!meterErr || !!meterRequiredErr), 'pl-2.5 pr-6')}
                             />
                             <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-sm font-semibold text-slate-400" aria-hidden>
                               m
                             </span>
                           </div>
-                          <div className="relative w-[4.75rem] shrink-0 sm:w-20">
-                            <input
-                              value={r.pcs}
-                              onChange={(e) => setRow(r.key, { pcs: cleanPcs(e.target.value) })}
-                              disabled={!r.value}
-                              inputMode="numeric"
-                              autoComplete="off"
-                              aria-label={`Taka ${i + 1} pcs`}
-                              aria-required
-                              aria-invalid={!!pErr || undefined}
-                              placeholder="Pcs"
-                              className={cn(field(!!pErr), 'pl-2.5 pr-8')}
-                            />
-                            <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-xs font-semibold text-slate-400" aria-hidden>
-                              pcs
-                            </span>
-                          </div>
+                          {!meterOrder && (
+                            <div className="relative w-[4.75rem] shrink-0 sm:w-20">
+                              <input
+                                value={r.pcs}
+                                onChange={(e) => setRow(r.key, { pcs: cleanPcs(e.target.value) })}
+                                disabled={!r.value}
+                                inputMode="numeric"
+                                autoComplete="off"
+                                aria-label={`Taka ${i + 1} pcs`}
+                                aria-required
+                                aria-invalid={!!pErr || undefined}
+                                placeholder="Pcs"
+                                className={cn(field(!!pErr), 'pl-2.5 pr-8')}
+                              />
+                              <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-xs font-semibold text-slate-400" aria-hidden>
+                                pcs
+                              </span>
+                            </div>
+                          )}
                           <TakaDamageControl
                             entries={r.damages}
                             onChange={(damages) => setRow(r.key, { damages })}
                             takaLabel={`Taka ${r.value || i + 1}`}
                             takaPcs={parsePcs(r.pcs).pcs}
+                            meterOrder={meterOrder}
+                            takaMeters={parseMeters(r.meters).meters}
                             disabled={!r.value}
                             size="sm"
                             className="min-w-0 flex-1 md:max-w-44 md:flex-none"

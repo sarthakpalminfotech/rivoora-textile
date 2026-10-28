@@ -188,5 +188,108 @@ const baseOrder = (over = {}) => ({
   check(closed.completed === 1, 'meter order closed: ongoing jobsheet completed via metres', closed);
 }
 
+/* ============================================================ Phase 7: taka entry, edit takas, outside/FG receipts (meters) */
+
+{
+  // --- Taka entry (meters-only rows; pcs omitted; damage requires metres, bound by the taka's own metres) ---
+  const order = await ok('jemish', 'POST', '/orders', baseOrder({ unit: 'meters', orderType: 'lump', quantity: 90 }));
+  await ok('jemish', 'POST', '/orders/send-to-production', { orderIds: [order.id] });
+  const gen = await ok('jemish', 'POST', `/orders/${order.id}/jobsheets/generate`, { meters: 90, metersPerJobsheet: 90, sections: 3, machineIds });
+  const jsId = gen.created[0].id;
+
+  const entered = await ok('taka', 'POST', `/jobsheets/${jsId}/takas`, { takas: [{ meters: 15 }, { meters: 15 }], note: '' });
+  check(entered.autoCompleted === true, 'meter order: taka entry auto-completes the jobsheet', entered);
+  check(entered.added.every((t) => t.meters !== null && t.pcs === null), 'meter order: entered takas carry meters, not pcs', entered.added);
+  const jsDetail = await ok('jemish', 'GET', `/jobsheets/${jsId}`);
+  check(jsDetail.completedMeters === jsDetail.meters, 'meter order: completedMeters = assigned meters at auto-complete', jsDetail);
+
+  const missingQty = await call('taka', 'POST', `/jobsheets/${jsId}/takas`, { takas: [{}], note: '' });
+  check(missingQty.status === 400, 'meter order: taka entry rejects a row with neither pcs nor metres', missingQty);
+
+  const damaged = await ok('taka', 'POST', `/jobsheets/${jsId}/takas`, { takas: [{ meters: 20, damages: [{ type: 'machine', otherName: 'Hole S19', meters: 5 }] }], note: '' });
+  check(damaged.added[0].damages[0].meters === 5 && damaged.added[0].damages[0].pcs === null, 'meter order: damage carries metres, not pcs', damaged.added[0]);
+  const tooBig = await call('taka', 'POST', `/jobsheets/${jsId}/takas`, { takas: [{ meters: 10, damages: [{ type: 'machine', otherName: 'Hole S19 big', meters: 20 }] }], note: '' });
+  check(tooBig.status === 400, "meter order: damage metres can't exceed the taka's metres", tooBig);
+  const noDamageQty = await call('taka', 'POST', `/jobsheets/${jsId}/takas`, { takas: [{ meters: 10, damages: [{ type: 'machine', otherName: 'Hole S19 no qty' }] }], note: '' });
+  check(noDamageQty.status === 400, 'meter order: a new damage without metres is rejected', noDamageQty);
+
+  // --- Edit takas (Jenish): metres required, pcs stays null ---
+  const group = (await ok('jemish', 'GET', `/orders/${order.id}/takas`)).groups.find((g) => g.jobsheetId === jsId);
+  const firstTaka = group.takas[0];
+  const editOk = await ok('jemish', 'PUT', `/jobsheets/${jsId}/takas`, {
+    takas: group.takas.map((t) => ({ id: t.id, takaNo: t.takaNo, meters: t.id === firstTaka.id ? 25 : t.meters, pcs: null, damages: [] })),
+    note: '',
+  });
+  check(editOk.changed >= 1, 'meter order: edit takas changes a metres value', editOk);
+  const editMissing = await call('jemish', 'PUT', `/jobsheets/${jsId}/takas`, {
+    takas: [{ id: firstTaka.id, takaNo: firstTaka.takaNo, meters: null, pcs: null, damages: [] }],
+    note: '',
+  });
+  check(editMissing.status === 400, 'meter order: edit takas rejects clearing metres on a changed row', editMissing);
+
+  // --- pcs order regression: taka entry + edit takas completely unaffected ---
+  const pcsOrder = await ok('jemish', 'POST', '/orders', baseOrder({ unit: 'pcs', orderType: 'pcs_to_pcs', quantity: 30 }));
+  await ok('jemish', 'POST', '/orders/send-to-production', { orderIds: [pcsOrder.id] });
+  const pcsGen = await ok('jemish', 'POST', `/orders/${pcsOrder.id}/jobsheets/generate`, { pieces: 30, framesPerJobsheet: 10, sections: 3, machineIds });
+  const pcsJsId = pcsGen.created[0].id;
+  const pcsEntered = await ok('taka', 'POST', `/jobsheets/${pcsJsId}/takas`, { takas: [{ pcs: 15 }, { pcs: 15 }], note: '' });
+  check(pcsEntered.added.every((t) => t.pcs !== null && t.meters === null), 'pcs order: taka entry unaffected (pcs carried, no meters)', pcsEntered.added);
+  const pcsMissingPcs = await call('taka', 'POST', `/jobsheets/${pcsJsId}/takas`, { takas: [{}], note: '' });
+  check(pcsMissingPcs.status === 400, 'pcs order: taka entry still rejects a row with no pcs', pcsMissingPcs);
+  const pcsGroup = (await ok('jemish', 'GET', `/orders/${pcsOrder.id}/takas`)).groups.find((g) => g.jobsheetId === pcsJsId);
+  const pcsEditOk = await ok('jemish', 'PUT', `/jobsheets/${pcsJsId}/takas`, {
+    takas: pcsGroup.takas.map((t) => ({ id: t.id, takaNo: t.takaNo, pcs: t.id === pcsGroup.takas[0].id ? 18 : t.pcs, meters: null, damages: [] })),
+    note: '',
+  });
+  check(pcsEditOk.changed >= 1, 'pcs order: edit takas still works on pcs', pcsEditOk);
+
+  // --- Outside PO receipt (meters): the PO is forced to unit "meters"; receipt rows carry meters only ---
+  const outsideOrder = await ok('jemish', 'POST', '/orders', baseOrder({ unit: 'meters', orderType: 'lump', quantity: 200 }));
+  await ok('jemish', 'POST', '/orders/send-to-production', { orderIds: [outsideOrder.id] });
+  const weaver = await ok('jemish', 'POST', '/weavers', { name: 'S19 Test Weaver', shortCode: weaverCode() });
+  const poRejected = await call('jemish', 'POST', `/orders/${outsideOrder.id}/outside-pos`, {
+    weaverId: weaver.id, materialId: material.id, quantity: 100, unit: 'pcs', orderType: 'lump', poDate: today, notes: '',
+  });
+  check(poRejected.status === 400, 'meter order: a PO in pcs is rejected', poRejected);
+  const po = await ok('jemish', 'POST', `/orders/${outsideOrder.id}/outside-pos`, {
+    weaverId: weaver.id, materialId: material.id, quantity: 100, unit: 'meters', orderType: 'lump', poDate: today, notes: '',
+  });
+  check(po.unit === 'meters', 'meter order: PO created in metres', po);
+
+  const receiptRejected = await call('jemish', 'POST', `/outside-pos/${po.id}/receipts`, {
+    challanNo: 'S19-C1', date: today, notes: null, rows: [{ weaverTakaNo: '19001', ourTakaNo: null, damages: [] }],
+  });
+  check(receiptRejected.status === 400, 'meter order: receipt row without metres is rejected', receiptRejected);
+  const receipt = await ok('jemish', 'POST', `/outside-pos/${po.id}/receipts`, {
+    challanNo: 'S19-C2', date: today, notes: null,
+    rows: [{ weaverTakaNo: '19002', ourTakaNo: null, meters: 40, damages: [{ type: 'weaver', otherName: 'S19 weaver cut', meters: 5, images: [] }] }],
+  });
+  check(receipt.meters === 40 && receipt.pcs === 0, 'meter order: receipt carries meters, not pcs', receipt);
+  check(receipt.takas[0].pcs === null, 'meter order: received taka has no pcs', receipt.takas[0]);
+  const poAfter = await ok('jemish', 'GET', `/outside-pos/${po.id}`);
+  check(poAfter.receivedQty === 40, 'meter order: PO receivedQty tracks the metres received', poAfter);
+
+  // --- FG lump receipt (meters) ---
+  const fgOrder = await ok('jemish', 'POST', '/orders', baseOrder({ unit: 'meters', orderType: 'lump', quantity: 80, hasProduction: false, hasButta: false, hasMill: false }));
+  await ok('jemish', 'POST', '/orders/send-to-production', { orderIds: [fgOrder.id] });
+  const fgReceipt = await ok('jemish', 'POST', `/orders/${fgOrder.id}/fg-receipts`, {
+    challanNo: 'S19-F1', date: today, supplierName: 'S19 Test Supplier', notes: null,
+    rows: [{ weaverTakaNo: '19003', ourTakaNo: null, meters: 25, damages: [] }],
+  });
+  check(fgReceipt.meters === 25 && fgReceipt.pcs === 0, 'FG meter purchase: receipt carries meters, not pcs', fgReceipt);
+
+  // --- pcs order regression: outside PO + FG receipt completely unaffected ---
+  const pcsOutside = await ok('jemish', 'POST', '/orders', baseOrder({ unit: 'pcs', orderType: 'lump', quantity: 100 }));
+  await ok('jemish', 'POST', '/orders/send-to-production', { orderIds: [pcsOutside.id] });
+  const pcsPo = await ok('jemish', 'POST', `/orders/${pcsOutside.id}/outside-pos`, {
+    weaverId: weaver.id, materialId: material.id, quantity: 50, unit: 'pcs', orderType: 'lump', poDate: today, notes: '',
+  });
+  check(pcsPo.unit === 'pcs', 'pcs order: PO still created in pcs (unaffected)', pcsPo);
+  const pcsReceipt = await ok('jemish', 'POST', `/outside-pos/${pcsPo.id}/receipts`, {
+    challanNo: 'S19-P1', date: today, notes: null, rows: [{ weaverTakaNo: '19004', ourTakaNo: null, pcs: 20, damages: [] }],
+  });
+  check(pcsReceipt.pcs === 20, 'pcs order: outside receipt unaffected (pcs carried)', pcsReceipt);
+}
+
 console.log(failed ? `\n${failed} check(s) FAILED` : '\nAll Sprint 19 checks (so far) passed');
 process.exit(failed ? 1 : 0);

@@ -441,7 +441,8 @@ export async function createGoodsReturn(role: RoleKey, challanId: number, input:
         if (!info || info.stage !== 'dispatched') throw conflict(`Taka ${row.takaNo} is no longer dispatched. Refresh and try again.`);
         const max = row.pcs ?? takaActualPcs(info) ?? 9999;
         r.damages.forEach((d, j) => {
-          if (!lumpGrDamagePcsOk(max, d.pcs)) throw badRequest(`A damage can't have more pcs than the taka (${max}).`, `returns.${i}.damages.${j}.pcs`);
+          // Sprint 19: GR for meter orders is not wired up yet (dispatch is pcs-only so far) — pcs is always present here.
+          if (!lumpGrDamagePcsOk(max, d.pcs ?? 0)) throw badRequest(`A damage can't have more pcs than the taka (${max}).`, `returns.${i}.damages.${j}.pcs`);
         });
         assertNewDamages(r.damages, max, `returns.${i}.damages`);
       }
@@ -460,7 +461,7 @@ export async function createGoodsReturn(role: RoleKey, challanId: number, input:
           .where(and(eq(takas.id, r.takaId), eq(takas.stage, 'dispatched')))
           .returning({ id: takas.id });
         if (!moved.length) throw conflict(`Taka ${row.takaNo} changed meanwhile. Refresh and try again.`);
-        const damaged = r.damages.reduce((n, d) => n + d.pcs, 0);
+        const damaged = r.damages.reduce((n, d) => n + (d.pcs ?? 0), 0);
         events.push({ takaId: r.takaId, event: 'goods_returned', dispatchChallanId: challanId, note: `Returned from ${label}${damaged ? ` · ${damaged} pcs damaged` : ''} · now free stock` });
         events.push(...(await addNewDamages(tx, role, r.takaId, r.damages, 'goods_return', at, `returns.${i}.damages`)));
         touched.push(r.takaId);

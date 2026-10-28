@@ -637,10 +637,14 @@ export interface TakaDamage {
   foundAt: DamageType;
   /** Sprint 13: WHERE it was recorded (taka entry, butta QC, godown, goods return …); null on older damages. */
   recordedAt: DamageRecordedAt | null;
-  /** Damaged pcs; null on an older (migrated) damage. */
+  /** Damaged pcs; null on an older (migrated) damage, or for a meter-order damage (see `meters`). */
   pcs: number | null;
   /** Pcs of the damage that were resolved (a partial resolve keeps the damage open with fewer open pcs). */
   resolvedPcs: number;
+  /** Sprint 19: the meter twin of `pcs` — damaged metres for a meter-order damage (null for a pcs order). */
+  meters: number | null;
+  /** Sprint 19: the meter twin of `resolvedPcs`. */
+  resolvedMeters: number;
   status: DamageStatus;
   resolvedAt: string | null;
   resolvedBy: RoleKey | null;
@@ -741,6 +745,9 @@ export interface JobsheetTakaGroup {
   status: JobsheetStatusKey;
   frames: number;
   completedFrames: number | null;
+  /** Sprint 19: set instead of `frames`/`completedFrames` for a meter order's jobsheet (null for a pcs jobsheet). */
+  meters?: number | null;
+  completedMeters?: number | null;
   /** The machine it ran on, else its assigned machines. */
   runningMachine: MachineRef | null;
   machines: JobsheetMachine[];
@@ -1932,6 +1939,8 @@ export interface ReceiptFormData {
   orderId: number;
   orderNo: number;
   orderType: OrderType;
+  /** Sprint 19: the ORDER's unit — a meter order's receipt rows carry meters only (pcs hidden). */
+  unit: Unit;
   orderSteps: OrderSteps;
   quality: string;
   designCode: string | null;

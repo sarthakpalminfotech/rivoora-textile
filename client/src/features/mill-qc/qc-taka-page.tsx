@@ -200,7 +200,7 @@ function QcForm({ taka, notReceived }: { taka: TakaDetail; notReceived: boolean 
     const refinish = confirm === 'refinish';
     const body: MillQcSubmitInput = {
       damageDecisions: refinish ? allDecisions.filter((d) => d.resolvedPcs > 0) : allDecisions,
-      newDamages: added.map(qcEntryPayload),
+      newDamages: added.map((e) => qcEntryPayload(e)),
       result: refinish ? 'refinish' : 'final',
       refinishNote: refinish ? note.trim() || null : null,
     };

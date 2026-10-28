@@ -442,12 +442,16 @@ const takaNo = z
   .max(TAKA_NO_MAX_LENGTH, `At most ${TAKA_NO_MAX_LENGTH} characters`)
   .regex(TAKA_NO_REGEX, 'Use digits, - or / (letters only as a short code at the start)');
 
-/** Pcs of a taka: a whole number 1–9999 (required on new takas). */
+/**
+ * Pcs of a taka: a whole number 1–9999. Sprint 19: optional at the schema level (a meter order's taka has no pcs
+ * at all) - the service requires it for a pcs order and requires `meters` instead for a meter order.
+ */
 const takaPcs = z
-  .number({ required_error: 'Enter the pcs', invalid_type_error: 'Enter the pcs' })
+  .number({ invalid_type_error: 'Enter the pcs' })
   .int('Use a whole number')
   .min(1, 'Pcs must be at least 1')
-  .max(TAKA_PCS_MAX, `At most ${TAKA_PCS_MAX} pcs`);
+  .max(TAKA_PCS_MAX, `At most ${TAKA_PCS_MAX} pcs`)
+  .optional();
 
 const otherDamageName = z
   .string({ required_error: 'Write the damage name', invalid_type_error: 'Write the damage name' })
@@ -455,12 +459,25 @@ const otherDamageName = z
   .min(1, 'Write the damage name')
   .max(DAMAGE_NAME_MAX_LENGTH, `At most ${DAMAGE_NAME_MAX_LENGTH} characters`);
 
-/** Damaged pcs of one damage: a whole number from 1 (the server also checks it against the taka's pcs). */
+/**
+ * Damaged pcs of one damage: a whole number from 1 (the server also checks it against the taka's pcs). Sprint 19:
+ * optional at the schema level - exactly one of `pcs` / `meters` is required, checked by the server against the
+ * order's unit (a meter-order damage sends `meters` instead).
+ */
 const damagePcs = z
-  .number({ required_error: 'Enter the damaged pcs', invalid_type_error: 'Enter the damaged pcs' })
+  .number({ invalid_type_error: 'Enter the damaged pcs' })
   .int('Use a whole number')
   .min(1, 'Pcs must be at least 1')
-  .max(TAKA_PCS_MAX, `At most ${TAKA_PCS_MAX} pcs`);
+  .max(TAKA_PCS_MAX, `At most ${TAKA_PCS_MAX} pcs`)
+  .optional();
+
+/** Sprint 19: the meter twin of `damagePcs` — damaged metres of one damage, up to 2 decimals. */
+const damageMeters = z
+  .number({ invalid_type_error: 'Enter the damaged metres' })
+  .positive('Metres must be more than 0')
+  .max(TAKA_METERS_MAX, `At most ${TAKA_METERS_MAX} m`)
+  .optional()
+  .transform((v) => (v == null ? undefined : Math.round(v * 100) / 100));
 
 /** The damage TYPE chosen with the radio (Machine / Butta cutting / Mill). Required wherever damage is marked. */
 const damageTypeRequired = z.enum(CHOOSABLE_DAMAGE_TYPES, {
@@ -472,11 +489,12 @@ const damageTypeOptional = z.enum(CHOOSABLE_DAMAGE_TYPES).nullish().transform((v
 
 /**
  * One damage of a taka: a Damage master entry or a typed "Other" name (the server finds it case-insensitively or
- * adds it to the master in the same transaction) + the damaged pcs.
+ * adds it to the master in the same transaction) + the damaged pcs (pcs order) or metres (meter order) — the
+ * server requires exactly the one that matches the order's unit.
  */
 export const takaDamageSchema = z.union([
-  z.object({ type: damageTypeRequired, damageId: z.number().int().positive(), pcs: damagePcs }).strict(),
-  z.object({ type: damageTypeRequired, otherName: otherDamageName, pcs: damagePcs }).strict(),
+  z.object({ type: damageTypeRequired, damageId: z.number().int().positive(), pcs: damagePcs, meters: damageMeters }).strict(),
+  z.object({ type: damageTypeRequired, otherName: otherDamageName, pcs: damagePcs, meters: damageMeters }).strict(),
 ]);
 export type TakaDamageInput = z.input<typeof takaDamageSchema>;
 
@@ -491,8 +509,8 @@ const takaDamages = z.array(takaDamageSchema).max(MAX_DAMAGES_PER_TAKA, `At most
  */
 const takaEditDamage = z.union([
   // `type` is required on NEW rows (no `id`) — the server checks that; an existing damage keeps its type.
-  z.object({ id: z.number().int().positive().optional(), type: damageTypeRequired.optional(), damageId: z.number().int().positive().nullable(), pcs: damagePcs.nullable() }).strict(),
-  z.object({ id: z.number().int().positive().optional(), type: damageTypeRequired.optional(), otherName: otherDamageName, pcs: damagePcs }).strict(),
+  z.object({ id: z.number().int().positive().optional(), type: damageTypeRequired.optional(), damageId: z.number().int().positive().nullable(), pcs: damagePcs.nullable(), meters: damageMeters.nullable() }).strict(),
+  z.object({ id: z.number().int().positive().optional(), type: damageTypeRequired.optional(), otherName: otherDamageName, pcs: damagePcs, meters: damageMeters }).strict(),
 ]);
 export type TakaEditDamageInput = z.input<typeof takaEditDamage>;
 
@@ -645,10 +663,10 @@ export type DamageImageInput = z.input<typeof damageImageSchema>;
 
 const damageImages = z.array(damageImageSchema).max(MAX_DAMAGE_IMAGES, `At most ${MAX_DAMAGE_IMAGES} images per damage`).default([]);
 
-/** A NEW damage found at the Butta QC: like a taka damage + optional images. */
+/** A NEW damage found at the Butta QC: like a taka damage + optional images. Sprint 19: + `meters` for a meter order. */
 export const qcNewDamageSchema = z.union([
-  z.object({ type: damageTypeRequired, damageId: z.number().int().positive(), pcs: damagePcs, images: damageImages }).strict(),
-  z.object({ type: damageTypeRequired, otherName: otherDamageName, pcs: damagePcs, images: damageImages }).strict(),
+  z.object({ type: damageTypeRequired, damageId: z.number().int().positive(), pcs: damagePcs, meters: damageMeters, images: damageImages }).strict(),
+  z.object({ type: damageTypeRequired, otherName: otherDamageName, pcs: damagePcs, meters: damageMeters, images: damageImages }).strict(),
 ]);
 export type QcNewDamageInput = z.input<typeof qcNewDamageSchema>;
 
@@ -713,8 +731,12 @@ export const godownRefinishSchema = z.object({ note: optText(300) });
 /** POST /godown/takas/:id/resolve — resolve one damage (`takaDamageId`) or, without it, every open damage of the taka. */
 export const godownResolveSchema = z.object({ takaDamageId: z.number().int().positive().optional() });
 
-/** Sprint 15: an EARLIER open damage of the order moved onto a part (its pcs are editable). */
-export const splitMovedDamageSchema = z.object({ fromTakaDamageId: z.number().int().positive(), pcs: damagePcs }).strict();
+/**
+ * Sprint 15: an EARLIER open damage of the order moved onto a part (its pcs are editable). Split is still pcs-only
+ * (Sprint 19 Phase 8 work, not done yet) — pcs stays required here even though the shared `damagePcs` became
+ * optional for meter orders elsewhere.
+ */
+export const splitMovedDamageSchema = z.object({ fromTakaDamageId: z.number().int().positive(), pcs: damagePcs.unwrap() }).strict();
 export type SplitMovedDamageInput = z.input<typeof splitMovedDamageSchema>;
 
 /** One part of a split: the first part keeps the original number. `damages` = new damages or moved earlier ones. */

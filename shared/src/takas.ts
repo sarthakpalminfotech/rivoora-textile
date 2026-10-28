@@ -233,11 +233,13 @@ export function damageOpenPcs(d: Pick<DamageLike, 'pcs' | 'resolvedPcs' | 'statu
 
 /**
  * "Machine damage · Hole · 2 pcs" — where the damage was found (`found_at`) + what it is (the Damage master name) +
- * the damaged pcs. Older damage without a name or pcs shows just "Machine damage".
+ * the damaged pcs. Older damage without a name or pcs shows just "Machine damage". Sprint 19: pass `meters` instead
+ * for a meter-order damage ("Machine damage · Hole · 5.5 m") — at most one of `pcs` / `meters` is ever shown.
  */
-export function damageLabel(foundAt: string | null | undefined, damageName?: string | null, pcs?: number | null): string {
+export function damageLabel(foundAt: string | null | undefined, damageName?: string | null, pcs?: number | null, meters?: number | null): string {
   const where = DAMAGE_TYPE_LABEL[isDamageType(foundAt) ? foundAt : 'machine'];
-  return [where, damageName, pcs != null ? `${pcs} pcs` : null].filter(Boolean).join(' · ');
+  const qty = pcs != null ? `${pcs} pcs` : meters != null ? formatMeters(meters) : null;
+  return [where, damageName, qty].filter(Boolean).join(' · ');
 }
 
 /**
@@ -297,6 +299,51 @@ export function damagePcsErrorText(error: DamagePcsError, takaPcs: number | null
     case 'too_big':
       return { en: `At most ${max} pcs (the taka's pcs)`, hi: `ज़्यादा से ज़्यादा ${max} पीस` };
   }
+}
+
+/* ------------------------------------------------------------------ */
+/* Sprint 19: damaged metres (the meter twin of damaged pcs)            */
+/* ------------------------------------------------------------------ */
+
+/** Damaged metres: more than 0, up to the taka's metres, 2 decimals. */
+export type DamageMetersError = 'required' | 'invalid' | 'zero' | 'too_big';
+
+export function parseDamageMeters(value: string, takaMeters: number | null): { meters: number | null; error: DamageMetersError | null } {
+  const v = value.trim();
+  if (!v) return { meters: null, error: 'required' };
+  if (!/^\d+(\.\d{1,2})?$/.test(v)) return { meters: null, error: 'invalid' };
+  const n = Number(v);
+  if (n <= 0) return { meters: null, error: 'zero' };
+  if (n > (takaMeters ?? TAKA_METERS_MAX)) return { meters: null, error: 'too_big' };
+  return { meters: Math.round(n * 100) / 100, error: null };
+}
+
+export function damageMetersErrorText(error: DamageMetersError, takaMeters: number | null): { en: string; hi: string } {
+  const max = takaMeters ?? TAKA_METERS_MAX;
+  switch (error) {
+    case 'required':
+      return { en: 'Enter the damaged metres', hi: 'खराब मीटर लिखें' };
+    case 'invalid':
+      return { en: 'Use a number like 5 or 5.5', hi: 'ऐसे लिखें: 5 या 5.5' };
+    case 'zero':
+      return { en: 'Metres must be more than 0', hi: 'मीटर 0 से ज़्यादा हों' };
+    case 'too_big':
+      return { en: `At most ${max} m (the taka's metres)`, hi: `ज़्यादा से ज़्यादा ${max} मीटर` };
+  }
+}
+
+/** Sprint 19 §2.4: meters entered vs expected (completedMeters ?? meters) × sections — warn when the gap is > 2%. */
+export const TAKA_METERS_MISMATCH_PCT = 0.02;
+
+/** "Meters entered: 95. Expected about 100 m (50 m × 2 sections)." or null when within the tolerance / no expected value. */
+export function metersMismatchNote(entered: number, assignedMeters: number, sections: number): string | null {
+  const expected = Math.round(assignedMeters * sections * 100) / 100;
+  if (expected <= 0) return null;
+  const diff = Math.abs(entered - expected);
+  if (diff / expected <= TAKA_METERS_MISMATCH_PCT) return null;
+  const enteredFmt = entered.toLocaleString('en-IN', { maximumFractionDigits: 2 });
+  const expectedFmt = expected.toLocaleString('en-IN', { maximumFractionDigits: 2 });
+  return `Meters entered: ${enteredFmt}. Expected about ${expectedFmt} m (${assignedMeters.toLocaleString('en-IN', { maximumFractionDigits: 2 })} m × ${sections} section${sections === 1 ? '' : 's'}).`;
 }
 
 /* ------------------------------------------------------------------ */

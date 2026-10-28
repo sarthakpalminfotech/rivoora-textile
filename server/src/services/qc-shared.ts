@@ -25,7 +25,13 @@ export const isOurImageUrl = (url: string) => url.startsWith('/uploads/') || /^h
 export interface NewDamageInput {
   /** The damage type chosen with the radio; null/absent = "not marked" (goods return only). Sprint 16: + weaver. */
   type?: ChoosableDamageType | null;
-  pcs: number;
+  /**
+   * Sprint 19: exactly one of `pcs` / `meters` is present, matching the order's unit (`pcs` for a pcs order,
+   * `meters` for a meter order — the meters-bound QC logic itself is Phase 8 work; today this is only typed
+   * loosely enough for the taka-entry/outside-receipt/split call sites sharing this type to compile).
+   */
+  pcs?: number;
+  meters?: number;
   images: { url: string; thumbUrl: string }[];
   damageId?: number;
   otherName?: string;
@@ -36,7 +42,7 @@ export function assertNewDamages(newDamages: readonly NewDamageInput[], takaPcs:
   newDamages.forEach((d, j) => {
     if (d.images.length > MAX_DAMAGE_IMAGES) throw badRequest(`At most ${MAX_DAMAGE_IMAGES} images per damage.`, `${field}.${j}.images`);
     if (d.images.some((i) => !isOurImageUrl(i.url) || !isOurImageUrl(i.thumbUrl))) throw badRequest('Upload the photos again.', `${field}.${j}.images`);
-    if (d.pcs > takaPcs) throw badRequest(`A damage can't have more pcs than the taka (${takaPcs}).`, `${field}.${j}.pcs`);
+    if (d.pcs !== undefined && d.pcs > takaPcs) throw badRequest(`A damage can't have more pcs than the taka (${takaPcs}).`, `${field}.${j}.pcs`);
   });
 }
 
@@ -66,7 +72,7 @@ export async function addNewDamages(
   const newIds = await insertTakaDamages(
     tx,
     role,
-    newDamages.map((d, n) => ({ takaId, damageId: damageIds[n], pcs: d.pcs, foundAt: types[n], recordedAt })),
+    newDamages.map((d, n) => ({ takaId, damageId: damageIds[n], pcs: d.pcs ?? null, meters: d.meters ?? null, foundAt: types[n], recordedAt })),
   );
   for (const [n, d] of newDamages.entries()) {
     if (!d.images.length) continue;
@@ -81,7 +87,7 @@ export async function addNewDamages(
     takaId,
     event: 'damage_added' as const,
     takaDamageId: newIds[n],
-    note: `${damageLabel(types[n], names.get(damageIds[n]), d.pcs)} · recorded at ${DAMAGE_RECORDED_AT_LABEL[recordedAt]}${d.images.length ? ` · ${d.images.length} photo${d.images.length === 1 ? '' : 's'}` : ''}`,
+    note: `${damageLabel(types[n], names.get(damageIds[n]), d.pcs ?? null, d.meters ?? null)} · recorded at ${DAMAGE_RECORDED_AT_LABEL[recordedAt]}${d.images.length ? ` · ${d.images.length} photo${d.images.length === 1 ? '' : 's'}` : ''}`,
   }));
 }
 

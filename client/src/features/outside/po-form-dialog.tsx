@@ -39,6 +39,8 @@ export interface PoFormDefaults {
   materialId: number;
   materialName: string;
   orderType: OrderType;
+  /** Sprint 19: the order is a meter order — its POs always receive in metres (the unit field is locked). */
+  meterOrder: boolean;
 }
 
 /** Create / edit an outside PO (Jenish, Gaurang). Quality + order type default to the order's own. */
@@ -93,7 +95,7 @@ export function PoFormDialog({
             weaverId: null,
             materialId: defaults.materialId,
             quantity: '',
-            unit: 'pcs',
+            unit: defaults.meterOrder ? 'meters' : 'pcs',
             orderType: defaults.orderType,
             rate: '',
             poDate: toApiDate(new Date()),
@@ -223,8 +225,15 @@ export function PoFormDialog({
         <Field label="Quantity" htmlFor="po-qty" required error={errors.quantity?.message}>
           <div className="grid grid-cols-[minmax(0,1fr)_130px] gap-2">
             <NumberInput id="po-qty" placeholder="0" invalid={!!errors.quantity} {...register('quantity')} />
-            <Controller control={control} name="unit" render={({ field }) => <Select<PoUnit> value={field.value} onChange={field.onChange} options={unitOptions} aria-label="Unit" />} />
+            <Controller
+              control={control}
+              name="unit"
+              render={({ field }) => (
+                <Select<PoUnit> value={field.value} onChange={field.onChange} options={unitOptions} aria-label="Unit" disabled={defaults.meterOrder} />
+              )}
+            />
           </div>
+          {defaults.meterOrder && <p className="mt-1 text-[13px] text-muted-foreground">Meter orders always receive in metres.</p>}
         </Field>
         <Field label="Order type" htmlFor="po-type" required error={errors.orderType?.message}>
           <Controller

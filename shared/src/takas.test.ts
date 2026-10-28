@@ -99,10 +99,12 @@ describe('taka number validation (one jobsheet)', () => {
     expect(cleanTakaNo('12345678901234567')).toBe('123456789012345');
   });
 
-  it('server schemas: numbers are generated (not sent), pcs required, at least one taka on entry, empty set allowed on edit', () => {
+  it('server schemas: numbers are generated (not sent), at least one taka on entry, empty set allowed on edit', () => {
     expect(takaEntrySchema.safeParse({ takas: [{ pcs: 12, damages: [{ type: 'machine', damageId: 3, pcs: 2 }] }] }).success).toBe(true);
     expect(takaEntrySchema.safeParse({ takas: [{ pcs: 1 }] }).success).toBe(true);
-    expect(takaEntrySchema.safeParse({ takas: [{ meters: 10 }] }).success).toBe(false);
+    // Sprint 19: pcs is optional at the SCHEMA level — a meter order's row carries meters instead. The server
+    // (enterTakas/editTakas) requires the one that matches the order's unit.
+    expect(takaEntrySchema.safeParse({ takas: [{ meters: 10 }] }).success).toBe(true);
     expect(takaEntrySchema.safeParse({ takas: [] }).success).toBe(false);
     expect(takaEditSchema.safeParse({ takas: [], note: '' }).success).toBe(true);
     const parsed = takaEntrySchema.parse({ takas: [{ pcs: 10 }], note: '  ' });
@@ -281,11 +283,13 @@ describe('damage payload (a list per taka)', () => {
     expect(parsed.takas[0].damages).toHaveLength(2);
   });
 
-  it('a damage needs a name and pcs: empty Other, both keys, missing pcs or id are rejected', () => {
+  it('a damage needs a name: empty Other, both keys, bad pcs or id are rejected', () => {
     const t = 'machine' as const;
     expect(takaDamageSchema.safeParse({ type: t, otherName: '   ', pcs: 1 }).success).toBe(false);
     expect(takaDamageSchema.safeParse({ type: t, damageId: 1, otherName: 'Hole', pcs: 1 }).success).toBe(false);
-    expect(takaDamageSchema.safeParse({ type: t, damageId: 1 }).success).toBe(false);
+    // Sprint 19: pcs is optional at the SCHEMA level (a meter-order damage sends meters instead) — the server
+    // (enterTakas / editTakas / saveReceivedTakas) requires the one that matches the order's unit.
+    expect(takaDamageSchema.safeParse({ type: t, damageId: 1 }).success).toBe(true);
     expect(takaDamageSchema.safeParse({ type: t, damageId: 1, pcs: 0 }).success).toBe(false);
     expect(takaDamageSchema.safeParse({ type: t, damageId: null, pcs: 1 }).success).toBe(false);
     expect(takaDamageSchema.safeParse({ type: t, otherName: 'x'.repeat(81), pcs: 1 }).success).toBe(false);

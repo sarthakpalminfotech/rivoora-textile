@@ -11,6 +11,7 @@ import {
   damageLabel,
   DAMAGE_RECORDED_AT_LABEL,
   type DamageType,
+  isMeterOrder,
   jobsheetRef,
   JOBSHEET_STATUS,
   MAX_TAKAS_PER_JOBSHEET,
@@ -103,12 +104,14 @@ async function loadJobsheetForTakas(tx: Tx, role: RoleKey, id: number) {
       orderId: jobsheets.orderId,
       status: jobsheets.status,
       frames: jobsheets.frames,
+      meters: jobsheets.meters,
       runningMachineId: jobsheets.runningMachineId,
       takaNote: jobsheets.takaNote,
       isDeleted: jobsheets.isDeleted,
       isExternal: jobsheets.isExternal,
       orderNo: orders.orderNo,
       orderStatus: orders.status,
+      unit: orders.unit,
     })
     .from(jobsheets)
     .innerJoin(orders, eq(orders.id, jobsheets.orderId))
@@ -152,6 +155,13 @@ function assertDamagePcs(takaNo: string, takaPcs: number | null, pcs: number | n
   }
 }
 
+/** Sprint 19: the meter twin of `assertDamagePcs`. */
+function assertDamageMeters(takaNo: string, takaMeters: number | null, meters: number | null, field: string) {
+  if (meters !== null && takaMeters !== null && meters > takaMeters) {
+    throw badRequest(`Taka ${takaNo}: damaged metres can't be more than the taka's ${takaMeters} m`, field);
+  }
+}
+
 /* ------------------------------------------------------------------ */
 /* entry (Taka entry role)                                              */
 /* ------------------------------------------------------------------ */
@@ -170,12 +180,26 @@ export async function enterTakas(role: RoleKey, id: number, input: unknown): Pro
     if (existing.length + data.takas.length > MAX_TAKAS_PER_JOBSHEET) {
       throw badRequest(`A jobsheet can have at most ${MAX_TAKAS_PER_JOBSHEET} takas.`);
     }
+    const meterOrder = isMeterOrder(js);
     // Numbers are system generated (counter, starting at 11) in the order the rows were sent.
     const numbers = await allocateTakaNumbers(tx, data.takas.length);
     const rows = data.takas.map((t, i) => ({ ...t, takaNo: numbers[i] }));
-    rows.forEach((t, i) =>
-      t.damages.forEach((d, j) => assertDamagePcs(t.takaNo, t.pcs, d.pcs, `takas.${i}.damages.${j}.pcs`)),
-    );
+    rows.forEach((t, i) => {
+      if (meterOrder) {
+        if (t.meters == null) throw badRequest('Enter the metres', `takas.${i}.meters`);
+      } else if (t.pcs == null) {
+        throw badRequest('Enter the pcs', `takas.${i}.pcs`);
+      }
+      t.damages.forEach((d, j) => {
+        if (meterOrder) {
+          if (d.meters == null) throw badRequest('Enter the damaged metres', `takas.${i}.damages.${j}.meters`);
+          assertDamageMeters(t.takaNo, t.meters ?? null, d.meters, `takas.${i}.damages.${j}.meters`);
+        } else {
+          if (d.pcs == null) throw badRequest('Enter the damaged pcs', `takas.${i}.damages.${j}.pcs`);
+          assertDamagePcs(t.takaNo, t.pcs ?? null, d.pcs, `takas.${i}.damages.${j}.pcs`);
+        }
+      });
+    });
 
     const at = now();
     const stage = await initialStageForOrder(tx, js.orderId);
@@ -186,8 +210,8 @@ export async function enterTakas(role: RoleKey, id: number, input: unknown): Pro
           jobsheetId: id,
           orderId: js.orderId,
           takaNo: t.takaNo,
-          meters: t.meters,
-          pcs: t.pcs,
+          meters: t.meters ?? null,
+          pcs: t.pcs ?? null,
           isDamaged: t.damages.length > 0,
           stage,
           enteredBy: role,
@@ -208,7 +232,7 @@ export async function enterTakas(role: RoleKey, id: number, input: unknown): Pro
     await insertTakaDamages(
       tx,
       role,
-      flat.map((f, n) => ({ takaId: idByNo.get(f.takaNo)!, damageId: damageIds[n], pcs: f.pick.pcs, foundAt: f.pick.type, recordedAt: 'taka_entry' as const })),
+      flat.map((f, n) => ({ takaId: idByNo.get(f.takaNo)!, damageId: damageIds[n], pcs: f.pick.pcs ?? null, meters: f.pick.meters ?? null, foundAt: f.pick.type, recordedAt: 'taka_entry' as const })),
     );
     const names = await damageNames(tx, damageIds);
     const events: TakaEventInput[] = inserted.map((t) => ({ takaId: t.id, event: 'entered', note: jobsheetRef(js.orderNo, js.jobsheetNo) }));
@@ -216,7 +240,7 @@ export async function enterTakas(role: RoleKey, id: number, input: unknown): Pro
       events.push({
         takaId: idByNo.get(f.takaNo)!,
         event: 'damage_added',
-        note: `${damageLabel(f.pick.type, names.get(damageIds[n]), f.pick.pcs)} · recorded at ${DAMAGE_RECORDED_AT_LABEL.taka_entry}`,
+        note: `${damageLabel(f.pick.type, names.get(damageIds[n]), f.pick.pcs, f.pick.meters)} · recorded at ${DAMAGE_RECORDED_AT_LABEL.taka_entry}`,
       }),
     );
     await writeTakaEvents(tx, role, events);
@@ -233,7 +257,11 @@ export async function enterTakas(role: RoleKey, id: number, input: unknown): Pro
     if (autoCompleted) {
       const done = await tx
         .update(jobsheets)
-        .set({ status: JOBSHEET_STATUS.COMPLETED, completedAt: at, completedFrames: js.frames })
+        .set(
+          meterOrder
+            ? { status: JOBSHEET_STATUS.COMPLETED, completedAt: at, completedMeters: js.meters }
+            : { status: JOBSHEET_STATUS.COMPLETED, completedAt: at, completedFrames: js.frames },
+        )
         .where(and(eq(jobsheets.id, id), eq(jobsheets.status, js.status)))
         .returning({ id: jobsheets.id });
       if (!done.length) throw conflict(`${jobsheetRef(js.orderNo, js.jobsheetNo)} was just changed. Refresh and try again.`);
@@ -349,14 +377,15 @@ export async function editTakas(role: RoleKey, id: number, input: unknown): Prom
       seenIds.add(t.id);
     }
 
+    const meterOrder = isMeterOrder(js);
     // Damage plan per submitted taka (resolving names in the master first).
     interface DamagePlan {
       /** Existing open damages that change. */
-      updates: { id: number; damageId: number | null; pcs: number | null; foundAt: DamageType; before: string; after: string }[];
+      updates: { id: number; damageId: number | null; pcs: number | null; meters: number | null; foundAt: DamageType; before: string; after: string }[];
       /** Existing open damages that are removed. */
       removes: { id: number; label: string }[];
       /** New machine damages. */
-      adds: { damageId: number; pcs: number; type: DamageType }[];
+      adds: { damageId: number; pcs: number | null; meters: number | null; type: DamageType }[];
     }
     const flat: { rowIndex: number; j: number; pick: { damageId: number } | { otherName: string } }[] = [];
     data.takas.forEach((t, i) =>
@@ -383,38 +412,51 @@ export async function editTakas(role: RoleKey, id: number, input: unknown): Prom
           throw conflict('These takas were just changed by someone else. Close the form, refresh and try again.');
         }
         const damageId = 'otherName' in d || d.damageId !== null ? resolvedId.get(`${i}.${j}`)! : null;
-        // An older damage may keep a missing name / pcs only while it is unchanged.
+        // An older damage may keep a missing name / qty only while it is unchanged.
         if (damageId === null && !(before && before.damageId === null)) {
           throw badRequest(`Taka ${t.takaNo}: pick the damage name`, field);
         }
-        if (d.pcs === null && !(before && before.pcs === null)) {
-          throw badRequest(`Taka ${t.takaNo}: enter the damaged pcs`, `${field}.pcs`);
-        }
-        assertDamagePcs(t.takaNo, t.pcs ?? old?.pcs ?? null, d.pcs, `${field}.pcs`);
-        if (before && d.pcs !== null && d.pcs < (before.resolvedPcs ?? 0)) {
-          throw badRequest(`Taka ${t.takaNo}: ${before.resolvedPcs} pcs of this damage are already resolved — the damaged pcs can't be less.`, `${field}.pcs`);
+        const dMeters = 'meters' in d ? (d.meters ?? null) : null;
+        const dPcs = d.pcs ?? null;
+        if (meterOrder) {
+          if (dMeters === null && !(before && before.meters === null)) {
+            throw badRequest(`Taka ${t.takaNo}: enter the damaged metres`, `${field}.meters`);
+          }
+          assertDamageMeters(t.takaNo, t.meters ?? old?.meters ?? null, dMeters, `${field}.meters`);
+          if (before && dMeters !== null && dMeters < (before.resolvedMeters ?? 0)) {
+            throw badRequest(`Taka ${t.takaNo}: ${before.resolvedMeters} m of this damage are already resolved — the damaged metres can't be less.`, `${field}.meters`);
+          }
+        } else {
+          if (dPcs === null && !(before && before.pcs === null)) {
+            throw badRequest(`Taka ${t.takaNo}: enter the damaged pcs`, `${field}.pcs`);
+          }
+          assertDamagePcs(t.takaNo, t.pcs ?? old?.pcs ?? null, dPcs, `${field}.pcs`);
+          if (before && dPcs !== null && dPcs < (before.resolvedPcs ?? 0)) {
+            throw badRequest(`Taka ${t.takaNo}: ${before.resolvedPcs} pcs of this damage are already resolved — the damaged pcs can't be less.`, `${field}.pcs`);
+          }
         }
         if (before) {
           keptIds.add(before.id);
           // An existing damage keeps its type unless the person picked another one.
           const type = d.type ?? before.foundAt;
-          if (before.damageId !== damageId || before.pcs !== d.pcs || before.foundAt !== type) {
+          if (before.damageId !== damageId || before.pcs !== dPcs || before.meters !== dMeters || before.foundAt !== type) {
             plan.updates.push({
               id: before.id,
               damageId,
-              pcs: d.pcs,
+              pcs: meterOrder ? null : dPcs,
+              meters: meterOrder ? dMeters : null,
               foundAt: type,
-              before: damageLabel(before.foundAt, before.damageName, before.pcs),
-              after: damageLabel(type, damageId !== null ? names.get(damageId) : null, d.pcs),
+              before: damageLabel(before.foundAt, before.damageName, before.pcs, before.meters),
+              after: damageLabel(type, damageId !== null ? names.get(damageId) : null, meterOrder ? null : dPcs, meterOrder ? dMeters : null),
             });
           }
         } else {
           if (!d.type) throw badRequest(`Taka ${t.takaNo}: choose the damage type`, `${field}.type`);
-          plan.adds.push({ damageId: damageId!, pcs: d.pcs!, type: d.type });
+          plan.adds.push({ damageId: damageId!, pcs: meterOrder ? null : dPcs, meters: meterOrder ? dMeters : null, type: d.type });
         }
       });
       for (const d of oldOpen) {
-        if (!keptIds.has(d.id)) plan.removes.push({ id: d.id, label: damageLabel(d.foundAt, d.damageName, d.pcs) });
+        if (!keptIds.has(d.id)) plan.removes.push({ id: d.id, label: damageLabel(d.foundAt, d.damageName, d.pcs, d.meters) });
       }
       return plan;
     });
@@ -426,11 +468,18 @@ export async function editTakas(role: RoleKey, id: number, input: unknown): Prom
     const weaverNoOf = (t: (typeof rows)[number], old: Taka) => (receipt ? t.weaverTakaNo?.trim() || null : old.weaverTakaNo);
     const isChanged = (t: (typeof rows)[number], old: Taka) =>
       old.takaNo !== t.takaNo || old.meters !== t.meters || old.pcs !== t.pcs || weaverNoOf(t, old) !== old.weaverTakaNo || damagesChanged(t.plan);
-    // Pcs are required on every new or edited taka; only an unchanged older taka without pcs may stay without.
+    // Pcs (or, for a meter order, metres) are required on every new or edited taka; only an unchanged older taka
+    // without one may stay without.
     rows.forEach((t, i) => {
-      if (t.pcs !== null) return;
-      const old = t.id !== undefined ? byId.get(t.id) : undefined;
-      if (!old || old.pcs !== null || isChanged(t, old)) throw badRequest(`Taka ${t.takaNo}: enter the pcs`, `takas.${i}.pcs`);
+      if (meterOrder) {
+        if (t.meters != null) return;
+        const old = t.id !== undefined ? byId.get(t.id) : undefined;
+        if (!old || old.meters !== null || isChanged(t, old)) throw badRequest(`Taka ${t.takaNo}: enter the metres`, `takas.${i}.meters`);
+      } else {
+        if (t.pcs !== null) return;
+        const old = t.id !== undefined ? byId.get(t.id) : undefined;
+        if (!old || old.pcs !== null || isChanged(t, old)) throw badRequest(`Taka ${t.takaNo}: enter the pcs`, `takas.${i}.pcs`);
+      }
     });
 
     const addedRows = rows.filter((t) => t.id === undefined);
@@ -501,10 +550,10 @@ export async function editTakas(role: RoleKey, id: number, input: unknown): Prom
       ].filter(Boolean);
       if (parts.length) events.push({ takaId: t.id!, event: 'edited', note: parts.join(' · ') });
       for (const a of t.plan.adds) {
-        events.push({ takaId: t.id!, event: 'damage_added', note: `${damageLabel(a.type, names.get(a.damageId), a.pcs)} · recorded at ${DAMAGE_RECORDED_AT_LABEL.edit_takas}` });
+        events.push({ takaId: t.id!, event: 'damage_added', note: `${damageLabel(a.type, names.get(a.damageId), a.pcs, a.meters)} · recorded at ${DAMAGE_RECORDED_AT_LABEL.edit_takas}` });
       }
       for (const u of t.plan.updates) {
-        await tx.update(takaDamages).set({ damageId: u.damageId, pcs: u.pcs, foundAt: u.foundAt }).where(eq(takaDamages.id, u.id));
+        await tx.update(takaDamages).set({ damageId: u.damageId, pcs: u.pcs, meters: u.meters, foundAt: u.foundAt }).where(eq(takaDamages.id, u.id));
       }
       for (const r of t.plan.removes) {
         await tx.update(takaDamages).set({ isDeleted: true }).where(eq(takaDamages.id, r.id));
@@ -512,7 +561,7 @@ export async function editTakas(role: RoleKey, id: number, input: unknown): Prom
       await insertTakaDamages(
         tx,
         role,
-        t.plan.adds.map((a) => ({ takaId: t.id!, damageId: a.damageId, pcs: a.pcs, foundAt: a.type, recordedAt: 'edit_takas' as const })),
+        t.plan.adds.map((a) => ({ takaId: t.id!, damageId: a.damageId, pcs: a.pcs, meters: a.meters, foundAt: a.type, recordedAt: 'edit_takas' as const })),
       );
     }
     if (addedRows.length) {
@@ -540,12 +589,12 @@ export async function editTakas(role: RoleKey, id: number, input: unknown): Prom
         touched.add(takaId);
         events.push({ takaId, event: 'entered', note: `${jobsheetRef(js.orderNo, js.jobsheetNo)} · added in Edit takas` });
         for (const a of t.plan.adds) {
-          events.push({ takaId, event: 'damage_added', note: `${damageLabel(a.type, names.get(a.damageId), a.pcs)} · recorded at ${DAMAGE_RECORDED_AT_LABEL.edit_takas}` });
+          events.push({ takaId, event: 'damage_added', note: `${damageLabel(a.type, names.get(a.damageId), a.pcs, a.meters)} · recorded at ${DAMAGE_RECORDED_AT_LABEL.edit_takas}` });
         }
         await insertTakaDamages(
           tx,
           role,
-          t.plan.adds.map((a) => ({ takaId, damageId: a.damageId, pcs: a.pcs, foundAt: a.type, recordedAt: 'edit_takas' as const })),
+          t.plan.adds.map((a) => ({ takaId, damageId: a.damageId, pcs: a.pcs, meters: a.meters, foundAt: a.type, recordedAt: 'edit_takas' as const })),
         );
       }
     }
@@ -590,6 +639,8 @@ export async function listOrderTakas(role: RoleKey, orderId: number): Promise<Or
         status: jobsheets.status,
         frames: jobsheets.frames,
         completedFrames: jobsheets.completedFrames,
+        meters: jobsheets.meters,
+        completedMeters: jobsheets.completedMeters,
         takaNote: jobsheets.takaNote,
         machinesJson,
         ...runningMachineColumns,
@@ -687,6 +738,8 @@ export async function listOrderTakas(role: RoleKey, orderId: number): Promise<Or
     status: r.status,
     frames: r.frames,
     completedFrames: r.completedFrames,
+    meters: r.meters,
+    completedMeters: r.completedMeters,
     runningMachine: toMachineRef(r),
     machines: parseMachinesJson(r.machinesJson),
     note: r.takaNote,
@@ -703,6 +756,8 @@ export async function listOrderTakas(role: RoleKey, orderId: number): Promise<Or
         status: jobsheets.status,
         frames: jobsheets.frames,
         completedFrames: jobsheets.completedFrames,
+        meters: jobsheets.meters,
+        completedMeters: jobsheets.completedMeters,
         takaNote: jobsheets.takaNote,
         orderNo: orders.orderNo,
         machinesJson,
@@ -721,6 +776,8 @@ export async function listOrderTakas(role: RoleKey, orderId: number): Promise<Or
         status: r.status,
         frames: r.frames,
         completedFrames: r.completedFrames,
+        meters: r.meters,
+        completedMeters: r.completedMeters,
         runningMachine: toMachineRef(r),
         machines: parseMachinesJson(r.machinesJson),
         note: r.takaNote,
@@ -945,7 +1002,7 @@ export async function getTakaDamagesDetail(role: RoleKey, id: number): Promise<T
         challanNo: null,
         challanKind: null,
         takaDamageId: d.id,
-        note: damageLabel(d.foundAt, d.damageName, d.pcs),
+        note: damageLabel(d.foundAt, d.damageName, d.pcs, d.meters),
         role: createdBy.get(d.id) ?? 'jemish',
         createdAt: d.createdAt,
       });
