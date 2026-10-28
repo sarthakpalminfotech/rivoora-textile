@@ -76,6 +76,29 @@ async function variationPlan(): Promise<{ variations: number; ordersOnVariation:
 }
 
 /**
+ * Sprint 19 (migration 0018): existing METER orders without a dispatch/GR get `order_type = 'lump'`. Before it runs
+ * we print exactly how many orders qualify; the migration's own `__s19_check` aborts (rolling everything back) if
+ * any still don't after. Returns null when already applied or on a fresh database.
+ */
+async function meterOrdersPlan(): Promise<{ metersOrders: number; qualifying: number } | null> {
+  const applied = await libsql.execute(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'stock_adjustments'`);
+  if (applied.rows.length > 0) return null;
+  const ordersTable = await libsql.execute(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'orders'`);
+  if (ordersTable.rows.length === 0) return null; // fresh database: nothing to check
+  const metersOrders = await countOf(`SELECT COUNT(*) AS n FROM orders WHERE unit = 'meters'`);
+  const qualifying = await countOf(`
+    SELECT COUNT(*) AS n FROM orders o WHERE o.unit = 'meters' AND o.order_type <> 'lump'
+      AND NOT EXISTS (SELECT 1 FROM dispatch_challans dc WHERE dc.order_id = o.id)
+      AND NOT EXISTS (SELECT 1 FROM goods_returns gr JOIN dispatch_challans dc2 ON dc2.id = gr.challan_id WHERE dc2.order_id = o.id)
+  `);
+  console.log(
+    `Sprint 19 meter-order check: ${metersOrders} existing order(s) with unit meters; ${qualifying} of them will be set to\n` +
+      'order_type = lump (no dispatch, no goods return yet). kg / g orders are never touched.',
+  );
+  return { metersOrders, qualifying };
+}
+
+/**
  * Sprint 8 (migration 0009) moves the butta challans into the generic `challans` / `challan_takas` tables. The SQL
  * itself compares the counts and fails (rolling everything back) if anything is off; this wrapper counts before and
  * after as well and explains a failure in plain words.
@@ -85,9 +108,18 @@ async function main() {
   await assertNoDuplicateTakaNumbers();
   const before = await buttaChallanCounts();
   const s18 = await variationPlan();
+  const s19 = await meterOrdersPlan();
   try {
     await migrate(db, { migrationsFolder: resolve(SERVER_ROOT, 'drizzle') });
   } catch (err) {
+    if (String(err).includes('__s19_check')) {
+      console.error(
+        '\nMigration stopped: a meter order without a dispatch/goods-return was left as something other than lump.\n' +
+          'Nothing was changed.\n',
+      );
+      libsql.close();
+      process.exit(1);
+    }
     if (String(err).includes('__s18_check')) {
       console.error(
         '\nMigration stopped: turning the design variations into designs did not add up (designs created, the map, the\n' +
@@ -130,6 +162,19 @@ async function main() {
       process.exit(1);
     }
     console.log(`Variations → designs: ${mapped} designs created (design_variation_map), ${moved} orders moved, ${qualities} design qualities (counts match).`);
+  }
+  if (s19) {
+    const stillNotLump = await countOf(`
+      SELECT COUNT(*) AS n FROM orders o WHERE o.unit = 'meters' AND o.order_type <> 'lump'
+        AND NOT EXISTS (SELECT 1 FROM dispatch_challans dc WHERE dc.order_id = o.id)
+        AND NOT EXISTS (SELECT 1 FROM goods_returns gr JOIN dispatch_challans dc2 ON dc2.id = gr.challan_id WHERE dc2.order_id = o.id)
+    `);
+    if (stillNotLump !== 0) {
+      console.error(`\nCheck failed: ${s19.qualifying} meter order(s) should have become lump, ${stillNotLump} still aren't.\n`);
+      libsql.close();
+      process.exit(1);
+    }
+    console.log(`Meter orders backfilled: ${s19.qualifying} of ${s19.metersOrders} set to order_type = lump (counts match).`);
   }
   console.log('Migrations applied.');
   // Sprint 12: the default logins (a phone that already exists is left alone).

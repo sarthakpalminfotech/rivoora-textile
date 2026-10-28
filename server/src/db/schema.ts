@@ -67,11 +67,17 @@ export const customers = sqliteTable(
     city: text('city'),
     gstNumber: text('gst_number'),
     notes: text('notes'),
+    /**
+     * Sprint 19: the ONE reserved "Stock (system)" customer row that manual-stock holder orders point to
+     * (`orders.customer_id` is NOT NULL and there is no real customer for them). Soft-deleted immediately so it
+     * never appears in `/customers` or `/lookup/customers`.
+     */
+    isSystem: integer('is_system', { mode: 'boolean' }).notNull().default(false),
     isDeleted: isDeleted(),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
-  (t) => [index('customers_name_idx').on(t.name)],
+  (t) => [index('customers_name_idx').on(t.name), uniqueIndex('customers_is_system_unique').on(t.isSystem).where(sql`${t.isSystem} = 1`)],
 );
 
 /** Brokers of a customer — just names. Soft-deleted when removed (they stay on old orders). */
@@ -235,6 +241,8 @@ export const orders = sqliteTable(
     targetFrames: integer('target_frames').notNull().default(0),
     /** Jobsheet plan: frames per jobsheet of the latest multi-jobsheet run (used when splitting). */
     framesPerJobsheet: integer('frames_per_jobsheet'),
+    /** Sprint 19: the meter twin of `framesPerJobsheet` (a meter order's latest multi-jobsheet run, metres per jobsheet). */
+    metersPerJobsheet: real('meters_per_jobsheet'),
     /** Sprint 15: Hold order (Jenish only). A held order is hidden from every role except Jenish / Gaurang. */
     isOnHold: integer('is_on_hold', { mode: 'boolean' }).notNull().default(false),
     heldAt: text('held_at'),
@@ -253,6 +261,14 @@ export const orders = sqliteTable(
     closedAt: text('closed_at'),
     closedByUserId: integer('closed_by_user_id'),
     closeNote: text('close_note'),
+    /**
+     * Sprint 19 §10: a hidden "stock-holder" order (one per design + material/quality + unit + blouse option) that
+     * manual-add-stock takas hang off. `status` is forced to `closed` / `is_closed=1` at creation so every existing
+     * "closed orders are excluded" rule (Receive goods, awaiting-goods lists, …) already keeps it out for free;
+     * `order_no` is negative (never collides with the real `MAX(order_no)+1` sequence). EVERY order-level list/scan
+     * must still filter `is_stock_holder = 0` explicitly — see `middleware/hold-guard.ts` and `services/orders.ts`.
+     */
+    isStockHolder: integer('is_stock_holder', { mode: 'boolean' }).notNull().default(false),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
@@ -266,6 +282,10 @@ export const orders = sqliteTable(
     index('orders_material_idx').on(t.materialId),
     index('orders_design_idx').on(t.designId),
     index('orders_broker_idx').on(t.brokerId),
+    index('orders_is_stock_holder_idx').on(t.isStockHolder),
+    uniqueIndex('stock_holder_orders_key_unique')
+      .on(sql`COALESCE(${t.designId}, -1)`, t.materialId, t.unit, sql`COALESCE(${t.blouseOption}, '')`)
+      .where(sql`${t.isStockHolder} = 1`),
   ],
 );
 
@@ -370,6 +390,13 @@ export const jobsheets = sqliteTable(
      * Change machine / hold remaining / auto-adjust copy it from the jobsheet they come from.
      */
     sections: integer('sections').notNull().default(3),
+    /**
+     * Sprint 19: loom metres to weave, for a METER order (`frames` stays `0`, a sentinel — never relaxed to
+     * nullable, no table rebuild). Null for a pcs jobsheet. Cloth metres = `meters` × `sections`, the exact
+     * analog of pcs = frames × sections. Whether a jobsheet is a meter one is read from its ORDER's unit, never
+     * from `meters` being non-null alone — see the `frames = 0` sentinel audit in Phase 5.
+     */
+    meters: real('meters'),
     /** DEPRECATED (Sprint 15): picks are no longer entered, read or written (printed blank for handwriting). */
     picks: text('picks'),
     createdBy: text('created_by').$type<RoleKey>().notNull(),
@@ -382,6 +409,8 @@ export const jobsheets = sqliteTable(
     runningMachineId: integer('running_machine_id').references(() => machines.id),
     /** Actual frames made (set on Complete / Change machine). */
     completedFrames: integer('completed_frames'),
+    /** Sprint 19: the meter twin of `completedFrames` — actual loom metres made, for a meter jobsheet. */
+    completedMeters: real('completed_meters'),
     /** Set on the new jobsheet created by Change machine. */
     parentJobsheetId: integer('parent_jobsheet_id').references((): AnySQLiteColumn => jobsheets.id),
     /** Machine chosen in Change machine — pre-selected at Start. */
@@ -488,6 +517,8 @@ export const takas = sqliteTable(
     parentTakaId: integer('parent_taka_id').references((): AnySQLiteColumn => takas.id),
     /** Pcs counted by the godown supervisor; null = same as `pcs`. */
     actualPcs: integer('actual_pcs'),
+    /** Sprint 19: the meter twin of `actualPcs` — metres corrected by the godown supervisor; null = same as `meters`. */
+    actualMeters: real('actual_meters'),
     /** Ticked by the godown supervisor ("I have checked this taka"). */
     godownCheckedAt: text('godown_checked_at'),
     godownCheckedBy: text('godown_checked_by').$type<RoleKey>(),
@@ -519,6 +550,10 @@ export const takas = sqliteTable(
     outsideReceiptId: integer('outside_receipt_id'),
     /** Sprint 16: the one taka made for an FG pcs-to-pcs receipt ("Received lot"). */
     isReceivedLot: integer('is_received_lot', { mode: 'boolean' }).notNull().default(false),
+    /** Sprint 19 §10.2: manual "Remove stock" — set together with `isDeleted` on the removed free-stock taka. */
+    removedReason: text('removed_reason'),
+    removedByUserId: integer('removed_by_user_id'),
+    removedAt: text('removed_at'),
     enteredBy: text('entered_by').$type<RoleKey>().notNull(),
     isDeleted: isDeleted(),
     createdAt: createdAt(),
@@ -561,10 +596,14 @@ export const takaDamages = sqliteTable(
     foundAt: text('found_at').$type<DamageType>().notNull().default('machine'),
     /** Sprint 13: WHERE it was recorded (taka entry, butta QC, godown, …). Null on rows that could not be backfilled. */
     recordedAt: text('recorded_at').$type<DamageRecordedAt>(),
-    /** Damaged pcs (1 to the taka's pcs). Null only on migrated rows. */
+    /** Damaged pcs (1 to the taka's pcs). Null only on migrated rows; null for a meter-order damage (use `meters`). */
     pcs: integer('pcs'),
     /** Pcs resolved so far (a partial resolve keeps the damage open). Open pcs = pcs − resolved_pcs. */
     resolvedPcs: integer('resolved_pcs').notNull().default(0),
+    /** Sprint 19: the meter twin of `pcs` — damaged metres (> 0, ≤ the taka's metres) for a meter-order damage. */
+    meters: real('meters'),
+    /** Sprint 19: the meter twin of `resolvedPcs` — metres resolved so far. Open metres = meters − resolved_meters. */
+    resolvedMeters: real('resolved_meters').notNull().default(0),
     status: text('status').$type<DamageStatus>().notNull().default('open'),
     resolvedAt: text('resolved_at'),
     resolvedBy: text('resolved_by').$type<RoleKey>(),
@@ -576,6 +615,33 @@ export const takaDamages = sqliteTable(
     updatedAt: updatedAt(),
   },
   (t) => [index('taka_damages_taka_idx').on(t.takaId), index('taka_damages_status_idx').on(t.status, t.foundAt)],
+);
+
+/**
+ * Sprint 19 §10: history of every manual "Add stock" / "Remove stock" action (Jenish / Gaurang only,
+ * `canAdjustStock`), shown on the Inventory "Stock adjustments" list. `taka_id` is the taka added (add) or one of
+ * the takas removed (remove, one row per removed taka when several are picked).
+ */
+export const stockAdjustments = sqliteTable(
+  'stock_adjustments',
+  {
+    id: id(),
+    kind: text('kind').$type<'add' | 'remove'>().notNull(),
+    designId: integer('design_id').references(() => designs.id),
+    materialId: integer('material_id')
+      .notNull()
+      .references(() => materials.id),
+    unit: text('unit').$type<Unit>().notNull(),
+    qty: real('qty').notNull(),
+    /** Only on `kind='add'`. */
+    condition: text('condition').$type<'fresh' | 'damaged'>(),
+    takaId: integer('taka_id').references(() => takas.id),
+    remark: text('remark').notNull(),
+    role: text('role').$type<RoleKey>().notNull(),
+    userId: integer('user_id'),
+    createdAt: createdAt(),
+  },
+  (t) => [index('stock_adjustments_design_idx').on(t.designId), index('stock_adjustments_material_idx').on(t.materialId)],
 );
 
 /** Photos of a damage (added at the Butta QC, shown in the taka details drawer and the damage details screen only). */
