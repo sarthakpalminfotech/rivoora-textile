@@ -2,7 +2,7 @@ import { AlertTriangle, Loader2, Printer, X } from 'lucide-react';
 import { useEffect, useLayoutEffect, useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import QRCode from 'qrcode';
-import { BLOUSE_PRINT_LABEL, jobsheetQrUrl, jobsheetRefShort, ORDER_TYPE_LABEL, type JobsheetPrintItem } from '@rivoora/shared';
+import { BLOUSE_PRINT_LABEL, formatQty, jobsheetQrUrl, jobsheetRefShort, ORDER_TYPE_LABEL, type JobsheetPrintItem } from '@rivoora/shared';
 import { usePageTitle } from '@/components/layout/page-title';
 import { ErrorState } from '@/components/list-parts';
 import { Button } from '@/components/ui/button';
@@ -183,14 +183,27 @@ function FrontPage({ js, qrSvg }: { js: JobsheetPrintItem; qrSvg: string | undef
                 {/* Always blank: the picks are written by hand. */}
                 <div className="jsp-vbox jsp-val" />
               </div>
-              <div className="jsp-pfrow">
-                <span className="jsp-lbl">Frame:</span>
-                <div className="jsp-vbox jsp-val">{js.frames}</div>
-              </div>
+              {js.meters === null && (
+                <div className="jsp-pfrow">
+                  <span className="jsp-lbl">Frame:</span>
+                  <div className="jsp-vbox jsp-val">{js.frames}</div>
+                </div>
+              )}
               <div className="jsp-qty">
-                {js.jobsheetPieces} pcs
-                {/* Sprint 18: sections per beam, small (every jobsheet stores its own). */}
-                <span style={{ display: 'block', fontSize: '9pt', fontWeight: 600 }}>Sections: {js.sections}</span>
+                {js.meters !== null ? (
+                  <>
+                    Meters: {formatQty(js.meters, 'meters')}
+                    <span style={{ display: 'block', fontSize: '9pt', fontWeight: 600 }}>
+                      Sections: {js.sections} · Cloth ≈ {formatQty(js.clothMeters, 'meters')}
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    {js.jobsheetPieces} pcs
+                    {/* Sprint 18: sections per beam, small (every jobsheet stores its own). */}
+                    <span style={{ display: 'block', fontSize: '9pt', fontWeight: 600 }}>Sections: {js.sections}</span>
+                  </>
+                )}
               </div>
             </div>
             <div className="jsp-ops jsp-b">

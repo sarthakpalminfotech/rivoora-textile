@@ -7,14 +7,22 @@ import { z } from 'zod';
 import {
   describeFrameGroups,
   formatExactFrames,
+  formatQty,
   framesForPieces,
+  isMeterOrder,
   jobsheetQuantityWarning,
+  jobsheetQuantityWarningMeters,
   jobsheetRefShort,
   MAX_JOBSHEETS_PER_RUN,
+  type MetersCoverage,
   piecesForFrames,
   planJobsheets,
+  planJobsheetsMeters,
+  quantityForUnits,
+  remainingMeters,
   remainingPieces,
   SECTIONS_PER_BEAM,
+  type Coverage,
   type OrderJobsheets,
 } from '@rivoora/shared';
 import { Button } from '@/components/ui/button';
@@ -25,7 +33,7 @@ import { errorMessage } from '@/lib/api';
 import { formatOrderNo } from '@/lib/format';
 import { applyServerFieldError } from '@/lib/form';
 import { useAddJobsheet, useGenerateJobsheets } from './api';
-import { DEFAULT_SECTIONS_TEXT, intField, MachinesSelect, parseIntOrNull, sectionsField, WarningList } from './parts';
+import { decimalField, DEFAULT_SECTIONS_TEXT, intField, MachinesSelect, parseDecimalOrNull, parseIntOrNull, sectionsField, WarningList } from './parts';
 
 interface FormDialogProps {
   open: boolean;
@@ -50,7 +58,7 @@ function FormFooter({ formId, onCancel, pending, disabled, label }: { formId: st
 }
 
 /* ------------------------------------------------------------------ */
-/* Create jobsheets (multi)                                             */
+/* Create jobsheets (multi) — pcs                                       */
 /* ------------------------------------------------------------------ */
 
 const multiSchema = z
@@ -72,9 +80,9 @@ const multiSchema = z
   });
 type MultiValues = z.infer<typeof multiSchema>;
 
-export function CreateJobsheetsDialog({ open, onOpenChange, data }: FormDialogProps) {
+function CreateJobsheetsPcsForm({ open, onOpenChange, data }: FormDialogProps) {
   const generate = useGenerateJobsheets(data.orderId);
-  const { coverage } = data;
+  const coverage = data.coverage as Coverage;
   const {
     register,
     control,
@@ -226,7 +234,147 @@ export function CreateJobsheetsDialog({ open, onOpenChange, data }: FormDialogPr
 }
 
 /* ------------------------------------------------------------------ */
-/* Add single jobsheet                                                  */
+/* Create jobsheets (multi) — meters                                    */
+/* ------------------------------------------------------------------ */
+
+const multiMetersSchema = z.object({
+  sections: sectionsField,
+  metersPerJobsheet: decimalField('the metres per jobsheet', 100_000),
+  machineIds: machinesField,
+});
+type MultiMetersValues = z.infer<typeof multiMetersSchema>;
+
+function CreateJobsheetsMetersForm({ open, onOpenChange, data }: FormDialogProps) {
+  const generate = useGenerateJobsheets(data.orderId);
+  const coverage = data.coverage as MetersCoverage;
+  // Sprint 19 §2.1: "Order meters" is read-only — the full remaining amount, not typed.
+  const orderMeters = remainingMeters(coverage.neededMeters, coverage.jobsheetClothMeters) ?? 0;
+  const {
+    register,
+    control,
+    handleSubmit,
+    reset,
+    setError,
+    formState: { errors, isDirty, isValid },
+  } = useForm<MultiMetersValues>({ resolver: zodResolver(multiMetersSchema), mode: 'onChange' });
+
+  useEffect(() => {
+    if (!open) return;
+    reset({ sections: DEFAULT_SECTIONS_TEXT, metersPerJobsheet: data.metersPerJobsheet ? String(data.metersPerJobsheet) : '', machineIds: [] });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  const [mpjText, sectionsText] = useWatch({ control, name: ['metersPerJobsheet', 'sections'] });
+  const sections = parseIntOrNull(sectionsText);
+  const metersPerJobsheet = parseDecimalOrNull(mpjText);
+  const plan = sections && metersPerJobsheet && orderMeters > 0 ? planJobsheetsMeters(orderMeters, metersPerJobsheet, sections) : null;
+  const tooMany = plan && plan.jobsheetCount > MAX_JOBSHEETS_PER_RUN;
+
+  const onSubmit = handleSubmit((v) => {
+    if (tooMany) return;
+    generate.mutate(
+      { meters: orderMeters, metersPerJobsheet: Number(v.metersPerJobsheet), sections: Number(v.sections), machineIds: v.machineIds },
+      {
+        onSuccess: ({ created, orderNo }) => {
+          const first = created[0]?.jobsheetNo;
+          const last = created[created.length - 1]?.jobsheetNo;
+          toast.success(
+            created.length === 1
+              ? `1 jobsheet created (${jobsheetRefShort(orderNo, first)})`
+              : `${created.length} jobsheets created (#${orderNo}: ${first}–${last})`,
+          );
+          onOpenChange(false);
+        },
+        onError: (err) => {
+          if (!applyServerFieldError(err, setError, ['metersPerJobsheet', 'sections', 'machineIds'])) toast.error(errorMessage(err));
+        },
+      },
+    );
+  });
+
+  const count = plan?.jobsheetCount;
+  return (
+    <ResponsiveModal
+      open={open}
+      onOpenChange={(o) => !generate.isPending && onOpenChange(o)}
+      title={`Create jobsheets — Order ${formatOrderNo(data.orderNo)}`}
+      dismissible={!isDirty}
+      footer={
+        <FormFooter
+          formId="jobsheets-create-meters-form"
+          onCancel={() => onOpenChange(false)}
+          pending={generate.isPending}
+          disabled={!isValid || !!tooMany}
+          label={count ? `Create ${count} jobsheet${count === 1 ? '' : 's'}` : 'Create jobsheets'}
+        />
+      }
+    >
+      <form id="jobsheets-create-meters-form" onSubmit={onSubmit} noValidate className="grid gap-5">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <Field label="Order metres" htmlFor="js-order-meters" hint="Remaining — not typed">
+            <NumberInput id="js-order-meters" readOnly tabIndex={-1} value={formatQty(orderMeters, 'meters')} className="bg-slate-50 text-slate-600" />
+          </Field>
+          <Field label="Sections per beam" htmlFor="js-m-sections" required error={errors.sections?.message} hint="1–12">
+            <NumberInput id="js-m-sections" inputMode="numeric" placeholder="3" invalid={!!errors.sections} {...register('sections')} />
+          </Field>
+          <Field
+            label="Metres per jobsheet"
+            htmlFor="js-mpj"
+            required
+            error={errors.metersPerJobsheet?.message ?? (tooMany ? `That makes ${plan!.jobsheetCount} jobsheets (max ${MAX_JOBSHEETS_PER_RUN}). Increase the metres per jobsheet.` : undefined)}
+          >
+            <NumberInput id="js-mpj" inputMode="decimal" autoFocus placeholder="e.g. 50" suffix={<span className="pr-1.5 text-sm text-slate-400">m</span>} invalid={!!errors.metersPerJobsheet || !!tooMany} {...register('metersPerJobsheet')} />
+          </Field>
+          <Field
+            label="Machines"
+            htmlFor="js-m-machines"
+            required
+            error={errors.machineIds?.message}
+            hint="Applied to all jobsheets; you can change machines per jobsheet later."
+            className="sm:col-span-2 lg:col-span-3"
+          >
+            <Controller
+              control={control}
+              name="machineIds"
+              render={({ field }) => (
+                <MachinesSelect id="js-m-machines" value={field.value ?? []} onChange={field.onChange} invalid={!!errors.machineIds} />
+              )}
+            />
+          </Field>
+        </div>
+
+        <section className="rounded-xl border border-border bg-slate-50/70 p-4" aria-live="polite">
+          <h3 className="mb-2 flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-slate-500">
+            <Calculator className="size-4" aria-hidden /> Preview
+          </h3>
+          {plan ? (
+            <div className="space-y-1.5 text-[15px] text-slate-700">
+              <p>
+                {formatQty(plan.meters, 'meters')} ÷ {plan.sections} sections ={' '}
+                <strong className="text-slate-900">{formatQty(plan.totalLoomMeters, 'meters')} loom metres</strong>
+              </p>
+              <p>
+                <strong className="text-slate-900">
+                  {plan.jobsheetCount} jobsheet{plan.jobsheetCount === 1 ? '' : 's'}
+                </strong>
+                : {plan.loomMeters.map((m) => formatQty(m, 'meters')).join(' + ')}
+              </p>
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">Enter the metres per jobsheet to see the jobsheets.</p>
+          )}
+        </section>
+      </form>
+    </ResponsiveModal>
+  );
+}
+
+export function CreateJobsheetsDialog(props: FormDialogProps) {
+  return isMeterOrder(props.data) ? <CreateJobsheetsMetersForm {...props} /> : <CreateJobsheetsPcsForm {...props} />;
+}
+
+/* ------------------------------------------------------------------ */
+/* Add single jobsheet — pcs                                            */
 /* ------------------------------------------------------------------ */
 
 const singleSchema = z.object({
@@ -236,9 +384,9 @@ const singleSchema = z.object({
 });
 type SingleValues = z.infer<typeof singleSchema>;
 
-export function AddJobsheetDialog({ open, onOpenChange, data }: FormDialogProps) {
+function AddJobsheetPcsForm({ open, onOpenChange, data }: FormDialogProps) {
   const add = useAddJobsheet(data.orderId);
-  const { coverage } = data;
+  const coverage = data.coverage as Coverage;
   const {
     register,
     control,
@@ -323,4 +471,107 @@ export function AddJobsheetDialog({ open, onOpenChange, data }: FormDialogProps)
       </form>
     </ResponsiveModal>
   );
+}
+
+/* ------------------------------------------------------------------ */
+/* Add single jobsheet — meters                                         */
+/* ------------------------------------------------------------------ */
+
+const singleMetersSchema = z.object({
+  meters: decimalField('the metres', 100_000),
+  sections: sectionsField,
+  machineIds: machinesField,
+});
+type SingleMetersValues = z.infer<typeof singleMetersSchema>;
+
+function AddJobsheetMetersForm({ open, onOpenChange, data }: FormDialogProps) {
+  const add = useAddJobsheet(data.orderId);
+  const coverage = data.coverage as MetersCoverage;
+  const {
+    register,
+    control,
+    handleSubmit,
+    reset,
+    setError,
+    formState: { errors, isDirty, isValid },
+  } = useForm<SingleMetersValues>({ resolver: zodResolver(singleMetersSchema), mode: 'onChange' });
+
+  useEffect(() => {
+    if (!open) return;
+    reset({ meters: '', sections: DEFAULT_SECTIONS_TEXT, machineIds: [] });
+  }, [open, reset]);
+
+  // Cloth metres are read-only: metres × sections per beam, so the stored numbers can never disagree.
+  const [metersText, sectionsText] = useWatch({ control, name: ['meters', 'sections'] });
+  const meters = parseDecimalOrNull(metersText);
+  const sections = parseIntOrNull(sectionsText);
+  const qtyWarning = meters && sections ? jobsheetQuantityWarningMeters(coverage.neededMeters, coverage.jobsheetClothMeters, meters, sections) : null;
+
+  const onSubmit = handleSubmit((v) =>
+    add.mutate(
+      { meters: Number(v.meters), sections: Number(v.sections), machineIds: v.machineIds },
+      {
+        onSuccess: ({ created, orderNo }) => {
+          toast.success(`Jobsheet ${jobsheetRefShort(orderNo, created[0]?.jobsheetNo)} created`);
+          onOpenChange(false);
+        },
+        onError: (err) => {
+          if (!applyServerFieldError(err, setError, ['meters', 'sections', 'machineIds'])) toast.error(errorMessage(err));
+        },
+      },
+    ),
+  );
+
+  return (
+    <ResponsiveModal
+      open={open}
+      onOpenChange={(o) => !add.isPending && onOpenChange(o)}
+      title={`Add jobsheet — Order ${formatOrderNo(data.orderNo)}`}
+      dismissible={!isDirty}
+      footer={
+        <FormFooter
+          formId="jobsheet-add-meters-form"
+          onCancel={() => onOpenChange(false)}
+          pending={add.isPending}
+          disabled={!isValid}
+          label="Add jobsheet"
+        />
+      }
+    >
+      <form id="jobsheet-add-meters-form" onSubmit={onSubmit} noValidate className="grid gap-5">
+        <div className="grid gap-4 sm:grid-cols-3">
+          <Field label="Metres" htmlFor="js1-meters" required error={errors.meters?.message}>
+            <NumberInput id="js1-meters" inputMode="decimal" autoFocus placeholder="e.g. 50" suffix={<span className="pr-1.5 text-sm text-slate-400">m</span>} invalid={!!errors.meters} {...register('meters')} />
+          </Field>
+          <Field label="Sections per beam" htmlFor="js1-m-sections" required error={errors.sections?.message} hint="1–12">
+            <NumberInput id="js1-m-sections" inputMode="numeric" placeholder="3" invalid={!!errors.sections} {...register('sections')} />
+          </Field>
+          <Field label="Cloth metres" htmlFor="js1-cloth" hint={sections ? `Metres × ${sections}` : 'Metres × sections'}>
+            <NumberInput
+              id="js1-cloth"
+              readOnly
+              tabIndex={-1}
+              value={meters && sections ? formatQty(quantityForUnits(meters, sections, 'meters'), 'meters') : ''}
+              placeholder="—"
+              className="bg-slate-50 text-slate-600"
+            />
+          </Field>
+          <Field label="Machines" htmlFor="js1-m-machines" required error={errors.machineIds?.message} className="sm:col-span-3">
+            <Controller
+              control={control}
+              name="machineIds"
+              render={({ field }) => (
+                <MachinesSelect id="js1-m-machines" value={field.value ?? []} onChange={field.onChange} invalid={!!errors.machineIds} />
+              )}
+            />
+          </Field>
+        </div>
+        {qtyWarning && <WarningList messages={[qtyWarning]} />}
+      </form>
+    </ResponsiveModal>
+  );
+}
+
+export function AddJobsheetDialog(props: FormDialogProps) {
+  return isMeterOrder(props.data) ? <AddJobsheetMetersForm {...props} /> : <AddJobsheetPcsForm {...props} />;
 }

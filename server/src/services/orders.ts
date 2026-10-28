@@ -46,7 +46,7 @@ import { csv, likePattern, paginationSchema } from '../lib/http';
 import { designQualitiesJson, insertDesignFromOrder, parseQualities } from './designs';
 import { countActiveJobsheets, recomputeOrderStatus } from './jobsheets';
 import { applyStepsChange, stepLocksOf } from './order-steps';
-import { liveJobsheetPieces } from './jobsheet-live';
+import { liveJobsheetClothMeters, liveJobsheetPieces } from './jobsheet-live';
 import { getOrderReturnSummary } from './dispatch';
 import { assertOrderVisibleFor, orderNotHeldFor } from './hold';
 import { listHoldEvents } from './hold-order';
@@ -205,6 +205,7 @@ export async function getOrder(role: RoleKey, id: number): Promise<OrderDetail> 
         sentToProductionAt: orders.sentToProductionAt,
         jobsheetCount: sql<number>`(SELECT COUNT(*) FROM jobsheets j WHERE j.order_id = "orders"."id" AND j.is_deleted = 0 AND j.is_external = 0)`,
         jobsheetPieces: liveJobsheetPieces,
+        jobsheetMeters: liveJobsheetClothMeters,
         isOnHold: orders.isOnHold,
         heldAt: orders.heldAt,
         holdNote: orders.holdNote,
@@ -276,6 +277,7 @@ export async function getOrder(role: RoleKey, id: number): Promise<OrderDetail> 
     sentToProductionAt: r.sentToProductionAt,
     jobsheetCount: Number(r.jobsheetCount),
     jobsheetPieces: Number(r.jobsheetPieces),
+    jobsheetMeters: Number(r.jobsheetMeters),
     createdAt: r.createdAt,
     updatedAt: r.updatedAt,
     customer: can(role, 'canSeeClient') ? r.customer : { id: r.customer.id, name: '', phone: null, city: null },

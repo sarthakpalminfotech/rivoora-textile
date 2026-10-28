@@ -2,7 +2,7 @@ import { ArrowUpFromLine, ClipboardList, CornerDownRight, FilePlus2, Hourglass, 
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
-import { isReadyOrLater, JOBSHEET_STATUS, jobsheetRef, SECTIONS_PER_BEAM, type JobsheetListItem, type OrderDetail } from '@rivoora/shared';
+import { formatQty, isMeterOrder, isReadyOrLater, JOBSHEET_STATUS, jobsheetRef, SECTIONS_PER_BEAM, type Coverage, type JobsheetListItem, type MetersCoverage, type OrderDetail } from '@rivoora/shared';
 import { ErrorState } from '@/components/list-parts';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -16,7 +16,7 @@ import { useRole } from '@/hooks/useRole';
 import { cn } from '@/lib/utils';
 import { printUrl, useOrderJobsheets, useSendJobsheets } from './api';
 import { AddJobsheetDialog, CreateJobsheetsDialog } from './jobsheet-forms';
-import { FramesValue, machineNumbers, StatTile, WarningList } from './parts';
+import { FramesValue, machineNumbers, MetersValue, StatTile, WarningList } from './parts';
 
 const isPendingJs = (j: JobsheetListItem) => j.status === JOBSHEET_STATUS.PENDING;
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
@@ -111,8 +111,12 @@ function JobsheetCard({ js, selecting, checked, onClick, onToggle }: CardProps) 
           </p>
         )}
         <dl className="mt-auto grid w-full grid-cols-2 gap-2 border-t border-border pt-3">
-          <Detail label="Frames">
-            <FramesValue status={js.status} frames={js.frames} completedFrames={js.completedFrames} />
+          <Detail label={js.meters !== null ? 'Metres' : 'Frames'}>
+            {js.meters !== null ? (
+              <MetersValue status={js.status} meters={js.meters} completedMeters={js.completedMeters} />
+            ) : (
+              <FramesValue status={js.status} frames={js.frames} completedFrames={js.completedFrames} />
+            )}
             {js.sections !== SECTIONS_PER_BEAM && <span className="ml-1 text-xs font-medium text-slate-500">× {js.sections} sections</span>}
           </Detail>
           {machineDetail}
@@ -126,8 +130,9 @@ export function OrderJobsheetsSection({ order }: { order: OrderDetail }) {
   const navigate = useNavigate();
   const { can } = useRole();
   const isPcs = order.unit === 'pcs';
+  const meterOrder = isMeterOrder(order);
   const visible = isReadyOrLater(order.status);
-  const query = useOrderJobsheets(order.id, visible && isPcs);
+  const query = useOrderJobsheets(order.id, visible && (isPcs || meterOrder));
   const [dialog, setDialog] = useState<'create' | 'single' | null>(null);
 
   // Selection mode for "Send to supervisor" (same pattern as the orders list).
@@ -170,13 +175,13 @@ export function OrderJobsheetsSection({ order }: { order: OrderDetail }) {
   // Pending orders don't have a jobsheets section at all.
   if (!visible) return null;
 
-  if (!isPcs) {
+  if (!isPcs && !meterOrder) {
     return (
       <SectionShell>
         <EmptyState
           icon={Hourglass}
-          title="Jobsheets for kg / g / meter orders — coming soon"
-          description="For now, jobsheets can be created for orders in pieces (pcs)."
+          title="Jobsheets for kg / g orders — coming soon"
+          description="For now, jobsheets can be created for orders in pieces (pcs) or metres."
           className="py-10"
         />
       </SectionShell>
@@ -276,17 +281,39 @@ export function OrderJobsheetsSection({ order }: { order: OrderDetail }) {
   } else if (query.isError || !data) {
     body = <ErrorState error={query.error} onRetry={() => void query.refetch()} />;
   } else {
-    const c = data.coverage;
     body = (
       <div className="space-y-4">
         <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-[repeat(auto-fill,minmax(9.5rem,1fr))]">
-          <StatTile label="Order quantity" value={`${c.orderedPieces} pcs`} />
-          <StatTile label="Jobsheet quantity" value={`${c.jobsheetPieces} pcs`} />
-          {/* Sprint 18: frames needed are counted at the latest run's sections per beam (3 when there are no jobsheets). */}
-          <StatTile label={`Frames needed (at ${c.sections} sections)`} value={c.targetFrames} />
-          <StatTile label="Frames in jobsheets" value={c.totalFrames} />
-          <StatTile label="Jobsheets" value={c.jobsheetCount} />
-          <StatTile label="Completed" value={`${data.completedCount} of ${c.jobsheetCount}`} />
+          {meterOrder ? (
+            (() => {
+              const c = data.coverage as MetersCoverage;
+              return (
+                <>
+                  <StatTile label="Order quantity" value={formatQty(c.neededMeters, 'meters')} />
+                  <StatTile label="Jobsheet quantity" value={formatQty(c.jobsheetClothMeters, 'meters')} />
+                  <StatTile label={`Loom metres needed (at ${c.sections} sections)`} value={formatQty(c.targetLoomMeters, 'meters')} />
+                  <StatTile label="Loom metres in jobsheets" value={formatQty(c.totalLoomMeters, 'meters')} />
+                  <StatTile label="Jobsheets" value={c.jobsheetCount} />
+                  <StatTile label="Completed" value={`${data.completedCount} of ${c.jobsheetCount}`} />
+                </>
+              );
+            })()
+          ) : (
+            (() => {
+              const c = data.coverage as Coverage;
+              return (
+                <>
+                  <StatTile label="Order quantity" value={`${c.orderedPieces} pcs`} />
+                  <StatTile label="Jobsheet quantity" value={`${c.jobsheetPieces} pcs`} />
+                  {/* Sprint 18: frames needed are counted at the latest run's sections per beam (3 when there are no jobsheets). */}
+                  <StatTile label={`Frames needed (at ${c.sections} sections)`} value={c.targetFrames} />
+                  <StatTile label="Frames in jobsheets" value={c.totalFrames} />
+                  <StatTile label="Jobsheets" value={c.jobsheetCount} />
+                  <StatTile label="Completed" value={`${data.completedCount} of ${c.jobsheetCount}`} />
+                </>
+              );
+            })()
+          )}
         </div>
         <WarningList messages={data.warnings.map((w) => w.message)} />
 

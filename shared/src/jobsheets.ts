@@ -509,8 +509,8 @@ export function planJobsheetsMeters(meters: number, metersPerJobsheet: number, s
 export interface AdjustMetersJobsheet {
   id: number;
   jobsheetNo: number;
-  /** Assigned loom metres. */
-  meters: number;
+  /** Assigned loom metres (null only because the DB column is nullable for a pcs jobsheet — never null in practice here). */
+  meters: number | null;
   status?: JobsheetStatusKey;
   /** Actual loom metres made (Completed jobsheets only). */
   completedMeters?: number | null;
@@ -519,7 +519,7 @@ export interface AdjustMetersJobsheet {
 
 /** Loom metres a jobsheet counts for: the actual metres once Completed, otherwise the assigned metres. */
 export function effectiveMeters(j: Pick<AdjustMetersJobsheet, 'meters' | 'status' | 'completedMeters'>): number {
-  return j.status === JOBSHEET_STATUS.COMPLETED && j.completedMeters !== null && j.completedMeters !== undefined ? j.completedMeters : j.meters;
+  return j.status === JOBSHEET_STATUS.COMPLETED && j.completedMeters !== null && j.completedMeters !== undefined ? j.completedMeters : (j.meters ?? 0);
 }
 
 /** Sum of the effective loom metres. */
@@ -575,8 +575,10 @@ export function planMetersEdit({ jobsheets, editedId, newMeters, metersPerJobshe
   const pending = sorted.filter(isPendingSheet);
   const last = pending[pending.length - 1];
   const totalMetersBefore = coverageMeters(sorted);
+  const editedMeters = edited.meters ?? 0;
+  const lastMeters = last.meters ?? 0;
   const newMetersRounded = Math.round(newMeters * 100) / 100;
-  const delta = Math.round((newMetersRounded - edited.meters) * 100) / 100;
+  const delta = Math.round((newMetersRounded - editedMeters) * 100) / 100;
   const editedIsLast = edited.id === last.id;
 
   const plan: AdjustMetersPlan = {
@@ -589,23 +591,23 @@ export function planMetersEdit({ jobsheets, editedId, newMeters, metersPerJobshe
     totalMetersAfter: totalMetersBefore,
   };
   if (delta === 0) return plan;
-  plan.updated.push({ id: edited.id, jobsheetNo: edited.jobsheetNo, from: edited.meters, to: newMetersRounded, edited: true });
+  plan.updated.push({ id: edited.id, jobsheetNo: edited.jobsheetNo, from: editedMeters, to: newMetersRounded, edited: true });
 
   if (editedIsLast) {
     plan.totalMetersAfter = Math.round((totalMetersBefore + delta) * 100) / 100;
     return plan;
   }
 
-  const lastNew = Math.round((last.meters - delta) * 100) / 100;
+  const lastNew = Math.round((lastMeters - delta) * 100) / 100;
   const F = metersPerJobsheet !== null && metersPerJobsheet > 0 ? Math.round(metersPerJobsheet * 100) / 100 : null;
 
   if (lastNew <= 0) {
-    plan.removed.push({ id: last.id, jobsheetNo: last.jobsheetNo, meters: last.meters });
+    plan.removed.push({ id: last.id, jobsheetNo: last.jobsheetNo, meters: lastMeters });
   } else if (F !== null && lastNew > F) {
-    if (last.meters !== F) plan.updated.push({ id: last.id, jobsheetNo: last.jobsheetNo, from: last.meters, to: F, edited: false });
+    if (lastMeters !== F) plan.updated.push({ id: last.id, jobsheetNo: last.jobsheetNo, from: lastMeters, to: F, edited: false });
     plan.created = splitQuantity(Math.round((lastNew - F) * 100) / 100, F, 'meters').map((meters) => ({ meters }));
   } else {
-    plan.updated.push({ id: last.id, jobsheetNo: last.jobsheetNo, from: last.meters, to: lastNew, edited: false });
+    plan.updated.push({ id: last.id, jobsheetNo: last.jobsheetNo, from: lastMeters, to: lastNew, edited: false });
   }
 
   const removedMeters = plan.removed.reduce((s, r) => s + r.meters, 0);

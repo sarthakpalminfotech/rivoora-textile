@@ -2,7 +2,7 @@ import { ArrowLeft, ArrowLeftRight, CheckCircle2, History, ImageOff, Pencil, Pla
 import { useState, type ReactNode } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
-import { JOBSHEET_STATUS, jobsheetRef, jobsheetRefShort, type JobsheetDetail } from '@rivoora/shared';
+import { formatQty, JOBSHEET_STATUS, jobsheetRef, jobsheetRefShort, type JobsheetDetail } from '@rivoora/shared';
 import { usePageTitle } from '@/components/layout/page-title';
 import { ErrorState } from '@/components/list-parts';
 import { Button } from '@/components/ui/button';
@@ -20,7 +20,7 @@ import { formatDateTime, formatElapsed, formatOrderNo } from '@/lib/format';
 import { ActivityTimeline } from './activity';
 import { printUrl, useDeleteJobsheet, useJobsheet, usePullBackJobsheet } from './api';
 import { EditJobsheetDialog } from './edit-jobsheet-form';
-import { FramesValue, machineNumbers, WarningList } from './parts';
+import { FramesValue, machineNumbers, MetersValue, WarningList } from './parts';
 import { JobsheetRunDialogs, type RunAction, type RunJobsheet } from './run-dialogs';
 import { JobsheetTakasCard } from '../takas/takas-card';
 import { HoldNotice, isOnHoldError } from '../orders/hold/hold-notice';
@@ -244,11 +244,24 @@ export default function JobsheetDetailsPage() {
               <Item label="Status">
                 <StatusBadge kind="jobsheet" status={js.status} />
               </Item>
-              <Item label={isCompleted ? 'Frames (made / assigned)' : 'Frames'}>
-                <FramesValue status={js.status} frames={js.frames} completedFrames={js.completedFrames} withUnit />
-              </Item>
+              {js.meters !== null ? (
+                <Item label={isCompleted ? 'Metres (made / assigned)' : 'Metres'}>
+                  <MetersValue status={js.status} meters={js.meters} completedMeters={js.completedMeters} />
+                </Item>
+              ) : (
+                <Item label={isCompleted ? 'Frames (made / assigned)' : 'Frames'}>
+                  <FramesValue status={js.status} frames={js.frames} completedFrames={js.completedFrames} withUnit />
+                </Item>
+              )}
               <Item label="Sections per beam">
-                {js.sections} <span className="text-sm font-normal text-slate-500">({(js.completedFrames ?? js.frames) * js.sections} pcs)</span>
+                {js.sections}{' '}
+                <span className="text-sm font-normal text-slate-500">
+                  (
+                  {js.meters !== null
+                    ? formatQty(Math.round((js.completedMeters ?? js.meters) * js.sections * 100) / 100, 'meters')
+                    : `${(js.completedFrames ?? js.frames) * js.sections} pcs`}
+                  )
+                </span>
               </Item>
               <Item label="Machines">
                 {machineNumbers(js.machines)}

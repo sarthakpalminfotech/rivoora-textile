@@ -32,7 +32,7 @@ import { useRole } from '@/hooks/useRole';
 import { formatDate, formatElapsed, formatOrderNo } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { printUrl, useSupervisorJobsheets, useSupervisorOrders } from './api';
-import { FramesValue, machineNumbers } from './parts';
+import { FramesValue, machineNumbers, MetersValue } from './parts';
 import { JobsheetRunDialogs, type RunAction, type RunJobsheet } from './run-dialogs';
 import { BlouseTag } from '../free-stock/blouse';
 import { FiltersButton, useWorkFilters, WorkFilterChips, WorkFiltersDialog, workFilterSearch, type WorkFilterField } from '../filters/work-filters';
@@ -160,9 +160,15 @@ function JobsheetTile({ js, now, onOpen, onAction }: { js: SupervisorJobsheetIte
         </div>
 
         <dl className="grid grid-cols-2 gap-2 border-t border-border pt-3">
-          <Fact label={js.status === JOBSHEET_STATUS.COMPLETED ? 'Frames made' : 'Frames'}>
-            <FramesValue status={js.status} frames={js.frames} completedFrames={js.completedFrames} withUnit />
-          </Fact>
+          {js.meters !== null ? (
+            <Fact label={js.status === JOBSHEET_STATUS.COMPLETED ? 'Metres made' : 'Metres'}>
+              <MetersValue status={js.status} meters={js.meters} completedMeters={js.completedMeters} />
+            </Fact>
+          ) : (
+            <Fact label={js.status === JOBSHEET_STATUS.COMPLETED ? 'Frames made' : 'Frames'}>
+              <FramesValue status={js.status} frames={js.frames} completedFrames={js.completedFrames} withUnit />
+            </Fact>
+          )}
           {js.runningMachine && (js.status === JOBSHEET_STATUS.ONGOING || js.status === JOBSHEET_STATUS.COMPLETED) ? (
             <Fact label={js.status === JOBSHEET_STATUS.ONGOING ? 'Running on' : 'Ran on'}>
               {js.status === JOBSHEET_STATUS.ONGOING ? (

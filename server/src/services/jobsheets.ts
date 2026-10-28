@@ -6,6 +6,9 @@ import {
   canRoleSeeJobsheetStatus,
   canRoleSeeStatus,
   coverageWarnings,
+  coverageWarningsMeters,
+  isMeterOrder,
+  orderJobsheetMetersPlan,
   orderJobsheetPlan,
   isReadyOrLater,
   JOBSHEET_STATUS,
@@ -24,9 +27,13 @@ import {
   orderStatusForJobsheets,
   planFramesEdit,
   planJobsheets,
+  planJobsheetsMeters,
+  planMetersEdit,
   SECTIONS_PER_BEAM,
   STATUS,
   type Coverage,
+  type CoverageWarning,
+  type MetersCoverage,
   type JobsheetActionResult,
   type JobsheetByNo,
   type JobsheetChangeMachineResult,
@@ -75,10 +82,10 @@ import { badRequest, conflict, notFound } from '../lib/errors';
 import { likePattern } from '../lib/http';
 import { mapTaka, sortTakas, TAKA_EVENTS, takaColumns } from './taka-shared';
 import { takaInOrder } from './free-stock';
-import { liveJobsheetPieces } from './jobsheet-live';
+import { liveJobsheetClothMeters, liveJobsheetPieces } from './jobsheet-live';
 import { orderNotHeldFor } from './hold';
 import { rowFilters } from './work-filters';
-import { outsideCommittedPcs, outsidePcsPos, realJobsheet, realJobsheetRaw } from './external';
+import { outsideCommittedMeters, outsideCommittedPcs, outsideMetersPos, outsidePcsPos, realJobsheet, realJobsheetRaw } from './external';
 
 const JOBSHEET_COUNTER = 'jobsheet_no';
 export const now = () => new Date().toISOString();
@@ -103,6 +110,8 @@ interface OrderPlanRow {
   unit: Unit;
   quantity: number;
   framesPerJobsheet: number | null;
+  /** Sprint 19: the meter twin of `framesPerJobsheet`. */
+  metersPerJobsheet: number | null;
   hasProduction: boolean;
 }
 
@@ -113,6 +122,7 @@ const orderPlanColumns = {
   unit: orders.unit,
   quantity: orders.quantity,
   framesPerJobsheet: orders.framesPerJobsheet,
+  metersPerJobsheet: orders.metersPerJobsheet,
   hasProduction: orders.hasProduction,
 };
 
@@ -128,8 +138,8 @@ function assertJobsheetsAllowed(order: OrderPlanRow) {
   if (!order.hasProduction) {
     throw conflict('This order has no Production step (it is made outside or bought ready), so it has no jobsheets.');
   }
-  if (order.unit !== 'pcs') {
-    throw conflict('Jobsheets are only available for orders in pcs for now (kg / g / meter orders are coming soon).');
+  if (order.unit !== 'pcs' && order.unit !== 'meters') {
+    throw conflict('Jobsheets are only available for orders in pcs or meters for now (kg / g orders are coming soon).');
   }
   if (!isReadyOrLater(order.status)) {
     throw conflict('Jobsheets can only be created once the order has been sent for production.');
@@ -198,6 +208,11 @@ interface InsertOptions {
   note?: string;
   /** Sprint 18: sections per beam (default 3); jobsheets made from another one copy its value. */
   sections?: number;
+  /**
+   * Sprint 19: for a meter order — one loom-metres value per entry (same length as `frames`, which must then be
+   * all 0, the sentinel: the frames column is never relaxed to nullable).
+   */
+  meters?: number[];
 }
 
 export async function insertJobsheets(
@@ -219,6 +234,7 @@ export async function insertJobsheets(
         jobsheetNo: numbers[i],
         orderId,
         frames: f,
+        meters: opts.meters?.[i] ?? null,
         sections: opts.sections ?? SECTIONS_PER_BEAM,
         createdBy: role,
         status,
@@ -227,7 +243,7 @@ export async function insertJobsheets(
         suggestedMachineId: opts.suggestedMachineId ?? null,
       })),
     )
-    .returning({ id: jobsheets.id, jobsheetNo: jobsheets.jobsheetNo, frames: jobsheets.frames });
+    .returning({ id: jobsheets.id, jobsheetNo: jobsheets.jobsheetNo, frames: jobsheets.frames, meters: jobsheets.meters });
   if (machineIds.length) {
     await tx
       .insert(jobsheetMachines)
@@ -308,6 +324,8 @@ async function activeJobsheets(tx: DbOrTx, orderId: number) {
       frames: jobsheets.frames,
       status: jobsheets.status,
       completedFrames: jobsheets.completedFrames,
+      meters: jobsheets.meters,
+      completedMeters: jobsheets.completedMeters,
       sections: jobsheets.sections,
     })
     .from(jobsheets)
@@ -316,13 +334,21 @@ async function activeJobsheets(tx: DbOrTx, orderId: number) {
 }
 
 type CoverageSheet = Parameters<typeof orderJobsheetPlan>[1][number];
+type MetersCoverageSheet = Parameters<typeof orderJobsheetMetersPlan>[2][number];
 
 /**
  * Live figures from the active jobsheets (Sprint 15) — never from the deprecated order counters. Sprint 16: pcs given
- * to outside weavers on pcs POs (`outsidePcs`) are left out of what the jobsheets must cover.
+ * to outside weavers on pcs POs (`outsidePcs`) are left out of what the jobsheets must cover. Sprint 19: a meter
+ * order gets the meter twin (`outsideQty` is then meters given outside on meter POs).
  */
-function coverageOf(order: Pick<OrderPlanRow, 'quantity'>, list: CoverageSheet[], outsidePcs = 0): Coverage {
-  return orderJobsheetPlan(Math.max(0, order.quantity - outsidePcs), list);
+function coverageOf(order: Pick<OrderPlanRow, 'quantity' | 'unit'>, list: (CoverageSheet & MetersCoverageSheet)[], outsideQty = 0): Coverage | MetersCoverage {
+  if (order.unit === 'meters') return orderJobsheetMetersPlan(order.quantity, outsideQty, list);
+  return orderJobsheetPlan(Math.max(0, order.quantity - outsideQty), list);
+}
+
+/** The amber warnings for either coverage shape — the sibling of a direct `coverageWarnings` call. */
+function warningsOf(coverage: Coverage | MetersCoverage, unit: Unit): CoverageWarning[] {
+  return unit === 'meters' ? coverageWarningsMeters(coverage as MetersCoverage) : coverageWarnings(coverage as Coverage);
 }
 
 /** Rows of (jobsheet, machine) → machines per jobsheet id. */
@@ -380,22 +406,37 @@ function assertPending(status: JobsheetStatusKey) {
 /* create                                                               */
 /* ------------------------------------------------------------------ */
 
-/** 7.1 — a whole multi-jobsheet run in one transaction. */
+/** 7.1 — a whole multi-jobsheet run in one transaction. Sprint 19: branches on the order's unit. */
 export async function generateJobsheets(role: RoleKey, orderId: number, input: unknown): Promise<JobsheetCreateResult> {
   const data = jobsheetGenerateSchema.parse(input);
-  const plan = planJobsheets(data.pieces, data.framesPerJobsheet, data.sections);
-  if (!plan) throw badRequest('Enter whole numbers of at least 1');
-  if (plan.jobsheetCount > MAX_JOBSHEETS_PER_RUN) {
-    throw badRequest(
-      `This would create ${plan.jobsheetCount} jobsheets (max ${MAX_JOBSHEETS_PER_RUN}). Increase the frames per jobsheet.`,
-      'framesPerJobsheet',
-    );
-  }
 
   return db.transaction(async (tx) => {
     const order = await loadVisibleOrder(tx, role, orderId);
     assertJobsheetsAllowed(order);
     await assertMachines(tx, data.machineIds);
+
+    if (isMeterOrder(order)) {
+      if (data.meters === undefined || data.metersPerJobsheet === undefined) throw badRequest('Enter the metres and the metres per jobsheet', 'meters');
+      const plan = planJobsheetsMeters(data.meters, data.metersPerJobsheet, data.sections);
+      if (!plan) throw badRequest('Enter positive numbers');
+      if (plan.jobsheetCount > MAX_JOBSHEETS_PER_RUN) {
+        throw badRequest(`This would create ${plan.jobsheetCount} jobsheets (max ${MAX_JOBSHEETS_PER_RUN}). Increase the metres per jobsheet.`, 'metersPerJobsheet');
+      }
+      const created = await insertJobsheets(tx, role, orderId, plan.loomMeters.map(() => 0), data.machineIds, { sections: data.sections, meters: plan.loomMeters });
+      await tx.update(orders).set({ metersPerJobsheet: data.metersPerJobsheet }).where(eq(orders.id, orderId));
+      const statusChanged = await recomputeOrderStatus(orderId, role, tx);
+      return { orderNo: order.orderNo, created, statusChanged };
+    }
+
+    if (data.pieces === undefined || data.framesPerJobsheet === undefined) throw badRequest('Enter the pieces and the frames per jobsheet', 'pieces');
+    const plan = planJobsheets(data.pieces, data.framesPerJobsheet, data.sections);
+    if (!plan) throw badRequest('Enter whole numbers of at least 1');
+    if (plan.jobsheetCount > MAX_JOBSHEETS_PER_RUN) {
+      throw badRequest(
+        `This would create ${plan.jobsheetCount} jobsheets (max ${MAX_JOBSHEETS_PER_RUN}). Increase the frames per jobsheet.`,
+        'framesPerJobsheet',
+      );
+    }
     const created = await insertJobsheets(tx, role, orderId, plan.frames, data.machineIds, { sections: data.sections });
     await tx.update(orders).set({ framesPerJobsheet: data.framesPerJobsheet }).where(eq(orders.id, orderId));
     const statusChanged = await recomputeOrderStatus(orderId, role, tx);
@@ -403,13 +444,22 @@ export async function generateJobsheets(role: RoleKey, orderId: number, input: u
   });
 }
 
-/** 7.2 — exactly one jobsheet. */
+/** 7.2 — exactly one jobsheet. Sprint 19: branches on the order's unit. */
 export async function addSingleJobsheet(role: RoleKey, orderId: number, input: unknown): Promise<JobsheetCreateResult> {
   const data = jobsheetSingleSchema.parse(input);
   return db.transaction(async (tx) => {
     const order = await loadVisibleOrder(tx, role, orderId);
     assertJobsheetsAllowed(order);
     await assertMachines(tx, data.machineIds);
+
+    if (isMeterOrder(order)) {
+      if (data.meters === undefined) throw badRequest('Enter the metres', 'meters');
+      const created = await insertJobsheets(tx, role, orderId, [0], data.machineIds, { sections: data.sections, meters: [data.meters] });
+      const statusChanged = await recomputeOrderStatus(orderId, role, tx);
+      return { orderNo: order.orderNo, created, statusChanged };
+    }
+
+    if (data.frames === undefined) throw badRequest('Enter the frames', 'frames');
     const created = await insertJobsheets(tx, role, orderId, [data.frames], data.machineIds, { sections: data.sections });
     const statusChanged = await recomputeOrderStatus(orderId, role, tx);
     return { orderNo: order.orderNo, created, statusChanged };
@@ -430,6 +480,8 @@ export async function listOrderJobsheets(role: RoleKey, orderId: number): Promis
         status: jobsheets.status,
         frames: jobsheets.frames,
         completedFrames: jobsheets.completedFrames,
+        meters: jobsheets.meters,
+        completedMeters: jobsheets.completedMeters,
         sections: jobsheets.sections,
         sentAt: jobsheets.sentAt,
         startedAt: jobsheets.startedAt,
@@ -451,8 +503,10 @@ export async function listOrderJobsheets(role: RoleKey, orderId: number): Promis
   ]);
   const order = orderRows[0];
   if (!order || !canRoleSeeStatus(role, order.status)) throw notFound('Order');
-  const outsidePos = await outsidePcsPos(db, orderId);
-  const outsidePcs = outsidePos.reduce((s, p) => s + p.pcs, 0);
+  const meterOrder = isMeterOrder(order);
+  const outsidePos = meterOrder ? [] : await outsidePcsPos(db, orderId);
+  const outsidePosMeters = meterOrder ? await outsideMetersPos(db, orderId) : [];
+  const outsideQty = meterOrder ? outsidePosMeters.reduce((s, p) => s + p.meters, 0) : outsidePos.reduce((s, p) => s + p.pcs, 0);
 
   const list: JobsheetListItem[] = [];
   for (const r of rows) {
@@ -465,6 +519,8 @@ export async function listOrderJobsheets(role: RoleKey, orderId: number): Promis
         status: r.status,
         frames: r.frames,
         completedFrames: r.completedFrames,
+        meters: r.meters,
+        completedMeters: r.completedMeters,
         sections: r.sections,
         machines: [],
         runningMachine: toMachineRef(r),
@@ -480,18 +536,20 @@ export async function listOrderJobsheets(role: RoleKey, orderId: number): Promis
       item.machines.push({ id: r.machineId, machineNo: r.machineNo, name: r.machineName, isActive: r.machineActive ?? true });
     }
   }
-  const coverage = coverageOf(order, list, outsidePcs);
+  const coverage = coverageOf(order, list, outsideQty);
   return {
     orderId: order.id,
     orderNo: order.orderNo,
     unit: order.unit,
     status: order.status,
     framesPerJobsheet: order.framesPerJobsheet,
+    metersPerJobsheet: order.metersPerJobsheet,
     jobsheets: list,
     completedCount: list.filter((j) => j.status === JOBSHEET_STATUS.COMPLETED).length,
     coverage,
-    warnings: coverageWarnings(coverage),
+    warnings: warningsOf(coverage, order.unit),
     outsidePos,
+    outsidePosMeters,
   };
 }
 
@@ -504,6 +562,8 @@ export async function getJobsheet(role: RoleKey, id: number): Promise<JobsheetDe
         status: jobsheets.status,
         frames: jobsheets.frames,
         completedFrames: jobsheets.completedFrames,
+        meters: jobsheets.meters,
+        completedMeters: jobsheets.completedMeters,
         sections: jobsheets.sections,
         createdBy: jobsheets.createdBy,
         isDeleted: jobsheets.isDeleted,
@@ -550,6 +610,8 @@ export async function getJobsheet(role: RoleKey, id: number): Promise<JobsheetDe
         frames: jobsheets.frames,
         status: jobsheets.status,
         completedFrames: jobsheets.completedFrames,
+        meters: jobsheets.meters,
+        completedMeters: jobsheets.completedMeters,
         sections: jobsheets.sections,
       })
       .from(jobsheets)
@@ -593,7 +655,9 @@ export async function getJobsheet(role: RoleKey, id: number): Promise<JobsheetDe
   const restricted = isRestricted(role);
   if (!restricted && !canRoleSeeStatus(role, r.order.status)) throw notFound('Jobsheet');
 
-  const coverage = restricted ? null : coverageOf(r.order, siblings, await outsideCommittedPcs(db, r.order.id));
+  const meterOrder = isMeterOrder(r.order);
+  const outsideQty = meterOrder ? await outsideCommittedMeters(db, r.order.id) : await outsideCommittedPcs(db, r.order.id);
+  const coverage = restricted ? null : coverageOf(r.order, siblings, outsideQty);
   // Takas are hidden from roles that can't see them (the supervisor) — including their activity entries.
   const seesTakas = can(role, 'canViewTakas');
   return {
@@ -605,6 +669,8 @@ export async function getJobsheet(role: RoleKey, id: number): Promise<JobsheetDe
     status: r.status,
     frames: r.frames,
     completedFrames: r.completedFrames,
+    meters: r.meters,
+    completedMeters: r.completedMeters,
     sections: r.sections,
     createdBy: r.createdBy,
     createdAt: r.createdAt,
@@ -624,10 +690,18 @@ export async function getJobsheet(role: RoleKey, id: number): Promise<JobsheetDe
     order:
       restricted || !coverage
         ? null
-        : { ...r.order, jobsheetPieces: coverage.jobsheetPieces, targetFrames: coverage.targetFrames, customer: r.customer, material: r.material },
+        : {
+            ...r.order,
+            jobsheetPieces: meterOrder ? 0 : (coverage as Coverage).jobsheetPieces,
+            targetFrames: meterOrder ? 0 : (coverage as Coverage).targetFrames,
+            jobsheetMeters: meterOrder ? (coverage as MetersCoverage).jobsheetClothMeters : 0,
+            targetLoomMeters: meterOrder ? (coverage as MetersCoverage).targetLoomMeters : 0,
+            customer: r.customer,
+            material: r.material,
+          },
     siblings: restricted ? [] : siblings,
     coverage,
-    warnings: coverage ? coverageWarnings(coverage) : [],
+    warnings: coverage ? warningsOf(coverage, r.order.unit) : [],
     takas: seesTakas ? sortTakas(takaRows.map(mapTaka)) : null,
     takaNote: seesTakas ? r.takaNote : null,
   };
@@ -664,11 +738,15 @@ export async function printJobsheets(role: RoleKey, ids: number[]): Promise<Jobs
         id: jobsheets.id,
         jobsheetNo: jobsheets.jobsheetNo,
         frames: jobsheets.frames,
+        meters: jobsheets.meters,
         sections: jobsheets.sections,
         status: jobsheets.status,
         orderNo: orders.orderNo,
         orderStatus: orders.status,
+        unit: orders.unit,
         jobsheetPieces: liveJobsheetPieces,
+        // Sprint 19: the meter twin of `jobsheetPieces` — same order-wide-total semantics.
+        clothMeters: liveJobsheetClothMeters,
         orderType: orders.orderType,
         blouseOption: orders.blouseOption,
         designCode: sql<string | null>`${designs.code}`,
@@ -699,6 +777,8 @@ export async function printJobsheets(role: RoleKey, ids: number[]): Promise<Jobs
       jobsheetNo: r.jobsheetNo,
       orderNo: r.orderNo,
       frames: r.frames,
+      meters: r.meters,
+      clothMeters: r.clothMeters,
       machineNos: (machinesById.get(r.id) ?? []).map((m) => m.machineNo),
       jobsheetPieces: r.jobsheetPieces,
       sections: r.sections,
@@ -800,6 +880,8 @@ export async function listSupervisorJobsheets(role: RoleKey, q: JobsheetListQuer
         status: jobsheets.status,
         frames: jobsheets.frames,
         completedFrames: jobsheets.completedFrames,
+        meters: jobsheets.meters,
+        completedMeters: jobsheets.completedMeters,
         orderNo: orders.orderNo,
         quality: materials.name,
         blouseOption: orders.blouseOption,
@@ -852,6 +934,8 @@ export async function listSupervisorJobsheets(role: RoleKey, q: JobsheetListQuer
         status: r.status,
         frames: r.frames,
         completedFrames: r.completedFrames,
+        meters: r.meters,
+        completedMeters: r.completedMeters,
         orderNo: r.orderNo,
         quality: r.quality,
         blouseOption: r.blouseOption,
@@ -1007,25 +1091,52 @@ export async function updateJobsheet(role: RoleKey, id: number, input: unknown):
     // Machines that are already on this jobsheet may stay even if they are inactive now.
     await assertMachines(tx, data.machineIds, currentIds);
 
-    // Only Pending jobsheets are adjusted; the last PENDING one absorbs the change.
-    const plan = planFramesEdit({
-      jobsheets: active,
-      editedId: id,
-      newFrames: data.frames,
-      framesPerJobsheet: order.framesPerJobsheet,
-    });
-    const pendingIds = active.filter((j) => j.status === JOBSHEET_STATUS.PENDING).map((j) => j.id);
-
-    // The edited jobsheet: frames + machines.
-    const sameMachines =
-      currentIds.length === data.machineIds.length && currentIds.every((m) => data.machineIds.includes(m));
+    const meterOrder = isMeterOrder(order);
     // Sprint 18: sections per beam are editable while Pending (omitted = unchanged).
     const editedSheet = active.find((j) => j.id === id)!;
     const sections = data.sections ?? editedSheet.sections;
     const sectionsChanged = sections !== editedSheet.sections;
+    const sameMachines =
+      currentIds.length === data.machineIds.length && currentIds.every((m) => data.machineIds.includes(m));
     const detailsChanged = !sameMachines || sectionsChanged;
+
+    // Only Pending jobsheets are adjusted; the last PENDING one absorbs the change. Both branches produce the same
+    // generic shape so the rest of the function (writes, new-jobsheet insert, coverage) stays unified.
+    let plan: {
+      updated: { id: number; jobsheetNo: number; from: number; to: number; edited: boolean }[];
+      created: number[];
+      removed: { id: number; jobsheetNo: number; qty: number }[];
+      last: { id: number };
+    };
+    let newQtyForEdited: number;
+    if (meterOrder) {
+      if (data.meters === undefined) throw badRequest('Enter the metres', 'meters');
+      const metersPlan = planMetersEdit({ jobsheets: active, editedId: id, newMeters: data.meters, metersPerJobsheet: order.metersPerJobsheet });
+      plan = {
+        updated: metersPlan.updated,
+        created: metersPlan.created.map((c) => c.meters),
+        removed: metersPlan.removed.map((r) => ({ id: r.id, jobsheetNo: r.jobsheetNo, qty: r.meters })),
+        last: metersPlan.last,
+      };
+      newQtyForEdited = Math.round(data.meters * 100) / 100;
+    } else {
+      if (data.frames === undefined) throw badRequest('Enter the frames', 'frames');
+      const framesPlan = planFramesEdit({ jobsheets: active, editedId: id, newFrames: data.frames, framesPerJobsheet: order.framesPerJobsheet });
+      plan = {
+        updated: framesPlan.updated,
+        created: framesPlan.created.map((c) => c.frames),
+        removed: framesPlan.removed.map((r) => ({ id: r.id, jobsheetNo: r.jobsheetNo, qty: r.frames })),
+        last: framesPlan.last,
+      };
+      newQtyForEdited = data.frames;
+    }
+    const pendingIds = active.filter((j) => j.status === JOBSHEET_STATUS.PENDING).map((j) => j.id);
+
     if (detailsChanged || plan.updated.some((u) => u.id === id)) {
-      await tx.update(jobsheets).set({ frames: data.frames, sections }).where(eq(jobsheets.id, id));
+      await tx
+        .update(jobsheets)
+        .set(meterOrder ? { meters: newQtyForEdited, sections } : { frames: newQtyForEdited, sections })
+        .where(eq(jobsheets.id, id));
     }
     if (!sameMachines) {
       await tx.delete(jobsheetMachines).where(eq(jobsheetMachines.jobsheetId, id));
@@ -1037,7 +1148,7 @@ export async function updateJobsheet(role: RoleKey, id: number, input: unknown):
       if (u.id === id) continue;
       const done = await tx
         .update(jobsheets)
-        .set({ frames: u.to })
+        .set(meterOrder ? { meters: u.to } : { frames: u.to })
         .where(and(eq(jobsheets.id, u.id), eq(jobsheets.status, JOBSHEET_STATUS.PENDING)))
         .returning({ id: jobsheets.id });
       if (!done.length) throw conflict('Another jobsheet of this order was just sent. Refresh and try again.');
@@ -1064,27 +1175,23 @@ export async function updateJobsheet(role: RoleKey, id: number, input: unknown):
             ).map((m) => m.machineId);
       // ... and its sections per beam.
       const lastSections = last.id === id ? sections : (active.find((j) => j.id === last.id)?.sections ?? SECTIONS_PER_BEAM);
-      created = await insertJobsheets(
-        tx,
-        role,
-        orderId,
-        plan.created.map((c) => c.frames),
-        lastMachines,
-        { sections: lastSections },
-      );
+      created = meterOrder
+        ? await insertJobsheets(tx, role, orderId, plan.created.map(() => 0), lastMachines, { sections: lastSections, meters: plan.created })
+        : await insertJobsheets(tx, role, orderId, plan.created, lastMachines, { sections: lastSections });
     }
 
     await recomputeOrderStatus(orderId, role, tx);
     const after = await activeJobsheets(tx, orderId);
-    const coverage = coverageOf(order, after, await outsideCommittedPcs(tx, orderId));
+    const outsideQty = meterOrder ? await outsideCommittedMeters(tx, orderId) : await outsideCommittedPcs(tx, orderId);
+    const coverage = coverageOf(order, after, outsideQty);
     return {
       orderNo: order.orderNo,
       updated: plan.updated,
       created,
-      removed: plan.removed.map((r) => ({ id: r.id, jobsheetNo: r.jobsheetNo, frames: r.frames })),
+      removed: plan.removed.map((r) => (meterOrder ? { id: r.id, jobsheetNo: r.jobsheetNo, frames: 0, meters: r.qty } : { id: r.id, jobsheetNo: r.jobsheetNo, frames: r.qty })),
       detailsChanged,
       coverage,
-      warnings: coverageWarnings(coverage),
+      warnings: warningsOf(coverage, order.unit),
     };
   });
 }
@@ -1095,7 +1202,7 @@ export async function updateJobsheet(role: RoleKey, id: number, input: unknown):
 
 export async function deleteJobsheet(role: RoleKey, id: number): Promise<JobsheetDeleteResult> {
   return db.transaction(async (tx) => {
-    const { js, orderId } = await loadJobsheetForWrite(tx, role, id);
+    const { js, orderId, order } = await loadJobsheetForWrite(tx, role, id);
     assertPending(js.status);
     const deleted = await tx
       .update(jobsheets)
@@ -1106,7 +1213,10 @@ export async function deleteJobsheet(role: RoleKey, id: number): Promise<Jobshee
     const remaining = await activeJobsheets(tx, orderId);
     if (remaining.length === 0) {
       // That was the last one: forget the split size (the figures are live; the status moves back below).
-      await tx.update(orders).set({ framesPerJobsheet: null }).where(eq(orders.id, orderId));
+      await tx
+        .update(orders)
+        .set(isMeterOrder(order) ? { metersPerJobsheet: null } : { framesPerJobsheet: null })
+        .where(eq(orders.id, orderId));
     }
     await recomputeOrderStatus(orderId, role, tx);
     return { orderId, orderReset: remaining.length === 0 };
@@ -1187,11 +1297,13 @@ async function loadJobsheetForRun(tx: Tx, role: RoleKey, id: number) {
       orderId: jobsheets.orderId,
       status: jobsheets.status,
       frames: jobsheets.frames,
+      meters: jobsheets.meters,
       sections: jobsheets.sections,
       runningMachineId: jobsheets.runningMachineId,
       isDeleted: jobsheets.isDeleted,
       isExternal: jobsheets.isExternal,
       orderNo: orders.orderNo,
+      unit: orders.unit,
     })
     .from(jobsheets)
     .innerJoin(orders, eq(orders.id, jobsheets.orderId))
@@ -1236,9 +1348,9 @@ export async function startJobsheet(role: RoleKey, id: number, input: unknown): 
   });
 }
 
-/** Ongoing → Completed with the actual frames made. */
+/** Ongoing → Completed with the actual frames (or, for a meter order, metres) made. */
 export async function completeJobsheet(role: RoleKey, id: number, input: unknown): Promise<JobsheetActionResult> {
-  const { completedFrames } = jobsheetCompleteSchema.parse(input);
+  const data = jobsheetCompleteSchema.parse(input);
   return db.transaction(async (tx) => {
     const js = await loadJobsheetForRun(tx, role, id);
     if (js.status !== JOBSHEET_STATUS.ONGOING) {
@@ -1246,13 +1358,20 @@ export async function completeJobsheet(role: RoleKey, id: number, input: unknown
         js.status === JOBSHEET_STATUS.COMPLETED ? `${js.ref} is already completed.` : `${js.ref} hasn't been started yet.`,
       );
     }
+    const meterOrder = isMeterOrder(js);
+    if (meterOrder && data.completedMeters === undefined) throw badRequest('Enter the metres completed', 'completedMeters');
+    if (!meterOrder && data.completedFrames === undefined) throw badRequest('Enter the frames completed', 'completedFrames');
     const updated = await tx
       .update(jobsheets)
-      .set({ status: JOBSHEET_STATUS.COMPLETED, completedFrames, completedAt: now() })
+      .set(
+        meterOrder
+          ? { status: JOBSHEET_STATUS.COMPLETED, completedMeters: data.completedMeters, completedAt: now() }
+          : { status: JOBSHEET_STATUS.COMPLETED, completedFrames: data.completedFrames, completedAt: now() },
+      )
       .where(and(eq(jobsheets.id, id), eq(jobsheets.status, JOBSHEET_STATUS.ONGOING)))
       .returning({ id: jobsheets.id });
     if (!updated.length) throw conflict(`${js.ref} is already completed.`);
-    await writeEvents(tx, role, [{ jobsheetId: id, event: 'completed', machineId: js.runningMachineId, frames: completedFrames }]);
+    await writeEvents(tx, role, [{ jobsheetId: id, event: 'completed', machineId: js.runningMachineId, frames: meterOrder ? 0 : data.completedFrames! }]);
     await recomputeOrderStatus(js.orderId, role, tx);
     const [m] = js.runningMachineId
       ? await tx.select({ machineNo: machines.machineNo }).from(machines).where(eq(machines.id, js.runningMachineId))
@@ -1272,13 +1391,22 @@ export async function changeMachine(role: RoleKey, id: number, input: unknown): 
     if (js.status !== JOBSHEET_STATUS.ONGOING) {
       throw conflict(`${js.ref} isn't running, so its machine can't be changed.`);
     }
-    if (data.completedFrames > js.frames) {
-      throw badRequest(`Can't be more than the ${js.frames} frames assigned.`, 'completedFrames');
+    const meterOrder = isMeterOrder(js);
+    if (meterOrder) {
+      if (data.completedMeters === undefined || data.nextMeters === undefined) throw badRequest('Enter the metres completed and the metres to make next', 'completedMeters');
+      if (data.completedMeters > js.meters!) throw badRequest(`Can't be more than the ${js.meters} metres assigned.`, 'completedMeters');
+    } else {
+      if (data.completedFrames === undefined || data.nextFrames === undefined) throw badRequest('Enter the frames completed and the frames to make next', 'completedFrames');
+      if (data.completedFrames > js.frames) throw badRequest(`Can't be more than the ${js.frames} frames assigned.`, 'completedFrames');
     }
 
     const updated = await tx
       .update(jobsheets)
-      .set({ status: JOBSHEET_STATUS.COMPLETED, completedFrames: data.completedFrames, completedAt: now() })
+      .set(
+        meterOrder
+          ? { status: JOBSHEET_STATUS.COMPLETED, completedMeters: data.completedMeters, completedAt: now() }
+          : { status: JOBSHEET_STATUS.COMPLETED, completedFrames: data.completedFrames, completedAt: now() },
+      )
       .where(and(eq(jobsheets.id, id), eq(jobsheets.status, JOBSHEET_STATUS.ONGOING)))
       .returning({ id: jobsheets.id });
     if (!updated.length) throw conflict(`${js.ref} was just completed. Refresh and try again.`);
@@ -1288,33 +1416,34 @@ export async function changeMachine(role: RoleKey, id: number, input: unknown): 
       .select({ id: machines.id })
       .from(machines)
       .where(and(eq(machines.isDeleted, false), eq(machines.isActive, true)));
-    const [created] = await insertJobsheets(
-      tx,
-      role,
-      js.orderId,
-      [data.nextFrames],
-      allActive.map((m) => m.id),
-      {
-        status: JOBSHEET_STATUS.SENT,
-        parentJobsheetId: id,
-        // Sprint 18: the continuation keeps the sections per beam.
-        sections: js.sections,
-        note: `Continued from ${jobsheetRefShort(js.orderNo, js.jobsheetNo)}`,
-      },
-    );
+    const [created] = meterOrder
+      ? await insertJobsheets(tx, role, js.orderId, [0], allActive.map((m) => m.id), {
+          status: JOBSHEET_STATUS.SENT,
+          parentJobsheetId: id,
+          sections: js.sections,
+          meters: [data.nextMeters!],
+          note: `Continued from ${jobsheetRefShort(js.orderNo, js.jobsheetNo)}`,
+        })
+      : await insertJobsheets(tx, role, js.orderId, [data.nextFrames!], allActive.map((m) => m.id), {
+          status: JOBSHEET_STATUS.SENT,
+          parentJobsheetId: id,
+          // Sprint 18: the continuation keeps the sections per beam.
+          sections: js.sections,
+          note: `Continued from ${jobsheetRefShort(js.orderNo, js.jobsheetNo)}`,
+        });
     await writeEvents(tx, role, [
       {
         jobsheetId: id,
         event: 'machine_changed',
         machineId: js.runningMachineId,
-        frames: data.completedFrames,
+        frames: meterOrder ? 0 : data.completedFrames!,
         note: `Continued as ${jobsheetRefShort(js.orderNo, created.jobsheetNo)}`,
       },
     ]);
     await recomputeOrderStatus(js.orderId, role, tx);
     return {
       orderNo: js.orderNo,
-      completed: { id, jobsheetNo: js.jobsheetNo, frames: data.completedFrames },
+      completed: meterOrder ? { id, jobsheetNo: js.jobsheetNo, frames: 0, meters: data.completedMeters } : { id, jobsheetNo: js.jobsheetNo, frames: data.completedFrames! },
       created,
     };
   });

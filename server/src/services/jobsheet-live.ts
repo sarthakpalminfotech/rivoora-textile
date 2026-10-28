@@ -12,3 +12,9 @@ export const liveJobsheetFrames = sql<number>`COALESCE((SELECT SUM(CASE WHEN j.s
  * the shared `coveragePieces`.
  */
 export const liveJobsheetPieces = sql<number>`COALESCE((SELECT SUM((CASE WHEN j.status = 'completed' AND j.completed_frames IS NOT NULL THEN j.completed_frames ELSE j.frames END) * j.sections) FROM jobsheets j WHERE j.order_id = "orders"."id" AND j.is_deleted = 0 AND j.is_external = 0), 0)`;
+
+/** Sprint 19: the meter twin of `liveJobsheetFrames` — Σ effective loom metres. */
+export const liveJobsheetMeters = sql<number>`COALESCE((SELECT SUM(CASE WHEN j.status = 'completed' AND j.completed_meters IS NOT NULL THEN j.completed_meters ELSE j.meters END) FROM jobsheets j WHERE j.order_id = "orders"."id" AND j.is_deleted = 0 AND j.is_external = 0), 0)`;
+
+/** Sprint 19: the meter twin of `liveJobsheetPieces` — Σ effective loom metres × each jobsheet's own sections (cloth metres). */
+export const liveJobsheetClothMeters = sql<number>`COALESCE((SELECT SUM((CASE WHEN j.status = 'completed' AND j.completed_meters IS NOT NULL THEN j.completed_meters ELSE j.meters END) * j.sections) FROM jobsheets j WHERE j.order_id = "orders"."id" AND j.is_deleted = 0 AND j.is_external = 0), 0)`;

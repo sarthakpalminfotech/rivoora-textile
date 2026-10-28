@@ -299,6 +299,14 @@ const posInt = (label: string, max: number) =>
     .min(1, 'Must be at least 1')
     .max(max, `Must be at most ${max.toLocaleString('en-IN')}`);
 
+/** Sprint 19: a positive decimal (metres), rounded to 2 decimals — the meter twin of `posInt`. */
+const posDecimal = (label: string, max: number) =>
+  z
+    .number({ required_error: `Enter ${label}`, invalid_type_error: `Enter ${label}` })
+    .positive('Must be more than 0')
+    .max(max, `Must be at most ${max.toLocaleString('en-IN')}`)
+    .transform((n) => Math.round(n * 100) / 100);
+
 export const machineInputSchema = z.object({
   machineNo: posInt('the machine number', 100_000),
   name: optText(80),
@@ -323,27 +331,43 @@ const sectionsField = z
   .min(MIN_SECTIONS_PER_BEAM, `At least ${MIN_SECTIONS_PER_BEAM}`)
   .max(MAX_SECTIONS_PER_BEAM, `At most ${MAX_SECTIONS_PER_BEAM}`);
 
-export const jobsheetGenerateSchema = z.object({
-  pieces: posInt('the number of pieces', 10_000_000),
-  framesPerJobsheet: posInt('frames per jobsheet', 100_000),
-  sections: sectionsField.default(SECTIONS_PER_BEAM),
-  machineIds,
-});
+/** Sprint 19: exactly one of the pcs field / its meter twin must be sent — the service picks by the order's unit. */
+const QTY_PAIR_REFINE = { message: 'Enter the quantity', path: ['pieces'] };
+
+export const jobsheetGenerateSchema = z
+  .object({
+    pieces: posInt('the number of pieces', 10_000_000).optional(),
+    framesPerJobsheet: posInt('frames per jobsheet', 100_000).optional(),
+    /** Sprint 19: meter twins, for a meter order. */
+    meters: posDecimal('the metres', 10_000_000).optional(),
+    metersPerJobsheet: posDecimal('metres per jobsheet', 100_000).optional(),
+    sections: sectionsField.default(SECTIONS_PER_BEAM),
+    machineIds,
+  })
+  .refine((v) => (v.pieces !== undefined && v.framesPerJobsheet !== undefined) || (v.meters !== undefined && v.metersPerJobsheet !== undefined), QTY_PAIR_REFINE);
 export type JobsheetGenerateInput = z.input<typeof jobsheetGenerateSchema>;
 
-export const jobsheetSingleSchema = z.object({
-  frames: posInt('the frames', 100_000),
-  sections: sectionsField.default(SECTIONS_PER_BEAM),
-  machineIds,
-});
+export const jobsheetSingleSchema = z
+  .object({
+    frames: posInt('the frames', 100_000).optional(),
+    /** Sprint 19: the meter twin of `frames`, for a meter order. */
+    meters: posDecimal('the metres', 100_000).optional(),
+    sections: sectionsField.default(SECTIONS_PER_BEAM),
+    machineIds,
+  })
+  .refine((v) => v.frames !== undefined || v.meters !== undefined, { message: 'Enter the frames', path: ['frames'] });
 export type JobsheetSingleInput = z.input<typeof jobsheetSingleSchema>;
 
 /** Edit (Pending only). `sections` omitted = unchanged. */
-export const jobsheetUpdateSchema = z.object({
-  frames: posInt('the frames', 100_000),
-  sections: sectionsField.optional(),
-  machineIds,
-});
+export const jobsheetUpdateSchema = z
+  .object({
+    frames: posInt('the frames', 100_000).optional(),
+    /** Sprint 19: the meter twin of `frames`, for a meter order. */
+    meters: posDecimal('the metres', 100_000).optional(),
+    sections: sectionsField.optional(),
+    machineIds,
+  })
+  .refine((v) => v.frames !== undefined || v.meters !== undefined, { message: 'Enter the frames', path: ['frames'] });
 export type JobsheetUpdateInput = z.input<typeof jobsheetUpdateSchema>;
 
 /* ---------- jobsheet workflow (send / start / complete / change machine) ---------- */
@@ -368,16 +392,30 @@ const framesDone = z
   .min(0, 'Cannot be negative')
   .max(100_000, 'Must be at most 1,00,000');
 
+/** Sprint 19: the meter twin of `framesDone` — metres completed can be 0 and keeps 2 decimals. */
+const metersDone = z
+  .number({ required_error: 'Enter the metres completed', invalid_type_error: 'Enter the metres completed' })
+  .min(0, 'Cannot be negative')
+  .max(100_000, 'Must be at most 1,00,000')
+  .transform((n) => Math.round(n * 100) / 100);
+
 export const jobsheetStartSchema = z.object({ machineId });
 export type JobsheetStartInput = z.input<typeof jobsheetStartSchema>;
 
-export const jobsheetCompleteSchema = z.object({ completedFrames: framesDone });
+export const jobsheetCompleteSchema = z
+  .object({ completedFrames: framesDone.optional(), completedMeters: metersDone.optional() })
+  .refine((v) => v.completedFrames !== undefined || v.completedMeters !== undefined, { message: 'Enter the frames completed', path: ['completedFrames'] });
 export type JobsheetCompleteInput = z.input<typeof jobsheetCompleteSchema>;
 
-export const jobsheetChangeMachineSchema = z.object({
-  completedFrames: framesDone,
-  nextFrames: posInt('the frames to make next', 100_000),
-});
+export const jobsheetChangeMachineSchema = z
+  .object({
+    completedFrames: framesDone.optional(),
+    nextFrames: posInt('the frames to make next', 100_000).optional(),
+    /** Sprint 19: meter twins, for a meter order's jobsheet. */
+    completedMeters: metersDone.optional(),
+    nextMeters: posDecimal('the metres to make next', 100_000).optional(),
+  })
+  .refine((v) => (v.completedFrames !== undefined && v.nextFrames !== undefined) || (v.completedMeters !== undefined && v.nextMeters !== undefined), QTY_PAIR_REFINE);
 export type JobsheetChangeMachineInput = z.input<typeof jobsheetChangeMachineSchema>;
 
 export const JOBSHEET_TABS = ['all', 'pending', 'ongoing', 'completed'] as const;

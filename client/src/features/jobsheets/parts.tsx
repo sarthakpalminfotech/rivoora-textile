@@ -28,6 +28,22 @@ export const sectionsField = intField('the sections per beam', MAX_SECTIONS_PER_
 /** Sections the forms start with: the default 3 (Sprint 18 spec). */
 export const DEFAULT_SECTIONS_TEXT = String(SECTIONS_PER_BEAM);
 
+/** Sprint 19: text field holding a positive decimal (metres), up to 2 decimals — the meter twin of `intField`. */
+export const decimalField = (label: string, max = 10_000_000) =>
+  z
+    .string()
+    .trim()
+    .min(1, `Enter ${label}`)
+    .refine((v) => /^\d+(\.\d{1,2})?$/.test(v) && Number(v) > 0, 'Use a positive number (up to 2 decimals)')
+    .refine((v) => Number(v) <= max, `Must be at most ${max.toLocaleString('en-IN')}`);
+
+/** Parses a positive decimal, otherwise null (for live previews) — the meter twin of `parseIntOrNull`. */
+export function parseDecimalOrNull(v: string | undefined): number | null {
+  if (!v || !/^\s*\d+(\.\d{1,2})?\s*$/.test(v)) return null;
+  const n = Number(v);
+  return n > 0 ? n : null;
+}
+
 /** "7, 9" */
 export function machineNumbers(machines: Pick<JobsheetMachine, 'machineNo'>[]): string {
   return machines.length ? machines.map((m) => m.machineNo).join(', ') : '—';
@@ -71,6 +87,33 @@ export function FramesValue({
     >
       {completedFrames}/{frames}
       {unit}
+    </span>
+  );
+}
+
+/**
+ * Sprint 19: loom metres of a jobsheet — "50 m" — or "48/50 m" (actual/assigned) once Completed, amber when fewer
+ * metres were made. The meter twin of `FramesValue`.
+ */
+export function MetersValue({
+  status,
+  meters,
+  completedMeters,
+  className,
+}: {
+  status: string;
+  meters: number;
+  completedMeters: number | null;
+  className?: string;
+}) {
+  const fmt = (n: number) => n.toLocaleString('en-IN', { maximumFractionDigits: 2 });
+  if (status !== JOBSHEET_STATUS.COMPLETED || completedMeters === null) {
+    return <span className={className}>{fmt(meters)} m</span>;
+  }
+  const short = completedMeters < meters;
+  return (
+    <span className={cn(short && 'text-amber-600', className)} title={short ? `${fmt(meters - completedMeters)} m fewer than assigned` : undefined}>
+      {fmt(completedMeters)}/{fmt(meters)} m
     </span>
   );
 }

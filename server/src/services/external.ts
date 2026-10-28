@@ -86,3 +86,27 @@ export async function outsidePcsPos(tx: DbOrTx, orderId: number): Promise<{ poNo
     .orderBy(outsidePos.poNo);
   return rows.map((r) => ({ poNo: r.poNo, pcs: Math.round(r.status === 'closed' ? r.receivedQty : Math.max(r.quantity, r.receivedQty)) }));
 }
+
+/**
+ * Sprint 19: the meter twin of `outsideCommittedPcs` — metres of an order given outside on meter POs that the
+ * loom doesn't need to cover. No integer rounding (metres keep 2 decimals).
+ */
+export async function outsideCommittedMeters(tx: DbOrTx, orderId: number): Promise<number> {
+  const [row] = await tx
+    .select({
+      meters: sql<number>`COALESCE(SUM(CASE WHEN ${outsidePos.status} = 'closed' THEN ${outsidePos.receivedQty} ELSE MAX(${outsidePos.quantity}, ${outsidePos.receivedQty}) END), 0)`,
+    })
+    .from(outsidePos)
+    .where(and(eq(outsidePos.orderId, orderId), eq(outsidePos.unit, 'meters'), sql`${outsidePos.status} <> 'cancelled'`));
+  return Math.round(Number(row?.meters ?? 0) * 100) / 100;
+}
+
+/** The meter POs of an order — the "120 m given outside (PO-3)" line. */
+export async function outsideMetersPos(tx: DbOrTx, orderId: number): Promise<{ poNo: number; meters: number }[]> {
+  const rows = await tx
+    .select({ poNo: outsidePos.poNo, quantity: outsidePos.quantity, receivedQty: outsidePos.receivedQty, status: outsidePos.status })
+    .from(outsidePos)
+    .where(and(eq(outsidePos.orderId, orderId), eq(outsidePos.unit, 'meters'), sql`${outsidePos.status} <> 'cancelled'`))
+    .orderBy(outsidePos.poNo);
+  return rows.map((r) => ({ poNo: r.poNo, meters: Math.round((r.status === 'closed' ? r.receivedQty : Math.max(r.quantity, r.receivedQty)) * 100) / 100 }));
+}

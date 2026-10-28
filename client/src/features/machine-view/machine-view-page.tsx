@@ -1,7 +1,7 @@
 import { ChevronDown, Factory, MoonStar, RefreshCw } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { jobsheetRef, type MachineViewJobsheet, type MachineViewMachine } from '@rivoora/shared';
+import { formatQty, jobsheetRef, type MachineViewJobsheet, type MachineViewMachine } from '@rivoora/shared';
 import { usePageTitle } from '@/components/layout/page-title';
 import { ErrorState } from '@/components/list-parts';
 import { Button } from '@/components/ui/button';
@@ -98,7 +98,8 @@ function JobsheetRow({ js, now, onOpen }: { js: MachineViewJobsheet; now: number
           <JobsheetRef orderNo={js.orderNo} jobsheetNo={js.jobsheetNo} />
         </span>
         <span className="block truncate text-xs text-slate-500">
-          {js.designCode ?? 'No design'} · {js.frames} fr{elapsed ? <span className="sm:hidden"> · {elapsed}</span> : null}
+          {js.designCode ?? 'No design'} · {js.meters !== null ? formatQty(js.meters, 'meters') : `${js.frames} fr`}
+          {elapsed ? <span className="sm:hidden"> · {elapsed}</span> : null}
         </span>
       </span>
       {elapsed && (

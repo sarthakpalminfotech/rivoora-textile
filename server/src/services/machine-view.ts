@@ -26,6 +26,7 @@ export async function getMachineView(role: RoleKey): Promise<MachineViewData> {
         jobsheetNo: jobsheets.jobsheetNo,
         orderNo: orders.orderNo,
         frames: jobsheets.frames,
+        meters: jobsheets.meters,
         machineId: jobsheets.runningMachineId,
         startedAt: jobsheets.startedAt,
         designCode: sql<string | null>`${designs.code}`,

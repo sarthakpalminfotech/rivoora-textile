@@ -85,5 +85,48 @@ const baseOrder = (over = {}) => ({
   check(detail.unit === 'meters', 'meter order detail loads normally', detail);
 }
 
+/* ============================================================ Phase 5: jobsheets in meters */
+
+{
+  const order = await ok('jemish', 'POST', '/orders', baseOrder({ unit: 'meters', orderType: 'lump', quantity: 300 }));
+  await ok('jemish', 'POST', '/orders/send-to-production', { orderIds: [order.id] });
+
+  // Create: 300 m ÷ 3 sections = 100 loom m, 50 per jobsheet → 2 jobsheets of 50.
+  const created = await ok('jemish', 'POST', `/orders/${order.id}/jobsheets/generate`, { meters: 300, metersPerJobsheet: 50, sections: 3, machineIds });
+  check(created.created.length === 2, 'meter order: generate creates 2 jobsheets', created);
+  check(created.created.every((j) => j.frames === 0 && j.meters === 50), 'meter order: each jobsheet has frames=0 (sentinel) and meters=50', created);
+
+  const list = await ok('jemish', 'GET', `/orders/${order.id}/jobsheets`);
+  check(list.coverage.jobsheetClothMeters === 300 && list.coverage.totalLoomMeters === 100, 'meter order: coverage totals (300 cloth m, 100 loom m)', list.coverage);
+  check(list.warnings.length === 0, 'meter order: on target, no warnings', list.warnings);
+  check(list.jobsheets.every((j) => j.meters === 50 && j.frames === 0), 'meter order: jobsheet list carries meters, frames stays 0', list.jobsheets);
+
+  // Add a single jobsheet (10 m more) — now over target, expect a warning.
+  const single = await ok('jemish', 'POST', `/orders/${order.id}/jobsheets`, { meters: 10, sections: 3, machineIds });
+  check(single.created[0].meters === 10, 'meter order: add single jobsheet', single);
+  const list2 = await ok('jemish', 'GET', `/orders/${order.id}/jobsheets`);
+  check(list2.warnings.some((w) => w.kind === 'frames_over'), 'meter order: now over target, warns', list2.warnings);
+
+  // Edit the single jobsheet down to the exact amount needed to land back on target (100 - 50 - 50 = 0... the
+  // minimum is >0, so use a tiny amount and confirm the warning shrinks to match exactly).
+  const singleId = single.created[0].id;
+  const edited = await ok('jemish', 'PUT', `/jobsheets/${singleId}`, { meters: 0.01, sections: 3, machineIds });
+  check(edited.updated[0]?.to === 0.01, 'meter order: edit auto-adjust updates the jobsheet to 0.01 m', edited);
+  const list3 = await ok('jemish', 'GET', `/orders/${order.id}/jobsheets`);
+  check(list3.warnings.length === 0, 'meter order: 100.01 loom m → 300.03 cloth m (0.03 over) is within the 0.05 m slack — on target', list3.warnings);
+
+  // Print carries meters + cloth metres, no pcs-only fields breaking.
+  const printed = await ok('jemish', 'GET', `/jobsheets/print?ids=${list3.jobsheets.map((j) => j.id).join(',')}`);
+  check(printed.every((p) => p.meters !== null && p.clothMeters > 0), 'meter order: print items carry meters + clothMeters', printed);
+
+  // A pcs order's create/print/edit paths are completely unaffected.
+  const pcsOrder = await ok('jemish', 'POST', '/orders', baseOrder({ unit: 'pcs', orderType: 'pcs_to_pcs', quantity: 90 }));
+  await ok('jemish', 'POST', '/orders/send-to-production', { orderIds: [pcsOrder.id] });
+  const pcsCreated = await ok('jemish', 'POST', `/orders/${pcsOrder.id}/jobsheets/generate`, { pieces: 90, framesPerJobsheet: 10, sections: 3, machineIds });
+  check(pcsCreated.created.every((j) => j.meters === null || j.meters === undefined), 'pcs order: jobsheets still carry no meters', pcsCreated);
+  const pcsList = await ok('jemish', 'GET', `/orders/${pcsOrder.id}/jobsheets`);
+  check(pcsList.coverage.orderedPieces === 90 && pcsList.coverage.totalFrames === 30, 'pcs order: coverage unaffected (90 pcs, 30 frames)', pcsList.coverage);
+}
+
 console.log(failed ? `\n${failed} check(s) FAILED` : '\nAll Sprint 19 checks (so far) passed');
 process.exit(failed ? 1 : 0);

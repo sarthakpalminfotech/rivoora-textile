@@ -2,7 +2,7 @@ import type { RoleKey } from './roles';
 import type { JobsheetStatusKey, OrderStatusKey } from './statuses';
 import type { Unit } from './units';
 import type { OrderType } from './orderTypes';
-import type { Coverage, CoverageWarning } from './jobsheets';
+import type { Coverage, CoverageWarning, MetersCoverage } from './jobsheets';
 import type { ChallanFilter, JobsheetTab, TakaTab } from './schemas';
 import type { DamageType, SubStageKey, TakaStage } from './pipeline';
 import type { DamageStatus } from './takas';
@@ -211,6 +211,8 @@ export interface OrderDetail {
   jobsheetCount: number;
   /** Pieces planned in the jobsheets (live: frames in the active jobsheets × 3; 0 while there are none). */
   jobsheetPieces: number;
+  /** Sprint 19: the meter twin of `jobsheetPieces`, for a meter order. */
+  jobsheetMeters: number;
   createdAt: string;
   updatedAt: string;
   customer: { id: number; name: string; phone: string | null; city: string | null };
@@ -312,10 +314,14 @@ export interface JobsheetListItem {
   jobsheetNo: number;
   orderNo: number;
   status: JobsheetStatusKey;
-  /** Assigned frames. */
+  /** Assigned frames (0, a sentinel, for a meter jobsheet — see `meters`). */
   frames: number;
   /** Actual frames made (Completed only). */
   completedFrames: number | null;
+  /** Sprint 19: assigned loom metres, for a METER order's jobsheet (null for a pcs one). */
+  meters: number | null;
+  /** Sprint 19: actual loom metres made (Completed only). */
+  completedMeters: number | null;
   /** Sprint 18: sections per beam (pcs per frame). */
   sections: number;
   machines: JobsheetMachine[];
@@ -336,13 +342,18 @@ export interface OrderJobsheets {
   unit: Unit;
   status: OrderStatusKey;
   framesPerJobsheet: number | null;
+  /** Sprint 19: the meter twin of `framesPerJobsheet`, for a meter order. */
+  metersPerJobsheet: number | null;
   jobsheets: JobsheetListItem[];
   /** Completed jobsheets among the active ones. */
   completedCount: number;
-  coverage: Coverage;
+  /** A pcs order's coverage, or a meter order's (discriminate on `unit`). */
+  coverage: Coverage | MetersCoverage;
   warnings: CoverageWarning[];
   /** Sprint 16: pcs POs of the order — the "120 pcs given outside (PO-3)" line; the coverage already leaves them out. */
   outsidePos: { poNo: number; pcs: number }[];
+  /** Sprint 19: the meter twin of `outsidePos`, for a meter order. */
+  outsidePosMeters: { poNo: number; meters: number }[];
 }
 
 export type JobsheetEventKind =
@@ -377,6 +388,10 @@ export interface JobsheetOrderInfo {
   jobsheetPieces: number;
   targetFrames: number;
   framesPerJobsheet: number | null;
+  /** Sprint 19: meter twins, for a meter order. */
+  jobsheetMeters: number;
+  targetLoomMeters: number;
+  metersPerJobsheet: number | null;
   customer: { id: number; name: string; city: string | null };
   material: { id: number; name: string; code: string | null };
 }
@@ -389,6 +404,9 @@ export interface JobsheetSibling {
   completedFrames: number | null;
   /** Sprint 18: sections per beam. */
   sections: number;
+  /** Sprint 19: meter twins, for a meter order's jobsheet. */
+  meters: number | null;
+  completedMeters: number | null;
 }
 
 export interface JobsheetDesign {
@@ -405,6 +423,9 @@ export interface JobsheetDetail {
   status: JobsheetStatusKey;
   frames: number;
   completedFrames: number | null;
+  /** Sprint 19: meter twins (null for a pcs jobsheet). */
+  meters: number | null;
+  completedMeters: number | null;
   /** Sprint 18: sections per beam this jobsheet was made with (pcs per frame; editable while Pending). */
   sections: number;
   createdBy: RoleKey;
@@ -433,7 +454,7 @@ export interface JobsheetDetail {
   /** All active jobsheets of the order (for the edit preview), by number. Empty for the supervisor. */
   siblings: JobsheetSibling[];
   /** Null for the supervisor. */
-  coverage: Coverage | null;
+  coverage: Coverage | MetersCoverage | null;
   warnings: CoverageWarning[];
   /** Active takas, sorted by number — null for roles that can't see takas (the supervisor). */
   takas: Taka[] | null;
@@ -445,6 +466,8 @@ export interface JobsheetRef {
   id: number;
   jobsheetNo: number;
   frames: number;
+  /** Sprint 19: set instead of `frames` (which stays the 0 sentinel) for a meter order's jobsheet. */
+  meters?: number | null;
 }
 
 export interface JobsheetCreateResult {
@@ -461,7 +484,7 @@ export interface JobsheetUpdateResult {
   removed: JobsheetRef[];
   /** Picks or machines of the edited jobsheet changed. */
   detailsChanged: boolean;
-  coverage: Coverage;
+  coverage: Coverage | MetersCoverage;
   warnings: CoverageWarning[];
 }
 
@@ -499,6 +522,9 @@ export interface SupervisorJobsheetItem {
   status: JobsheetStatusKey;
   frames: number;
   completedFrames: number | null;
+  /** Sprint 19: meter twins (null for a pcs jobsheet). */
+  meters: number | null;
+  completedMeters: number | null;
   orderNo: number;
   /** The order's quality (material name). */
   quality: string;
@@ -554,6 +580,9 @@ export interface JobsheetPrintItem {
   machineNos: number[];
   /** The order's jobsheet quantity (pcs). */
   jobsheetPieces: number;
+  /** Sprint 19: meter twins — set instead of frames/jobsheetPieces for a meter order's jobsheet. */
+  meters: number | null;
+  clothMeters: number;
   /** Sprint 18: sections per beam of this jobsheet (printed small: "Sections: 4"). */
   sections: number;
   designCode: string | null;
@@ -570,6 +599,8 @@ export interface MachineViewJobsheet {
   jobsheetNo: number;
   orderNo: number;
   frames: number;
+  /** Sprint 19: set instead of frames for a meter order's jobsheet. */
+  meters: number | null;
   designCode: string | null;
   thumbUrl: string | null;
   startedAt: string | null;
