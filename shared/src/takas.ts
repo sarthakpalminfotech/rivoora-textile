@@ -384,6 +384,15 @@ export function takaActualPcs(t: { pcs?: number | null; actualPcs?: number | nul
   return t.actualPcs ?? t.pcs ?? null;
 }
 
+/**
+ * Sprint 19: the meters twin of `takaActualPcs` — expected meters = `meters`; actual meters = what the godown
+ * supervisor corrected (`actualMeters`), else the expected meters. Every place that reads `t.meters` for a
+ * "final/current" quantity after the godown stage should prefer this instead.
+ */
+export function takaActualMeters(t: { meters?: number | null; actualMeters?: number | null }): number | null {
+  return t.actualMeters ?? t.meters ?? null;
+}
+
 /** Sum of the actual pcs of the takas (null when none has any pcs). */
 export function totalActualPcs(takas: readonly { pcs?: number | null; actualPcs?: number | null }[]): number | null {
   const withPcs = takas.map(takaActualPcs).filter((n): n is number => n !== null);

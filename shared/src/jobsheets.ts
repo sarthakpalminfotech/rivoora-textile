@@ -2,8 +2,9 @@
  * Jobsheet calculations — the single source of truth.
  * Used by the server (the real write) and by the client (live previews). Pure functions only.
  */
-import { MAX_SECTIONS_PER_BEAM, SECTIONS_PER_BEAM } from './production';
+import { MAX_SECTIONS_PER_BEAM, METERS_ON_TARGET_SLACK, SECTIONS_PER_BEAM } from './production';
 import { JOBSHEET_STATUS, type JobsheetStatusKey } from './statuses';
+import { formatQty } from './orderUnit';
 
 const isPositiveInt = (n: unknown): n is number => typeof n === 'number' && Number.isInteger(n) && n >= 1;
 
@@ -143,7 +144,7 @@ export function latestSections(list: readonly { sections?: number | null; jobshe
   return sectionsOf(latest);
 }
 
-const isPendingSheet = (j: AdjustJobsheet) => (j.status ?? JOBSHEET_STATUS.PENDING) === JOBSHEET_STATUS.PENDING;
+const isPendingSheet = (j: { status?: JobsheetStatusKey }) => (j.status ?? JOBSHEET_STATUS.PENDING) === JOBSHEET_STATUS.PENDING;
 
 export interface AdjustInput {
   /** All ACTIVE jobsheets of the order (any order, any status). */
@@ -433,4 +434,293 @@ export function outsidePoCommittedPcs(pos: readonly { unit: string; quantity: nu
       .filter((p) => p.unit === 'pcs' && p.status !== 'cancelled')
       .reduce((s, p) => s + (p.status === 'closed' ? p.receivedQty : Math.max(p.quantity, p.receivedQty)), 0),
   );
+}
+
+/**
+ * Sprint 19: meters given outside on meter POs, which the loom doesn't need to cover (the meters twin of
+ * `outsidePoCommittedPcs`, rounded to 2 decimals instead of a whole number).
+ */
+export function outsidePoCommittedMeters(pos: readonly { unit: string; quantity: number; receivedQty: number; status: string }[]): number {
+  return (
+    Math.round(
+      pos
+        .filter((p) => p.unit === 'meters' && p.status !== 'cancelled')
+        .reduce((s, p) => s + (p.status === 'closed' ? p.receivedQty : Math.max(p.quantity, p.receivedQty)), 0) * 100,
+    ) / 100
+  );
+}
+
+/* ====================================================================== */
+/* Sprint 19 — meter (all-over) orders: the same jobsheet maths generalised */
+/* ====================================================================== */
+
+export type JobsheetUnit = 'pcs' | 'meters';
+
+const round = (n: number, unit: JobsheetUnit): number => (unit === 'meters' ? Math.round(n * 100) / 100 : Math.round(n));
+
+/**
+ * Units of loom work needed for `quantity` of output at `sections` per beam: pcs round UP to whole frames (a
+ * frame can't be partly woven); meters round UP to 2 decimals (loom metres are continuous, no "whole frame").
+ * `allocUnits(pieces, sections, 'pcs')` is exactly the old `framesForPieces`.
+ */
+export function allocUnits(quantity: number, sections: number = SECTIONS_PER_BEAM, unit: JobsheetUnit = 'pcs'): number {
+  return unit === 'meters' ? Math.ceil((quantity / sections) * 100) / 100 : Math.ceil(quantity / sections);
+}
+
+/** Output of `units` of loom work (frames or loom metres) at `sections` per beam — `quantityForUnits(frames, sections, 'pcs')` is the old `piecesForFrames`. */
+export function quantityForUnits(units: number, sections: number = SECTIONS_PER_BEAM, unit: JobsheetUnit = 'pcs'): number {
+  return unit === 'meters' ? Math.round(units * sections * 100) / 100 : units * sections;
+}
+
+/** Splits `total` units into jobsheets of `perJobsheet`; the last one gets the remainder — the generic `splitFrames`. */
+export function splitQuantity(total: number, perJobsheet: number, unit: JobsheetUnit = 'pcs'): number[] {
+  if (total <= 0) return [];
+  const count = Math.ceil(total / perJobsheet);
+  const out = Array.from({ length: count }, () => perJobsheet);
+  out[count - 1] = round(total - perJobsheet * (count - 1), unit);
+  return out;
+}
+
+/* ---- meters plan (the sibling of 7.1 `planJobsheets`) ---- */
+
+export interface JobsheetMetersPlan {
+  meters: number;
+  metersPerJobsheet: number;
+  sections: number;
+  /** meters ÷ sections, before rounding up. */
+  exactLoomMeters: number;
+  /** Always rounded UP to 2 decimals. */
+  totalLoomMeters: number;
+  jobsheetCount: number;
+  /** Loom metres of each jobsheet, in order. Only the last one can be smaller. */
+  loomMeters: number[];
+}
+
+/** Plans a multi-jobsheet meter run. Null when the inputs aren't positive (sections 1–12). */
+export function planJobsheetsMeters(meters: number, metersPerJobsheet: number, sections: number = SECTIONS_PER_BEAM): JobsheetMetersPlan | null {
+  if (!(meters > 0) || !(metersPerJobsheet > 0) || !isValidSections(sections)) return null;
+  const totalLoomMeters = allocUnits(meters, sections, 'meters');
+  const loomMeters = splitQuantity(totalLoomMeters, metersPerJobsheet, 'meters');
+  return { meters, metersPerJobsheet, sections, exactLoomMeters: meters / sections, totalLoomMeters, jobsheetCount: loomMeters.length, loomMeters };
+}
+
+/* ---- effective / coverage meters (the sibling of effectiveFrames / coverageFrames / jobsheetPcs / coveragePieces) ---- */
+
+export interface AdjustMetersJobsheet {
+  id: number;
+  jobsheetNo: number;
+  /** Assigned loom metres. */
+  meters: number;
+  status?: JobsheetStatusKey;
+  /** Actual loom metres made (Completed jobsheets only). */
+  completedMeters?: number | null;
+  sections?: number | null;
+}
+
+/** Loom metres a jobsheet counts for: the actual metres once Completed, otherwise the assigned metres. */
+export function effectiveMeters(j: Pick<AdjustMetersJobsheet, 'meters' | 'status' | 'completedMeters'>): number {
+  return j.status === JOBSHEET_STATUS.COMPLETED && j.completedMeters !== null && j.completedMeters !== undefined ? j.completedMeters : j.meters;
+}
+
+/** Sum of the effective loom metres. */
+export function coverageMeters(list: readonly Pick<AdjustMetersJobsheet, 'meters' | 'status' | 'completedMeters'>[]): number {
+  return Math.round(list.reduce((s, j) => s + effectiveMeters(j), 0) * 100) / 100;
+}
+
+/** Cloth metres of one jobsheet = its effective loom metres × its own sections (the meters twin of `jobsheetPcs`). */
+export function jobsheetMeters(j: Pick<AdjustMetersJobsheet, 'meters' | 'status' | 'completedMeters' | 'sections'>): number {
+  return Math.round(effectiveMeters(j) * sectionsOf(j) * 100) / 100;
+}
+
+/** Cloth metres of the jobsheets = Σ effective loom metres × each jobsheet's own sections (the meters twin of `coveragePieces`). */
+export function coverageClothMeters(list: readonly Pick<AdjustMetersJobsheet, 'meters' | 'status' | 'completedMeters' | 'sections'>[]): number {
+  return Math.round(list.reduce((s, j) => s + jobsheetMeters(j), 0) * 100) / 100;
+}
+
+/* ---- auto-adjust in meters (the sibling of 7.4 `planFramesEdit`) ---- */
+
+export interface AdjustMetersInput {
+  /** All ACTIVE jobsheets of the order (any order, any status). */
+  jobsheets: AdjustMetersJobsheet[];
+  editedId: number;
+  newMeters: number;
+  /** `order.meters_per_jobsheet` — may be null. */
+  metersPerJobsheet: number | null;
+}
+
+export interface AdjustMetersChange {
+  id: number;
+  jobsheetNo: number;
+  from: number;
+  to: number;
+  edited: boolean;
+}
+
+export interface AdjustMetersPlan {
+  updated: AdjustMetersChange[];
+  created: { meters: number }[];
+  removed: { id: number; jobsheetNo: number; meters: number }[];
+  editedIsLast: boolean;
+  last: AdjustMetersJobsheet;
+  totalMetersBefore: number;
+  totalMetersAfter: number;
+}
+
+export function planMetersEdit({ jobsheets, editedId, newMeters, metersPerJobsheet }: AdjustMetersInput): AdjustMetersPlan {
+  if (!(newMeters > 0)) throw new RangeError('Meters must be more than 0');
+  const sorted = [...jobsheets].sort((a, b) => a.jobsheetNo - b.jobsheetNo);
+  const edited = sorted.find((j) => j.id === editedId);
+  if (!edited) throw new RangeError('Jobsheet is not active');
+  if (!isPendingSheet(edited)) throw new RangeError('Only Pending jobsheets can be edited');
+  const pending = sorted.filter(isPendingSheet);
+  const last = pending[pending.length - 1];
+  const totalMetersBefore = coverageMeters(sorted);
+  const newMetersRounded = Math.round(newMeters * 100) / 100;
+  const delta = Math.round((newMetersRounded - edited.meters) * 100) / 100;
+  const editedIsLast = edited.id === last.id;
+
+  const plan: AdjustMetersPlan = {
+    updated: [],
+    created: [],
+    removed: [],
+    editedIsLast,
+    last,
+    totalMetersBefore,
+    totalMetersAfter: totalMetersBefore,
+  };
+  if (delta === 0) return plan;
+  plan.updated.push({ id: edited.id, jobsheetNo: edited.jobsheetNo, from: edited.meters, to: newMetersRounded, edited: true });
+
+  if (editedIsLast) {
+    plan.totalMetersAfter = Math.round((totalMetersBefore + delta) * 100) / 100;
+    return plan;
+  }
+
+  const lastNew = Math.round((last.meters - delta) * 100) / 100;
+  const F = metersPerJobsheet !== null && metersPerJobsheet > 0 ? Math.round(metersPerJobsheet * 100) / 100 : null;
+
+  if (lastNew <= 0) {
+    plan.removed.push({ id: last.id, jobsheetNo: last.jobsheetNo, meters: last.meters });
+  } else if (F !== null && lastNew > F) {
+    if (last.meters !== F) plan.updated.push({ id: last.id, jobsheetNo: last.jobsheetNo, from: last.meters, to: F, edited: false });
+    plan.created = splitQuantity(Math.round((lastNew - F) * 100) / 100, F, 'meters').map((meters) => ({ meters }));
+  } else {
+    plan.updated.push({ id: last.id, jobsheetNo: last.jobsheetNo, from: last.meters, to: lastNew, edited: false });
+  }
+
+  const removedMeters = plan.removed.reduce((s, r) => s + r.meters, 0);
+  const createdMeters = plan.created.reduce((s, c) => s + c.meters, 0);
+  const updatedDelta = plan.updated.reduce((s, u) => s + (u.to - u.from), 0);
+  plan.totalMetersAfter = Math.round((totalMetersBefore + updatedDelta + createdMeters - removedMeters) * 100) / 100;
+  return plan;
+}
+
+/* ---- coverage summary + warnings in meters (the sibling of 7.5) ---- */
+
+export interface MetersCoverage {
+  orderedMeters: number;
+  /** Meters already given outside on meter POs — subtracted before the loom's target is worked out. */
+  outsideMeters: number;
+  /** Meters still needed from the loom after outside POs (never below 0). */
+  neededMeters: number;
+  /** Live: Σ effective loom metres in the active jobsheets × each jobsheet's own sections. */
+  jobsheetClothMeters: number;
+  /** Live: loom metres the order needs = ceil(needed metres ÷ `sections`, 2dp). */
+  targetLoomMeters: number;
+  /** The sections per beam "loom metres needed" is counted with — the latest run's, or the default 3. */
+  sections: number;
+  /** Sum of the active jobsheets' loom metres (actual once Completed — see `coverageMeters`). */
+  totalLoomMeters: number;
+  jobsheetCount: number;
+}
+
+export function orderJobsheetMetersPlan(
+  orderedMeters: number,
+  outsideMeters: number,
+  list: readonly (Pick<AdjustMetersJobsheet, 'meters' | 'status' | 'completedMeters' | 'sections'> & { jobsheetNo?: number })[],
+): MetersCoverage {
+  const sections = latestSections(list);
+  const neededMeters = Math.max(0, Math.round((orderedMeters - outsideMeters) * 100) / 100);
+  return {
+    orderedMeters,
+    outsideMeters,
+    neededMeters,
+    jobsheetClothMeters: coverageClothMeters(list),
+    targetLoomMeters: allocUnits(neededMeters, sections, 'meters'),
+    sections,
+    totalLoomMeters: coverageMeters([...list]),
+    jobsheetCount: list.length,
+  };
+}
+
+function onTargetMeters(c: MetersCoverage): boolean {
+  return c.jobsheetClothMeters >= c.neededMeters && c.jobsheetClothMeters - c.neededMeters < METERS_ON_TARGET_SLACK;
+}
+
+const fmtLoomMeters = (n: number) => `${n.toLocaleString('en-IN', { maximumFractionDigits: 2 })} loom meters`;
+const fmtNum = (n: number) => n.toLocaleString('en-IN', { maximumFractionDigits: 2 });
+
+/**
+ * Amber, non-blocking warnings for a meter order — same shape and wording pattern as the pcs `coverageWarnings`
+ * (only the first one or two numbers of each sentence carry the unit word, exactly like "frames" there), with the
+ * 0.05 m slack from `onTargetMeters` instead of "within 1 section".
+ */
+export function coverageWarningsMeters(c: MetersCoverage): CoverageWarning[] {
+  if (c.jobsheetCount === 0 || onTargetMeters(c)) return [];
+  const out: CoverageWarning[] = [];
+  if (c.jobsheetClothMeters < c.neededMeters) {
+    out.push({
+      kind: 'pieces_less',
+      message: `Jobsheet quantity (${formatQty(c.jobsheetClothMeters, 'meters')}) is less than the order (${formatQty(c.neededMeters, 'meters')}).`,
+    });
+    const short = Math.round(((c.neededMeters - c.jobsheetClothMeters) / c.sections) * 100) / 100;
+    out.push({
+      kind: 'frames_short',
+      message: `Jobsheets cover ${fmtLoomMeters(c.totalLoomMeters)}, but ${fmtLoomMeters(c.totalLoomMeters + short)} are needed (${fmtNum(short)} short).`,
+    });
+  } else {
+    out.push({
+      kind: 'pieces_more',
+      message: `Jobsheet quantity (${formatQty(c.jobsheetClothMeters, 'meters')}) is more than the order (${formatQty(c.neededMeters, 'meters')}).`,
+    });
+    const over = Math.round(((c.jobsheetClothMeters - c.neededMeters) / c.sections) * 100) / 100;
+    out.push({
+      kind: 'frames_over',
+      message: `Jobsheets cover ${fmtLoomMeters(c.totalLoomMeters)}, which is ${fmtNum(over)} more than the ${fmtNum(c.totalLoomMeters - over)} needed.`,
+    });
+  }
+  return out;
+}
+
+/** Live preview warning (meters) for the create/add forms — the sibling of `jobsheetQuantityWarning`. */
+export function jobsheetQuantityWarningMeters(orderedMeters: number, currentClothMeters: number, addLoomMeters: number, sections: number = SECTIONS_PER_BEAM): string | null {
+  if (!(addLoomMeters > 0) || !isValidSections(sections)) return null;
+  const after = Math.round((currentClothMeters + quantityForUnits(addLoomMeters, sections, 'meters')) * 100) / 100;
+  if (after >= orderedMeters && after - orderedMeters < METERS_ON_TARGET_SLACK) return null;
+  const diff = Math.round(Math.abs(after - orderedMeters) * 100) / 100;
+  if (diff === 0) return null;
+  return `This makes the jobsheet quantity ${formatQty(after, 'meters')} — ${formatQty(diff, 'meters')} ${after < orderedMeters ? 'less' : 'more'} than the order (${formatQty(orderedMeters, 'meters')}).`;
+}
+
+/** Meters to prefill on a new multi-jobsheet meter run: the sibling of `remainingPieces`. */
+export function remainingMeters(orderedMeters: number, jobsheetClothMeters: number): number | null {
+  const left = Math.round((orderedMeters - jobsheetClothMeters) * 100) / 100;
+  return left > 0 ? left : null;
+}
+
+/* ---- Change machine in meters (the sibling of the frames helpers) ---- */
+
+/**
+ * "Metres to make next" after "Metres completed" changes: follows the remaining metres (at least 0.01, since a
+ * new jobsheet needs some loom meters) until the user has picked a value themselves (`touched`).
+ */
+export function nextMetersAfterCompletedChange(p: { assigned: number; completed: number; current: number; touched: boolean }): number {
+  return p.touched ? p.current : Math.max(0.01, Math.round((p.assigned - p.completed) * 100) / 100);
+}
+
+/** "Assigned 50 m — you're recording 48 m (2 m fewer)." or null when equal. */
+export function completedMetersNote(assigned: number, completed: number): string | null {
+  if (assigned === completed) return null;
+  const diff = Math.round(Math.abs(assigned - completed) * 100) / 100;
+  return `Assigned ${formatQty(assigned, 'meters')} — you're recording ${formatQty(completed, 'meters')} (${formatQty(diff, 'meters')} ${completed < assigned ? 'fewer' : 'more'}).`;
 }
