@@ -1,7 +1,18 @@
 import { AlertTriangle, Ban, Info, Minus, Plus, XCircle } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
-import { completedFramesNote, planHold, type ClosePreview, type HoldJobsheetEntry } from '@rivoora/shared';
+import {
+  completedFramesNote,
+  completedMetersNote,
+  formatQty,
+  isMeterOrder,
+  planHold,
+  planHoldMeters,
+  type ClosePreview,
+  type HoldJobsheetEntry,
+  type HoldMetersJobsheetEntry,
+  type Unit,
+} from '@rivoora/shared';
 import { Button } from '@/components/ui/button';
 import { Field } from '@/components/ui/field';
 import { ResponsiveModal } from '@/components/ui/modal';
@@ -35,11 +46,27 @@ function FramesDone({ jobsheetNo, frames, value, onChange, disabled }: { jobshee
   );
 }
 
-function SummaryLine({ preview }: { preview: ClosePreview }) {
+/** Sprint 19: the meter twin of `FramesDone` — a plain decimal field (no stepper). */
+function MetersDone({ jobsheetNo, value, onChange, disabled }: { jobsheetNo: number; value: string; onChange: (text: string) => void; disabled: boolean }) {
+  return (
+    <input
+      type="text"
+      inputMode="decimal"
+      autoComplete="off"
+      value={value}
+      onChange={(e) => onChange(e.target.value.replace(/[^\d.]/g, ''))}
+      disabled={disabled}
+      aria-label={`Metres completed on jobsheet ${jobsheetNo}`}
+      className="h-11 w-full rounded-[10px] border border-input bg-slate-50/60 px-3 text-center text-lg font-bold tabular-nums text-slate-900 focus:border-primary focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary/15"
+    />
+  );
+}
+
+function SummaryLine({ preview, meterOrder }: { preview: ClosePreview; meterOrder: boolean }) {
   const parts: string[] = [];
   if (preview.pendingJobsheets) parts.push(`${preview.pendingJobsheets} pending jobsheet${preview.pendingJobsheets === 1 ? '' : 's'} cancelled`);
   if (preview.openPos) parts.push(`${preview.openPos} outside PO${preview.openPos === 1 ? '' : 's'} closed`);
-  if (preview.freeTakas) parts.push(`${preview.freeTakas} taka${preview.freeTakas === 1 ? '' : 's'} (${preview.freePcs} pcs) → free stock`);
+  if (preview.freeTakas) parts.push(`${preview.freeTakas} taka${preview.freeTakas === 1 ? '' : 's'} (${meterOrder ? formatQty(preview.freeMeters, 'meters') : `${preview.freePcs} pcs`}) → free stock`);
   if (preview.outTakas) parts.push(`${preview.outTakas} taka${preview.outTakas === 1 ? '' : 's'} still at butta cutting / the mill`);
   if (preview.dispatchedTakas) parts.push(`${preview.dispatchedTakas} taka${preview.dispatchedTakas === 1 ? '' : 's'} already dispatched (unaffected)`);
   if (!parts.length) return <p className="text-sm text-slate-500">Nothing is in progress — the order will simply be marked Closed.</p>;
@@ -56,9 +83,10 @@ function SummaryLine({ preview }: { preview: ClosePreview }) {
 }
 
 /** Close order (Jenish, Gaurang): any order, any time. Completes jobsheets on the loom, cancels the rest, frees stock. */
-export function CloseOrderDialog({ orderId, orderNo, open, onOpenChange }: { orderId: number; orderNo: number; open: boolean; onOpenChange: (open: boolean) => void }) {
+export function CloseOrderDialog({ orderId, orderNo, unit, open, onOpenChange }: { orderId: number; orderNo: number; unit: Unit; open: boolean; onOpenChange: (open: boolean) => void }) {
   const preview = useClosePreview(orderId, open);
   const close = useCloseOrder(orderId);
+  const meterOrder = isMeterOrder({ unit });
   const [note, setNote] = useState('');
   const [texts, setTexts] = useState<Record<number, string>>({});
   const [serverError, setServerError] = useState<string | null>(null);
@@ -71,17 +99,23 @@ export function CloseOrderDialog({ orderId, orderNo, open, onOpenChange }: { ord
   }, [open]);
 
   const ongoing = preview.data?.ongoing ?? [];
-  const entries: HoldJobsheetEntry[] = ongoing.flatMap((j) => {
+  const framesEntries: HoldJobsheetEntry[] = ongoing.flatMap((j) => {
     const t = (texts[j.id] ?? '').trim();
     return /^\d+$/.test(t) ? [{ jobsheetId: j.id, completedFrames: Number(t) }] : [];
   });
-  const plan = planHold(ongoing, entries);
+  const metersEntries: HoldMetersJobsheetEntry[] = ongoing.flatMap((j) => {
+    const t = (texts[j.id] ?? '').trim();
+    return /^\d+(\.\d{1,2})?$/.test(t) ? [{ jobsheetId: j.id, completedMeters: Number(t) }] : [];
+  });
+  const plan = meterOrder
+    ? planHoldMeters(ongoing.map((j) => ({ id: j.id, meters: j.meters ?? 0 })), metersEntries)
+    : planHold(ongoing, framesEntries);
   const ready = !preview.isPending && !preview.isError && plan.errors.length === 0;
 
   const submit = () => {
     setServerError(null);
     close.mutate(
-      { note: note.trim() || null, ongoing: entries },
+      { note: note.trim() || null, ongoing: meterOrder ? metersEntries : framesEntries },
       {
         onSuccess: (res) => {
           toast.success(
@@ -129,13 +163,35 @@ export function CloseOrderDialog({ orderId, orderNo, open, onOpenChange }: { ord
               <section className="space-y-4 rounded-xl border border-amber-300 bg-amber-50 p-4" aria-label="Jobsheets on the loom">
                 <p className="flex items-start gap-2 text-[15px] font-semibold text-amber-950">
                   <AlertTriangle className="mt-0.5 size-5 shrink-0 text-amber-600" aria-hidden />
-                  {ongoing.length === 1 ? '1 jobsheet is on the loom.' : `${ongoing.length} jobsheets are on the loom.`} Enter the frames completed — each is completed now; no new jobsheet is created for the rest.
+                  {ongoing.length === 1 ? '1 jobsheet is on the loom.' : `${ongoing.length} jobsheets are on the loom.`} Enter the {meterOrder ? 'metres' : 'frames'} completed — each is completed now; no new jobsheet is created for the rest.
                 </p>
                 <ul className="space-y-4">
                   {ongoing.map((j) => {
                     const text = texts[j.id] ?? '';
-                    const n = /^\d+$/.test(text.trim()) ? Number(text.trim()) : null;
                     const err = plan.errors.find((e) => e.jobsheetId === j.id);
+                    if (meterOrder) {
+                      const assigned = j.meters ?? 0;
+                      const n = /^\d+(\.\d{1,2})?$/.test(text.trim()) ? Number(text.trim()) : null;
+                      const note2 = n !== null && n <= assigned ? completedMetersNote(assigned, n) : null;
+                      return (
+                        <li key={j.id} className="space-y-2 rounded-lg bg-white p-3 shadow-soft">
+                          <p className="text-[15px] font-bold text-slate-900">Jobsheet {j.jobsheetNo}</p>
+                          <p className="text-sm text-slate-600">
+                            {j.machineNo ? `Machine ${j.machineNo}` : 'Machine —'} · {formatQty(assigned, 'meters')} assigned
+                          </p>
+                          <Field label="Metres completed" required error={text !== '' && err ? err.message : undefined}>
+                            <MetersDone jobsheetNo={j.jobsheetNo} value={text} onChange={(t) => setTexts((prev) => ({ ...prev, [j.id]: t }))} disabled={close.isPending} />
+                          </Field>
+                          {note2 && (
+                            <p className="flex items-start gap-2 text-sm text-slate-600" role="status">
+                              <Info className="mt-0.5 size-4 shrink-0 text-slate-400" aria-hidden />
+                              {note2}
+                            </p>
+                          )}
+                        </li>
+                      );
+                    }
+                    const n = /^\d+$/.test(text.trim()) ? Number(text.trim()) : null;
                     const note2 = n !== null && n <= j.frames ? completedFramesNote(j.frames, n) : null;
                     return (
                       <li key={j.id} className="space-y-2 rounded-lg bg-white p-3 shadow-soft">
@@ -161,7 +217,7 @@ export function CloseOrderDialog({ orderId, orderNo, open, onOpenChange }: { ord
 
             <div className="rounded-xl border border-border p-3.5">
               <p className="mb-2 text-sm font-semibold text-slate-700">On close:</p>
-              <SummaryLine preview={preview.data!} />
+              <SummaryLine preview={preview.data!} meterOrder={meterOrder} />
             </div>
           </>
         )}

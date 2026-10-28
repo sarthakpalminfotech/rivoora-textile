@@ -385,7 +385,7 @@ export default function OrderDetailsPage() {
 
       <HoldOrderDialog orderId={order.id} orderNo={order.orderNo} open={holdOpen} onOpenChange={setHoldOpen} />
       <ReleaseHoldDialog orderId={order.id} orderNo={order.orderNo} open={releaseOpen} onOpenChange={setReleaseOpen} />
-      <CloseOrderDialog orderId={order.id} orderNo={order.orderNo} open={closeOpen} onOpenChange={setCloseOpen} />
+      <CloseOrderDialog orderId={order.id} orderNo={order.orderNo} unit={order.unit} open={closeOpen} onOpenChange={setCloseOpen} />
 
       <ConfirmDialog
         open={confirmUndo}

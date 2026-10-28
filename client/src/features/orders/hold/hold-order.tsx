@@ -1,7 +1,17 @@
 import { AlertTriangle, Info, Minus, PauseCircle, Plus, PlayCircle } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
-import { completedFramesNote, jobsheetRef, planHold, type HoldJobsheetEntry, type JobsheetListItem } from '@rivoora/shared';
+import {
+  completedFramesNote,
+  completedMetersNote,
+  formatQty,
+  jobsheetRef,
+  planHold,
+  planHoldMeters,
+  type HoldJobsheetEntry,
+  type HoldMetersJobsheetEntry,
+  type JobsheetListItem,
+} from '@rivoora/shared';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Field } from '@/components/ui/field';
@@ -90,6 +100,34 @@ function FramesDone({
   );
 }
 
+/** Sprint 19: the meter twin of `FramesDone` — a plain decimal field (metres can't be stepped one at a time). */
+function MetersDone({
+  js,
+  value,
+  onChange,
+  disabled,
+}: {
+  js: JobsheetListItem;
+  value: string;
+  onChange: (text: string) => void;
+  disabled: boolean;
+}) {
+  const id = `hold-meters-${js.id}`;
+  return (
+    <input
+      id={id}
+      type="text"
+      inputMode="decimal"
+      autoComplete="off"
+      value={value}
+      onChange={(e) => onChange(e.target.value.replace(/[^\d.]/g, ''))}
+      disabled={disabled}
+      aria-label={`Metres completed on ${jobsheetRef(js.orderNo, js.jobsheetNo)}`}
+      className="h-12 w-full rounded-[10px] border border-input bg-slate-50/60 px-3 text-center text-xl font-bold tabular-nums text-slate-900 focus:border-primary focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary/15"
+    />
+  );
+}
+
 export function HoldOrderDialog({
   orderId,
   orderNo,
@@ -117,17 +155,24 @@ export function HoldOrderDialog({
     // Only when the dialog opens.
   }, [open]);
 
-  const entries: HoldJobsheetEntry[] = ongoing.flatMap((j) => {
+  const meterOrder = jobsheets.data?.unit === 'meters';
+  const framesEntries: HoldJobsheetEntry[] = ongoing.flatMap((j) => {
     const t = (texts[j.id] ?? '').trim();
     return /^\d+$/.test(t) ? [{ jobsheetId: j.id, completedFrames: Number(t) }] : [];
   });
-  const plan = planHold(ongoing, entries);
+  const metersEntries: HoldMetersJobsheetEntry[] = ongoing.flatMap((j) => {
+    const t = (texts[j.id] ?? '').trim();
+    return /^\d+(\.\d{1,2})?$/.test(t) ? [{ jobsheetId: j.id, completedMeters: Number(t) }] : [];
+  });
+  const plan = meterOrder
+    ? planHoldMeters(ongoing.map((j) => ({ id: j.id, meters: j.meters ?? 0 })), metersEntries)
+    : planHold(ongoing, framesEntries);
   const ready = !jobsheets.isPending && !jobsheets.isError && plan.errors.length === 0;
 
   const submit = () => {
     setServerError(null);
     hold.mutate(
-      { note: note.trim() || null, ongoing: entries },
+      { note: note.trim() || null, ongoing: meterOrder ? metersEntries : framesEntries },
       {
         onSuccess: (res) => {
           toast.success(
@@ -180,10 +225,37 @@ export function HoldOrderDialog({
             <ul className="space-y-4">
               {ongoing.map((j) => {
                 const text = texts[j.id] ?? '';
-                const n = /^\d+$/.test(text.trim()) ? Number(text.trim()) : null;
                 const err = plan.errors.find((e) => e.jobsheetId === j.id);
-                const note2 = n !== null && n <= j.frames ? completedFramesNote(j.frames, n) : null;
                 const running = formatElapsed(j.startedAt, now);
+                if (meterOrder) {
+                  const assigned = j.meters ?? 0;
+                  const n = /^\d+(\.\d{1,2})?$/.test(text.trim()) ? Number(text.trim()) : null;
+                  const note2 = n !== null && n <= assigned ? completedMetersNote(assigned, n) : null;
+                  const left = n !== null ? Math.round((assigned - n) * 100) / 100 : null;
+                  return (
+                    <li key={j.id} className="space-y-2 rounded-lg bg-white p-3 shadow-soft">
+                      <p className="text-[15px] font-bold text-slate-900">
+                        <JobsheetRef orderNo={j.orderNo} jobsheetNo={j.jobsheetNo} />
+                      </p>
+                      <p className="text-sm text-slate-600">
+                        {j.runningMachine ? `Machine ${j.runningMachine.machineNo}` : 'Machine —'} · {formatQty(assigned, 'meters')} assigned
+                        {running ? ` · running ${running}` : ''}
+                      </p>
+                      <Field label="Metres completed" htmlFor={`hold-meters-${j.id}`} required error={text !== '' && err ? err.message : undefined}>
+                        <MetersDone js={j} value={text} onChange={(t) => setTexts((prev) => ({ ...prev, [j.id]: t }))} disabled={hold.isPending} />
+                      </Field>
+                      {left !== null && n !== null && n <= assigned && (
+                        <p className="flex items-start gap-2 text-sm text-slate-600" role="status">
+                          <Info className="mt-0.5 size-4 shrink-0 text-slate-400" aria-hidden />
+                          {left > 0 ? `${formatQty(left, 'meters')} left → a new Pending jobsheet with the same machines.` : 'All metres done — no new jobsheet.'}
+                          {note2 ? ` ${note2}` : ''}
+                        </p>
+                      )}
+                    </li>
+                  );
+                }
+                const n = /^\d+$/.test(text.trim()) ? Number(text.trim()) : null;
+                const note2 = n !== null && n <= j.frames ? completedFramesNote(j.frames, n) : null;
                 return (
                   <li key={j.id} className="space-y-2 rounded-lg bg-white p-3 shadow-soft">
                     <p className="text-[15px] font-bold text-slate-900">

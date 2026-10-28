@@ -1977,17 +1977,21 @@ export interface CloseOrderResult {
   /** Takas with us that became free stock (and their pcs). */
   freeTakas: number;
   freePcs: number;
+  /** Sprint 19: the meter twin of `freePcs`, for a meter order. */
+  freeMeters: number;
   /** Takas still at butta cutting / the mill (they become free stock when they come back). */
   outTakas: number;
 }
 
 /** What Close order will do (GET /orders/:id/close-preview) — the summary of the confirm dialog. */
 export interface ClosePreview {
-  ongoing: { id: number; jobsheetNo: number; frames: number; machineNo: number | null }[];
+  /** Sprint 19: `meters` is set instead of `frames` for a meter order's ongoing jobsheet. */
+  ongoing: { id: number; jobsheetNo: number; frames: number; meters: number | null; machineNo: number | null }[];
   pendingJobsheets: number;
   openPos: number;
   freeTakas: number;
   freePcs: number;
+  freeMeters: number;
   outTakas: number;
   dispatchedTakas: number;
 }

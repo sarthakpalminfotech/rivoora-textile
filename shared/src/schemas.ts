@@ -246,41 +246,26 @@ export const orderUpdateSchema = z
 export const orderStepsSchema = z.object({ hasProduction: stepFlag, hasButta: stepFlag, hasMill: stepFlag });
 export type OrderStepsInput = z.input<typeof orderStepsSchema>;
 
+/** Sprint 19: "Frames completed" OR its meter twin, for one ongoing jobsheet (Hold / Close). */
+const ongoingEntry = z
+  .object({
+    jobsheetId: z.number().int().positive(),
+    completedFrames: z.number().int('Use a whole number').min(0, 'Cannot be negative').max(100_000, 'Must be at most 1,00,000').optional(),
+    completedMeters: z.number().min(0, 'Cannot be negative').max(100_000, 'Must be at most 1,00,000').optional(),
+  })
+  .refine((v) => v.completedFrames !== undefined || v.completedMeters !== undefined, { message: 'Enter the quantity completed', path: ['completedFrames'] });
+
 /** POST /orders/:id/close — an optional note + "Frames completed" for every jobsheet on the loom (like Hold). */
 export const orderCloseSchema = z.object({
   note: optText(300),
-  ongoing: z
-    .array(
-      z.object({
-        jobsheetId: z.number().int().positive(),
-        completedFrames: z
-          .number({ required_error: 'Enter the frames completed', invalid_type_error: 'Enter the frames completed' })
-          .int('Use a whole number')
-          .min(0, 'Cannot be negative')
-          .max(100_000, 'Must be at most 1,00,000'),
-      }),
-    )
-    .max(500)
-    .default([]),
+  ongoing: z.array(ongoingEntry).max(500).default([]),
 });
 export type OrderCloseInput = z.input<typeof orderCloseSchema>;
 
 /** POST /orders/:id/hold (Sprint 15) — an optional note + "Frames completed" for every jobsheet that is on the loom. */
 export const orderHoldSchema = z.object({
   note: optText(300),
-  ongoing: z
-    .array(
-      z.object({
-        jobsheetId: z.number().int().positive(),
-        completedFrames: z
-          .number({ required_error: 'Enter the frames completed', invalid_type_error: 'Enter the frames completed' })
-          .int('Use a whole number')
-          .min(0, 'Cannot be negative')
-          .max(100_000, 'Must be at most 1,00,000'),
-      }),
-    )
-    .max(500)
-    .default([]),
+  ongoing: z.array(ongoingEntry).max(500).default([]),
 });
 export type OrderHoldInput = z.input<typeof orderHoldSchema>;
 export type OrderUpdateInput = z.input<typeof orderUpdateSchema>;

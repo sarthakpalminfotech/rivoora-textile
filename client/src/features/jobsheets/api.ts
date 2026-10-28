@@ -3,6 +3,7 @@ import type {
   JobsheetActionResult,
   JobsheetChangeMachineInput,
   JobsheetChangeMachineResult,
+  JobsheetCompleteInput,
   JobsheetCreateResult,
   JobsheetDeleteResult,
   JobsheetDetail,
@@ -187,8 +188,8 @@ export function useCompleteJobsheet() {
   const qc = useQueryClient();
   return useMutation({
     meta: { silentFieldErrors: true },
-    mutationFn: ({ id, completedFrames }: { id: number; completedFrames: number }) =>
-      api.post<JobsheetActionResult>(`/jobsheets/${id}/complete`, { completedFrames }),
+    mutationFn: ({ id, ...data }: JobsheetCompleteInput & { id: number }) =>
+      api.post<JobsheetActionResult>(`/jobsheets/${id}/complete`, data),
     onSuccess: () => invalidateAfterWrite(qc),
     onError: refreshOnConflict(qc),
   });

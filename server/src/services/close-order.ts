@@ -2,9 +2,12 @@ import { and, asc, eq, inArray, notInArray, sql } from 'drizzle-orm';
 import {
   canRoleSeeStatus,
   freeStockStage,
+  isMeterOrder,
   JOBSHEET_STATUS,
   orderCloseSchema,
   planHold,
+  planHoldMeters,
+  takaActualMeters,
   takaActualPcs,
   type CloseOrderResult,
   type ClosePreview,
@@ -37,7 +40,7 @@ const NOT_WITH_US: TakaStage[] = ['at_butta', 'at_mill', 'dispatched'];
 
 async function loadOrder(tx: DbOrTx, role: RoleKey, orderId: number) {
   const [order] = await tx
-    .select({ id: orders.id, orderNo: orders.orderNo, status: orders.status, isClosed: orders.isClosed })
+    .select({ id: orders.id, orderNo: orders.orderNo, status: orders.status, isClosed: orders.isClosed, unit: orders.unit })
     .from(orders)
     .where(eq(orders.id, orderId));
   if (!order || !canRoleSeeStatus(role, order.status)) throw notFound('Order');
@@ -46,7 +49,14 @@ async function loadOrder(tx: DbOrTx, role: RoleKey, orderId: number) {
 
 const ongoingOf = (tx: DbOrTx, orderId: number) =>
   tx
-    .select({ id: jobsheets.id, jobsheetNo: jobsheets.jobsheetNo, frames: jobsheets.frames, runningMachineId: jobsheets.runningMachineId, machineNo: machines.machineNo })
+    .select({
+      id: jobsheets.id,
+      jobsheetNo: jobsheets.jobsheetNo,
+      frames: jobsheets.frames,
+      meters: jobsheets.meters,
+      runningMachineId: jobsheets.runningMachineId,
+      machineNo: machines.machineNo,
+    })
     .from(jobsheets)
     .leftJoin(machines, eq(machines.id, jobsheets.runningMachineId))
     .where(and(eq(jobsheets.orderId, orderId), eq(jobsheets.isDeleted, false), realJobsheet, eq(jobsheets.status, JOBSHEET_STATUS.ONGOING)))
@@ -66,7 +76,11 @@ export async function closePreview(role: RoleKey, orderId: number): Promise<Clos
       .from(outsidePos)
       .where(and(eq(outsidePos.orderId, orderId), inArray(outsidePos.status, ['open', 'partly_received']))),
     db
-      .select({ n: sql<number>`COUNT(*)`, pcs: sql<number>`COALESCE(SUM(COALESCE(${takas.actualPcs}, ${takas.pcs}, 0)), 0)` })
+      .select({
+        n: sql<number>`COUNT(*)`,
+        pcs: sql<number>`COALESCE(SUM(COALESCE(${takas.actualPcs}, ${takas.pcs}, 0)), 0)`,
+        meters: sql<number>`COALESCE(SUM(COALESCE(${takas.actualMeters}, ${takas.meters}, 0)), 0)`,
+      })
       .from(takas)
       .where(and(takaInOrder(orderId), eq(takas.isDeleted, false), notInArray(takas.stage, NOT_WITH_US))),
     db
@@ -79,11 +93,12 @@ export async function closePreview(role: RoleKey, orderId: number): Promise<Clos
       .where(and(takaInOrder(orderId), eq(takas.isDeleted, false), eq(takas.stage, 'dispatched'))),
   ]);
   return {
-    ongoing: ongoing.map((j) => ({ id: j.id, jobsheetNo: j.jobsheetNo, frames: j.frames, machineNo: j.machineNo })),
+    ongoing: ongoing.map((j) => ({ id: j.id, jobsheetNo: j.jobsheetNo, frames: j.frames, meters: j.meters, machineNo: j.machineNo })),
     pendingJobsheets: Number(pending[0]?.n ?? 0),
     openPos: Number(pos[0]?.n ?? 0),
     freeTakas: Number(withUs[0]?.n ?? 0),
     freePcs: Number(withUs[0]?.pcs ?? 0),
+    freeMeters: Number(withUs[0]?.meters ?? 0),
     outTakas: Number(out[0]?.n ?? 0),
     dispatchedTakas: Number(dispatched[0]?.n ?? 0),
   };
@@ -97,19 +112,40 @@ export async function closeOrder(role: RoleKey, orderId: number, input: unknown)
     if (order.isClosed) throw conflict(`Order #${order.orderNo} is already closed.`);
     const at = new Date().toISOString();
 
-    // 1 — jobsheets on the loom: completed with the frames entered (the Hold dialog's rule), nothing remaining.
+    // 1 — jobsheets on the loom: completed with the frames (or metres) entered (the Hold dialog's rule), nothing remaining.
     const ongoing = await ongoingOf(tx, orderId);
-    const plan = planHold(ongoing, data.ongoing);
-    if (plan.errors.length) throw badRequest(plan.errors[0].message, 'ongoing');
-    for (const c of plan.completions) {
-      const js = ongoing.find((j) => j.id === c.jobsheetId)!;
-      const done = await tx
-        .update(jobsheets)
-        .set({ status: JOBSHEET_STATUS.COMPLETED, completedFrames: c.completedFrames, completedAt: at })
-        .where(and(eq(jobsheets.id, c.jobsheetId), eq(jobsheets.status, JOBSHEET_STATUS.ONGOING)))
-        .returning({ id: jobsheets.id });
-      if (!done.length) throw conflict('A jobsheet was just completed by the supervisor. Refresh and try again.');
-      await writeEvents(tx, role, [{ jobsheetId: c.jobsheetId, event: 'completed', machineId: js.runningMachineId, frames: c.completedFrames, note: 'completed — order closed' }]);
+    const meterOrder = isMeterOrder(order);
+    let completedCount: number;
+    if (meterOrder) {
+      const entries = data.ongoing.filter((e) => e.completedMeters !== undefined).map((e) => ({ jobsheetId: e.jobsheetId, completedMeters: e.completedMeters! }));
+      const plan = planHoldMeters(ongoing.map((j) => ({ id: j.id, meters: j.meters ?? 0 })), entries);
+      if (plan.errors.length) throw badRequest(plan.errors[0].message, 'ongoing');
+      completedCount = plan.completions.length;
+      for (const c of plan.completions) {
+        const js = ongoing.find((j) => j.id === c.jobsheetId)!;
+        const done = await tx
+          .update(jobsheets)
+          .set({ status: JOBSHEET_STATUS.COMPLETED, completedMeters: c.completedMeters, completedAt: at })
+          .where(and(eq(jobsheets.id, c.jobsheetId), eq(jobsheets.status, JOBSHEET_STATUS.ONGOING)))
+          .returning({ id: jobsheets.id });
+        if (!done.length) throw conflict('A jobsheet was just completed by the supervisor. Refresh and try again.');
+        await writeEvents(tx, role, [{ jobsheetId: c.jobsheetId, event: 'completed', machineId: js.runningMachineId, frames: 0, note: 'completed — order closed' }]);
+      }
+    } else {
+      const entries = data.ongoing.filter((e) => e.completedFrames !== undefined).map((e) => ({ jobsheetId: e.jobsheetId, completedFrames: e.completedFrames! }));
+      const plan = planHold(ongoing, entries);
+      if (plan.errors.length) throw badRequest(plan.errors[0].message, 'ongoing');
+      completedCount = plan.completions.length;
+      for (const c of plan.completions) {
+        const js = ongoing.find((j) => j.id === c.jobsheetId)!;
+        const done = await tx
+          .update(jobsheets)
+          .set({ status: JOBSHEET_STATUS.COMPLETED, completedFrames: c.completedFrames, completedAt: at })
+          .where(and(eq(jobsheets.id, c.jobsheetId), eq(jobsheets.status, JOBSHEET_STATUS.ONGOING)))
+          .returning({ id: jobsheets.id });
+        if (!done.length) throw conflict('A jobsheet was just completed by the supervisor. Refresh and try again.');
+        await writeEvents(tx, role, [{ jobsheetId: c.jobsheetId, event: 'completed', machineId: js.runningMachineId, frames: c.completedFrames, note: 'completed — order closed' }]);
+      }
     }
 
     // 2 — Pending / Sent jobsheets are cancelled (soft delete + event).
@@ -125,7 +161,7 @@ export async function closeOrder(role: RoleKey, orderId: number, input: unknown)
 
     // 4 — takas with us (not out at a party, not dispatched) become free stock.
     const withUs = await tx
-      .select({ id: takas.id, stage: takas.stage, pcs: takas.pcs, actualPcs: takas.actualPcs, orderId: takas.orderId })
+      .select({ id: takas.id, stage: takas.stage, pcs: takas.pcs, actualPcs: takas.actualPcs, meters: takas.meters, actualMeters: takas.actualMeters, orderId: takas.orderId })
       .from(takas)
       .where(and(takaInOrder(orderId), eq(takas.isDeleted, false), notInArray(takas.stage, NOT_WITH_US)));
     const byStage = new Map<TakaStage, number[]>();
@@ -160,11 +196,12 @@ export async function closeOrder(role: RoleKey, orderId: number, input: unknown)
     // 5 — the order itself.
     await tx.update(orders).set({ isClosed: true, closedAt: at, closedByUserId: currentUserId(), closeNote: data.note }).where(eq(orders.id, orderId));
     const freePcs = withUs.reduce((s, t) => s + (takaActualPcs(t) ?? 0), 0);
+    const freeMeters = withUs.reduce((s, t) => s + (takaActualMeters(t) ?? 0), 0);
     const summary = [
-      plan.completions.length && `${plan.completions.length} jobsheet${plan.completions.length === 1 ? '' : 's'} completed`,
+      completedCount && `${completedCount} jobsheet${completedCount === 1 ? '' : 's'} completed`,
       cancelled.length && `${cancelled.length} cancelled`,
       closedPos && `${closedPos} PO${closedPos === 1 ? '' : 's'} closed`,
-      withUs.length && `${withUs.length} taka${withUs.length === 1 ? '' : 's'} (${freePcs} pcs) to free stock`,
+      withUs.length && `${withUs.length} taka${withUs.length === 1 ? '' : 's'} (${meterOrder ? `${freeMeters} m` : `${freePcs} pcs`}) to free stock`,
       data.note,
     ]
       .filter(Boolean)
@@ -176,11 +213,12 @@ export async function closeOrder(role: RoleKey, orderId: number, input: unknown)
     return {
       orderId,
       orderNo: order.orderNo,
-      completed: plan.completions.length,
+      completed: completedCount,
       cancelled: cancelled.length,
       closedPos,
       freeTakas: withUs.length,
       freePcs,
+      freeMeters,
       outTakas: Number(outTakas[0]?.n ?? 0),
     };
   });

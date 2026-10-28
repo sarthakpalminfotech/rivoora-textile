@@ -76,6 +76,51 @@ export function planHold(
   return { completions, errors };
 }
 
+/** Sprint 19: the meter twin of `HoldJobsheetEntry`/`HoldCompletion`. */
+export interface HoldMetersJobsheetEntry {
+  jobsheetId: number;
+  completedMeters: number;
+}
+
+export interface HoldMetersCompletion {
+  jobsheetId: number;
+  completedMeters: number;
+  /** Metres left to make = assigned − completed. A new Pending jobsheet is created for them when > 0. */
+  remainingMeters: number;
+}
+
+/** Sprint 19: the meter twin of `planHold`. */
+export function planHoldMeters(
+  ongoing: readonly { id: number; meters: number }[],
+  entries: readonly HoldMetersJobsheetEntry[],
+): { completions: HoldMetersCompletion[]; errors: HoldPlanError[] } {
+  const errors: HoldPlanError[] = [];
+  const byId = new Map(entries.map((e) => [e.jobsheetId, e]));
+  const ids = new Set(ongoing.map((j) => j.id));
+  for (const e of entries) {
+    if (!ids.has(e.jobsheetId)) errors.push({ jobsheetId: e.jobsheetId, message: 'This jobsheet is no longer on the loom. Refresh and try again.' });
+  }
+  const completions: HoldMetersCompletion[] = [];
+  for (const j of ongoing) {
+    const e = byId.get(j.id);
+    if (!e) {
+      errors.push({ jobsheetId: j.id, message: 'Enter the metres completed.' });
+      continue;
+    }
+    if (!(e.completedMeters >= 0)) {
+      errors.push({ jobsheetId: j.id, message: 'Metres completed must be 0 or more.' });
+      continue;
+    }
+    if (e.completedMeters > j.meters) {
+      errors.push({ jobsheetId: j.id, message: `Can't be more than the ${j.meters} metres assigned.` });
+      continue;
+    }
+    const completedMeters = Math.round(e.completedMeters * 100) / 100;
+    completions.push({ jobsheetId: j.id, completedMeters, remainingMeters: Math.round((j.meters - completedMeters) * 100) / 100 });
+  }
+  return { completions, errors };
+}
+
 /** The "Put on hold" / "Released from hold" timeline label. */
 export const HOLD_EVENT_LABEL = { held: 'Put on hold', released: 'Released from hold' } as const;
 export type HoldEventKind = keyof typeof HOLD_EVENT_LABEL;

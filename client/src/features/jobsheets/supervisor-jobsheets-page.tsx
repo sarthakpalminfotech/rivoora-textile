@@ -73,6 +73,7 @@ function toRun(js: SupervisorJobsheetItem): RunJobsheet {
     orderNo: js.orderNo,
     status: js.status,
     frames: js.frames,
+    meters: js.meters,
     machines: js.machines,
     runningMachine: js.runningMachine,
     suggestedMachineId: js.suggestedMachineId,

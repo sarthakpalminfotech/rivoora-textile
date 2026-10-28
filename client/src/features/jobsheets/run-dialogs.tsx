@@ -1,14 +1,17 @@
-import { Info, Minus, Plus, Printer } from 'lucide-react';
+import { Info, Printer } from 'lucide-react';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import {
   changeMachineSummary,
   completedFramesNote,
+  completedMetersNote,
+  formatQty,
   jobsheetRef,
   jobsheetRefShort,
   nextFramesAfterCompletedChange,
   nextFramesMax,
+  nextMetersAfterCompletedChange,
   remainingFrames,
   type JobsheetMachine,
   type JobsheetStatusKey,
@@ -18,12 +21,13 @@ import { Button } from '@/components/ui/button';
 import { Field } from '@/components/ui/field';
 import { ImageThumb } from '@/components/ui/image-thumb';
 import { JobsheetRef } from '@/components/ui/jobsheet-ref';
+import { NumberInput } from '@/components/ui/input';
 import { ResponsiveModal } from '@/components/ui/modal';
 import { Select, type SelectOption } from '@/components/ui/select';
 import { ApiError } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { printUrl, useChangeMachine, useCompleteJobsheet, useMachineView, useStartJobsheet } from './api';
-import { machineLabel } from './parts';
+import { machineLabel, parseDecimalOrNull } from './parts';
 
 /** What the dialogs need to know about a jobsheet (from the supervisor list or the details page). */
 export interface RunJobsheet {
@@ -32,6 +36,8 @@ export interface RunJobsheet {
   orderNo: number;
   status: JobsheetStatusKey;
   frames: number;
+  /** Sprint 19: set instead of `frames` for a meter order's jobsheet. */
+  meters: number | null;
   machines: JobsheetMachine[];
   runningMachine: MachineRef | null;
   suggestedMachineId: number | null;
@@ -42,6 +48,8 @@ export interface RunJobsheet {
 export type RunAction = { kind: 'start' | 'complete' | 'change'; js: RunJobsheet };
 
 const fr = (n: number) => `${n} frame${n === 1 ? '' : 's'}`;
+/** "50 m" / "10 frames" — whichever this jobsheet is in. */
+const qtyOf = (js: RunJobsheet) => (js.meters !== null ? formatQty(js.meters, 'meters') : fr(js.frames));
 
 /** Ongoing jobsheets per machine id (from the machine board), for the "busy" hints. */
 function useBusyMachines() {
@@ -98,7 +106,7 @@ function JobsheetHeader({ js }: { js: RunJobsheet }) {
           <JobsheetRef orderNo={js.orderNo} jobsheetNo={js.jobsheetNo} />
         </p>
         <p className="truncate text-sm text-slate-500">
-          {js.designCode ? `Design ${js.designCode}` : 'No design'} · {fr(js.frames)}
+          {js.designCode ? `Design ${js.designCode}` : 'No design'} · {qtyOf(js)}
         </p>
       </div>
     </div>
@@ -213,24 +221,24 @@ function StartDialog({ js, open, onOpenChange }: { js: RunJobsheet; open: boolea
 /* ------------------------------------------------------------------ */
 
 function CompleteDialog({ js, open, onOpenChange }: { js: RunJobsheet; open: boolean; onOpenChange: (o: boolean) => void }) {
+  const meterOrder = js.meters !== null;
   const complete = useCompleteJobsheet();
-  const [text, setText] = useState(String(js.frames));
+  const [text, setText] = useState(() => (meterOrder ? String(js.meters) : String(js.frames)));
   const [error, setError] = useState<string | null>(null);
-  const value = /^\d+$/.test(text.trim()) ? Number(text.trim()) : null;
-  const note = value !== null ? completedFramesNote(js.frames, value) : null;
-  const step = (d: number) => setText(String(Math.max(0, (value ?? 0) + d)));
+  const value = meterOrder ? parseDecimalOrNull(text) ?? (text.trim() === '0' ? 0 : null) : /^\d+$/.test(text.trim()) ? Number(text.trim()) : null;
+  const note = value !== null ? (meterOrder ? completedMetersNote(js.meters!, value) : completedFramesNote(js.frames, value)) : null;
 
   const submit = () => {
     if (value === null) {
-      setError('Enter the frames completed (0 or more).');
+      setError(meterOrder ? 'Enter the metres completed (0 or more).' : 'Enter the frames completed (0 or more).');
       return;
     }
     setError(null);
     complete.mutate(
-      { id: js.id, completedFrames: value },
+      meterOrder ? { id: js.id, completedMeters: value } : { id: js.id, completedFrames: value },
       {
         onSuccess: (res) => {
-          toast.success(`${jobsheetRefShort(res.orderNo, res.jobsheetNo)} completed (${fr(value)})`);
+          toast.success(`${jobsheetRefShort(res.orderNo, res.jobsheetNo)} completed (${meterOrder ? formatQty(value, 'meters') : fr(value)})`);
           onOpenChange(false);
         },
         onError: (err) => {
@@ -245,7 +253,7 @@ function CompleteDialog({ js, open, onOpenChange }: { js: RunJobsheet; open: boo
       open={open}
       onOpenChange={onOpenChange}
       title={`Complete · ${jobsheetRef(js.orderNo, js.jobsheetNo)}`}
-      description={`${js.runningMachine ? `Machine ${js.runningMachine.machineNo} · ` : ''}${fr(js.frames)} assigned`}
+      description={`${js.runningMachine ? `Machine ${js.runningMachine.machineNo} · ` : ''}${qtyOf(js)} assigned`}
       busy={complete.isPending}
       footer={
         <>
@@ -260,37 +268,18 @@ function CompleteDialog({ js, open, onOpenChange }: { js: RunJobsheet; open: boo
     >
       <div className="space-y-5">
         <JobsheetHeader js={js} />
-        <Field label="Frames completed" htmlFor="complete-frames" required error={error ?? undefined}>
-          <div className="flex items-stretch gap-2">
-            <Button
-              variant="secondary"
-              className="size-14 shrink-0 p-0 [&_svg]:size-6"
-              onClick={() => step(-1)}
-              disabled={value === 0 || complete.isPending}
-              aria-label="One frame less"
-            >
-              <Minus />
-            </Button>
-            <input
-              id="complete-frames"
-              type="text"
-              inputMode="numeric"
-              autoComplete="off"
-              value={text}
-              onChange={(e) => setText(e.target.value.replace(/[^\d]/g, ''))}
-              aria-invalid={!!error || undefined}
-              className="h-14 min-w-0 flex-1 rounded-[10px] border border-input bg-slate-50/60 text-center text-2xl font-bold tabular-nums text-slate-900 focus:border-primary focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary/15"
-            />
-            <Button
-              variant="secondary"
-              className="size-14 shrink-0 p-0 [&_svg]:size-6"
-              onClick={() => step(1)}
-              disabled={complete.isPending}
-              aria-label="One frame more"
-            >
-              <Plus />
-            </Button>
-          </div>
+        <Field label={meterOrder ? 'Metres completed' : 'Frames completed'} htmlFor="complete-qty" required error={error ?? undefined}>
+          <NumberInput
+            id="complete-qty"
+            inputMode={meterOrder ? 'decimal' : 'numeric'}
+            autoFocus
+            autoComplete="off"
+            value={text}
+            onChange={(e) => setText(meterOrder ? e.target.value.replace(/[^\d.]/g, '') : e.target.value.replace(/[^\d]/g, ''))}
+            invalid={!!error}
+            suffix={meterOrder ? <span className="pr-1.5 text-sm text-slate-400">m</span> : undefined}
+            className="h-14 text-center text-2xl font-bold tabular-nums"
+          />
         </Field>
         {note && (
           <p className="flex items-start gap-2 rounded-[10px] border border-amber-200 bg-amber-50 px-3.5 py-2.5 text-sm font-medium text-amber-900" role="status">
@@ -307,7 +296,7 @@ function CompleteDialog({ js, open, onOpenChange }: { js: RunJobsheet; open: boo
 /* Change machine                                                       */
 /* ------------------------------------------------------------------ */
 
-function ChangeMachineDialog({ js, open, onOpenChange }: { js: RunJobsheet; open: boolean; onOpenChange: (o: boolean) => void }) {
+function ChangeMachineDialogPcs({ js, open, onOpenChange }: { js: RunJobsheet; open: boolean; onOpenChange: (o: boolean) => void }) {
   const navigate = useNavigate();
   const change = useChangeMachine();
   const completeJs = useCompleteJobsheet();
@@ -437,6 +426,135 @@ function ChangeMachineDialog({ js, open, onOpenChange }: { js: RunJobsheet; open
       </div>
     </DialogShell>
   );
+}
+
+/** Sprint 19: the meter twin of `ChangeMachineDialogPcs` — plain decimal fields instead of enumerable Selects. */
+function ChangeMachineDialogMeters({ js, open, onOpenChange }: { js: RunJobsheet; open: boolean; onOpenChange: (o: boolean) => void }) {
+  const navigate = useNavigate();
+  const change = useChangeMachine();
+  const completeJs = useCompleteJobsheet();
+  const current = js.runningMachine;
+  const assigned = js.meters!;
+  const [completedText, setCompletedText] = useState('');
+  const [nextText, setNextText] = useState('');
+  const [nextTouched, setNextTouched] = useState(false);
+  const [errors, setErrors] = useState<Record<string, string>>({});
+
+  const completed = parseDecimalOrNull(completedText) ?? (completedText.trim() === '0' ? 0 : null);
+  const allDone = completed !== null && completed >= assigned;
+
+  useEffect(() => {
+    if (completed === null || nextTouched || allDone) return;
+    setNextText(String(nextMetersAfterCompletedChange({ assigned, completed, current: parseDecimalOrNull(nextText) ?? 0, touched: false })));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [completed]);
+
+  const next = parseDecimalOrNull(nextText);
+  const ready = completed !== null && (allDone || (next !== null && next > 0));
+
+  const submit = () => {
+    if (!ready) return;
+    setErrors({});
+    if (allDone) {
+      completeJs.mutate(
+        { id: js.id, completedMeters: completed },
+        {
+          onSuccess: (res) => {
+            toast.success(`${jobsheetRefShort(res.orderNo, res.jobsheetNo)} completed (${formatQty(completed, 'meters')})`);
+            onOpenChange(false);
+          },
+          onError: (err) => {
+            if (err instanceof ApiError && err.field) setErrors({ [err.field]: err.message });
+          },
+        },
+      );
+      return;
+    }
+    change.mutate(
+      { id: js.id, completedMeters: completed, nextMeters: next! },
+      {
+        onSuccess: (res) => {
+          const completedM = res.completed.meters ?? 0;
+          const createdM = res.created.meters ?? 0;
+          toast.success(
+            `${jobsheetRefShort(res.orderNo, res.completed.jobsheetNo)} completed (${formatQty(completedM, 'meters')}). New jobsheet ${jobsheetRefShort(res.orderNo, res.created.jobsheetNo)} (${formatQty(createdM, 'meters')}) is waiting to start.`,
+            { duration: 10_000, action: { label: 'Print', onClick: () => navigate(printUrl([res.created.id])) } },
+          );
+          onOpenChange(false);
+        },
+        onError: (err) => {
+          if (err instanceof ApiError && err.field) setErrors({ [err.field]: err.message });
+        },
+      },
+    );
+  };
+
+  return (
+    <DialogShell
+      open={open}
+      onOpenChange={onOpenChange}
+      title={`Change machine · ${jobsheetRef(js.orderNo, js.jobsheetNo)}`}
+      description={`Currently on ${current ? `Machine ${current.machineNo}` : 'no machine'} · ${formatQty(assigned, 'meters')} assigned`}
+      busy={change.isPending || completeJs.isPending}
+      footer={
+        <>
+          <Button variant="secondary" size="lg" onClick={() => onOpenChange(false)} disabled={change.isPending || completeJs.isPending}>
+            Cancel
+          </Button>
+          <Button size="lg" onClick={submit} disabled={!ready} loading={change.isPending || completeJs.isPending}>
+            {allDone ? 'Mark complete' : 'Confirm'}
+          </Button>
+        </>
+      }
+    >
+      <div className="grid gap-5">
+        <div className="grid gap-5 sm:grid-cols-2">
+          <Field label={`Metres completed on ${current ? `Machine ${current.machineNo}` : 'this machine'}`} htmlFor="cm-m-completed" required error={errors.completedMeters}>
+            <NumberInput
+              id="cm-m-completed"
+              inputMode="decimal"
+              autoFocus
+              value={completedText}
+              onChange={(e) => setCompletedText(e.target.value.replace(/[^\d.]/g, ''))}
+              invalid={!!errors.completedMeters}
+              suffix={<span className="pr-1.5 text-sm text-slate-400">m</span>}
+              className="h-12"
+            />
+          </Field>
+          {!allDone && (
+            <Field label="Metres to make next" htmlFor="cm-m-next" required error={errors.nextMeters} hint={nextTouched ? undefined : 'Remaining metres'}>
+              <NumberInput
+                id="cm-m-next"
+                inputMode="decimal"
+                value={nextText}
+                onChange={(e) => {
+                  setNextText(e.target.value.replace(/[^\d.]/g, ''));
+                  setNextTouched(true);
+                }}
+                invalid={!!errors.nextMeters}
+                suffix={<span className="pr-1.5 text-sm text-slate-400">m</span>}
+                className="h-12"
+              />
+            </Field>
+          )}
+        </div>
+        {allDone && (
+          <p className="rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-[15px] font-medium leading-relaxed text-green-900" aria-live="polite">
+            All {formatQty(assigned, 'meters')} are done on this machine, so {jobsheetRefShort(js.orderNo, js.jobsheetNo)} will be marked complete. No new jobsheet is made.
+          </p>
+        )}
+        {completed !== null && !allDone && next !== null && next > 0 && (
+          <p className="rounded-xl border border-primary/15 bg-primary-soft/70 px-4 py-3 text-[15px] font-medium leading-relaxed text-slate-800" aria-live="polite">
+            {jobsheetRef(js.orderNo, js.jobsheetNo)} will be completed with {formatQty(completed, 'meters')}. A new jobsheet with {formatQty(next, 'meters')} will be created.
+          </p>
+        )}
+      </div>
+    </DialogShell>
+  );
+}
+
+function ChangeMachineDialog(props: { js: RunJobsheet; open: boolean; onOpenChange: (o: boolean) => void }) {
+  return props.js.meters !== null ? <ChangeMachineDialogMeters {...props} /> : <ChangeMachineDialogPcs {...props} />;
 }
 
 /** Renders the dialog for the current action. Pass `null` to close. */

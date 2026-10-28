@@ -128,5 +128,62 @@ const baseOrder = (over = {}) => ({
   check(pcsList.coverage.orderedPieces === 90 && pcsList.coverage.totalFrames === 30, 'pcs order: coverage unaffected (90 pcs, 30 frames)', pcsList.coverage);
 }
 
+/* ============================================================ Phase 6: supervisor complete/change-machine, hold/close */
+
+{
+  // --- Start, complete, change machine on a meter jobsheet ---
+  const order = await ok('jemish', 'POST', '/orders', baseOrder({ unit: 'meters', orderType: 'lump', quantity: 300 }));
+  await ok('jemish', 'POST', '/orders/send-to-production', { orderIds: [order.id] });
+  const gen = await ok('jemish', 'POST', `/orders/${order.id}/jobsheets/generate`, { meters: 50, metersPerJobsheet: 50, sections: 3, machineIds });
+  const jsId = gen.created[0].id;
+  await ok('jemish', 'POST', `/orders/${order.id}/jobsheets/send`, { jobsheetIds: [jsId] });
+  const started = await ok('supervisor', 'POST', `/jobsheets/${jsId}/start`, { machineId: machineIds[0] });
+  check(started.status === 'ongoing', 'meter jobsheet: started', started);
+
+  const changed = await ok('supervisor', 'POST', `/jobsheets/${jsId}/change-machine`, { completedMeters: 20, nextMeters: 30 });
+  check(changed.completed.meters === 20 && changed.created.meters === 30, 'meter jobsheet: change machine (20 completed, 30 new)', changed);
+
+  const newJsId = changed.created.id;
+  await ok('supervisor', 'POST', `/jobsheets/${newJsId}/start`, { machineId: machineIds[1] ?? machineIds[0] });
+  const completed = await ok('supervisor', 'POST', `/jobsheets/${newJsId}/complete`, { completedMeters: 30 });
+  check(completed.status === 'completed', 'meter jobsheet: completed via the meters path', completed);
+
+  const detail = await ok('jemish', 'GET', `/jobsheets/${newJsId}`);
+  check(detail.completedMeters === 30 && detail.meters === 30, 'meter jobsheet detail: completedMeters recorded', detail);
+
+  // pcs jobsheet complete/change-machine completely unaffected.
+  const pcsOrder = await ok('jemish', 'POST', '/orders', baseOrder({ unit: 'pcs', orderType: 'pcs_to_pcs', quantity: 30 }));
+  await ok('jemish', 'POST', '/orders/send-to-production', { orderIds: [pcsOrder.id] });
+  const pcsGen = await ok('jemish', 'POST', `/orders/${pcsOrder.id}/jobsheets/generate`, { pieces: 30, framesPerJobsheet: 10, sections: 3, machineIds });
+  const pcsJsId = pcsGen.created[0].id;
+  await ok('jemish', 'POST', `/orders/${pcsOrder.id}/jobsheets/send`, { jobsheetIds: [pcsJsId] });
+  await ok('supervisor', 'POST', `/jobsheets/${pcsJsId}/start`, { machineId: machineIds[0] });
+  const pcsCompleted = await ok('supervisor', 'POST', `/jobsheets/${pcsJsId}/complete`, { completedFrames: 10 });
+  check(pcsCompleted.status === 'completed', 'pcs jobsheet: complete via the frames path unaffected', pcsCompleted);
+
+  // --- Hold a meter order with an ongoing jobsheet ---
+  const holdOrderObj = await ok('jemish', 'POST', '/orders', baseOrder({ unit: 'meters', orderType: 'lump', quantity: 100 }));
+  await ok('jemish', 'POST', '/orders/send-to-production', { orderIds: [holdOrderObj.id] });
+  const holdGen = await ok('jemish', 'POST', `/orders/${holdOrderObj.id}/jobsheets/generate`, { meters: 40, metersPerJobsheet: 40, sections: 3, machineIds });
+  const holdJsId = holdGen.created[0].id;
+  await ok('jemish', 'POST', `/orders/${holdOrderObj.id}/jobsheets/send`, { jobsheetIds: [holdJsId] });
+  await ok('supervisor', 'POST', `/jobsheets/${holdJsId}/start`, { machineId: machineIds[0] });
+  const held = await ok('jemish', 'POST', `/orders/${holdOrderObj.id}/hold`, { note: 'testing', ongoing: [{ jobsheetId: holdJsId, completedMeters: 15 }] });
+  check(held.completed === 1 && held.created[0]?.meters === 25, 'meter order hold: 15 completed, 25 m remaining jobsheet created', held);
+  await ok('jemish', 'POST', `/orders/${holdOrderObj.id}/release`);
+
+  // --- Close a meter order with an ongoing jobsheet ---
+  const closeOrderObj = await ok('jemish', 'POST', '/orders', baseOrder({ unit: 'meters', orderType: 'lump', quantity: 60 }));
+  await ok('jemish', 'POST', '/orders/send-to-production', { orderIds: [closeOrderObj.id] });
+  const closeGen = await ok('jemish', 'POST', `/orders/${closeOrderObj.id}/jobsheets/generate`, { meters: 20, metersPerJobsheet: 20, sections: 3, machineIds });
+  const closeJsId = closeGen.created[0].id;
+  await ok('jemish', 'POST', `/orders/${closeOrderObj.id}/jobsheets/send`, { jobsheetIds: [closeJsId] });
+  await ok('supervisor', 'POST', `/jobsheets/${closeJsId}/start`, { machineId: machineIds[0] });
+  const closePrev = await ok('jemish', 'GET', `/orders/${closeOrderObj.id}/close-preview`);
+  check(closePrev.ongoing[0]?.meters === 20 && closePrev.ongoing[0]?.frames === 0, 'meter order close-preview: ongoing jobsheet carries meters, frames=0 sentinel', closePrev);
+  const closed = await ok('jemish', 'POST', `/orders/${closeOrderObj.id}/close`, { note: 'testing close', ongoing: [{ jobsheetId: closeJsId, completedMeters: 20 }] });
+  check(closed.completed === 1, 'meter order closed: ongoing jobsheet completed via metres', closed);
+}
+
 console.log(failed ? `\n${failed} check(s) FAILED` : '\nAll Sprint 19 checks (so far) passed');
 process.exit(failed ? 1 : 0);
