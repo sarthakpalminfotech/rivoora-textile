@@ -132,9 +132,12 @@ const baseOrder = (over = {}) => ({
 
 {
   // --- Start, complete, change machine on a meter jobsheet ---
+  // `meters` here is the order's CLOTH-metres target (mirrors `pieces`), not loom metres directly: 90 cloth m ÷ 3
+  // sections = 30 loom m needed, one jobsheet of exactly that (metersPerJobsheet=30 as a loom-metres cap).
   const order = await ok('jemish', 'POST', '/orders', baseOrder({ unit: 'meters', orderType: 'lump', quantity: 300 }));
   await ok('jemish', 'POST', '/orders/send-to-production', { orderIds: [order.id] });
-  const gen = await ok('jemish', 'POST', `/orders/${order.id}/jobsheets/generate`, { meters: 50, metersPerJobsheet: 50, sections: 3, machineIds });
+  const gen = await ok('jemish', 'POST', `/orders/${order.id}/jobsheets/generate`, { meters: 90, metersPerJobsheet: 30, sections: 3, machineIds });
+  check(gen.created[0].meters === 30, 'meter order: generate — 90 cloth m ÷ 3 sections = 30 loom m jobsheet', gen);
   const jsId = gen.created[0].id;
   await ok('jemish', 'POST', `/orders/${order.id}/jobsheets/send`, { jobsheetIds: [jsId] });
   const started = await ok('supervisor', 'POST', `/jobsheets/${jsId}/start`, { machineId: machineIds[0] });
@@ -164,7 +167,7 @@ const baseOrder = (over = {}) => ({
   // --- Hold a meter order with an ongoing jobsheet ---
   const holdOrderObj = await ok('jemish', 'POST', '/orders', baseOrder({ unit: 'meters', orderType: 'lump', quantity: 100 }));
   await ok('jemish', 'POST', '/orders/send-to-production', { orderIds: [holdOrderObj.id] });
-  const holdGen = await ok('jemish', 'POST', `/orders/${holdOrderObj.id}/jobsheets/generate`, { meters: 40, metersPerJobsheet: 40, sections: 3, machineIds });
+  const holdGen = await ok('jemish', 'POST', `/orders/${holdOrderObj.id}/jobsheets/generate`, { meters: 120, metersPerJobsheet: 40, sections: 3, machineIds });
   const holdJsId = holdGen.created[0].id;
   await ok('jemish', 'POST', `/orders/${holdOrderObj.id}/jobsheets/send`, { jobsheetIds: [holdJsId] });
   await ok('supervisor', 'POST', `/jobsheets/${holdJsId}/start`, { machineId: machineIds[0] });
@@ -175,7 +178,7 @@ const baseOrder = (over = {}) => ({
   // --- Close a meter order with an ongoing jobsheet ---
   const closeOrderObj = await ok('jemish', 'POST', '/orders', baseOrder({ unit: 'meters', orderType: 'lump', quantity: 60 }));
   await ok('jemish', 'POST', '/orders/send-to-production', { orderIds: [closeOrderObj.id] });
-  const closeGen = await ok('jemish', 'POST', `/orders/${closeOrderObj.id}/jobsheets/generate`, { meters: 20, metersPerJobsheet: 20, sections: 3, machineIds });
+  const closeGen = await ok('jemish', 'POST', `/orders/${closeOrderObj.id}/jobsheets/generate`, { meters: 60, metersPerJobsheet: 20, sections: 3, machineIds });
   const closeJsId = closeGen.created[0].id;
   await ok('jemish', 'POST', `/orders/${closeOrderObj.id}/jobsheets/send`, { jobsheetIds: [closeJsId] });
   await ok('supervisor', 'POST', `/jobsheets/${closeJsId}/start`, { machineId: machineIds[0] });
