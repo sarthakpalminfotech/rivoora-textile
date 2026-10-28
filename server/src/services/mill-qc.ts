@@ -2,6 +2,7 @@ import { and, desc, eq, or, sql, type SQL } from 'drizzle-orm';
 import {
   buttaListQuerySchema,
   challanLabel,
+  isMeterOrder,
   millQcOpenState,
   millQcSubmitSchema,
   type ButtaListQuery,
@@ -102,8 +103,10 @@ export async function submitMillQc(role: RoleKey, takaId: number, input: unknown
         orderId: takas.orderId,
         meters: takas.meters,
         pcs: takas.pcs,
+        unit: orders.unit,
       })
       .from(takas)
+      .innerJoin(orders, eq(orders.id, takas.orderId))
       .where(and(eq(takas.id, takaId), eq(takas.isDeleted, false)));
     if (!taka) throw notFound('Taka');
     if (taka.stage !== 'mill_qc' && taka.stage !== 'at_mill') {
@@ -147,6 +150,7 @@ export async function submitMillQc(role: RoleKey, takaId: number, input: unknown
       tx,
       role,
       taka,
+      isMeterOrder(taka),
       data,
       { recordedAt: 'mill_qc', resolvedStage: 'mill_qc', label: 'Mill QC', requireAnswers: !refinish },
       at,

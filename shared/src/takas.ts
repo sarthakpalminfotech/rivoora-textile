@@ -220,6 +220,9 @@ export interface DamageLike {
   pcs?: number | null;
   /** How many of those pcs were resolved (a partial resolve keeps the damage open with fewer open pcs). */
   resolvedPcs?: number | null;
+  /** Sprint 19: the meter twin of `pcs`/`resolvedPcs` — set instead for a meter order's damage. */
+  meters?: number | null;
+  resolvedMeters?: number | null;
   status?: string;
   resolvedStage?: string | null;
 }
@@ -229,6 +232,13 @@ export function damageOpenPcs(d: Pick<DamageLike, 'pcs' | 'resolvedPcs' | 'statu
   if (d.pcs == null) return null;
   if (d.status === 'resolved') return 0;
   return Math.max(0, d.pcs - (d.resolvedPcs ?? 0));
+}
+
+/** Sprint 19: the meter twin of `damageOpenPcs` — metres of a damage that are still damaged, 2 decimals. */
+export function damageOpenMeters(d: Pick<DamageLike, 'meters' | 'resolvedMeters' | 'status'>): number | null {
+  if (d.meters == null) return null;
+  if (d.status === 'resolved') return 0;
+  return Math.max(0, Math.round((d.meters - (d.resolvedMeters ?? 0)) * 100) / 100);
 }
 
 /**
@@ -244,17 +254,35 @@ export function damageLabel(foundAt: string | null | undefined, damageName?: str
 
 /**
  * The label of a damage row: an OPEN damage shows its open pcs, with "(2 resolved)" when partly resolved; a resolved
- * damage shows its original pcs.
+ * damage shows its original pcs. Sprint 19: a meter-order damage (`meters` set, `pcs` null) shows metres instead —
+ * `taka_damages.meters` is a new column only ever written for a meter order's damage, so this is a safe switch.
  */
 export function damageLabelOf(d: DamageLike): string {
+  if (d.pcs == null && d.meters != null) {
+    const resolved = d.resolvedMeters ?? 0;
+    if (d.status === 'resolved') return damageLabel(d.foundAt, d.damageName, null, d.meters);
+    const label = damageLabel(d.foundAt, d.damageName, null, damageOpenMeters(d));
+    return resolved > 0 ? `${label} (${formatMeters(resolved)} resolved)` : label;
+  }
   const resolved = d.resolvedPcs ?? 0;
   if (d.status === 'resolved' || d.pcs == null) return damageLabel(d.foundAt, d.damageName, d.pcs);
   const label = damageLabel(d.foundAt, d.damageName, damageOpenPcs(d));
   return resolved > 0 ? `${label} (${resolved} resolved)` : label;
 }
 
-/** "Resolved 3 of 3 pcs" / "Resolved 2 of 3 · 1 pcs still damaged" / null when nothing was resolved. */
-export function damageResolveSummary(d: Pick<DamageLike, 'pcs' | 'resolvedPcs' | 'status'>): string | null {
+/**
+ * "Resolved 3 of 3 pcs" / "Resolved 2 of 3 · 1 pcs still damaged" / null when nothing was resolved. Sprint 19: the
+ * meter twin when the damage carries metres instead of pcs.
+ */
+export function damageResolveSummary(d: Pick<DamageLike, 'pcs' | 'resolvedPcs' | 'meters' | 'resolvedMeters' | 'status'>): string | null {
+  if (d.pcs == null && d.meters != null) {
+    const total = d.meters;
+    const resolved = d.status === 'resolved' ? total : (d.resolvedMeters ?? 0);
+    if (resolved <= 0) return null;
+    return resolved >= total
+      ? `Resolved ${formatMeters(total)} of ${formatMeters(total)}`
+      : `Resolved ${formatMeters(resolved)} of ${formatMeters(total)} · ${formatMeters(Math.round((total - resolved) * 100) / 100)} still damaged`;
+  }
   const total = d.pcs;
   const resolved = d.status === 'resolved' && total != null ? total : (d.resolvedPcs ?? 0);
   if (total == null) return d.status === 'resolved' ? 'Resolved' : null;

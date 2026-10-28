@@ -128,6 +128,14 @@ export function applyResolve(damage: { pcs: number; resolvedPcs?: number | null 
   return { resolvedPcs, openPcs, status: openPcs === 0 ? ('resolved' as const) : ('open' as const) };
 }
 
+/** Sprint 19: the meter twin of `applyResolve` — a meter order's damage is resolved in metres, 2 decimals. */
+export function applyResolveMeters(damage: { meters: number; resolvedMeters?: number | null }, resolveNow: number) {
+  const round2 = (n: number) => Math.round(n * 100) / 100;
+  const resolvedMeters = Math.min(damage.meters, round2((damage.resolvedMeters ?? 0) + Math.max(0, resolveNow)));
+  const openMeters = round2(damage.meters - resolvedMeters);
+  return { resolvedMeters, openMeters, status: openMeters <= 0 ? ('resolved' as const) : ('open' as const) };
+}
+
 /**
  * Every open damage must get an answer (0 = not resolved, or 1…open pcs); a damage without pcs needs a pcs count, no
  * damaged pcs may exceed the taka's pcs and no more pcs can be resolved than are open. `takaPcs` = the pcs after the
@@ -156,6 +164,65 @@ export function validateQcDecisions(
     if (pcs === null) issues.pcsMissing.push(o.id);
     else if (pcs > takaPcs) issues.pcsTooBig.push(o.id);
     else if (d.resolvedPcs > pcs - (o.resolvedPcs ?? 0)) issues.resolvedTooBig.push(o.id);
+  }
+  return { ...issues, ok: Object.values(issues).every((l) => l.length === 0) };
+}
+
+/* ------------------------------------------------------------------ */
+/* Sprint 19: the meter twin of the Butta/Mill QC decision rules        */
+/* ------------------------------------------------------------------ */
+
+export interface QcOpenMeterDamage {
+  id: number;
+  /** Null on a damage that never had a metres count. */
+  meters: number | null;
+  /** Metres resolved before this QC (a damage stays open while part of it is resolved). */
+  resolvedMeters?: number | null;
+}
+
+/** The decision for one open damage on a meter order: how many metres were resolved NOW (0 = not resolved). */
+export interface QcMeterDecision {
+  takaDamageId: number;
+  resolvedMeters: number;
+  /** Needed only for an older damage that has no metres yet. */
+  meters?: number | null;
+}
+
+export interface QcMeterDecisionIssues {
+  unanswered: number[];
+  /** Answered damages that have no metres (neither stored nor given). */
+  metersMissing: number[];
+  /** Metres larger than the taka's metres. */
+  metersTooBig: number[];
+  /** Resolved metres larger than the metres still open on the damage. */
+  resolvedTooBig: number[];
+  unknown: number[];
+}
+
+/** The meter twin of `validateQcDecisions` — `takaMeters` = the taka's metres after the QC edit. */
+export function validateQcMeterDecisions(
+  open: readonly QcOpenMeterDamage[],
+  decisions: readonly QcMeterDecision[],
+  takaMeters: number,
+): QcMeterDecisionIssues & { ok: boolean } {
+  const byId = new Map(decisions.map((d) => [d.takaDamageId, d]));
+  const issues: QcMeterDecisionIssues = {
+    unanswered: [],
+    metersMissing: [],
+    metersTooBig: [],
+    resolvedTooBig: [],
+    unknown: decisions.filter((d) => !open.some((o) => o.id === d.takaDamageId)).map((d) => d.takaDamageId),
+  };
+  for (const o of open) {
+    const d = byId.get(o.id);
+    if (!d) {
+      issues.unanswered.push(o.id);
+      continue;
+    }
+    const meters = o.meters ?? d.meters ?? null;
+    if (meters === null) issues.metersMissing.push(o.id);
+    else if (meters > takaMeters) issues.metersTooBig.push(o.id);
+    else if (d.resolvedMeters > meters - (o.resolvedMeters ?? 0)) issues.resolvedTooBig.push(o.id);
   }
   return { ...issues, ok: Object.values(issues).every((l) => l.length === 0) };
 }

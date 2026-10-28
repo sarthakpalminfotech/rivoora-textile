@@ -35,6 +35,8 @@ const ok = async (who, method, path, body) => {
   return r.body;
 };
 const today = new Date().toISOString().slice(0, 10);
+// A per-run unique seed so hand-picked weaver/taka numbers don't collide when the script is run again.
+const run = Date.now() % 1000000;
 
 const customer = (await ok('jemish', 'GET', '/lookup/customers'))[0];
 const material = (await ok('jemish', 'GET', '/lookup/materials'))[0];
@@ -246,7 +248,7 @@ const baseOrder = (over = {}) => ({
   // --- Outside PO receipt (meters): the PO is forced to unit "meters"; receipt rows carry meters only ---
   const outsideOrder = await ok('jemish', 'POST', '/orders', baseOrder({ unit: 'meters', orderType: 'lump', quantity: 200 }));
   await ok('jemish', 'POST', '/orders/send-to-production', { orderIds: [outsideOrder.id] });
-  const weaver = await ok('jemish', 'POST', '/weavers', { name: 'S19 Test Weaver', shortCode: weaverCode() });
+  const weaver = await ok('jemish', 'POST', '/weavers', { name: `S19 Test Weaver ${Date.now()}`, shortCode: weaverCode() });
   const poRejected = await call('jemish', 'POST', `/orders/${outsideOrder.id}/outside-pos`, {
     weaverId: weaver.id, materialId: material.id, quantity: 100, unit: 'pcs', orderType: 'lump', poDate: today, notes: '',
   });
@@ -257,12 +259,12 @@ const baseOrder = (over = {}) => ({
   check(po.unit === 'meters', 'meter order: PO created in metres', po);
 
   const receiptRejected = await call('jemish', 'POST', `/outside-pos/${po.id}/receipts`, {
-    challanNo: 'S19-C1', date: today, notes: null, rows: [{ weaverTakaNo: '19001', ourTakaNo: null, damages: [] }],
+    challanNo: 'S19-C1', date: today, notes: null, rows: [{ weaverTakaNo: `${run}01`, ourTakaNo: null, damages: [] }],
   });
   check(receiptRejected.status === 400, 'meter order: receipt row without metres is rejected', receiptRejected);
   const receipt = await ok('jemish', 'POST', `/outside-pos/${po.id}/receipts`, {
     challanNo: 'S19-C2', date: today, notes: null,
-    rows: [{ weaverTakaNo: '19002', ourTakaNo: null, meters: 40, damages: [{ type: 'weaver', otherName: 'S19 weaver cut', meters: 5, images: [] }] }],
+    rows: [{ weaverTakaNo: `${run}02`, ourTakaNo: null, meters: 40, damages: [{ type: 'weaver', otherName: 'S19 weaver cut', meters: 5, images: [] }] }],
   });
   check(receipt.meters === 40 && receipt.pcs === 0, 'meter order: receipt carries meters, not pcs', receipt);
   check(receipt.takas[0].pcs === null, 'meter order: received taka has no pcs', receipt.takas[0]);
@@ -274,7 +276,7 @@ const baseOrder = (over = {}) => ({
   await ok('jemish', 'POST', '/orders/send-to-production', { orderIds: [fgOrder.id] });
   const fgReceipt = await ok('jemish', 'POST', `/orders/${fgOrder.id}/fg-receipts`, {
     challanNo: 'S19-F1', date: today, supplierName: 'S19 Test Supplier', notes: null,
-    rows: [{ weaverTakaNo: '19003', ourTakaNo: null, meters: 25, damages: [] }],
+    rows: [{ weaverTakaNo: `${run}03`, ourTakaNo: null, meters: 25, damages: [] }],
   });
   check(fgReceipt.meters === 25 && fgReceipt.pcs === 0, 'FG meter purchase: receipt carries meters, not pcs', fgReceipt);
 
@@ -286,9 +288,77 @@ const baseOrder = (over = {}) => ({
   });
   check(pcsPo.unit === 'pcs', 'pcs order: PO still created in pcs (unaffected)', pcsPo);
   const pcsReceipt = await ok('jemish', 'POST', `/outside-pos/${pcsPo.id}/receipts`, {
-    challanNo: 'S19-P1', date: today, notes: null, rows: [{ weaverTakaNo: '19004', ourTakaNo: null, pcs: 20, damages: [] }],
+    challanNo: 'S19-P1', date: today, notes: null, rows: [{ weaverTakaNo: `${run}04`, ourTakaNo: null, pcs: 20, damages: [] }],
   });
   check(pcsReceipt.pcs === 20, 'pcs order: outside receipt unaffected (pcs carried)', pcsReceipt);
+}
+
+/* ============================================================ Phase 8 (QC slice): Butta QC / Mill QC in meters */
+
+{
+  const party = async (kind) => (await ok('jemish', 'POST', `/${kind}-parties`, { name: `S19 ${kind} ${Date.now()} ${Math.random()}` })).id;
+
+  // --- Meter order through Butta QC: partial resolve, full resolve, a new metres damage ---
+  const order = await ok('jemish', 'POST', '/orders', baseOrder({ unit: 'meters', orderType: 'lump', quantity: 90 }));
+  await ok('jemish', 'POST', '/orders/send-to-production', { orderIds: [order.id] });
+  const gen = await ok('jemish', 'POST', `/orders/${order.id}/jobsheets/generate`, { meters: 90, metersPerJobsheet: 90, sections: 3, machineIds });
+  const jsId = gen.created[0].id;
+  const entered = await ok('taka', 'POST', `/jobsheets/${jsId}/takas`, {
+    takas: [{ meters: 30, damages: [{ type: 'machine', otherName: 'S19 QC hole', meters: 10 }] }],
+    note: '',
+  });
+  const takaId = entered.added[0].id;
+  const damageId = entered.added[0].damages[0].id;
+
+  await ok('godown', 'POST', '/butta/challans', { takaIds: [takaId], partyId: await party('butta'), challanDate: today });
+  await ok('godown', 'POST', '/butta/receive', { takaIds: [takaId] });
+
+  // One Butta QC visit: partially resolve the existing damage (4 of 10 m, stays open) AND add a new one (3 m).
+  const buttaQc = await ok('qc', 'POST', `/butta-qc/${takaId}`, {
+    damageDecisions: [{ takaDamageId: damageId, resolvedMeters: 4 }],
+    newDamages: [{ type: 'butta', otherName: 'S19 QC new', meters: 3, images: [] }],
+  });
+  check(buttaQc.resolved === 0 && buttaQc.kept === 1 && buttaQc.added === 1, 'meter order: Butta QC partial resolve (4 of 10 m) + a new metres damage', buttaQc);
+  const afterButta = await ok('jemish', 'GET', `/takas/${takaId}`);
+  const d1 = afterButta.damages.find((d) => d.id === damageId);
+  check(d1.resolvedMeters === 4 && d1.status === 'open', 'meter order: original damage stays open with 4 m resolved', d1);
+  const newDamage = afterButta.damages.find((d) => d.id !== damageId);
+  check(newDamage.meters === 3 && newDamage.pcs === null, 'meter order: new Butta damage carries metres, not pcs', newDamage);
+
+  // --- Mill QC: metres bound check, then resolve both remaining open damages (6 m + 3 m) → Fresh ---
+  const millCh = await ok('godown', 'POST', '/mill/challans', { takaIds: [takaId], partyId: await party('mill'), challanDate: today });
+  await ok('godown', 'POST', `/mill/challans/${millCh.challanId}/received-count`, { count: 1 });
+  const tooBig = await call('qc', 'POST', `/mill-qc/${takaId}`, {
+    damageDecisions: [
+      { takaDamageId: damageId, resolvedMeters: 6 },
+      { takaDamageId: newDamage.id, resolvedMeters: 3 },
+    ],
+    newDamages: [{ type: 'mill', otherName: 'S19 too big', meters: 999, images: [] }],
+    result: 'final',
+  });
+  check(tooBig.status === 400, "meter order: Mill QC rejects a new damage bigger than the taka's metres", tooBig);
+  const millDone = await ok('qc', 'POST', `/mill-qc/${takaId}`, {
+    damageDecisions: [
+      { takaDamageId: damageId, resolvedMeters: 6 },
+      { takaDamageId: newDamage.id, resolvedMeters: 3 },
+    ],
+    newDamages: [],
+    result: 'final',
+  });
+  check(millDone.resolved === 2 && millDone.fresh === true, 'meter order: Mill QC resolves both remaining metres damages → Fresh', millDone);
+
+  // --- pcs order regression: Butta QC completely unaffected ---
+  const pcsOrder = await ok('jemish', 'POST', '/orders', baseOrder({ unit: 'pcs', orderType: 'pcs_to_pcs', quantity: 30 }));
+  await ok('jemish', 'POST', '/orders/send-to-production', { orderIds: [pcsOrder.id] });
+  const pcsGen = await ok('jemish', 'POST', `/orders/${pcsOrder.id}/jobsheets/generate`, { pieces: 30, framesPerJobsheet: 10, sections: 3, machineIds });
+  const pcsJsId = pcsGen.created[0].id;
+  const pcsEntered = await ok('taka', 'POST', `/jobsheets/${pcsJsId}/takas`, { takas: [{ pcs: 15, damages: [{ type: 'machine', otherName: 'S19 pcs hole', pcs: 5 }] }], note: '' });
+  const pcsTakaId = pcsEntered.added[0].id;
+  const pcsDamageId = pcsEntered.added[0].damages[0].id;
+  await ok('godown', 'POST', '/butta/challans', { takaIds: [pcsTakaId], partyId: await party('butta'), challanDate: today });
+  await ok('godown', 'POST', '/butta/receive', { takaIds: [pcsTakaId] });
+  const pcsQc = await ok('qc', 'POST', `/butta-qc/${pcsTakaId}`, { damageDecisions: [{ takaDamageId: pcsDamageId, resolvedPcs: 5 }], newDamages: [] });
+  check(pcsQc.resolved === 1, 'pcs order: Butta QC resolve unaffected (pcs)', pcsQc);
 }
 
 console.log(failed ? `\n${failed} check(s) FAILED` : '\nAll Sprint 19 checks (so far) passed');

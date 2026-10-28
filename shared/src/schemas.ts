@@ -641,18 +641,30 @@ export type ChallanListQuery = z.infer<typeof challanListQuerySchema>;
 export const takaCheckQuerySchema = z.object({ no: z.string().trim().max(40).default('') });
 
 /**
- * Butta QC: the decision for each damage that was open when the taka was received — how many pcs were resolved
- * (0 = not resolved; the server checks it against the pcs still open).
+ * Butta QC / Mill QC: the decision for each damage that was open when the taka was received — how many pcs (pcs
+ * order) or metres (meter order) were resolved (0 = not resolved; the server checks it against what is still open).
+ * Sprint 19: `resolvedPcs`/`resolvedMeters` are both optional at the schema level — the server requires the one that
+ * matches the order's unit.
  */
 export const qcDecisionSchema = z.object({
   takaDamageId: z.number().int().positive(),
   resolvedPcs: z
-    .number({ required_error: 'Enter how many pcs were resolved', invalid_type_error: 'Enter how many pcs were resolved' })
+    .number({ invalid_type_error: 'Enter how many pcs were resolved' })
     .int('Use a whole number')
     .min(0, 'Pcs cannot be negative')
-    .max(TAKA_PCS_MAX, `At most ${TAKA_PCS_MAX} pcs`),
+    .max(TAKA_PCS_MAX, `At most ${TAKA_PCS_MAX} pcs`)
+    .optional(),
   /** Needed only for an older damage that has no pcs yet. */
   pcs: damagePcs.nullish().transform((v) => v ?? null),
+  /** Sprint 19: the meter twin of `resolvedPcs`. */
+  resolvedMeters: z
+    .number({ invalid_type_error: 'Enter how many metres were resolved' })
+    .min(0, 'Metres cannot be negative')
+    .max(TAKA_METERS_MAX, `At most ${TAKA_METERS_MAX} m`)
+    .optional()
+    .transform((v) => (v == null ? undefined : Math.round(v * 100) / 100)),
+  /** Needed only for an older damage that has no metres yet. */
+  meters: damageMeters.nullable(),
 });
 
 export const MAX_DAMAGE_IMAGES = 10;

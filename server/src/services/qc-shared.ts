@@ -1,9 +1,12 @@
 import { eq, and, inArray } from 'drizzle-orm';
 import {
   applyResolve,
+  applyResolveMeters,
   damageLabel,
+  formatMeters,
   MAX_DAMAGE_IMAGES,
   validateQcDecisions,
+  validateQcMeterDecisions,
   DAMAGE_NOT_MARKED,
   DAMAGE_RECORDED_AT_LABEL,
   type ChoosableDamageType,
@@ -92,7 +95,14 @@ export async function addNewDamages(
 }
 
 export interface QcChangesInput {
-  damageDecisions: { takaDamageId: number; resolvedPcs: number; pcs?: number | null }[];
+  damageDecisions: {
+    takaDamageId: number;
+    resolvedPcs?: number;
+    pcs?: number | null;
+    /** Sprint 19: sent instead of resolvedPcs/pcs for a meter order. */
+    resolvedMeters?: number;
+    meters?: number | null;
+  }[];
   newDamages: readonly NewDamageInput[];
 }
 
@@ -104,79 +114,144 @@ export interface QcChangesResult {
 }
 
 /**
- * A decision per open damage (pcs resolved now; 0 = not resolved) and the new damages, in the
- * caller's transaction. `requireAnswers` = every open damage must be answered (false when the taka goes to refinish:
- * unanswered damages simply stay open). `label` = "Butta QC" / "Mill QC" for the `edited` event.
+ * A decision per open damage (pcs, or for a meter order metres, resolved now; 0 = not resolved) and the new damages,
+ * in the caller's transaction. `meterOrder` must come from the ORDER's own unit — never inferred from the taka's
+ * `meters`/`pcs` columns, since a pcs order's taka may still carry an optional supplementary `meters` length
+ * (Sprint 6), unrelated to the Sprint 19 meter-order concept. `requireAnswers` = every open damage must be answered
+ * (false when the taka goes to refinish: unanswered damages simply stay open). `label` = "Butta QC" / "Mill QC" for
+ * the `edited` event (currently unused by the body — kept for callers' documentation intent).
  */
 export async function applyQcChanges(
   tx: Tx,
   role: RoleKey,
   taka: { id: number; meters: number | null; pcs: number | null },
+  meterOrder: boolean,
   data: QcChangesInput,
   opts: { recordedAt: DamageRecordedAt; resolvedStage: string; label: string; requireAnswers: boolean },
   at: string,
 ): Promise<QcChangesResult> {
   const takaId = taka.id;
-  // Meters / pcs are read-only for QC (Sprint 15): the taka's own pcs bound the damages (older takas without pcs: no bound).
-  const takaPcs = taka.pcs ?? Number.MAX_SAFE_INTEGER;
-  assertNewDamages(data.newDamages, takaPcs);
-  const open = await tx
-    .select({
-      id: takaDamages.id,
-      damageId: takaDamages.damageId,
-      foundAt: takaDamages.foundAt,
-      pcs: takaDamages.pcs,
-      resolvedPcs: takaDamages.resolvedPcs,
-      name: damageMaster.name,
-    })
-    .from(takaDamages)
-    .leftJoin(damageMaster, eq(damageMaster.id, takaDamages.damageId))
-    .where(and(eq(takaDamages.takaId, takaId), eq(takaDamages.status, 'open'), eq(takaDamages.isDeleted, false)));
-
-  const answered = new Set(data.damageDecisions.map((d) => d.takaDamageId));
-  const issues = validateQcDecisions(
-    opts.requireAnswers ? open : open.filter((o) => answered.has(o.id)),
-    data.damageDecisions,
-    takaPcs,
-  );
-  if (issues.unknown.length) throw conflict('This taka was just changed by someone else. Go back and open it again.');
-  if (issues.unanswered.length) throw badRequest('Answer every damage: resolved or not resolved.', 'damageDecisions');
-  if (issues.pcsMissing.length) throw badRequest('Enter how many pcs are damaged.', 'damageDecisions');
-  if (issues.pcsTooBig.length) throw badRequest(`A damage can't have more pcs than the taka (${takaPcs}).`, 'damageDecisions');
-  if (issues.resolvedTooBig.length) throw badRequest("You can't resolve more pcs than are still damaged.", 'damageDecisions');
-
   const events: TakaEventInput[] = [];
-
-  const byId = new Map(data.damageDecisions.map((d) => [d.takaDamageId, d]));
   let resolved = 0;
   let kept = 0;
-  for (const d of open) {
-    const decision = byId.get(d.id);
-    if (!decision) continue; // refinish: left as it is
-    const pcs = d.pcs ?? decision.pcs ?? 0;
-    if (decision.resolvedPcs <= 0) {
-      if (d.pcs === null) await tx.update(takaDamages).set({ pcs }).where(eq(takaDamages.id, d.id));
-      events.push({ takaId, event: 'damage_kept', takaDamageId: d.id, note: damageLabel(d.foundAt, d.name, pcs - (d.resolvedPcs ?? 0)) });
-      kept += 1;
-      continue;
-    }
-    const next = applyResolve({ pcs, resolvedPcs: d.resolvedPcs }, decision.resolvedPcs);
-    await tx
-      .update(takaDamages)
-      .set(
-        next.status === 'resolved'
-          ? { status: 'resolved', resolvedPcs: next.resolvedPcs, resolvedAt: at, resolvedBy: role, resolvedStage: opts.resolvedStage, pcs }
-          : { resolvedPcs: next.resolvedPcs, pcs },
-      )
-      .where(eq(takaDamages.id, d.id));
-    events.push({
-      takaId,
-      event: next.status === 'resolved' ? 'damage_resolved' : 'damage_partly_resolved',
-      takaDamageId: d.id,
-      note: `${damageLabel(d.foundAt, d.name)} · resolved ${next.resolvedPcs} of ${pcs} pcs`,
+
+  if (meterOrder) {
+    // Metres are read-only for QC (Sprint 15): the taka's own metres bound the damages (no metres yet → no bound).
+    const takaMeters = taka.meters ?? Number.MAX_SAFE_INTEGER;
+    assertNewDamages(data.newDamages, Number.MAX_SAFE_INTEGER);
+    data.newDamages.forEach((d, j) => {
+      if (d.meters === undefined) throw badRequest('Enter the damaged metres.', `newDamages.${j}.meters`);
+      if (d.meters > takaMeters) throw badRequest(`A damage can't have more metres than the taka (${formatMeters(takaMeters)}).`, `newDamages.${j}.meters`);
     });
-    if (next.status === 'resolved') resolved += 1;
-    else kept += 1;
+    const open = await tx
+      .select({
+        id: takaDamages.id,
+        damageId: takaDamages.damageId,
+        foundAt: takaDamages.foundAt,
+        meters: takaDamages.meters,
+        resolvedMeters: takaDamages.resolvedMeters,
+        name: damageMaster.name,
+      })
+      .from(takaDamages)
+      .leftJoin(damageMaster, eq(damageMaster.id, takaDamages.damageId))
+      .where(and(eq(takaDamages.takaId, takaId), eq(takaDamages.status, 'open'), eq(takaDamages.isDeleted, false)));
+
+    const decisions = data.damageDecisions.map((d) => ({ takaDamageId: d.takaDamageId, resolvedMeters: d.resolvedMeters ?? 0, meters: d.meters ?? null }));
+    const answered = new Set(decisions.map((d) => d.takaDamageId));
+    const issues = validateQcMeterDecisions(opts.requireAnswers ? open : open.filter((o) => answered.has(o.id)), decisions, takaMeters);
+    if (issues.unknown.length) throw conflict('This taka was just changed by someone else. Go back and open it again.');
+    if (issues.unanswered.length) throw badRequest('Answer every damage: resolved or not resolved.', 'damageDecisions');
+    if (issues.metersMissing.length) throw badRequest('Enter how many metres are damaged.', 'damageDecisions');
+    if (issues.metersTooBig.length) throw badRequest(`A damage can't have more metres than the taka (${formatMeters(takaMeters)}).`, 'damageDecisions');
+    if (issues.resolvedTooBig.length) throw badRequest("You can't resolve more metres than are still damaged.", 'damageDecisions');
+
+    const byId = new Map(decisions.map((d) => [d.takaDamageId, d]));
+    for (const d of open) {
+      const decision = byId.get(d.id);
+      if (!decision) continue; // refinish: left as it is
+      const meters = d.meters ?? decision.meters ?? 0;
+      if (decision.resolvedMeters <= 0) {
+        if (d.meters === null) await tx.update(takaDamages).set({ meters }).where(eq(takaDamages.id, d.id));
+        events.push({ takaId, event: 'damage_kept', takaDamageId: d.id, note: damageLabel(d.foundAt, d.name, null, meters - (d.resolvedMeters ?? 0)) });
+        kept += 1;
+        continue;
+      }
+      const next = applyResolveMeters({ meters, resolvedMeters: d.resolvedMeters }, decision.resolvedMeters);
+      await tx
+        .update(takaDamages)
+        .set(
+          next.status === 'resolved'
+            ? { status: 'resolved', resolvedMeters: next.resolvedMeters, resolvedAt: at, resolvedBy: role, resolvedStage: opts.resolvedStage, meters }
+            : { resolvedMeters: next.resolvedMeters, meters },
+        )
+        .where(eq(takaDamages.id, d.id));
+      events.push({
+        takaId,
+        event: next.status === 'resolved' ? 'damage_resolved' : 'damage_partly_resolved',
+        takaDamageId: d.id,
+        note: `${damageLabel(d.foundAt, d.name)} · resolved ${formatMeters(next.resolvedMeters)} of ${formatMeters(meters)}`,
+      });
+      if (next.status === 'resolved') resolved += 1;
+      else kept += 1;
+    }
+  } else {
+    // Meters / pcs are read-only for QC (Sprint 15): the taka's own pcs bound the damages (older takas without pcs: no bound).
+    const takaPcs = taka.pcs ?? Number.MAX_SAFE_INTEGER;
+    assertNewDamages(data.newDamages, takaPcs);
+    data.newDamages.forEach((d, j) => {
+      if (d.pcs === undefined) throw badRequest('Enter the damaged pcs.', `newDamages.${j}.pcs`);
+    });
+    const open = await tx
+      .select({
+        id: takaDamages.id,
+        damageId: takaDamages.damageId,
+        foundAt: takaDamages.foundAt,
+        pcs: takaDamages.pcs,
+        resolvedPcs: takaDamages.resolvedPcs,
+        name: damageMaster.name,
+      })
+      .from(takaDamages)
+      .leftJoin(damageMaster, eq(damageMaster.id, takaDamages.damageId))
+      .where(and(eq(takaDamages.takaId, takaId), eq(takaDamages.status, 'open'), eq(takaDamages.isDeleted, false)));
+
+    const decisions = data.damageDecisions.map((d) => ({ takaDamageId: d.takaDamageId, resolvedPcs: d.resolvedPcs ?? 0, pcs: d.pcs ?? null }));
+    const answered = new Set(decisions.map((d) => d.takaDamageId));
+    const issues = validateQcDecisions(opts.requireAnswers ? open : open.filter((o) => answered.has(o.id)), decisions, takaPcs);
+    if (issues.unknown.length) throw conflict('This taka was just changed by someone else. Go back and open it again.');
+    if (issues.unanswered.length) throw badRequest('Answer every damage: resolved or not resolved.', 'damageDecisions');
+    if (issues.pcsMissing.length) throw badRequest('Enter how many pcs are damaged.', 'damageDecisions');
+    if (issues.pcsTooBig.length) throw badRequest(`A damage can't have more pcs than the taka (${takaPcs}).`, 'damageDecisions');
+    if (issues.resolvedTooBig.length) throw badRequest("You can't resolve more pcs than are still damaged.", 'damageDecisions');
+
+    const byId = new Map(decisions.map((d) => [d.takaDamageId, d]));
+    for (const d of open) {
+      const decision = byId.get(d.id);
+      if (!decision) continue; // refinish: left as it is
+      const pcs = d.pcs ?? decision.pcs ?? 0;
+      if (decision.resolvedPcs <= 0) {
+        if (d.pcs === null) await tx.update(takaDamages).set({ pcs }).where(eq(takaDamages.id, d.id));
+        events.push({ takaId, event: 'damage_kept', takaDamageId: d.id, note: damageLabel(d.foundAt, d.name, pcs - (d.resolvedPcs ?? 0)) });
+        kept += 1;
+        continue;
+      }
+      const next = applyResolve({ pcs, resolvedPcs: d.resolvedPcs }, decision.resolvedPcs);
+      await tx
+        .update(takaDamages)
+        .set(
+          next.status === 'resolved'
+            ? { status: 'resolved', resolvedPcs: next.resolvedPcs, resolvedAt: at, resolvedBy: role, resolvedStage: opts.resolvedStage, pcs }
+            : { resolvedPcs: next.resolvedPcs, pcs },
+        )
+        .where(eq(takaDamages.id, d.id));
+      events.push({
+        takaId,
+        event: next.status === 'resolved' ? 'damage_resolved' : 'damage_partly_resolved',
+        takaDamageId: d.id,
+        note: `${damageLabel(d.foundAt, d.name)} · resolved ${next.resolvedPcs} of ${pcs} pcs`,
+      });
+      if (next.status === 'resolved') resolved += 1;
+      else kept += 1;
+    }
   }
 
   events.push(...(await addNewDamages(tx, role, takaId, data.newDamages, opts.recordedAt, at)));

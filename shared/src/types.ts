@@ -981,6 +981,8 @@ export interface TakaDetail {
   stage: TakaStage;
   orderId: number;
   orderNo: number;
+  /** Sprint 19: the order's unit — a meter order's QC / split / godown screens show metres instead of pcs. */
+  unit: Unit;
   jobsheetId: number;
   jobsheetNo: number;
   /** The quality = the order's material. */

@@ -205,7 +205,10 @@ describe('QC decision validation (resolved pcs)', () => {
     expect(ok.newDamages[0].images).toHaveLength(1);
     expect(qcSubmitSchema.parse({ pcs: 3, newDamages: [{ type: 'butta', damageId: 2, pcs: 1 }] }).newDamages[0].images).toEqual([]);
     expect(qcSubmitSchema.safeParse({ pcs: 3, damageDecisions: [{ takaDamageId: 1, resolvedPcs: -1 }] }).success).toBe(false);
-    expect(qcSubmitSchema.safeParse({ pcs: 3, damageDecisions: [{ takaDamageId: 1, resolved: true }] }).success).toBe(false);
+    // Sprint 19: resolvedPcs/resolvedMeters are both optional at the SCHEMA level (a meter order sends
+    // resolvedMeters instead) — the server requires the one that matches the order's unit.
+    expect(qcSubmitSchema.safeParse({ pcs: 3, damageDecisions: [{ takaDamageId: 1, resolved: true }] }).success).toBe(true);
+    expect(qcSubmitSchema.safeParse({ pcs: 3, damageDecisions: [{ takaDamageId: 1, resolvedMeters: 2.5 }] }).success).toBe(true);
     expect(
       qcSubmitSchema.safeParse({
         pcs: 3,

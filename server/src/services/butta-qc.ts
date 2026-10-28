@@ -1,5 +1,5 @@
 import { and, desc, eq, sql, type SQL } from 'drizzle-orm';
-import { buttaListQuerySchema, nextTakaStage, qcSubmitSchema, type ButtaListQuery, type QcPendingPage, type QcResult, type RoleKey } from '@rivoora/shared';
+import { buttaListQuerySchema, isMeterOrder, nextTakaStage, qcSubmitSchema, type ButtaListQuery, type QcPendingPage, type QcResult, type RoleKey } from '@rivoora/shared';
 import { db } from '../db/client';
 import { challanTakas, challans, orders, takas } from '../db/schema';
 import { conflict, notFound } from '../lib/errors';
@@ -73,8 +73,10 @@ export async function submitQc(role: RoleKey, takaId: number, input: unknown): P
         refinishCount: takas.refinishCount,
         hasBeenToMill: takas.hasBeenToMill,
         parentTakaId: takas.parentTakaId,
+        unit: orders.unit,
       })
       .from(takas)
+      .innerJoin(orders, eq(orders.id, takas.orderId))
       .where(and(eq(takas.id, takaId), eq(takas.isDeleted, false)));
     if (!taka) throw notFound('Taka');
     if (taka.stage !== 'butta_qc') {
@@ -91,6 +93,7 @@ export async function submitQc(role: RoleKey, takaId: number, input: unknown): P
       tx,
       role,
       taka,
+      isMeterOrder(taka),
       data,
       { recordedAt: 'butta_qc', resolvedStage: 'butta_qc', label: 'Butta QC', requireAnswers: true },
       at,

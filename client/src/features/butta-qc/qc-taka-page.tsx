@@ -4,13 +4,18 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import {
   challanLabel,
+  cleanMeters,
   cleanPcs,
   damageLabelOf,
+  damageMetersErrorText,
+  damageOpenMeters,
   damageOpenPcs,
   damageResolvedText,
   damageResolveSummary,
   formatMeters,
+  parseDamageMeters,
   validateQcDecisions,
+  validateQcMeterDecisions,
   type ChallanKind,
   type TakaDetail,
 } from '@rivoora/shared';
@@ -235,14 +240,96 @@ export function ResolveDialog({
   );
 }
 
+/** Sprint 19: the meter twin of `ResolveDialog` — "How many metres resolved?", decimal, up to the taka's metres. */
+export function ResolveMeterDialog({
+  damage,
+  openMeters,
+  current,
+  onCancel,
+  onSave,
+}: {
+  damage: { id: number; damageName: string | null } | null;
+  openMeters: number;
+  current: number | undefined;
+  onCancel: () => void;
+  onSave: (meters: number) => void;
+}) {
+  const [text, setText] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    if (damage) {
+      setText(String(current && current > 0 ? current : openMeters));
+      setError(null);
+    }
+  }, [damage?.id, openMeters, current]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const save = () => {
+    const n = Number(text);
+    if (!text || !Number.isFinite(n) || n <= 0 || n > openMeters) {
+      setError(`Enter up to ${openMeters} m / ${openMeters} मीटर तक लिखें`);
+      return;
+    }
+    onSave(Math.round(n * 100) / 100);
+  };
+
+  return (
+    <ResponsiveModal
+      open={!!damage}
+      onOpenChange={(o) => !o && onCancel()}
+      title={bi('How many metres resolved?', 'कितने मीटर ठीक हुए?')}
+      description={damage?.damageName ?? undefined}
+      desktopVariant="center"
+      mobileVariant="bottom"
+      size="sm"
+      footer={
+        <div className="grid w-full grid-cols-2 gap-2">
+          <Button variant="secondary" size="lg" className="h-14" onClick={onCancel}>
+            <Bi en="Cancel" hi="रद्द करें" className="items-center" />
+          </Button>
+          <Button size="lg" className="h-14 bg-green-600 hover:bg-green-700" onClick={save}>
+            <Bi en="Save" hi="सेव करें" className="items-center" />
+          </Button>
+        </div>
+      }
+    >
+      <div className="space-y-2 pb-1">
+        <Input
+          autoFocus
+          inputMode="decimal"
+          autoComplete="off"
+          value={text}
+          invalid={!!error}
+          onChange={(e) => {
+            setText(cleanMeters(e.target.value));
+            setError(null);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              save();
+            }
+          }}
+          className="h-14 text-2xl font-bold tabular-nums"
+          aria-label={bi('Metres resolved', 'ठीक हुए मीटर')}
+        />
+        <p className={cn('text-sm', error ? 'font-semibold text-destructive' : 'text-slate-500')}>
+          {error ?? `${formatMeters(openMeters)} are damaged / ${formatMeters(openMeters)} खराब हैं`}
+        </p>
+      </div>
+    </ResponsiveModal>
+  );
+}
+
 function QcForm({ taka }: { taka: TakaDetail }) {
   const navigate = useNavigate();
   const submitQc = useSubmitQc(taka.id);
+  const meterOrder = taka.unit === 'meters';
   const open = useMemo(() => taka.damages.filter((d) => d.status === 'open'), [taka]);
-  /** damage id → pcs resolved now (0 = not resolved). No entry = not answered yet. */
+  /** damage id → qty resolved now (pcs for a pcs order, metres for a meter order; 0 = not resolved). No entry = not answered yet. */
   const [decisions, setDecisions] = useState<Map<number, number>>(new Map());
   const [resolving, setResolving] = useState<number | null>(null);
   const [damagePcs, setDamagePcs] = useState<Map<number, string>>(new Map());
+  const [damageMeters, setDamageMeters] = useState<Map<number, string>>(new Map());
   const [added, setAdded] = useState<DamageEntry[]>([]);
   const [addOpen, setAddOpen] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -250,17 +337,42 @@ function QcForm({ taka }: { taka: TakaDetail }) {
   const [serverError, setServerError] = useState<string | null>(null);
 
   const takaPcs = taka.pcs ?? null;
-  // The pcs typed for an older damage that never had a count.
+  const takaMeters = taka.meters ?? null;
+  // The pcs / metres typed for an older damage that never had a count.
   const typedPcs = (id: number) => {
     const raw = damagePcs.get(id) ?? '';
     return /^\d+$/.test(raw) && Number(raw) >= 1 ? Number(raw) : null;
   };
-  const issues = validateQcDecisions(
-    open.map((d) => ({ id: d.id, pcs: d.pcs, resolvedPcs: d.resolvedPcs })),
-    open.flatMap((d) => (decisions.has(d.id) ? [{ takaDamageId: d.id, resolvedPcs: decisions.get(d.id)!, pcs: typedPcs(d.id) }] : [])),
-    takaPcs ?? 9999,
-  );
-  const newTooBig = added.some((e) => takaPcs !== null && (e.pcs ?? 0) > takaPcs);
+  const typedMeters = (id: number) => parseDamageMeters(damageMeters.get(id) ?? '', takaMeters).meters;
+
+  interface NormalizedIssues {
+    unanswered: number[];
+    qtyMissing: number[];
+    qtyTooBig: number[];
+    resolvedTooBig: number[];
+    unknown: number[];
+    ok: boolean;
+  }
+  const issues: NormalizedIssues = meterOrder
+    ? (() => {
+        const i = validateQcMeterDecisions(
+          open.map((d) => ({ id: d.id, meters: d.meters, resolvedMeters: d.resolvedMeters })),
+          open.flatMap((d) => (decisions.has(d.id) ? [{ takaDamageId: d.id, resolvedMeters: decisions.get(d.id)!, meters: typedMeters(d.id) }] : [])),
+          takaMeters ?? 9999,
+        );
+        return { unanswered: i.unanswered, qtyMissing: i.metersMissing, qtyTooBig: i.metersTooBig, resolvedTooBig: i.resolvedTooBig, unknown: i.unknown, ok: i.ok };
+      })()
+    : (() => {
+        const i = validateQcDecisions(
+          open.map((d) => ({ id: d.id, pcs: d.pcs, resolvedPcs: d.resolvedPcs })),
+          open.flatMap((d) => (decisions.has(d.id) ? [{ takaDamageId: d.id, resolvedPcs: decisions.get(d.id)!, pcs: typedPcs(d.id) }] : [])),
+          takaPcs ?? 9999,
+        );
+        return { unanswered: i.unanswered, qtyMissing: i.pcsMissing, qtyTooBig: i.pcsTooBig, resolvedTooBig: i.resolvedTooBig, unknown: i.unknown, ok: i.ok };
+      })();
+  const newTooBig = meterOrder
+    ? added.some((e) => takaMeters !== null && (e.meters ?? 0) > takaMeters)
+    : added.some((e) => takaPcs !== null && (e.pcs ?? 0) > takaPcs);
   const canSubmit = issues.ok && !newTooBig;
 
   const trySubmit = () => {
@@ -272,8 +384,10 @@ function QcForm({ taka }: { taka: TakaDetail }) {
   const submit = () => {
     submitQc.mutate(
       {
-        damageDecisions: open.map((d) => ({ takaDamageId: d.id, resolvedPcs: decisions.get(d.id) ?? 0, pcs: d.pcs === null ? typedPcs(d.id) : null })),
-        newDamages: added.map((e) => qcEntryPayload(e)),
+        damageDecisions: meterOrder
+          ? open.map((d) => ({ takaDamageId: d.id, resolvedMeters: decisions.get(d.id) ?? 0, meters: d.meters === null ? typedMeters(d.id) : null }))
+          : open.map((d) => ({ takaDamageId: d.id, resolvedPcs: decisions.get(d.id) ?? 0, pcs: d.pcs === null ? typedPcs(d.id) : null })),
+        newDamages: added.map((e) => qcEntryPayload(e, meterOrder)),
       },
       {
         onSuccess: () => {
@@ -289,9 +403,9 @@ function QcForm({ taka }: { taka: TakaDetail }) {
     );
   };
 
-  const pcsOpen = (d: (typeof open)[number]) => (openOf(d) ?? typedPcs(d.id) ?? 0);
-  const resolvedN = open.filter((d) => (decisions.get(d.id) ?? 0) > 0 && decisions.get(d.id) === pcsOpen(d)).length;
-  const partialN = open.filter((d) => (decisions.get(d.id) ?? 0) > 0 && decisions.get(d.id)! < pcsOpen(d)).length;
+  const qtyOpen = (d: (typeof open)[number]) => (meterOrder ? (damageOpenMeters(d) ?? typedMeters(d.id) ?? 0) : (openOf(d) ?? typedPcs(d.id) ?? 0));
+  const resolvedN = open.filter((d) => (decisions.get(d.id) ?? 0) > 0 && decisions.get(d.id) === qtyOpen(d)).length;
+  const partialN = open.filter((d) => (decisions.get(d.id) ?? 0) > 0 && decisions.get(d.id)! < qtyOpen(d)).length;
   const keptN = open.filter((d) => decisions.has(d.id) && decisions.get(d.id) === 0).length;
 
   return (
@@ -337,25 +451,68 @@ function QcForm({ taka }: { taka: TakaDetail }) {
           <ul className="space-y-3">
             {open.map((d) => {
               const answer = decisions.get(d.id);
-              const needsPcs = d.pcs === null;
-              const open0 = pcsOpen(d);
+              const needsQty = meterOrder ? d.meters === null : d.pcs === null;
+              const open0 = qtyOpen(d);
               const unanswered = showErrors && issues.unanswered.includes(d.id);
-              const pcsMissing = showErrors && issues.pcsMissing.includes(d.id);
-              const tooBig = issues.pcsTooBig.includes(d.id);
-              const total = d.pcs ?? typedPcs(d.id);
+              const qtyMissing = showErrors && issues.qtyMissing.includes(d.id);
+              const tooBig = issues.qtyTooBig.includes(d.id);
+              const total = meterOrder ? (d.meters ?? typedMeters(d.id)) : (d.pcs ?? typedPcs(d.id));
               const summary =
                 answer !== undefined && answer > 0 && total !== null
-                  ? damageResolveSummary({ pcs: total, resolvedPcs: d.resolvedPcs + answer, status: 'open' })
+                  ? meterOrder
+                    ? damageResolveSummary({ pcs: null, meters: total, resolvedMeters: (d.resolvedMeters ?? 0) + answer, status: 'open' })
+                    : damageResolveSummary({ pcs: total, resolvedPcs: d.resolvedPcs + answer, status: 'open' })
                   : null;
               const full = answer !== undefined && answer > 0 && answer >= open0;
               return (
-                <li key={d.id} className={cn('rounded-xl border bg-white p-3.5', unanswered || pcsMissing || tooBig ? 'border-destructive' : 'border-red-200')}>
+                <li key={d.id} className={cn('rounded-xl border bg-white p-3.5', unanswered || qtyMissing || tooBig ? 'border-destructive' : 'border-red-200')}>
                   <p className="text-lg font-bold text-red-700">{d.damageName ?? 'No damage name'}</p>
                   <p className="text-sm font-semibold text-slate-600">
                     {damageLabelOf({ foundAt: d.foundAt })}
-                    {d.pcs != null && <span className="ml-2 text-red-600">· {open0} pcs{d.resolvedPcs > 0 && ` (${d.resolvedPcs} resolved)`}</span>}
+                    {meterOrder
+                      ? d.meters != null && (
+                          <span className="ml-2 text-red-600">
+                            · {formatMeters(open0)}
+                            {(d.resolvedMeters ?? 0) > 0 && ` (${formatMeters(d.resolvedMeters ?? 0)} resolved)`}
+                          </span>
+                        )
+                      : d.pcs != null && (
+                          <span className="ml-2 text-red-600">
+                            · {open0} pcs{d.resolvedPcs > 0 && ` (${d.resolvedPcs} resolved)`}
+                          </span>
+                        )}
                   </p>
-                  {needsPcs && (
+                  {needsQty && meterOrder && (
+                    <div className="mt-2">
+                      <label htmlFor={`qc-dmeters-${d.id}`} className="mb-1 block text-sm font-semibold text-slate-700">
+                        How many metres damaged? / <span lang="hi">कितने मीटर खराब?</span>
+                        <span className="text-destructive">*</span>
+                      </label>
+                      <input
+                        id={`qc-dmeters-${d.id}`}
+                        value={damageMeters.get(d.id) ?? ''}
+                        onChange={(e) => {
+                          setDamageMeters((prev) => new Map(prev).set(d.id, cleanMeters(e.target.value)));
+                          setDecisions((prev) => {
+                            const next = new Map(prev);
+                            next.delete(d.id);
+                            return next;
+                          });
+                        }}
+                        inputMode="decimal"
+                        autoComplete="off"
+                        aria-invalid={qtyMissing || tooBig || undefined}
+                        className={cn(fieldBox(qtyMissing || tooBig), 'max-w-[10rem] px-3 text-[20px] font-bold')}
+                        placeholder="0.0"
+                      />
+                      {tooBig && takaMeters !== null && (
+                        <p role="alert" className="mt-1 text-sm font-semibold text-destructive">
+                          {damageMetersErrorText('too_big', takaMeters).en} / <span lang="hi">{damageMetersErrorText('too_big', takaMeters).hi}</span>
+                        </p>
+                      )}
+                    </div>
+                  )}
+                  {needsQty && !meterOrder && (
                     <div className="mt-2">
                       <label htmlFor={`qc-dpcs-${d.id}`} className="mb-1 block text-sm font-semibold text-slate-700">
                         How many pcs damaged? / <span lang="hi">कितने पीस खराब?</span>
@@ -375,8 +532,8 @@ function QcForm({ taka }: { taka: TakaDetail }) {
                         }}
                         inputMode="numeric"
                         autoComplete="off"
-                        aria-invalid={pcsMissing || tooBig || undefined}
-                        className={cn(fieldBox(pcsMissing || tooBig), 'max-w-[10rem] px-3 text-[20px] font-bold')}
+                        aria-invalid={qtyMissing || tooBig || undefined}
+                        className={cn(fieldBox(qtyMissing || tooBig), 'max-w-[10rem] px-3 text-[20px] font-bold')}
                         placeholder="0"
                       />
                       {tooBig && (
@@ -417,7 +574,7 @@ function QcForm({ taka }: { taka: TakaDetail }) {
                         {answer === 0 ? (
                           <Bi en="Not resolved" hi="ठीक नहीं" layout="inline" />
                         ) : (
-                          (summary ?? `Resolved ${answer} pcs`)
+                          (summary ?? (meterOrder ? `Resolved ${formatMeters(answer)}` : `Resolved ${answer} pcs`))
                         )}
                       </p>
                       <Button variant="secondary" size="sm" className="h-10" onClick={() => setDecisions((prev) => {
@@ -465,13 +622,27 @@ function QcForm({ taka }: { taka: TakaDetail }) {
             ))}
           </ul>
         )}
-        <Button variant="secondary" size="lg" className="h-14 w-full border-dashed text-base" onClick={() => setAddOpen(true)} disabled={takaPcs === null}>
+        <Button
+          variant="secondary"
+          size="lg"
+          className="h-14 w-full border-dashed text-base"
+          onClick={() => setAddOpen(true)}
+          disabled={meterOrder ? takaMeters === null : takaPcs === null}
+        >
           <Plus className="!size-5" />
           <Bi en="Add new damage" hi="नई खराबी जोड़ें" layout="inline" />
         </Button>
         {newTooBig && (
           <p role="alert" className="mt-2 text-sm font-semibold text-destructive">
-            A damage can't have more pcs than the taka / <span lang="hi">खराब पीस टाका के पीस से ज़्यादा नहीं हो सकते</span>
+            {meterOrder ? (
+              <>
+                A damage can't have more metres than the taka / <span lang="hi">खराब मीटर टाका के मीटर से ज़्यादा नहीं हो सकते</span>
+              </>
+            ) : (
+              <>
+                A damage can't have more pcs than the taka / <span lang="hi">खराब पीस टाका के पीस से ज़्यादा नहीं हो सकते</span>
+              </>
+            )}
           </p>
         )}
       </Section>
@@ -494,26 +665,44 @@ function QcForm({ taka }: { taka: TakaDetail }) {
         onOpenChange={setAddOpen}
         takaLabel={bi(`Taka ${taka.takaNo}`, `टाका ${taka.takaNo}`)}
         takaPcs={takaPcs}
+        meterOrder={meterOrder}
+        takaMeters={takaMeters}
         value={null}
         allowImages
         types={takaDamageTypes(taka)}
         source={taka.source}
-        onConfirm={(v) => setAdded((prev) => [...prev, { key: nextEntryKey(), foundAt: v.type, choice: v.choice, pcs: v.pcs, images: v.images }])}
+        onConfirm={(v) => setAdded((prev) => [...prev, { key: nextEntryKey(), foundAt: v.type, choice: v.choice, pcs: v.pcs, meters: v.meters, images: v.images }])}
       />
 
-      <ResolveDialog
-        damage={open.find((d) => d.id === resolving) ?? null}
-        openPcs={(() => {
-          const d = open.find((x) => x.id === resolving);
-          return d ? pcsOpen(d) : 0;
-        })()}
-        current={resolving !== null ? decisions.get(resolving) : undefined}
-        onCancel={() => setResolving(null)}
-        onSave={(n) => {
-          setDecisions((prev) => new Map(prev).set(resolving!, n));
-          setResolving(null);
-        }}
-      />
+      {meterOrder ? (
+        <ResolveMeterDialog
+          damage={open.find((d) => d.id === resolving) ?? null}
+          openMeters={(() => {
+            const d = open.find((x) => x.id === resolving);
+            return d ? qtyOpen(d) : 0;
+          })()}
+          current={resolving !== null ? decisions.get(resolving) : undefined}
+          onCancel={() => setResolving(null)}
+          onSave={(n) => {
+            setDecisions((prev) => new Map(prev).set(resolving!, n));
+            setResolving(null);
+          }}
+        />
+      ) : (
+        <ResolveDialog
+          damage={open.find((d) => d.id === resolving) ?? null}
+          openPcs={(() => {
+            const d = open.find((x) => x.id === resolving);
+            return d ? qtyOpen(d) : 0;
+          })()}
+          current={resolving !== null ? decisions.get(resolving) : undefined}
+          onCancel={() => setResolving(null)}
+          onSave={(n) => {
+            setDecisions((prev) => new Map(prev).set(resolving!, n));
+            setResolving(null);
+          }}
+        />
+      )}
 
       <ResponsiveModal
         open={confirmOpen}
