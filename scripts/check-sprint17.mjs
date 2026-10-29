@@ -1,5 +1,6 @@
 /**
- * Sprint 17 API flow check (yarn) against a running API on a LOCAL file database (never run against Turso):
+ * Sprint 17 API flow check (yarn) — updated for Sprint 20 (system PO numbers, lots, pending programs / jobs, boxes,
+ * typed beam numbers, the Yarn inventory supervisor instead of the godown supervisor) against a running API on a LOCAL file database (never run against Turso):
  *
  *   TURSO_DATABASE_URL=file:C:/path/test.db TURSO_AUTH_TOKEN=x node scripts/check-sprint17.mjs [baseUrl]
  *
@@ -23,7 +24,7 @@ const check = (ok, what, extra) => {
   if (!ok) failed += 1;
 };
 
-const PHONES = { jemish: '9999999999', gaurang: '8888888888', supervisor: '7777777777', taka: '6666666666', qc: '5555555555', godown: '4444444444', dhruvil: '3333333333' };
+const PHONES = { jemish: '9999999999', gaurang: '8888888888', supervisor: '7777777777', taka: '6666666666', qc: '5555555555', godown: '4444444444', dhruvil: '3333333333', yarn: '2222222222' };
 const sessions = {};
 for (const [who, phone] of Object.entries(PHONES)) {
   const res = await fetch(`${base}/api/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone, password: `Rivoora@${phone.slice(0, 3)}` }) });
@@ -53,6 +54,7 @@ const expected = new Map(); // `${zone}|${item}|${qualityId}` → grams (only th
 const add = (zone, item, q, g) => expected.set(`${zone}|${item}|${q}`, (expected.get(`${zone}|${item}|${q}`) ?? 0) + g);
 let expectedBeams = { direct: startZones.direct.beams, warping: startZones.warping.beams };
 let ourQualities = [];
+let ourWarpingQualities = [];
 
 async function allMoves() {
   const out = [];
@@ -67,7 +69,9 @@ async function reconcile(step) {
   const summary = await ok('jemish', 'GET', '/yarn/summary');
   const moves = await allMoves();
   const ledger = new Map();
-  for (const m of moves) if (m.source === 'yarn') ledger.set(`${m.zone}|${m.item}|${m.quality.id}`, (ledger.get(`${m.zone}|${m.item}|${m.quality.id}`) ?? 0) + m.qtyG);
+  // Sprint 20: twisted yarn in boxes is kept under a WARPING quality — keyed `w<id>` so ids of the two masters never mix.
+  const keyOf = (m) => `${m.zone}|${m.item}|${m.box ? `w${m.quality.id}` : m.quality.id}`;
+  for (const m of moves) if (m.source === 'yarn') ledger.set(keyOf(m), (ledger.get(keyOf(m)) ?? 0) + m.qtyG);
   let good = true;
   const detail = [];
   // 1. the ledger (sum of moves) matches what this script expects for its qualities
@@ -95,20 +99,27 @@ async function reconcile(step) {
       if ((row?.rawG ?? 0) !== raw || (row?.twistedG ?? 0) !== twisted) { good = false; detail.push({ zone, q, screen: [row?.rawG ?? 0, row?.twistedG ?? 0], expected: [raw, twisted] }); }
       if (row && (row.rawG < 0 || row.twistedG < 0)) { good = false; detail.push({ negative: row }); }
     }
+    for (const w of ourWarpingQualities) {
+      const row = zd.warpingQualities.find((r) => r.quality.id === w);
+      const twisted = expected.get(`${zone}|twisted|w${w}`) ?? 0;
+      if ((row?.twistedG ?? 0) !== twisted) { good = false; detail.push({ zone, wq: w, screen: row?.twistedG ?? 0, expected: twisted }); }
+    }
     if (zone !== 'tfo' && zd.stock.beams !== expectedBeams[zone]) { good = false; detail.push({ zone, beams: zd.stock.beams, expected: expectedBeams[zone] }); }
     if (zone !== 'tfo' && zd.beams.length !== Math.min(500, expectedBeams[zone])) { good = false; detail.push({ zone, beamList: zd.beams.length }); }
   }
   check(good, `reconcile after: ${step}`, detail);
 }
 
+
 // ---------------------------------------------------------------- permissions
 check((await call('taka', 'GET', '/yarn/summary')).status === 403, 'Taka entry has no Yarn inventory (403)');
 check((await call('qc', 'GET', '/yarn-pos')).status === 403, 'QC has no Yarn PO (403)');
 check((await call('dhruvil', 'GET', '/yarn/summary')).status === 403, 'Dhruvil has no Yarn inventory (403)');
 check((await call('supervisor', 'GET', '/yarn/summary')).status === 200, 'Supervisor opens Yarn inventory');
-check((await call('godown', 'GET', '/yarn-pos')).status === 200, 'Godown supervisor opens Yarn PO');
+check((await call('yarn', 'GET', '/yarn-pos')).status === 200, 'Yarn inventory supervisor opens Yarn PO');
+check((await call('godown', 'GET', '/yarn-pos')).status === 403, 'Godown supervisor has no Yarn PO any more (Sprint 20)');
 check((await call('supervisor', 'POST', '/yarn-parties', { name: `x ${tag}` })).status === 403, 'Supervisor cannot add yarn parties (403)');
-check((await call('godown', 'GET', '/tfo-machines')).status === 403, 'Godown supervisor has no TFO machines master (403)');
+check((await call('yarn', 'GET', '/tfo-machines')).status === 403, 'Yarn inventory supervisor has no TFO machines master (403)');
 check((await call('supervisor', 'GET', '/jobsheets')).status === 200, 'Supervisor keeps his Jobsheets module');
 check((await call('godown', 'GET', '/butta/counts')).status === 200, 'Godown supervisor keeps Butta cutting');
 
@@ -119,7 +130,9 @@ check((await call('jemish', 'POST', '/yarn-parties', { name: `shiv yarns ${tag}`
 const q75 = await ok('jemish', 'POST', '/yarn-qualities', { name: `75D ${tag}`, denier: '75', filament: '36' });
 const q150 = await ok('gaurang', 'POST', '/yarn-qualities', { name: `150D ${tag}`, denier: '150', filament: '48' });
 const qTw = await ok('jemish', 'POST', '/yarn-qualities', { name: `75D twist ${tag}` });
+const wqTw = await ok('jemish', 'POST', '/warping-qualities', { name: `WQ 75D twist ${tag}` });
 ourQualities = [q75.id, q150.id, qTw.id];
+ourWarpingQualities = [wqTw.id];
 check((await call('jemish', 'POST', '/yarn-qualities', { name: `75d ${tag}` })).status === 409, 'quality names are unique (case-insensitive)');
 const machinesNow = (await ok('jemish', 'GET', '/tfo-machines?limit=100')).items;
 const nextNo = Math.max(0, ...machinesNow.map((m) => m.machineNo)) + 1;
@@ -128,17 +141,14 @@ check((await call('jemish', 'POST', '/tfo-machines', { machineNo: nextNo })).sta
 const lookups = await ok('supervisor', 'GET', `/lookup/yarn-qualities?search=${encodeURIComponent(tag)}`);
 check(lookups.length === 3, 'supervisor reads the yarn quality lookup');
 
-// ---------------------------------------------------------------- PO with 2 qualities
-const poNo = Math.floor(100_000 + Math.random() * 800_000);
-check((await ok('jemish', 'GET', `/yarn-pos/check-no?no=${poNo}`)).available === true, 'PO no is free before');
+// ---------------------------------------------------------------- PO with 2 qualities (number from the system)
 const po = await ok('jemish', 'POST', '/yarn-pos', {
-  poNo, poDate: today, partyId: party.id, remark: 'Urgent',
+  poDate: today, partyId: party.id, remark: 'Urgent',
   lines: [{ qualityId: q75.id, qtyKg: 100, rate: 245.5 }, { qualityId: q150.id, qtyKg: 50.5, rate: 310.25 }],
 });
-check(po.status === 'open', 'PO created open');
-check((await ok('jemish', 'GET', `/yarn-pos/check-no?no=${poNo}`)).available === false, 'PO no is taken after');
-check((await call('gaurang', 'POST', '/yarn-pos', { poNo, poDate: today, partyId: party.id, lines: [{ qualityId: q75.id, qtyKg: 1, rate: 1 }] })).status === 409, 'duplicate PO no → 409');
-check((await call('supervisor', 'POST', '/yarn-pos', { poNo: poNo + 1, poDate: today, partyId: party.id, lines: [{ qualityId: q75.id, qtyKg: 1, rate: 1 }] })).status === 403, 'Supervisor cannot create a PO');
+const poNo = po.poNo;
+check(po.status === 'open' && Number.isInteger(poNo), 'PO created open with a system number');
+check((await call('supervisor', 'POST', '/yarn-pos', { poDate: today, partyId: party.id, lines: [{ qualityId: q75.id, qtyKg: 1, rate: 1 }] })).status === 403, 'Supervisor cannot create a PO');
 check((await call('jemish', 'DELETE', `/yarn-parties/${party.id}`)).status === 409, 'a party on a PO cannot be deleted');
 check((await call('jemish', 'DELETE', `/yarn-qualities/${q75.id}`)).status === 409, 'a quality on a PO cannot be deleted');
 
@@ -151,103 +161,116 @@ check((await call('supervisor', 'GET', `/yarn-pos/${po.id}/print`)).status === 4
 const print = await ok('jemish', 'GET', `/yarn-pos/${po.id}/print`);
 check(print.lines.length === 2 && print.totalG === 150_500, 'print data');
 
-// edit while nothing received (rate change) — then list / search / filters
 await ok('jemish', 'PUT', `/yarn-pos/${po.id}`, {
-  poNo, poDate: today, partyId: party.id, remark: 'Urgent',
+  poDate: today, partyId: party.id, remark: 'Urgent',
   lines: [{ qualityId: q75.id, qtyKg: 100, rate: 250 }, { qualityId: q150.id, qtyKg: 50.5, rate: 310.25 }],
 });
 detail = await ok('jemish', 'GET', `/yarn-pos/${po.id}`);
-check(detail.lines[0].ratePaise === 25_000, 'full edit while nothing received');
+check(detail.lines[0].ratePaise === 25_000 && detail.poNo === poNo, 'full edit while nothing received (number kept)');
 const list = await ok('jemish', 'GET', `/yarn-pos?search=${encodeURIComponent(`150D ${tag}`)}`);
 check(list.items.length === 1 && list.items[0].qualities.length === 2, 'list search by quality');
 check((await ok('jemish', 'GET', `/yarn-pos?search=${poNo}`)).items.some((i) => i.id === po.id), 'list search by PO no');
 check((await ok('jemish', 'GET', `/yarn-pos?party=${party.id}&status=open`)).items.length === 1, 'list filter party + status');
 check((await ok('jemish', 'GET', `/yarn-pos?quality=${q150.id}`)).items.some((i) => i.id === po.id), 'list filter quality');
 
-// challan 1: 60 kg 75D into Direct consumption (supervisor receives)
+// challan 1: lot L1 = 60 kg 75D, nothing allocated → Direct consumption (supervisor receives)
 const [line75, line150] = detail.lines;
-const r1 = await ok('supervisor', 'POST', `/yarn-pos/${po.id}/receipts`, { challanNo: `C1-${tag}`, date: today, zone: 'direct', notes: 'first lot', lines: [{ poLineId: line75.id, qtyKg: 60, boxes: 12 }, { poLineId: line150.id, qtyKg: 0 }] });
+const r1 = await ok('supervisor', 'POST', `/yarn-pos/${po.id}/receipts`, { challanNo: `C1-${tag}`, date: today, notes: 'first lot', lots: [{ poLineId: line75.id, lotNo: `L1-${tag}`, qtyKg: 60, boxes: 12 }] });
 add('direct', 'raw', q75.id, 60_000);
 check(r1.status === 'partly_received', 'challan 1 → Partly received');
 await reconcile('challan 1 (60 kg 75D → Direct consumption)');
-check((await call('jemish', 'PUT', `/yarn-pos/${po.id}`, { poNo, poDate: today, partyId: party.id, lines: [{ qualityId: q75.id, qtyKg: 1, rate: 1 }] })).status === 409, 'after a receipt only the remark can change');
+check((await call('jemish', 'PUT', `/yarn-pos/${po.id}`, { poDate: today, partyId: party.id, lines: [{ qualityId: q75.id, qtyKg: 1, rate: 1 }] })).status === 409, 'after a receipt only the remark can change');
 await ok('jemish', 'PUT', `/yarn-pos/${po.id}`, { remark: 'Remark after receipt' });
 check((await ok('jemish', 'GET', `/yarn-pos/${po.id}`)).remark === 'Remark after receipt', 'remark-only edit works');
 check((await call('jemish', 'POST', `/yarn-pos/${po.id}/cancel`)).status === 409, 'cannot cancel once received');
 
-// challan 2: 30 kg 150D into Warping + 45 kg 75D (5 over pending) into Warping
-const r2 = await ok('godown', 'POST', `/yarn-pos/${po.id}/receipts`, { challanNo: `C2-${tag}`, date: today, zone: 'warping', lines: [{ poLineId: line75.id, qtyKg: 45 }, { poLineId: line150.id, qtyKg: 30.25 }] });
+// challan 2: 45 kg 75D (5 over pending) + 30.25 kg 150D, all allocated to Warping (Yarn inventory supervisor)
+const r2 = await ok('yarn', 'POST', `/yarn-pos/${po.id}/receipts`, {
+  challanNo: `C2-${tag}`, date: today,
+  lots: [
+    { poLineId: line75.id, lotNo: `L2-${tag}`, qtyKg: 45, allocations: [{ zone: 'warping', qtyKg: 45 }] },
+    { poLineId: line150.id, lotNo: `L3-${tag}`, qtyKg: 30.25, allocations: [{ zone: 'warping', qtyKg: 30.25 }] },
+  ],
+});
 add('warping', 'raw', q75.id, 45_000);
 add('warping', 'raw', q150.id, 30_250);
 detail = await ok('jemish', 'GET', `/yarn-pos/${po.id}`);
 check(r2.status === 'partly_received' && detail.lines[0].overG === 5_000 && detail.lines[0].pendingG === 0 && detail.lines[1].pendingG === 20_250, 'challan 2 (over-receipt allowed) → still Partly received', detail.lines);
-check(detail.receipts.length === 2 && detail.receipts[0].zone === 'warping', 'challans listed newest first with zone');
+check(detail.receipts.length === 2 && detail.receipts[0].zone === 'warping' && detail.receipts[0].lines.every((l) => l.lot), 'challans listed newest first, lines carry their lots');
 check(detail.events.some((e) => e.kind === 'received'), 'activity has the receipts');
 await reconcile('challan 2 (→ Warping)');
-check((await call('jemish', 'POST', `/yarn-pos/${po.id}/receipts`, { challanNo: 'x', date: today, zone: 'tfo', lines: [{ poLineId: line75.id, qtyKg: 0 }] })).status === 400, 'a challan needs > 0 kg on a line');
+check((await call('jemish', 'POST', `/yarn-pos/${po.id}/receipts`, { challanNo: 'x', date: today, lots: [{ poLineId: line75.id, lotNo: `L9-${tag}`, qtyKg: 0 }] })).status === 400, 'a lot needs > 0 kg');
+const lotOf = async (zone, q, no) => (await ok('jemish', 'GET', `/yarn/lots?zone=${zone}&qualityId=${q}`)).find((l) => l.lotNo === no)?.id;
+const lot1 = await lotOf('direct', q75.id, `L1-${tag}`);
+const lot2 = await lotOf('warping', q75.id, `L2-${tag}`);
+const lot3 = await lotOf('warping', q150.id, `L3-${tag}`);
 
-// ---------------------------------------------------------------- transfer raw Direct → TFO
-check((await call('jemish', 'POST', '/yarn/transfers', { what: 'raw', from: 'direct', to: 'tfo', qualityId: q75.id, qtyKg: 60.001 })).status === 409, 'transfer more than available → 409');
-await ok('godown', 'POST', '/yarn/transfers', { what: 'raw', from: 'direct', to: 'tfo', qualityId: q75.id, qtyKg: 55, note: 'for TFO' });
+// ---------------------------------------------------------------- transfer raw Direct → TFO (lot L1)
+check((await call('jemish', 'POST', '/yarn/transfers', { what: 'raw', from: 'direct', to: 'tfo', qualityId: q75.id, lotId: lot1, qtyKg: 60.001 })).status === 409, 'transfer more than available → 409');
+await ok('supervisor', 'POST', '/yarn/transfers', { what: 'raw', from: 'direct', to: 'tfo', qualityId: q75.id, lotId: lot1, qtyKg: 55, note: 'for TFO' });
 add('direct', 'raw', q75.id, -55_000);
 add('tfo', 'raw', q75.id, 55_000);
 await reconcile('transfer 55 kg raw Direct → TFO');
 
-// ---------------------------------------------------------------- TFO program on <machine>A (3A in the spec)
-check((await call('jemish', 'POST', '/yarn/tfo/programs', { machineId: machine.id, section: 'A', rawQualityId: q75.id, rawKg: 55.5, outputQualityId: qTw.id, tpm: 600, direction: 'S' })).status === 409, 'program raw kg > TFO stock → 409');
-const prog = await ok('supervisor', 'POST', '/yarn/tfo/programs', {
-  machineId: machine.id, section: 'A', rawQualityId: q75.id, rawKg: 50, outputQualityId: qTw.id, windingMeter: 12000, denierFilament: '75/36', tpm: 600, direction: 'S', note: 'first run',
-});
+// ---------------------------------------------------------------- TFO program (pending → running on <machine>A → stopped with a box)
+const progBase = { rawQualityId: q75.id, lotId: lot1, outputQualityId: qTw.id, windingMeter: 12000, denierFilament: '75/36', tpm: 600, direction: 'S' };
+check((await call('jemish', 'POST', '/yarn/tfo/pending', { programs: [{ ...progBase, rawKg: 55.5 }] })).status === 409, 'program raw kg > TFO stock → 409');
+const [pend, pend2] = await ok('jemish', 'POST', '/yarn/tfo/pending', { programs: [{ ...progBase, rawKg: 50, note: 'first run' }, { ...progBase, rawKg: 1, direction: 'Z' }] });
+await reconcile('pending programs (reserve only, nothing moved)');
+const prog = await ok('supervisor', 'POST', `/yarn/tfo/pending/${pend.id}/start`, { machineId: machine.id, section: 'A' });
 add('tfo', 'raw', q75.id, -50_000);
 check(prog.status === 'running' && prog.section === 'A', `program running on ${machine.machineNo}A`);
-check((await call('jemish', 'POST', '/yarn/tfo/programs', { machineId: machine.id, section: 'A', rawQualityId: q75.id, rawKg: 1, outputQualityId: qTw.id, tpm: 600, direction: 'Z' })).status === 409, 'one program per section');
+check((await call('jemish', 'POST', `/yarn/tfo/pending/${pend2.id}/start`, { machineId: machine.id, section: 'A' })).status === 409, 'one program per section');
+await ok('jemish', 'POST', `/yarn/tfo/pending/${pend2.id}/cancel`);
 let board = await ok('jemish', 'GET', '/yarn/tfo/board');
 const bm = board.machines.find((m) => m.id === machine.id);
 check(bm?.sections[0].program?.id === prog.id && bm.sections[1].program === null, 'board shows A running, B idle');
 check((await call('jemish', 'DELETE', `/tfo-machines/${machine.id}`)).status === 409, 'a machine with a running program cannot be deleted');
 check((await call('jemish', 'PUT', `/tfo-machines/${machine.id}`, { machineNo: machine.machineNo, isActive: false })).status === 409, 'a machine with a running program cannot be made inactive');
 await reconcile('TFO issue 50 kg');
-check((await call('jemish', 'POST', `/yarn/tfo/programs/${prog.id}/stop`, { twistedKg: 48, returnedRawKg: 50.5 })).status === 400, 'returned raw > issued → 400');
-const stopped = await ok('godown', 'POST', `/yarn/tfo/programs/${prog.id}/stop`, { twistedKg: 48.2, twistedMeters: 640000, returnedRawKg: 1.25 });
-add('tfo', 'twisted', qTw.id, 48_200);
+const box = { boxNo: `BX-${tag}`, rolls: 12, grossKg: 50, netKg: 48.2, avgKg: 4.02, zone: 'tfo' };
+check((await call('jemish', 'POST', `/yarn/tfo/programs/${prog.id}/stop`, { warpingQualityId: wqTw.id, boxes: [box], returnedRawKg: 50.5 })).status === 400, 'returned raw > issued → 400');
+const stopped = await ok('yarn', 'POST', `/yarn/tfo/programs/${prog.id}/stop`, { warpingQualityId: wqTw.id, boxes: [box], twistedMeters: 640000, returnedRawKg: 1.25 });
+add('tfo', 'twisted', `w${wqTw.id}`, 48_200);
 add('tfo', 'raw', q75.id, 1_250);
-check(stopped.status === 'completed' && stopped.twistedG === 48_200 && stopped.returnedRawG === 1_250, 'program stopped with twisted ≠ raw + returned raw');
-check((await call('jemish', 'POST', `/yarn/tfo/programs/${prog.id}/stop`, { twistedKg: 1 })).status === 409, 'cannot stop twice');
+check(stopped.status === 'completed' && stopped.twistedG === 48_200 && stopped.returnedRawG === 1_250, 'program stopped: output = box net (≠ raw) + returned raw');
+check((await call('jemish', 'POST', `/yarn/tfo/programs/${prog.id}/stop`, { warpingQualityId: wqTw.id, boxes: [{ ...box, boxNo: `BX2-${tag}` }] })).status === 409, 'cannot stop twice');
 board = await ok('jemish', 'GET', '/yarn/tfo/board');
 check(board.machines.find((m) => m.id === machine.id)?.sections[0].program === null, 'section is idle again');
 const history = await ok('jemish', 'GET', `/yarn/tfo/programs?machineId=${machine.id}&section=A`);
-check(history.items.length === 1 && history.items[0].twistedG === 48_200, 'program history per section');
-await reconcile('TFO stop (48.2 twisted, 1.25 returned)');
+check(history.items.length === 1 && history.items[0].twistedG === 48_200 && history.items[0].boxes.length === 1, 'program history per section (with its box)');
+await reconcile('TFO stop (box 48.2 kg, 1.25 returned)');
 
-// ---------------------------------------------------------------- transfer twisted TFO → Warping
-await ok('supervisor', 'POST', '/yarn/transfers', { what: 'twisted', from: 'tfo', to: 'warping', qualityId: qTw.id, qtyKg: 40 });
-add('tfo', 'twisted', qTw.id, -40_000);
-add('warping', 'twisted', qTw.id, 40_000);
-await reconcile('transfer 40 kg twisted TFO → Warping');
+// ---------------------------------------------------------------- transfer the box TFO → Warping
+const boxRow = (await ok('jemish', 'GET', `/yarn/boxes?zone=tfo&search=${encodeURIComponent(box.boxNo)}`))[0];
+await ok('supervisor', 'POST', '/yarn/transfers', { what: 'twisted', from: 'tfo', to: 'warping', boxIds: [boxRow.id] });
+add('tfo', 'twisted', `w${wqTw.id}`, -48_200);
+add('warping', 'twisted', `w${wqTw.id}`, 48_200);
+await reconcile('transfer the box TFO → Warping');
 
-// ---------------------------------------------------------------- warping raw + twisted → 2 beams
-check((await call('jemish', 'POST', '/yarn/warping/jobs', { inputs: [{ item: 'raw', qualityId: q75.id, qtyKg: 30 }, { item: 'raw', qualityId: q75.id, qtyKg: 15.001 }] })).status === 409, 'two rows of the same quality add up against stock → 409');
+// ---------------------------------------------------------------- warping raw + box → 2 beams
+const sz = { taar: 4800, panna: 52, meters: 1200 };
+check((await call('jemish', 'POST', '/yarn/warping/pending', { ...sz, inputs: [{ kind: 'raw', qualityId: q75.id, lotId: lot2, qtyKg: 30 }, { kind: 'raw', qualityId: q75.id, lotId: lot2, qtyKg: 15.001 }] })).status === 409, 'two rows of the same lot add up against stock → 409');
 await reconcile('rejected warping job (nothing moved)');
-const job = await ok('jemish', 'POST', '/yarn/warping/jobs', {
-  inputs: [{ item: 'raw', qualityId: q75.id, qtyKg: 40 }, { item: 'twisted', qualityId: qTw.id, qtyKg: 35.5 }, { item: 'raw', qualityId: q150.id, qtyKg: 10 }],
+const pjob = await ok('jemish', 'POST', '/yarn/warping/pending', {
+  ...sz,
+  inputs: [{ kind: 'raw', qualityId: q75.id, lotId: lot2, qtyKg: 40 }, { kind: 'box', boxId: boxRow.id, qtyKg: 35.5 }, { kind: 'raw', qualityId: q150.id, lotId: lot3, qtyKg: 10 }],
   note: 'job note',
 });
+await reconcile('pending warping job (reserve only)');
+const job = await ok('supervisor', 'POST', `/yarn/warping/pending/${pjob.id}/start`);
 add('warping', 'raw', q75.id, -40_000);
-add('warping', 'twisted', qTw.id, -35_500);
+add('warping', 'twisted', `w${wqTw.id}`, -35_500);
 add('warping', 'raw', q150.id, -10_000);
 check(job.status === 'in_process' && job.inputs.length === 3 && job.totalG === 85_500, 'warping job in process (WJ)');
 const inProcess = await ok('jemish', 'GET', '/yarn/warping/jobs?status=in_process');
 check(inProcess.items.some((j) => j.id === job.id), 'in-process list has the job');
 await reconcile('warping issue');
-const done = await ok('godown', 'POST', `/yarn/warping/jobs/${job.id}/done`, {
-  beams: [
-    { taar: 4800, panna: 52, meters: 1200, qualityId: q75.id, zone: 'direct' },
-    { taar: 4800, panna: 52.5, meters: 1150.5, qualityId: qTw.id, zone: 'warping' },
-  ],
-});
+const beam = (n, zone) => ({ beamCode: `B${n}-${tag}`, warpingQualityId: wqTw.id, taar: 4800, panna: 52, meters: 1200, zone });
+const done = await ok('yarn', 'POST', `/yarn/warping/jobs/${job.id}/done`, { beams: [beam(1, 'direct'), { ...beam(2, 'warping'), panna: 52.5, meters: 1150.5 }] });
 expectedBeams = { direct: expectedBeams.direct + 1, warping: expectedBeams.warping + 1 };
-check(done.beams.length === 2 && done.beams[0].beamNo + 1 === done.beams[1].beamNo, 'two beams with running numbers (BM)');
-check((await call('jemish', 'POST', `/yarn/warping/jobs/${job.id}/done`, { beams: [{ taar: 1, panna: 1, meters: 1, qualityId: q75.id, zone: 'direct' }] })).status === 409, 'a done job cannot be done again');
+check(done.beams.length === 2 && done.beams[0].beamCode === `B1-${tag}`, 'two beams with typed numbers');
+check((await call('jemish', 'POST', `/yarn/warping/jobs/${job.id}/done`, { beams: [beam(3, 'direct')] })).status === 409, 'a done job cannot be done again');
 await reconcile('warping done → 1 beam Direct, 1 beam Warping');
 
 // ---------------------------------------------------------------- beams: transfer rule + consume
@@ -268,12 +291,12 @@ expectedBeams.direct += 1;
 await reconcile('beam Warping → Direct consumption');
 
 // ---------------------------------------------------------------- withdraw yarn (Direct consumption) + no negative
-check((await call('jemish', 'POST', '/yarn/withdrawals', { what: 'raw', zone: 'direct', qualityId: q75.id, qtyKg: 5.001 })).status === 409, 'withdraw more than available → 409');
-check((await call('jemish', 'POST', '/yarn/withdrawals', { what: 'raw', zone: 'tfo', qualityId: q75.id, qtyKg: 1 })).status === 400, 'withdraw is Direct consumption only');
-await ok('godown', 'POST', '/yarn/withdrawals', { what: 'raw', zone: 'direct', qualityId: q75.id, qtyKg: 5 });
+check((await call('jemish', 'POST', '/yarn/withdrawals', { what: 'raw', zone: 'direct', qualityId: q75.id, lotId: lot1, qtyKg: 5.001 })).status === 409, 'withdraw more than available → 409');
+check((await call('jemish', 'POST', '/yarn/withdrawals', { what: 'raw', zone: 'tfo', qualityId: q75.id, lotId: lot1, qtyKg: 1 })).status === 400, 'withdraw is Direct consumption only');
+await ok('yarn', 'POST', '/yarn/withdrawals', { what: 'raw', zone: 'direct', qualityId: q75.id, lotId: lot1, qtyKg: 5 });
 add('direct', 'raw', q75.id, -5_000);
 await reconcile('withdraw the last 5 kg 75D from Direct consumption');
-check((await call('jemish', 'POST', '/yarn/withdrawals', { what: 'raw', zone: 'direct', qualityId: q75.id, qtyKg: 0.001 })).status === 409, 'zero stock: even 1 g is refused');
+check((await call('jemish', 'POST', '/yarn/withdrawals', { what: 'raw', zone: 'direct', qualityId: q75.id, lotId: lot1, qtyKg: 0.001 })).status === 409, 'zero stock: even 1 g is refused');
 
 // ---------------------------------------------------------------- movements filters + close PO
 const tfoMoves = await ok('jemish', 'GET', `/yarn/moves?zone=tfo&kind=tfo&quality=${q75.id}`);
@@ -286,10 +309,11 @@ check((await call('supervisor', 'POST', `/yarn-pos/${po.id}/close`)).status === 
 await ok('gaurang', 'POST', `/yarn-pos/${po.id}/close`);
 detail = await ok('jemish', 'GET', `/yarn-pos/${po.id}`);
 check(detail.status === 'closed' && detail.totals.pendingG === 0 && detail.events[0].kind === 'closed', 'PO closed short');
-check((await call('supervisor', 'POST', `/yarn-pos/${po.id}/receipts`, { challanNo: 'late', date: today, zone: 'direct', lines: [{ poLineId: line150.id, qtyKg: 1 }] })).status === 409, 'a closed PO cannot receive');
+check((await call('supervisor', 'POST', `/yarn-pos/${po.id}/receipts`, { challanNo: 'late', date: today, lots: [{ poLineId: line150.id, lotNo: `L8-${tag}`, qtyKg: 1 }] })).status === 409, 'a closed PO cannot receive');
 
 // cancel: a fresh PO with nothing received
-const po2 = await ok('jemish', 'POST', '/yarn-pos', { poNo: poNo + 1, poDate: today, partyId: party.id, lines: [{ qualityId: q150.id, qtyKg: 10, rate: 1 }] });
+const po2 = await ok('jemish', 'POST', '/yarn-pos', { poDate: today, partyId: party.id, lines: [{ qualityId: q150.id, qtyKg: 10, rate: 1 }] });
+check(po2.poNo > poNo, 'the next PO gets the next free number');
 await ok('jemish', 'POST', `/yarn-pos/${po2.id}/cancel`);
 check((await ok('jemish', 'GET', `/yarn-pos/${po2.id}`)).status === 'cancelled', 'PO cancelled while nothing received');
 check((await call('jemish', 'PUT', `/yarn-pos/${po2.id}`, { remark: 'x' })).status === 409, 'a cancelled PO cannot be edited');
