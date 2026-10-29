@@ -37,7 +37,6 @@ import { Input, Textarea } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useDebounce } from '@/hooks/useDebounce';
-import { useRole } from '@/hooks/useRole';
 import { ApiError, errorMessage } from '@/lib/api';
 import { formatDateTime } from '@/lib/format';
 import { cn } from '@/lib/utils';
@@ -55,7 +54,7 @@ import {
   useYarnZone,
 } from './api';
 import { DialogButtons, YarnDialog } from './dialog';
-import { actorText, cleanDecimal, Kg, KgInput, LotSelect, numOrNull, Pill, QualitySelect, Toggle2, WarpingQualitySelect } from './parts';
+import { actorText, cleanDecimal, Kg, KgInput, LotSelect, numOrNull, QualitySelect, Toggle2, WarpingQualitySelect } from './parts';
 
 /**
  * Sprint 20 — Warping: Pending → In process → Done (no machines).
@@ -148,41 +147,21 @@ function PendingJobCard({ job, onStart, onEdit, onCancel }: { job: WarpingPendin
   );
 }
 
-type JobsTab = 'in_process' | 'pending' | 'done';
+export type JobsTab = 'in_process' | 'pending' | 'done';
 
-/** The Warping zone's jobs: In process (Mark done) · Pending (Start / Edit / Cancel) · Done; New job for the owners. */
-export function WarpingJobsSection() {
-  const { can } = useRole();
-  const [tab, setTab] = useState<JobsTab>('in_process');
+/** The Warping zone's jobs for one tab: In process (Mark done) · Pending (Start / Edit / Cancel) · Done. */
+export function WarpingJobsSection({ tab, onTab }: { tab: JobsTab; onTab: (t: JobsTab) => void }) {
   const jobs = useWarpingJobs(tab === 'done' ? 'done' : 'in_process');
   const pending = usePendingJobs();
   const start = useStartPendingJob();
   const cancel = useCancelPendingJob();
-  const [creating, setCreating] = useState(false);
   const [editFor, setEditFor] = useState<WarpingPendingJob | null>(null);
   const [startFor, setStartFor] = useState<WarpingPendingJob | null>(null);
   const [cancelFor, setCancelFor] = useState<WarpingPendingJob | null>(null);
   const [doneFor, setDoneFor] = useState<WarpingJob | null>(null);
   const list = tab === 'pending' ? pending : jobs;
   return (
-    <section className="rounded-2xl border border-border bg-white p-4 shadow-soft md:p-5">
-      <div className="mb-3 flex flex-wrap items-center gap-2">
-        <h2 className="mr-auto min-w-0 truncate text-[15px] font-bold text-slate-800">Warping jobs</h2>
-        <Pill on={tab === 'in_process'} onClick={() => setTab('in_process')}>
-          In process
-        </Pill>
-        <Pill on={tab === 'pending'} onClick={() => setTab('pending')}>
-          Pending {pending.data ? `(${pending.data.length})` : ''}
-        </Pill>
-        <Pill on={tab === 'done'} onClick={() => setTab('done')}>
-          Done
-        </Pill>
-        {can('canPlanYarn') && (
-          <Button onClick={() => setCreating(true)} className="w-full text-white hover:opacity-90 sm:w-auto" style={{ backgroundColor: ACCENT.solid }}>
-            <Plus /> New job
-          </Button>
-        )}
-      </div>
+    <div>
       {list.isPending ? (
         <Skeleton className="h-24 w-full rounded-xl" />
       ) : list.isError ? (
@@ -214,7 +193,6 @@ export function WarpingJobsSection() {
           <LoadMore hasNextPage={!!jobs.hasNextPage} isFetchingNextPage={jobs.isFetchingNextPage} fetchNextPage={() => void jobs.fetchNextPage()} shown={jobs.items.length} total={jobs.total} noun="jobs" />
         </>
       )}
-      <WarpingJobDialog open={creating} onOpenChange={setCreating} />
       <WarpingJobDialog open={!!editFor} onOpenChange={(o) => !o && setEditFor(null)} job={editFor} />
       <MarkDoneDialog job={doneFor} onOpenChange={(o) => !o && setDoneFor(null)} />
       <ConfirmDialog
@@ -230,7 +208,7 @@ export function WarpingJobsSection() {
             onSuccess: (j) => {
               toast.success(`${warpingJobLabel(j.jobNo)} started · ${warpingInputsSummary(j.inputs)}`);
               setStartFor(null);
-              setTab('in_process');
+              onTab('in_process');
             },
             onError: (err) => toast.error(errorMessage(err)),
           })
@@ -256,7 +234,7 @@ export function WarpingJobsSection() {
           })
         }
       />
-    </section>
+    </div>
   );
 }
 

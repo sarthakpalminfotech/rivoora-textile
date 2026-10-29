@@ -1,6 +1,6 @@
-import { ArrowLeftRight, Cylinder, SlidersHorizontal, Spool } from 'lucide-react';
+import { ArrowLeftRight, Cylinder, LayoutGrid, Plus, SlidersHorizontal } from 'lucide-react';
 import { useState } from 'react';
-import { Navigate, useParams } from 'react-router-dom';
+import { Navigate, useParams, useSearchParams } from 'react-router-dom';
 import { isYarnZone, YARN_ZONE_CONFIG, type Beam, type YarnZone } from '@rivoora/shared';
 import { usePageTitle } from '@/components/layout/page-title';
 import { ErrorState } from '@/components/list-parts';
@@ -10,13 +10,14 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { useRole } from '@/hooks/useRole';
 import { formatDate } from '@/lib/format';
 import { cn } from '@/lib/utils';
-import { useYarnZone } from './api';
+import { useYarnSummary, useYarnZone } from './api';
 import { ManualStockDialog } from './manual-stock';
 import { MovementsSection } from './movements';
-import { BackLink, Kg, Section, ZONE_ICON } from './parts';
-import { TfoProgramsSection } from './tfo-board';
+import { BackLink, Kg, ZONE_ICON } from './parts';
+import { MachineViewDialog, TfoProgramsSection } from './tfo-board';
 import { WarpingJobsSection } from './warping';
 import { ZoneActionDialogs, zoneMainAction, type ZoneAction } from './zone-actions';
+import { ZoneStockView } from './zone-stock';
 
 function BeamsList({ beams }: { beams: Beam[] }) {
   if (!beams.length) return <EmptyState icon={Cylinder} title="No beams here" description="Beams come from finished warping jobs." className="py-8" />;
@@ -68,9 +69,41 @@ function BeamsList({ beams }: { beams: Beam[] }) {
   );
 }
 
+type ZoneTab = 'running' | 'pending' | 'in_process' | 'done' | 'stock' | 'beams';
+
+/** The tabs of each zone screen (§9): TFO Running | Pending | Stock · Warping In process | Pending | Stock | Beams | Done · Direct Stock | Beams. */
+const ZONE_TABS: Record<YarnZone, { key: ZoneTab; label: string }[]> = {
+  tfo: [
+    { key: 'running', label: 'Running' },
+    { key: 'pending', label: 'Pending' },
+    { key: 'stock', label: 'Stock' },
+  ],
+  warping: [
+    { key: 'in_process', label: 'In process' },
+    { key: 'pending', label: 'Pending' },
+    { key: 'stock', label: 'Stock' },
+    { key: 'beams', label: 'Beams' },
+    { key: 'done', label: 'Done' },
+  ],
+  direct: [
+    { key: 'stock', label: 'Stock' },
+    { key: 'beams', label: 'Beams' },
+  ],
+};
+
+function Figure({ label, children, className }: { label: string; children: React.ReactNode; className?: string }) {
+  return (
+    <div className={cn('min-w-0 px-4 py-3', className)}>
+      <p className="truncate text-xs font-semibold uppercase tracking-wide text-slate-400">{label}</p>
+      <p className="truncate text-xl font-bold tabular-nums">{children}</p>
+    </div>
+  );
+}
+
 /**
- * Sprint 17 — a zone screen (`/yarn/direct | tfo | warping`): header + the zone's two actions; TFO shows the machine
- * board first, Warping its jobs; then stock by quality (and beams), and the zone's movements.
+ * Sprint 17 → 20 — a zone screen (`/yarn/direct | tfo | warping`): header with the headline figures and actions, then
+ * tabs (in the URL, `?tab=`) — TFO: Running | Pending | Stock (+ the full-screen Machine view); Warping: In process |
+ * Pending | Stock | Beams | Done; Direct: Stock | Beams — and the zone's movements.
  */
 export default function YarnZonePage() {
   const param = useParams().zone ?? '';
@@ -78,13 +111,35 @@ export default function YarnZonePage() {
   const c = zone ? YARN_ZONE_CONFIG[zone] : null;
   usePageTitle(c ? c.label : 'Yarn inventory');
   const { data, isPending, isError, error, refetch } = useYarnZone(zone ?? 'direct', !!zone);
+  const summary = useYarnSummary();
+  const [params, setParams] = useSearchParams();
   const [action, setAction] = useState<ZoneAction | null>(null);
   const { can } = useRole();
   const [manual, setManual] = useState(false);
+  const [machineView, setMachineView] = useState(false);
   if (!zone || !c) return <Navigate to="/yarn" replace />;
-  // TFO / Warping: "New programs" / "New job" sit on their sections.
-  const main = zone === 'direct' ? zoneMainAction(zone, can) : null;
+  const tabs = ZONE_TABS[zone];
+  const tab = (tabs.find((t) => t.key === params.get('tab'))?.key ?? tabs[0].key) as ZoneTab;
+  const setTab = (t: ZoneTab) =>
+    setParams(
+      (p) => {
+        const n = new URLSearchParams(p);
+        if (t === tabs[0].key) n.delete('tab');
+        else n.set('tab', t);
+        return n;
+      },
+      { replace: true },
+    );
+  const main = zoneMainAction(zone, can);
   const Icon = ZONE_ICON[zone];
+  const sum = summary.data;
+  const counts: Partial<Record<ZoneTab, number | undefined>> = {
+    running: zone === 'tfo' ? sum?.tfo.runningSections : undefined,
+    pending: zone === 'tfo' ? sum?.tfo.pending : zone === 'warping' ? sum?.warping.pending : undefined,
+    in_process: sum?.warping.inProcess,
+    beams: data?.stock.beams,
+    stock: undefined,
+  };
 
   return (
     <div className="page-container space-y-4 pb-24 pt-3 lg:pb-6">
@@ -98,111 +153,94 @@ export default function YarnZonePage() {
             <h2 className="truncate text-2xl font-extrabold tracking-tight text-slate-900">{c.label}</h2>
             <p className="truncate text-sm text-slate-600">{c.description}</p>
           </div>
-          <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto">
-            <Button variant="secondary" className={main ? 'bg-white' : 'col-span-2 bg-white'} onClick={() => setAction({ kind: 'transfer', zone })}>
+          <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:flex-wrap xl:w-auto xl:justify-end [&>*:last-child:nth-child(odd)]:col-span-2">
+            <Button variant="secondary" className="bg-white" onClick={() => setAction({ kind: 'transfer', zone })}>
               <ArrowLeftRight /> Transfer
             </Button>
-            {main && (
-              <Button className="text-white hover:opacity-90" style={{ backgroundColor: c.accent.solid }} onClick={() => setAction({ kind: main, zone })}>
-                {c.actionLabel}
+            {zone === 'tfo' && (
+              <Button variant="secondary" className="bg-white" onClick={() => setMachineView(true)}>
+                <LayoutGrid /> Machine view
               </Button>
             )}
             {can('canAdjustYarnStock') && (
-              <Button variant="secondary" className="col-span-2 bg-white" onClick={() => setManual(true)}>
+              <Button variant="secondary" className="bg-white" onClick={() => setManual(true)}>
                 <SlidersHorizontal /> Add / remove
+              </Button>
+            )}
+            {main && (
+              <Button className="text-white hover:opacity-90" style={{ backgroundColor: c.accent.solid }} onClick={() => setAction({ kind: main, zone })}>
+                {zone !== 'direct' && <Plus />} {c.actionLabel}
               </Button>
             )}
           </div>
         </div>
-        <div className="grid grid-cols-2 divide-x divide-border border-t md:grid-cols-3" style={{ borderColor: c.accent.border }}>
-          <div className="px-4 py-3">
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Raw yarn</p>
-            <p className="text-xl font-bold">{data ? <Kg g={data.stock.rawG} /> : '—'}</p>
-          </div>
-          <div className="px-4 py-3">
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Twisted yarn</p>
-            <p className="text-xl font-bold">{data ? <Kg g={data.stock.twistedG} /> : '—'}</p>
-          </div>
-          {c.hasBeams && (
-            <div className="col-span-2 border-t px-4 py-3 md:col-span-1 md:border-t-0" style={{ borderColor: c.accent.border }}>
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Beams</p>
-              <p className="text-xl font-bold tabular-nums">{data ? data.stock.beams : '—'}</p>
-            </div>
+        <div className="grid grid-cols-2 divide-x divide-border border-t md:grid-cols-4" style={{ borderColor: c.accent.border }}>
+          <Figure label="Raw yarn">{data ? <Kg g={data.stock.rawG} /> : '—'}</Figure>
+          <Figure label="Twisted yarn">
+            {data ? <Kg g={data.stock.twistedG} /> : '—'}
+            {data && data.stock.boxes > 0 && <span className="ml-1.5 text-sm font-semibold text-slate-500">· {data.stock.boxes} box{data.stock.boxes === 1 ? '' : 'es'}</span>}
+          </Figure>
+          {zone === 'tfo' ? (
+            <>
+              <Figure label="Running" className="border-t md:border-t-0">
+                {sum ? `${sum.tfo.runningSections} / ${sum.tfo.activeMachines * 2}` : '—'}
+              </Figure>
+              <Figure label="Pending programs" className="border-t md:border-t-0">
+                {sum?.tfo.pending ?? '—'}
+              </Figure>
+            </>
+          ) : (
+            <>
+              <Figure label="Beams" className="border-t md:border-t-0">
+                {data ? data.stock.beams : '—'}
+              </Figure>
+              <Figure label={zone === 'warping' ? 'In process · pending' : 'Boxes'} className="border-t md:border-t-0">
+                {zone === 'warping' ? (sum ? `${sum.warping.inProcess} · ${sum.warping.pending}` : '—') : data ? data.stock.boxes : '—'}
+              </Figure>
+            </>
           )}
         </div>
       </section>
 
-      {zone === 'tfo' && <TfoProgramsSection />}
-      {zone === 'warping' && <WarpingJobsSection />}
-
-      {isPending ? (
-        <Skeleton className="h-40 w-full rounded-2xl" />
-      ) : isError || !data ? (
-        <ErrorState error={error} onRetry={() => void refetch()} />
-      ) : (
-        <div className={c.hasBeams ? 'grid gap-4 xl:grid-cols-2' : ''}>
-          <Section title="Stock by quality">
-            {data.qualities.length ? (
-              <table className="w-full table-fixed text-sm">
-                <thead className="border-b border-border text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  <tr>
-                    <th className="py-2 text-left">Quality</th>
-                    <th className="w-[28%] py-2 text-right">Raw</th>
-                    <th className="w-[28%] py-2 text-right">Twisted</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.qualities.map((q) => (
-                    <tr key={q.quality.id} className="border-b border-border last:border-0">
-                      <td className="py-2.5">
-                        <p className="truncate font-semibold text-slate-900">{q.quality.name}</p>
-                        {(q.quality.denier || q.quality.filament) && (
-                          <p className="truncate text-xs text-slate-500">{[q.quality.denier && `D ${q.quality.denier}`, q.quality.filament && `F ${q.quality.filament}`].filter(Boolean).join(' · ')}</p>
-                        )}
-                      </td>
-                      <td className="py-2.5 text-right">{q.rawG ? <Kg g={q.rawG} className="font-semibold" /> : <span className="text-slate-300">—</span>}</td>
-                      <td className="py-2.5 text-right">{q.twistedG ? <Kg g={q.twistedG} className="font-semibold" /> : <span className="text-slate-300">—</span>}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            ) : !data.warpingQualities.length ? (
-              <EmptyState icon={Spool} title="No yarn in this zone" description="Receive a challan here, or transfer yarn in from another zone." className="py-8" />
-            ) : null}
-            {data.warpingQualities.length > 0 && (
-              <table className={cn('w-full table-fixed text-sm', data.qualities.length > 0 && 'mt-4')}>
-                <thead className="border-b border-border text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  <tr>
-                    <th className="py-2 text-left">Warping quality (twisted)</th>
-                    <th className="w-[22%] py-2 text-right">Boxes</th>
-                    <th className="w-[28%] py-2 text-right">Twisted</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.warpingQualities.map((w) => (
-                    <tr key={w.quality.id} className="border-b border-border last:border-0">
-                      <td className="truncate py-2.5 font-semibold text-slate-900">{w.quality.name}</td>
-                      <td className="py-2.5 text-right tabular-nums">{w.boxes || <span className="text-slate-300">—</span>}</td>
-                      <td className="py-2.5 text-right">
-                        <Kg g={w.twistedG} className="font-semibold" />
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </Section>
-          {c.hasBeams && (
-            <Section title={`Beams in stock (${data.beams.length})`}>
-              <BeamsList beams={data.beams} />
-            </Section>
-          )}
+      <section className="rounded-2xl border border-border bg-white p-4 shadow-soft md:p-5">
+        <div role="tablist" aria-label={`${c.label} sections`} className="-mx-1 mb-4 flex flex-wrap gap-2 px-1">
+          {tabs.map((t) => (
+            <button
+              key={t.key}
+              type="button"
+              role="tab"
+              aria-selected={tab === t.key}
+              onClick={() => setTab(t.key)}
+              className={cn(
+                'min-h-11 rounded-full border px-4 text-sm font-semibold transition-colors',
+                tab === t.key ? 'border-transparent text-white' : 'border-input bg-white text-slate-700 hover:bg-muted',
+              )}
+              style={tab === t.key ? { backgroundColor: c.accent.solid } : undefined}
+            >
+              {t.label}
+              {counts[t.key] !== undefined && <span className={cn('ml-1.5 tabular-nums', tab === t.key ? 'text-white/80' : 'text-slate-400')}>{counts[t.key]}</span>}
+            </button>
+          ))}
         </div>
-      )}
+        {zone === 'tfo' && (tab === 'running' || tab === 'pending') ? (
+          <TfoProgramsSection tab={tab} />
+        ) : zone === 'warping' && (tab === 'in_process' || tab === 'pending' || tab === 'done') ? (
+          <WarpingJobsSection tab={tab} onTab={setTab} />
+        ) : isPending ? (
+          <Skeleton className="h-40 w-full rounded-2xl" />
+        ) : isError || !data ? (
+          <ErrorState error={error} onRetry={() => void refetch()} />
+        ) : tab === 'beams' ? (
+          <BeamsList beams={data.beams} />
+        ) : (
+          <ZoneStockView data={data} />
+        )}
+      </section>
 
       <MovementsSection zone={zone} />
       <ZoneActionDialogs action={action} onClose={() => setAction(null)} />
       <ManualStockDialog open={manual} onOpenChange={setManual} zone={zone} />
+      {zone === 'tfo' && <MachineViewDialog open={machineView} onOpenChange={setMachineView} onCreate={can('canPlanYarn') ? () => setAction({ kind: 'program', zone }) : undefined} />}
     </div>
   );
 }

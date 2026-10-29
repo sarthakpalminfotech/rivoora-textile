@@ -1,4 +1,4 @@
-import { Ban, LayoutGrid, Pencil, Play, Plus, RotateCw, Square, Trash2 } from 'lucide-react';
+import { Ban, Pencil, Play, Plus, RotateCw, Square, Trash2 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
@@ -38,7 +38,7 @@ import { formatDateTime, formatElapsed } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { useCancelPendingProgram, useCreatePendingPrograms, useStartPendingProgram, useTfoBoard, useUpdatePendingProgram } from './api';
 import { DialogButtons, YarnDialog } from './dialog';
-import { actorText, cleanDecimal, Kg, KgInput, LotSelect, numOrNull, Pill, QualitySelect, Toggle2 } from './parts';
+import { actorText, cleanDecimal, Kg, KgInput, LotSelect, numOrNull, QualitySelect, Toggle2 } from './parts';
 import { StopProgramDialog } from './tfo-stop';
 
 /**
@@ -602,14 +602,10 @@ function PendingRow({ p, onStart, onEdit, onCancel }: { p: TfoPendingProgram; on
   );
 }
 
-/** The TFO zone's programs: Running | Pending, New programs (owners) and the Machine view. */
-export function TfoProgramsSection() {
+/** The TFO zone's programs (the zone screen's Running / Pending tab): rows with Stop / Start · Edit · Cancel. */
+export function TfoProgramsSection({ tab }: { tab: 'running' | 'pending' }) {
   const board = useTfoBoard();
   const now = useNow(30_000);
-  const { can } = useRole();
-  const [tab, setTab] = useState<'running' | 'pending'>('running');
-  const [creating, setCreating] = useState(false);
-  const [machineView, setMachineView] = useState(false);
   const [stopFor, setStopFor] = useState<TfoProgram | null>(null);
   const [startFor, setStartFor] = useState<TfoPendingProgram | null>(null);
   const [editFor, setEditFor] = useState<TfoPendingProgram | null>(null);
@@ -626,33 +622,14 @@ export function TfoProgramsSection() {
   const pending = board.data?.pending ?? [];
 
   return (
-    <section className="rounded-2xl border border-border bg-white p-4 shadow-soft md:p-5">
-      <div className="mb-3 flex flex-wrap items-center gap-2">
-        <h2 className="mr-auto min-w-0 truncate text-[15px] font-bold text-slate-800">Programs</h2>
-        <Pill on={tab === 'running'} onClick={() => setTab('running')}>
-          Running {board.data ? `(${running.length})` : ''}
-        </Pill>
-        <Pill on={tab === 'pending'} onClick={() => setTab('pending')}>
-          Pending {board.data ? `(${pending.length})` : ''}
-        </Pill>
-        <div className="flex w-full gap-2 sm:w-auto">
-          <Button variant="secondary" onClick={() => setMachineView(true)} className="flex-1 sm:flex-none">
-            <LayoutGrid /> Machine view
-          </Button>
-          {can('canPlanYarn') && (
-            <Button onClick={() => setCreating(true)} className="flex-1 text-white hover:opacity-90 sm:flex-none" style={{ backgroundColor: ACCENT.solid }}>
-              <Plus /> New programs
-            </Button>
-          )}
-        </div>
-      </div>
+    <div>
       {board.isPending ? (
         <Skeleton className="h-24 w-full rounded-xl" />
       ) : board.isError ? (
         <ErrorState error={board.error} onRetry={() => void board.refetch()} />
       ) : tab === 'running' ? (
         running.length === 0 ? (
-          <EmptyState icon={RotateCw} title="Nothing running" description={pending.length ? `${pending.length} program${pending.length === 1 ? '' : 's'} waiting in Pending.` : 'Start a pending program on a machine section.'} className="py-8" />
+          <EmptyState icon={RotateCw} title="Nothing running" description={pending.length ? `${pending.length} program${pending.length === 1 ? '' : 's'} waiting in Pending.` : 'Start a pending program on a machine section.'} className="py-10" />
         ) : (
           <ul className="grid gap-2.5 2xl:grid-cols-2">
             {running.map((p) => (
@@ -665,7 +642,6 @@ export function TfoProgramsSection() {
           icon={RotateCw}
           title="No pending programs"
           description="New programs wait here (their raw kg reserved) until someone starts them."
-          action={can('canPlanYarn') && <Button onClick={() => setCreating(true)}>New programs</Button>}
           className="py-8"
         />
       ) : (
@@ -676,11 +652,9 @@ export function TfoProgramsSection() {
         </ul>
       )}
 
-      <CreateProgramsDialog open={creating} onOpenChange={setCreating} />
       <EditPendingDialog program={editFor} onOpenChange={(o) => !o && setEditFor(null)} />
       <StartProgramDialog program={startFor} onOpenChange={(o) => !o && setStartFor(null)} />
       <StopProgramDialog program={stopFor} onOpenChange={(o) => !o && setStopFor(null)} />
-      <MachineViewDialog open={machineView} onOpenChange={setMachineView} onCreate={can('canPlanYarn') ? () => setCreating(true) : undefined} />
       <ConfirmDialog
         open={!!cancelFor}
         onOpenChange={(o) => !o && setCancelFor(null)}
@@ -701,7 +675,7 @@ export function TfoProgramsSection() {
           })
         }
       />
-    </section>
+    </div>
   );
 }
 

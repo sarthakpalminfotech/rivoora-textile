@@ -197,6 +197,8 @@ export interface YarnZoneStock {
   twistedG: number;
   /** In-stock beams (0 for TFO). */
   beams: number;
+  /** Sprint 20: in-stock TFO boxes kept here. */
+  boxes: number;
 }
 
 export interface YarnMove extends YarnActor {
@@ -259,8 +261,8 @@ export interface YarnBox {
 export interface YarnSummary {
   totals: { rawG: number; twistedG: number; beams: number };
   zones: YarnZoneStock[];
-  tfo: { runningSections: number; activeMachines: number };
-  warping: { inProcess: number };
+  tfo: { runningSections: number; activeMachines: number; pending: number };
+  warping: { inProcess: number; pending: number };
   recent: YarnMove[];
 }
 
@@ -300,6 +302,12 @@ export interface YarnZoneData {
   warpingQualities: { quality: { id: number; name: string }; twistedG: number; boxes: number }[];
   /** In-stock beams of the zone (Direct consumption, Warping), newest first. */
   beams: Beam[];
+  /** Sprint 20: raw yarn per quality + lot (null lot = "No lot"), with what pending work reserves. */
+  rawLots: { quality: { id: number; name: string }; lot: { id: number; lotNo: string; partyName: string } | null; balanceG: number; reservedG: number }[];
+  /** Sprint 20: in-stock boxes kept here, newest first. */
+  boxes: YarnBox[];
+  /** Sprint 20: "No box" twisted stock here. */
+  noBox: NoBoxStock[];
 }
 
 /* ---------- TFO ---------- */

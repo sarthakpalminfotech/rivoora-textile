@@ -16,7 +16,7 @@ import { ApiError, errorMessage } from '@/lib/api';
 import { formatDate, toApiDate } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { useCheckLotNo, useReceiveYarn, useYarnPo } from './api';
-import { FormHeader, KgInput, Section, YarnPoStatusBadge, ZoneChoice } from './parts';
+import { FormHeader, KgInput, Section, YarnPoStatusBadge, ZoneChoice, ZoneTag } from './parts';
 
 interface AllocationRow {
   key: number;
@@ -58,8 +58,9 @@ function lotFigures(lot: LotRow) {
 
 /**
  * Sprint 20 — Receive challan: one or more lots (PO line/quality, lot no, kg, boxes), each split across zones
- * (unallocated kg goes to Direct consumption automatically). Full screen; lot cards stack, a compact grid from
- * 768px. A tablet-specific layout pass is a follow-up (spec §10).
+ * (unallocated kg goes to Direct consumption automatically). Full screen; each lot is a card — its fields in one row from
+ * 768px with the allocation rows below. The summary sits on the right (sticky) from 1024px and as the sticky bottom
+ * bar below that.
  */
 export default function YarnReceivePage() {
   const id = Number(useParams().id);
@@ -215,6 +216,8 @@ export default function YarnReceivePage() {
           <span className="min-w-0 flex-1 truncate text-sm font-semibold text-slate-700 sm:text-right">{po.party.name}</span>
         </div>
 
+        <div className="space-y-4 lg:grid lg:grid-cols-[minmax(0,1fr)_19rem] lg:items-start lg:gap-4 lg:space-y-0">
+        <div className="min-w-0 space-y-4">
         <Section title="Challan">
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-[14rem_12rem_minmax(0,1fr)]">
             <Field label="Challan no." htmlFor="rc-no" required error={show(headerErrors.challanNo) ?? (serverErr?.field === 'challanNo' ? serverErr.message : undefined)}>
@@ -324,22 +327,49 @@ export default function YarnReceivePage() {
           )}
         </Section>
 
-        <Section title="Summary">
-          <div className="grid gap-3 sm:grid-cols-2">
+        </div>
+        <Section title="Summary" className="lg:sticky lg:top-20">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-1">
             <div>
               <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Challan total</p>
-              <p className="text-lg font-bold tabular-nums text-slate-900">{formatKg(totalG)}</p>
+              <p className="text-2xl font-bold tabular-nums text-slate-900">{formatKg(totalG)}</p>
             </div>
             <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">By zone</p>
-              <p className={cn('text-sm font-semibold text-slate-700', zoneTotalsG.size === 0 && 'text-slate-400')}>
-                {zoneTotalsG.size ? [...zoneTotalsG.entries()].map(([z, g]) => `${z} ${formatKg(g)}`).join(' · ') : '—'}
-              </p>
+              <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-400">By zone</p>
+              {zoneTotalsG.size ? (
+                <ul className="space-y-1">
+                  {[...zoneTotalsG.entries()].map(([z, g]) => (
+                    <li key={z} className="flex items-center justify-between gap-2">
+                      <ZoneTag zone={z} short />
+                      <span className="font-semibold tabular-nums text-slate-800">{formatKg(g)}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-sm text-slate-400">—</p>
+              )}
+            </div>
+            <div className="sm:col-span-2 lg:col-span-1">
+              <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-400">Per quality · this challan / pending</p>
+              <ul className="divide-y divide-border">
+                {poLines.map((l) => {
+                  const now = receivedByLineG.get(l.id) ?? 0;
+                  return (
+                    <li key={l.id} className="flex items-baseline justify-between gap-2 py-1.5 text-sm">
+                      <span className="min-w-0 truncate font-medium text-slate-800">{l.quality.name}</span>
+                      <span className={cn('whitespace-nowrap tabular-nums', now > l.pendingG ? 'font-semibold text-amber-700' : 'text-slate-600')}>
+                        {formatKg(now)} / {formatKg(l.pendingG)}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
             </div>
           </div>
         </Section>
+        </div>
 
-        <div className="kb-bar sticky bottom-0 z-20 -mx-4 border-t border-border bg-white/95 px-4 py-3 backdrop-blur md:mx-0 md:rounded-t-2xl md:border-x">
+        <div className="kb-bar sticky bottom-0 z-20 -mx-4 border-t border-border bg-white/95 px-4 py-3 backdrop-blur md:mx-0 md:rounded-t-2xl md:border-x lg:hidden">
           <div className="flex items-center gap-4">
             <div className="min-w-0">
               <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">This challan</p>

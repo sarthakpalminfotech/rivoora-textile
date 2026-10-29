@@ -68,12 +68,13 @@ function ZonePanel({ stock, summary, onAction }: { stock: YarnZoneStock; summary
           <Stat label="Raw yarn">
             <Kg g={stock.rawG} />
           </Stat>
-          <Stat label="Twisted yarn">
+          <Stat label={stock.boxes ? `Twisted · ${stock.boxes} box${stock.boxes === 1 ? '' : 'es'}` : 'Twisted yarn'}>
             <Kg g={stock.twistedG} />
           </Stat>
           {c.hasBeams && <Stat label="Beams">{stock.beams}</Stat>}
-          {z === 'tfo' && <Stat label="Sections">{runningSectionsText(summary.tfo.runningSections, summary.tfo.activeMachines)}</Stat>}
-          {z === 'warping' && <Stat label="Jobs in process">{summary.warping.inProcess}</Stat>}
+          {z === 'tfo' && <Stat label="Running">{runningSectionsText(summary.tfo.runningSections, summary.tfo.activeMachines)}</Stat>}
+          {z === 'tfo' && <Stat label="Pending programs">{summary.tfo.pending}</Stat>}
+          {z === 'warping' && <Stat label="Jobs in process · pending">{`${summary.warping.inProcess} · ${summary.warping.pending}`}</Stat>}
         </div>
       </Link>
       <div className="grid grid-cols-2 gap-2 border-t p-3 md:grid-cols-1 lg:grid-cols-2" style={{ borderColor: c.accent.border, backgroundColor: c.accent.soft }}>
