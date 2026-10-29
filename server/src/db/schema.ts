@@ -32,11 +32,13 @@ import type {
   BeamMoveKind,
   BeamStatus,
   BeamZone,
+  BoxStatus,
   TfoSection,
   TwistDirection,
   WarpingStatus,
   YarnItem,
   YarnMoveKind,
+  YarnPendingStatus,
   YarnPoEventKind,
   YarnPoStatus,
   YarnRefType,
@@ -1045,7 +1047,7 @@ export const yarnParties = sqliteTable(
   (t) => [uniqueIndex('yarn_parties_name_active_unique').on(sql`lower(${t.name})`).where(sql`${t.isDeleted} = 0`)],
 );
 
-/** Used for raw AND twisted yarn. */
+/** Used for raw AND twisted yarn (pre-Sprint-20). */
 export const yarnQualities = sqliteTable(
   'yarn_qualities',
   {
@@ -1054,11 +1056,86 @@ export const yarnQualities = sqliteTable(
     denier: text('denier'),
     filament: text('filament'),
     notes: text('notes'),
+    /**
+     * Sprint 20: the one reserved row ledger / warping-job-input / beam rows point to when their real identity is a
+     * WARPING quality instead (the `quality_id` FK is NOT NULL and pre-dates that split — this is the additive-only
+     * way to keep it satisfied). Never shown in any picker or lookup; display always prefers `warping_quality_id`.
+     */
+    isSystem: integer('is_system', { mode: 'boolean' }).notNull().default(false),
     isDeleted: isDeleted(),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
   (t) => [uniqueIndex('yarn_qualities_name_active_unique').on(sql`lower(${t.name})`).where(sql`${t.isDeleted} = 0`)],
+);
+
+/** Sprint 20: Warping qualities master — twisted yarn's identity from the TFO stop onward (boxes, beams). */
+export const warpingQualities = sqliteTable(
+  'warping_qualities',
+  {
+    id: id(),
+    name: text('name').notNull(),
+    notes: text('notes'),
+    isDeleted: isDeleted(),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [uniqueIndex('warping_qualities_name_active_unique').on(sql`lower(${t.name})`).where(sql`${t.isDeleted} = 0`)],
+);
+
+/** Sprint 20: one supplier lot of one raw yarn quality from one party. Lot no is unique PER PARTY. */
+export const yarnLots = sqliteTable(
+  'yarn_lots',
+  {
+    id: id(),
+    lotNo: text('lot_no').notNull(),
+    partyId: integer('party_id')
+      .notNull()
+      .references(() => yarnParties.id),
+    qualityId: integer('quality_id')
+      .notNull()
+      .references(() => yarnQualities.id),
+    createdByUserId: integer('created_by_user_id'),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    uniqueIndex('yarn_lots_party_lot_no_unique').on(t.partyId, sql`lower(${t.lotNo})`),
+    index('yarn_lots_quality_idx').on(t.qualityId),
+  ],
+);
+
+/**
+ * Sprint 20: TFO output boxes. Stock = `net_g`; goes down on withdraw / warping use (ledger rows carry `box_id`).
+ * `lot_id` is copied from the program that made it (nullable — "No lot" raw never produces a traceable lot).
+ */
+export const yarnBoxes = sqliteTable(
+  'yarn_boxes',
+  {
+    id: id(),
+    boxNo: text('box_no').notNull(),
+    programId: integer('program_id')
+      .notNull()
+      .references((): AnySQLiteColumn => tfoPrograms.id),
+    lotId: integer('lot_id').references(() => yarnLots.id),
+    warpingQualityId: integer('warping_quality_id')
+      .notNull()
+      .references(() => warpingQualities.id),
+    rolls: integer('rolls').notNull(),
+    grossG: integer('gross_g').notNull(),
+    netG: integer('net_g').notNull(),
+    avgG: integer('avg_g').notNull(),
+    zone: text('zone').$type<YarnZone>().notNull(),
+    status: text('status').$type<BoxStatus>().notNull().default('in_stock'),
+    createdByUserId: integer('created_by_user_id'),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    uniqueIndex('yarn_boxes_box_no_unique').on(sql`lower(${t.boxNo})`),
+    index('yarn_boxes_zone_status_idx').on(t.zone, t.status),
+    index('yarn_boxes_program_idx').on(t.programId),
+  ],
 );
 
 /** TFO machines: each has two sections, A (top) and B (bottom) — "1A / 1B". */
@@ -1148,6 +1225,7 @@ export const yarnReceipts = sqliteTable(
   (t) => [index('yarn_receipts_po_idx').on(t.poId)],
 );
 
+/** Sprint 20: one receipt line IS one lot's quantity in that receipt — `lot_id` added (null on pre-Sprint-20 rows). */
 export const yarnReceiptLines = sqliteTable(
   'yarn_receipt_lines',
   {
@@ -1163,8 +1241,24 @@ export const yarnReceiptLines = sqliteTable(
       .references(() => yarnQualities.id),
     qtyG: integer('qty_g').notNull(),
     boxes: integer('boxes'),
+    lotId: integer('lot_id').references(() => yarnLots.id),
   },
   (t) => [index('yarn_receipt_lines_receipt_idx').on(t.receiptId), index('yarn_receipt_lines_po_line_idx').on(t.poLineId)],
+);
+
+/** Sprint 20: where a receipt line's (lot's) kg went — split across zones; any not allocated goes to Direct. */
+export const yarnReceiptLineAllocations = sqliteTable(
+  'yarn_receipt_line_allocations',
+  {
+    id: id(),
+    receiptLineId: integer('receipt_line_id')
+      .notNull()
+      .references(() => yarnReceiptLines.id),
+    zone: text('zone').$type<YarnZone>().notNull(),
+    qtyG: integer('qty_g').notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [index('yarn_receipt_line_allocations_line_idx').on(t.receiptLineId)],
 );
 
 /** Yarn PO activity: created / edited / received / closed / cancelled. */
@@ -1208,8 +1302,9 @@ export const yarnWithdrawals = sqliteTable('yarn_withdrawals', {
 });
 
 /**
- * THE stock ledger — the single source of truth for yarn quantities. Balance = SUM(qty_g) per zone + item + quality;
- * every write checks it inside the transaction, so it never goes below zero.
+ * THE stock ledger — the single source of truth for yarn quantities. Balance = SUM(qty_g) per zone + item + quality
+ * (+ lot for raw, + box for twisted, Sprint 20); every write checks it inside the transaction, so it never goes
+ * below zero.
  */
 export const yarnStockMoves = sqliteTable(
   'yarn_stock_moves',
@@ -1228,10 +1323,18 @@ export const yarnStockMoves = sqliteTable(
     note: text('note'),
     role: text('role').$type<RoleKey>(),
     userId: integer('user_id'),
+    /** Sprint 20: raw yarn's lot (null = "No lot" — pre-Sprint-20 stock + manual additions). */
+    lotId: integer('lot_id').references(() => yarnLots.id),
+    /** Sprint 20: twisted yarn's box (null = "No box"). */
+    boxId: integer('box_id').references(() => yarnBoxes.id),
+    /** Sprint 20: twisted yarn's real quality from the TFO stop onward; `quality_id` holds the system row then. */
+    warpingQualityId: integer('warping_quality_id').references(() => warpingQualities.id),
     createdAt: createdAt(),
   },
   (t) => [
     index('yarn_stock_moves_balance_idx').on(t.zone, t.item, t.qualityId),
+    index('yarn_stock_moves_lot_idx').on(t.lotId),
+    index('yarn_stock_moves_box_idx').on(t.boxId),
     index('yarn_stock_moves_created_idx').on(t.createdAt),
     index('yarn_stock_moves_ref_idx').on(t.refType, t.refId),
   ],
@@ -1252,10 +1355,53 @@ export const warpingJobs = sqliteTable(
     doneByUserId: integer('done_by_user_id'),
     doneRole: text('done_role').$type<RoleKey>(),
     doneNote: text('done_note'),
+    /** Sprint 20: the pending job this one was started from (null for jobs started the old direct way). */
+    pendingJobId: integer('pending_job_id').references((): AnySQLiteColumn => warpingPendingJobs.id),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
   (t) => [uniqueIndex('warping_jobs_job_no_unique').on(t.jobNo), index('warping_jobs_status_idx').on(t.status)],
+);
+
+/** Sprint 20: a warping job before Start — reserves its inputs on Warping stock. */
+export const warpingPendingJobs = sqliteTable(
+  'warping_pending_jobs',
+  {
+    id: id(),
+    taar: integer('taar').notNull(),
+    panna: real('panna').notNull(),
+    /** Null when `full_meter` is ticked — meters are then entered per beam at Done. */
+    meters: real('meters'),
+    fullMeter: integer('full_meter', { mode: 'boolean' }).notNull().default(false),
+    note: text('note'),
+    status: text('status').$type<YarnPendingStatus>().notNull().default('pending'),
+    startedJobId: integer('started_job_id').references(() => warpingJobs.id),
+    cancelledAt: text('cancelled_at'),
+    cancelledByUserId: integer('cancelled_by_user_id'),
+    createdByUserId: integer('created_by_user_id'),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index('warping_pending_jobs_status_idx').on(t.status)],
+);
+
+export const warpingPendingJobInputs = sqliteTable(
+  'warping_pending_job_inputs',
+  {
+    id: id(),
+    jobId: integer('job_id')
+      .notNull()
+      .references(() => warpingPendingJobs.id),
+    item: text('item').$type<YarnItem>().notNull(),
+    qualityId: integer('quality_id')
+      .notNull()
+      .references(() => yarnQualities.id),
+    qtyG: integer('qty_g').notNull(),
+    lotId: integer('lot_id').references(() => yarnLots.id),
+    boxId: integer('box_id').references(() => yarnBoxes.id),
+    warpingQualityId: integer('warping_quality_id').references(() => warpingQualities.id),
+  },
+  (t) => [index('warping_pending_job_inputs_job_idx').on(t.jobId)],
 );
 
 export const warpingJobInputs = sqliteTable(
@@ -1270,6 +1416,12 @@ export const warpingJobInputs = sqliteTable(
       .notNull()
       .references(() => yarnQualities.id),
     qtyG: integer('qty_g').notNull(),
+    /** Sprint 20: raw input's lot (null = "No lot"). */
+    lotId: integer('lot_id').references(() => yarnLots.id),
+    /** Sprint 20: twisted input's box (null = "No box"). */
+    boxId: integer('box_id').references(() => yarnBoxes.id),
+    /** Sprint 20: twisted input's real quality; `quality_id` holds the system row then. */
+    warpingQualityId: integer('warping_quality_id').references(() => warpingQualities.id),
   },
   (t) => [index('warping_job_inputs_job_idx').on(t.jobId)],
 );
@@ -1295,8 +1447,19 @@ export const beams = sqliteTable(
     createdByUserId: integer('created_by_user_id'),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
+    /**
+     * Sprint 20: beam numbers become text (`beam_code`, e.g. "BM-42"); old rows are backfilled from `beam_no`.
+     * New beams get a real `warping_quality_id` (and `quality_id` points at the system row); old beams keep
+     * their yarn `quality_id` and `warping_quality_id` stays null.
+     */
+    beamCode: text('beam_code'),
+    warpingQualityId: integer('warping_quality_id').references(() => warpingQualities.id),
   },
-  (t) => [uniqueIndex('beams_beam_no_unique').on(t.beamNo), index('beams_zone_status_idx').on(t.zone, t.status)],
+  (t) => [
+    uniqueIndex('beams_beam_no_unique').on(t.beamNo),
+    uniqueIndex('beams_beam_code_unique').on(sql`lower(${t.beamCode})`),
+    index('beams_zone_status_idx').on(t.zone, t.status),
+  ],
 );
 
 /** Beam history: created / transfer out / transfer in / consumed (one row per beam per action and zone). */
@@ -1355,6 +1518,10 @@ export const tfoPrograms = sqliteTable(
     twistedMeters: real('twisted_meters'),
     returnedRawG: integer('returned_raw_g'),
     stopNote: text('stop_note'),
+    /** Sprint 20: the raw lot issued into this program (null = "No lot"); carried from its pending row. */
+    lotId: integer('lot_id').references(() => yarnLots.id),
+    /** Sprint 20: the pending program this one was started from (null for programs started the old direct way). */
+    pendingProgramId: integer('pending_program_id').references((): AnySQLiteColumn => tfoPendingPrograms.id),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
@@ -1362,5 +1529,37 @@ export const tfoPrograms = sqliteTable(
     uniqueIndex('tfo_programs_running_unique').on(t.machineId, t.section).where(sql`${t.status} = 'running'`),
     index('tfo_programs_machine_idx').on(t.machineId, t.section),
     index('tfo_programs_status_idx').on(t.status),
+  ],
+);
+
+/** Sprint 20: a TFO program before a machine exists — reserves its raw kg on its lot. No FK on machine/section. */
+export const tfoPendingPrograms = sqliteTable(
+  'tfo_pending_programs',
+  {
+    id: id(),
+    rawQualityId: integer('raw_quality_id')
+      .notNull()
+      .references(() => yarnQualities.id),
+    lotId: integer('lot_id').references(() => yarnLots.id),
+    rawG: integer('raw_g').notNull(),
+    outputQualityId: integer('output_quality_id')
+      .notNull()
+      .references(() => yarnQualities.id),
+    windingMeter: real('winding_meter'),
+    denierFilament: text('denier_filament'),
+    tpm: real('tpm').notNull(),
+    direction: text('direction').$type<TwistDirection>().notNull(),
+    note: text('note'),
+    status: text('status').$type<YarnPendingStatus>().notNull().default('pending'),
+    startedProgramId: integer('started_program_id').references(() => tfoPrograms.id),
+    cancelledAt: text('cancelled_at'),
+    cancelledByUserId: integer('cancelled_by_user_id'),
+    createdByUserId: integer('created_by_user_id'),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    index('tfo_pending_programs_status_idx').on(t.status),
+    index('tfo_pending_programs_lot_idx').on(t.lotId, t.rawQualityId),
   ],
 );

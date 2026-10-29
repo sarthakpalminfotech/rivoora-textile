@@ -63,6 +63,22 @@ export const YARN_ITEMS = ['raw', 'twisted'] as const;
 export type YarnItem = (typeof YARN_ITEMS)[number];
 export const YARN_ITEM_LABEL: Record<YarnItem, string> = { raw: 'Raw yarn', twisted: 'Twisted yarn' };
 
+/**
+ * Sprint 20: "No lot" (raw) / "No box" (twisted) — null `lot_id` / `box_id` on the ledger. Pre-Sprint-20 stock and
+ * manual additions land here.
+ */
+export const NO_LOT_LABEL = 'No lot';
+export const NO_BOX_LABEL = 'No box';
+
+/** Sprint 20: a pending TFO program / warping job, before a machine / the actual job exists. */
+export const YARN_PENDING_STATUSES = ['pending', 'started', 'cancelled'] as const;
+export type YarnPendingStatus = (typeof YARN_PENDING_STATUSES)[number];
+
+/** Sprint 20: a TFO output box's lifecycle — stock is its net wt, consumed down to 0 → `used`. */
+export const BOX_STATUSES = ['in_stock', 'used'] as const;
+export type BoxStatus = (typeof BOX_STATUSES)[number];
+export const BOX_STATUS_LABEL: Record<BoxStatus, string> = { in_stock: 'In stock', used: 'Used' };
+
 /** What a transfer / withdraw moves: yarn of one item, or beams. */
 export const YARN_STOCK_WHAT = ['raw', 'twisted', 'beams'] as const;
 export type YarnStockWhat = (typeof YARN_STOCK_WHAT)[number];
@@ -332,8 +348,10 @@ export const TFO_SECTION_LABEL: Record<TfoSection, string> = { A: 'Top', B: 'Bot
 /** "3A" */
 export const tfoSectionLabel = (machineNo: number, section: TfoSection) => `${machineNo}${section}`;
 
-export const TWIST_DIRECTIONS = ['S', 'Z'] as const;
+/** Sprint 20: a program can twist S, Z, or both directions at once ("S + Z"). */
+export const TWIST_DIRECTIONS = ['S', 'Z', 'SZ'] as const;
 export type TwistDirection = (typeof TWIST_DIRECTIONS)[number];
+export const TWIST_DIRECTION_LABEL: Record<TwistDirection, string> = { S: 'S', Z: 'Z', SZ: 'S + Z' };
 
 export type ProgramIssueError = TakeError | 'busy' | 'tpm';
 export const PROGRAM_ISSUE_ERROR_TEXT: Record<ProgramIssueError, string> = {

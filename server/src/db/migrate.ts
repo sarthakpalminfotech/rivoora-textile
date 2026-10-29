@@ -99,6 +99,28 @@ async function meterOrdersPlan(): Promise<{ metersOrders: number; qualifying: nu
 }
 
 /**
+ * Sprint 20 (migration 0019): lots, boxes, warping qualities, TFO/warping pending stages. Every change is additive
+ * (new tables, new nullable columns) plus one backfill (`beams.beam_code`) and one seed row (the reserved "system"
+ * yarn quality) — nothing existing is rewritten. This snapshots every zone+item+quality balance and the
+ * programs/jobs/beams counts before, so `main()` can confirm afterwards that stock didn't move.
+ */
+async function yarnBalanceSnapshot(): Promise<{ balances: string[]; programs: number; jobs: number; beams: number } | null> {
+  const applied = await libsql.execute(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'yarn_lots'`);
+  if (applied.rows.length > 0) return null; // already migrated
+  const movesTable = await libsql.execute(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'yarn_stock_moves'`);
+  if (movesTable.rows.length === 0) return null; // fresh database: nothing to check
+  const rows = await libsql.execute(`
+    SELECT zone, item, quality_id, SUM(qty_g) AS total FROM yarn_stock_moves GROUP BY zone, item, quality_id ORDER BY zone, item, quality_id
+  `);
+  return {
+    balances: rows.rows.map((r) => `${r.zone}|${r.item}|${r.quality_id}|${r.total}`),
+    programs: await countOf('SELECT COUNT(*) AS n FROM tfo_programs'),
+    jobs: await countOf('SELECT COUNT(*) AS n FROM warping_jobs'),
+    beams: await countOf('SELECT COUNT(*) AS n FROM beams'),
+  };
+}
+
+/**
  * Sprint 8 (migration 0009) moves the butta challans into the generic `challans` / `challan_takas` tables. The SQL
  * itself compares the counts and fails (rolling everything back) if anything is off; this wrapper counts before and
  * after as well and explains a failure in plain words.
@@ -109,6 +131,7 @@ async function main() {
   const before = await buttaChallanCounts();
   const s18 = await variationPlan();
   const s19 = await meterOrdersPlan();
+  const s20 = await yarnBalanceSnapshot();
   try {
     await migrate(db, { migrationsFolder: resolve(SERVER_ROOT, 'drizzle') });
   } catch (err) {
@@ -175,6 +198,32 @@ async function main() {
       process.exit(1);
     }
     console.log(`Meter orders backfilled: ${s19.qualifying} of ${s19.metersOrders} set to order_type = lump (counts match).`);
+  }
+  if (s20) {
+    // yarnBalanceSnapshot() would now short-circuit (yarn_lots exists post-migration) — recompute directly instead.
+    const rows = await libsql.execute(`
+      SELECT zone, item, quality_id, SUM(qty_g) AS total FROM yarn_stock_moves GROUP BY zone, item, quality_id ORDER BY zone, item, quality_id
+    `);
+    const balancesAfter = rows.rows.map((r) => `${r.zone}|${r.item}|${r.quality_id}|${r.total}`);
+    const programsAfter = await countOf('SELECT COUNT(*) AS n FROM tfo_programs');
+    const jobsAfter = await countOf('SELECT COUNT(*) AS n FROM warping_jobs');
+    const beamsAfter = await countOf('SELECT COUNT(*) AS n FROM beams');
+    const balancesMatch = JSON.stringify(s20.balances) === JSON.stringify(balancesAfter);
+    if (!balancesMatch || programsAfter !== s20.programs || jobsAfter !== s20.jobs || beamsAfter !== s20.beams) {
+      console.error(
+        '\nCheck failed: yarn balances or counts changed across the Sprint 20 migration. Nothing should have moved —\n' +
+          'this migration only adds tables/columns. Before: ' +
+          `${s20.balances.length} balance rows, ${s20.programs} programs, ${s20.jobs} jobs, ${s20.beams} beams.\n` +
+          `After: ${balancesAfter.length} balance rows, ${programsAfter} programs, ${jobsAfter} jobs, ${beamsAfter} beams.\n`,
+      );
+      if (!balancesMatch) {
+        console.error('Before:', s20.balances.join(', '));
+        console.error('After: ', balancesAfter.join(', '));
+      }
+      libsql.close();
+      process.exit(1);
+    }
+    console.log(`Yarn balances unchanged: ${balancesAfter.length} zone/item/quality balance(s), ${programsAfter} TFO programs, ${jobsAfter} warping jobs, ${beamsAfter} beams (counts match).`);
   }
   console.log('Migrations applied.');
   // Sprint 12: the default logins (a phone that already exists is left alone).

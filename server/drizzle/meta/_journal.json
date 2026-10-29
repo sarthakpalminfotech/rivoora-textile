@@ -134,6 +134,13 @@
       "when": 1793190095663,
       "tag": "0018_sprint19_meter_orders",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "6",
+      "when": 1793251045286,
+      "tag": "0019_wet_nomad",
+      "breakpoints": true
     }
   ]
 }
