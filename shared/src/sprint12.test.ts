@@ -206,8 +206,8 @@ describe('login helpers', () => {
     expect(defaultPassword('8123456789')).toBe('Rivoora@812');
   });
   it('the seven default users', () => {
-    expect(DEFAULT_USERS.map((u) => u.role)).toEqual(['jemish', 'gaurang', 'supervisor', 'taka_entry', 'qc', 'godown_supervisor', 'dhruvil']);
-    expect(new Set(DEFAULT_USERS.map((u) => u.phone)).size).toBe(7);
+    expect(DEFAULT_USERS.map((u) => u.role)).toEqual(['jemish', 'gaurang', 'supervisor', 'taka_entry', 'qc', 'godown_supervisor', 'dhruvil', 'yarn_supervisor']);
+    expect(new Set(DEFAULT_USERS.map((u) => u.phone)).size).toBe(8);
   });
   it('X-Act-As: only Jenish and Gaurang may switch', () => {
     expect(resolveActingRole('jemish', 'supervisor')).toEqual({ role: 'supervisor', ignored: false });

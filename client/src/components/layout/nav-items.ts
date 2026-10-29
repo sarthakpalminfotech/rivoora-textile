@@ -64,7 +64,7 @@ export const NAV_ITEMS: NavItem[] = [
   // Sprint 16: Receive goods (outside weavers' challans, FG purchases) — the godown supervisor and Dhruvil; Jenish /
   // Gaurang receive from the order's Outside production tab instead, so it is not in their nav.
   { to: '/receive-goods', label: 'Receive goods', icon: PackageSearch, permission: 'canReceiveOutside', group: 'main', hideWith: 'canViewOrders' },
-  // Sprint 17: yarn (Jenish, Gaurang, the Supervisor, the Godown supervisor) — not in the bar, they go into More.
+  // Sprint 17/20: yarn (Jenish, Gaurang, the production supervisor, the Yarn inventory supervisor) — no phoneOrder: in More when the bar is full.
   { to: '/yarn', label: 'Yarn inventory', icon: Spool, permission: 'canUseYarnInventory', group: 'main' },
   { to: '/yarn-po', label: 'Yarn PO', icon: ReceiptText, permission: 'canViewYarn', group: 'main' },
   // One Masters entry; the page lists every master the role may open.

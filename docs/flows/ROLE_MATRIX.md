@@ -26,8 +26,9 @@ into **More**.
 | Supervisor | `/jobsheets` | Orders · Jobsheets · Machine view · Yarn inventory · Yarn PO | Machine view · Orders · Jobsheets · More (Yarn inventory, Yarn PO) | — | Jobsheet created, In production, Production completed, Taka entry done | no |
 | Taka entry | `/scan` | Scan jobsheet · Jobsheets | Scan jobsheet · Jobsheets | — | none (jobsheets only: all 4 jobsheet statuses) | yes |
 | QC | `/qc` | QC | QC | — | none | yes |
-| Godown supervisor | `/butta` | Orders · Butta cutting · Mill · Receive goods · Yarn inventory · Yarn PO | Orders · Butta cutting · Mill · More (Receive goods, Yarn inventory, Yarn PO) | — | In production → Returned (not Closed) | no |
+| Godown supervisor | `/butta` | Orders · Butta cutting · Mill · Receive goods | Orders · Butta cutting · Mill · Receive goods | — | In production → Returned (not Closed) | no |
 | Dhruvil | `/godown/orders` | Orders (godown) · Dispatched · Receive goods · Design library | same 4 | — | At outside weaver, Awaiting goods, In godown, Partly dispatched, Dispatched, Returned (status visibility only; godown screens are not filtered by status) | no |
+| Yarn inventory supervisor (Sprint 20) | `/yarn` | Yarn inventory · Yarn PO | Yarn inventory · Yarn PO | — | none | no |
 
 **Never sees**
 
@@ -38,8 +39,9 @@ into **More**.
 | Supervisor | Client, broker, phone, rate; Pending (not sent) jobsheets; orders without the Production step; orders after Taka entry done in his Orders list; held / closed orders; masters; butta / mill / godown / dispatch / inventory; yarn rates and amounts |
 | Taka entry | Client, rate, all order screens; masters; jobsheet details beyond order number; held / closed orders' jobsheets |
 | QC | Client, rate; order screens; any list (only a taka-number box); held orders |
-| Godown supervisor | Client, broker, phone, rate (orders, challans, Receive goods, yarn PO amounts); Jobsheets tab and Order details tab; orders with no takas; held / closed orders; dispatch; inventory; masters |
+| Godown supervisor | Client, broker, phone, rate (orders, challans, Receive goods); Jobsheets tab and Order details tab; orders with no takas; held / closed orders; dispatch; inventory; masters; the whole yarn area (Sprint 20) |
 | Dhruvil | Inventory module (only free stock inside the Add-from-free-stock dialog); Orders module (Jenish's); butta / mill / QC screens; masters except the view-only Design library; held orders; closed orders in godown lists |
+| Yarn inventory supervisor | Everything outside yarn; Yarn PO create / edit / close / cancel / print; rates and amounts; creating TFO programs / warping jobs; manual add / remove; masters (only the ➕ quick add of a warping quality on Stop / Mark done) |
 
 ---
 
@@ -158,13 +160,16 @@ into **More**.
 ### Yarn
 | Op | Description | J | G | S | T | Q | GS | D |
 |---|---|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
-| YPO-01, YPO-04 | Yarn PO list / details (rates hidden for S, GS) | ✅ | ✅ | 👁 | ✖ | ✖ | 👁 | ✖ |
-| YPO-02, YPO-03, YPO-06..08 | Create / edit / close / cancel / print | ✅ | ✅ | ✖ | ✖ | ✖ | ✖ | ✖ |
-| YPO-05 | Receive yarn challan into a zone | ✅ | ✅ | ✅ | ✖ | ✖ | ✅ | ✖ |
-| YRN-01..03, YRN-06, YRN-09 | Yarn summary, zones, movements, TFO board, history | ✅ | ✅ | ✅ | ✖ | ✖ | ✅ | ✖ |
-| YRN-04, YRN-05 | Transfer / withdraw | ✅ | ✅ | ✅ | ✖ | ✖ | ✅ | ✖ |
-| YRN-07, YRN-08 | Start / stop TFO program | ✅ | ✅ | ✅ | ✖ | ✖ | ✅ | ✖ |
-| YRN-10, YRN-11 | Start warping / mark done | ✅ | ✅ | ✅ | ✖ | ✖ | ✅ | ✖ |
+| YPO-01, YPO-04 | Yarn PO list / details (rates hidden for S, Y) | ✅ | ✅ | 👁 | 👁 | ✖ | ✖ | ✖ | ✖ |
+| YPO-02, YPO-03, YPO-06..08 | Create / edit / close / cancel / print | ✅ | ✅ | ✖ | ✖ | ✖ | ✖ | ✖ | ✖ |
+| YPO-05 | Receive yarn challan into a zone | ✅ | ✅ | ✅ | ✅ | ✖ | ✖ | ✖ | ✖ |
+| YRN-01..03, YRN-06, YRN-09 | Yarn summary, zones, movements, TFO board, history | ✅ | ✅ | ✅ | ✅ | ✖ | ✖ | ✖ | ✖ |
+| YRN-04, YRN-05 | Transfer / withdraw | ✅ | ✅ | ✅ | ✅ | ✖ | ✖ | ✖ | ✖ |
+| YRN-07, YRN-08 | Start / stop TFO program | ✅ | ✅ | ✅ | ✅ | ✖ | ✖ | ✖ | ✖ |
+| YRN-10, YRN-11 | Start warping / mark done | ✅ | ✅ | ✅ | ✅ | ✖ | ✖ | ✖ | ✖ |
+| YRN-20 | Create TFO programs / warping jobs (Pending; reserves stock) — `canPlanYarn` | ✅ | ✅ | ✖ | ✖ | ✖ | ✖ | ✖ | ✖ |
+| YRN-21 | Edit / cancel / start pending programs and jobs; stop with boxes; done with beams | ✅ | ✅ | ✅ | ✅ | ✖ | ✖ | ✖ | ✖ |
+| YRN-22 | Manual add / remove stock — `canAdjustYarnStock` | ✅ | ✅ | ✖ | ✖ | ✖ | ✖ | ✖ | ✖ |
 
 ### Other
 | Op | Description | J | G | S | T | Q | GS | D |
@@ -231,9 +236,13 @@ Generated from `shared/src/roles.ts` by `scratchpad/roles-matrix.mts` (command i
 | `canCloseOrder` | ✅ | ✅ | · | · | · | · | · |
 | `canManageYarnMasters` | ✅ | ✅ | · | · | · | · | · |
 | `canManageYarnPo` | ✅ | ✅ | · | · | · | · | · |
-| `canReceiveYarn` | ✅ | ✅ | ✅ | · | ✅ | · | · |
-| `canViewYarn` | ✅ | ✅ | ✅ | · | ✅ | · | · |
-| `canUseYarnInventory` | ✅ | ✅ | ✅ | · | ✅ | · | · |
+| `canReceiveYarn` | ✅ | ✅ | ✅ | · | · (Sprint 20) | · | · |
+| `canViewYarn` | ✅ | ✅ | ✅ | · | · (Sprint 20) | · | · |
+| `canUseYarnInventory` | ✅ | ✅ | ✅ | · | · (Sprint 20) | · | · |
+| `canPlanYarn` (Sprint 20) | ✅ | ✅ | · | · | · | · | · |
+| `canAdjustYarnStock` (Sprint 20) | ✅ | ✅ | · | · | · | · | · |
+
+The Yarn inventory supervisor (`yarn_supervisor`, Sprint 20) has exactly `canViewYarn`, `canReceiveYarn`, `canUseYarnInventory` — nothing else.
 | `canViewDesignLibrary` | ✅ | ✅ | · | · | · | · | ✅ |
 | `canManageDesigns` | ✅ | ✅ | · | · | · | · | · |
 

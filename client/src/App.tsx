@@ -289,11 +289,11 @@ const router = createBrowserRouter([
           { path: 'dispatched/:orderId', element: guard('canDispatch', <DispatchedOrderPage />) },
           { path: 'dispatched/:orderId/challans/:challanId/gr', element: guard('canGoodsReturn', <GoodsReturnPage />) },
           { path: 'users', element: guard('canManageUsers', <UsersPage />) },
-          // Sprint 17: Yarn inventory (zones, TFO board, warping) — Jenish, Gaurang, both supervisors.
+          // Sprint 17/20: Yarn inventory (zones, TFO, warping) — Jenish, Gaurang, the production supervisor, the Yarn inventory supervisor.
           { path: 'yarn', element: guard('canUseYarnInventory', <YarnInventoryPage />) },
           { path: 'yarn/movements', element: guard('canUseYarnInventory', <YarnMovementsPage />) },
           { path: 'yarn/:zone', element: guard('canUseYarnInventory', <YarnZonePage />) },
-          // Sprint 17: Yarn PO (view: Jenish, Gaurang, both supervisors).
+          // Sprint 17/20: Yarn PO (view: Jenish, Gaurang, the production + Yarn inventory supervisors).
           { path: 'yarn-po', element: guard('canViewYarn', <YarnPoListPage />) },
           { path: 'yarn-po/:id', element: guard('canViewYarn', <YarnPoDetailsPage />) },
           // Sprint 17: yarn masters.

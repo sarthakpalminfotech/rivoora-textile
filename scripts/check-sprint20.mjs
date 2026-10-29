@@ -20,7 +20,7 @@ const check = (ok, what, extra) => {
   if (!ok) failed += 1;
 };
 
-const PHONES = { jemish: '9999999999', gaurang: '8888888888', supervisor: '7777777777', taka: '6666666666', godown: '4444444444' };
+const PHONES = { jemish: '9999999999', gaurang: '8888888888', supervisor: '7777777777', taka: '6666666666', godown: '4444444444', yarn: '2222222222' };
 const sessions = {};
 async function login(who, phone) {
   const res = await fetch(`${base}/api/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone, password: `Rivoora@${phone.slice(0, 3)}` }) });
@@ -52,6 +52,22 @@ async function lotAvail(zone, qualityId, lotId) {
   return { availableG: l?.availableG ?? 0, reservedG: l?.reservedG ?? 0 };
 }
 const boxIn = async (zone, boxNo) => (await ok('jemish', 'GET', `/yarn/boxes?zone=${zone}&search=${encodeURIComponent(boxNo)}`)).find((b) => b.boxNo === boxNo);
+
+// ---------------------------------------------------------------- roles: Yarn inventory supervisor, godown supervisor loses yarn
+check((await call('yarn', 'GET', '/auth/me')).body?.user?.role === 'yarn_supervisor', 'default user 2222222222 is the Yarn inventory supervisor');
+for (const path of ['/yarn/summary', '/yarn-pos', '/yarn/tfo/board', '/yarn/warping/pending']) {
+  check((await call('yarn', 'GET', path)).status === 200, `yarn supervisor opens ${path}`);
+  check((await call('supervisor', 'GET', path)).status === 200, `production supervisor keeps ${path}`);
+  check((await call('godown', 'GET', path)).status === 403, `godown supervisor gets 403 on ${path}`);
+}
+check((await call('godown', 'GET', '/lookup/yarn-qualities')).status === 403, 'godown supervisor: no yarn lookups');
+check((await call('yarn', 'POST', '/yarn-pos', { poDate: today, partyId: 1, lines: [{ qualityId: 1, qtyKg: 1, rate: 1 }] })).status === 403, 'yarn supervisor cannot create POs');
+check((await call('yarn', 'GET', '/yarn-parties')).status === 403, 'yarn supervisor has no masters');
+check((await call('yarn', 'GET', '/orders')).status === 403, 'yarn supervisor has nothing outside yarn (orders 403)');
+check((await call('yarn', 'GET', '/butta/counts')).status === 403, 'yarn supervisor: no butta cutting');
+check((await call('yarn', 'POST', '/yarn/tfo/pending', { programs: [] })).status === 403, 'yarn supervisor cannot create programs');
+check((await call('yarn', 'POST', '/yarn/warping/pending', {})).status === 403, 'yarn supervisor cannot create warping jobs');
+check((await call('godown', 'GET', '/butta/counts')).status === 200, 'godown supervisor keeps Butta cutting');
 
 // ---------------------------------------------------------------- masters + a PO received in 2 lots
 const party = await ok('jemish', 'POST', '/yarn-parties', { name: `S20 Yarns ${tag}` });
@@ -120,8 +136,8 @@ check((await lotAvail('tfo', q75.id, lotBId)).reservedG === 0, 'cancel releases 
 check((await call('supervisor', 'POST', `/yarn/tfo/pending/${p3.id}/start`, { machineId: machine.id, section: 'A' })).status === 409, 'a cancelled program cannot start');
 
 // ---------------------------------------------------------------- start p1 on <machine>A (2A in the spec)
-const run = await ok('supervisor', 'POST', `/yarn/tfo/pending/${created[0].id}/start`, { machineId: machine.id, section: 'A' });
-check(run.status === 'running' && run.lot?.id === lotAId && run.direction === 'SZ', `supervisor starts p1 on ${nextNo}A`, run);
+const run = await ok('yarn', 'POST', `/yarn/tfo/pending/${created[0].id}/start`, { machineId: machine.id, section: 'A' });
+check(run.status === 'running' && run.lot?.id === lotAId && run.direction === 'SZ', `yarn supervisor starts p1 on ${nextNo}A`, run);
 a = await lotAvail('tfo', q75.id, lotAId);
 check(a.reservedG === 80_000 && a.availableG === 100_000, 'start: the reservation became an issue (available unchanged)', a);
 check((await call('supervisor', 'POST', `/yarn/tfo/pending/${created[1].id}/start`, { machineId: machine.id, section: 'A' })).status === 409, 'second program on a busy section → 409');
@@ -210,7 +226,7 @@ check((await lotAvail('warping', q75.id, lotAId)).reservedG === 55_000, 'cancel 
 const pend = await ok('supervisor', 'GET', '/yarn/warping/pending');
 check(pend.some((j) => j.id === job1.id) && !pend.some((j) => j.id === job2.id), 'pending list: job 1, not the cancelled one');
 
-const started = await ok('supervisor', 'POST', `/yarn/warping/pending/${job1.id}/start`);
+const started = await ok('yarn', 'POST', `/yarn/warping/pending/${job1.id}/start`);
 check(started.status === 'in_process' && started.fullMeter && started.taar === 4800 && started.inputs.length === 2, 'supervisor starts the job → In process (WJ-n)', started);
 w = await lotAvail('warping', q75.id, lotAId);
 check(w.reservedG === 0 && w.availableG === 45_000, 'start: the inputs left Warping stock', w);

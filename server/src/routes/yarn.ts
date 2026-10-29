@@ -40,7 +40,7 @@ import {
 } from '../services/yarn-warping';
 
 /**
- * Sprint 17 — Yarn inventory (`canUseYarnInventory`: Jenish, Gaurang, the Supervisor, the Godown supervisor — all may
+ * Sprint 17/20 — Yarn inventory (`canUseYarnInventory`: Jenish, Gaurang, the production + Yarn inventory supervisors — all may
  * transfer, withdraw, run TFO programs and warping). Not linked to orders, so the hold guard never applies.
  */
 export const yarnRouter = Router();

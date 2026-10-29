@@ -10,6 +10,8 @@ import {
   stopTotals,
   validateStopBox,
 } from './yarn';
+import { switchableRoles } from './auth';
+import { can, ROLES } from './roles';
 import { tfoPendingProgramsCreateSchema, tfoProgramStopSchema, warpingJobDoneSchema, warpingPendingJobSchema } from './yarnSchemas';
 
 /** Sprint 20 — lots, boxes, pending programs / jobs (pure rules). */
@@ -106,5 +108,29 @@ describe('warping: pending jobs and beams', () => {
     expect(validateBeam({ ...b, beamCode: ' ' })).toBe('code');
     expect(warpingJobDoneSchema.safeParse({ beams: [b, { ...b, beamCode: 'b-1 ' }] }).success).toBe(false);
     expect(warpingJobDoneSchema.safeParse({ beams: [b, { ...b, beamCode: 'B-2' }] }).success).toBe(true);
+  });
+});
+
+describe('Sprint 20 roles', () => {
+  const YARN_PERMS = ['canViewYarn', 'canReceiveYarn', 'canUseYarnInventory', 'canPlanYarn', 'canManageYarnPo', 'canManageYarnMasters'] as const;
+  const yarnRights = (role: Parameters<typeof can>[0]) => YARN_PERMS.filter((p) => can(role, p));
+  it('Yarn inventory supervisor: the yarn floor only, landing /yarn, English', () => {
+    expect(yarnRights('yarn_supervisor')).toEqual(['canViewYarn', 'canReceiveYarn', 'canUseYarnInventory']);
+    expect(ROLES.yarn_supervisor.landing).toBe('/yarn');
+    expect(ROLES.yarn_supervisor.bilingual).toBeFalsy();
+    const others = (Object.keys(ROLES.yarn_supervisor.permissions) as (keyof typeof ROLES.yarn_supervisor.permissions)[]).filter(
+      (p) => ROLES.yarn_supervisor.permissions[p] && !YARN_PERMS.includes(p as (typeof YARN_PERMS)[number]),
+    );
+    expect(others).toEqual([]);
+    expect(can('yarn_supervisor', 'canSeeRate')).toBe(false);
+  });
+  it('production supervisor = the same yarn rights; godown supervisor = none; owners plan too', () => {
+    expect(yarnRights('supervisor')).toEqual(yarnRights('yarn_supervisor'));
+    expect(yarnRights('godown_supervisor')).toEqual([]);
+    expect(yarnRights('jemish')).toEqual([...YARN_PERMS]);
+    expect(yarnRights('gaurang')).toEqual([...YARN_PERMS]);
+  });
+  it('the owners can act as the new role', () => {
+    expect(switchableRoles('jemish')).toContain('yarn_supervisor');
   });
 });
