@@ -684,8 +684,8 @@ export type QcNewDamageInput = z.input<typeof qcNewDamageSchema>;
 
 /** Goods return: the same, but the damage type is optional (saved as "Damage type not marked" when empty). */
 export const grDamageSchema = z.union([
-  z.object({ type: damageTypeOptional, damageId: z.number().int().positive(), pcs: damagePcs, images: damageImages }).strict(),
-  z.object({ type: damageTypeOptional, otherName: otherDamageName, pcs: damagePcs, images: damageImages }).strict(),
+  z.object({ type: damageTypeOptional, damageId: z.number().int().positive(), pcs: damagePcs, meters: damageMeters, images: damageImages }).strict(),
+  z.object({ type: damageTypeOptional, otherName: otherDamageName, pcs: damagePcs, meters: damageMeters, images: damageImages }).strict(),
 ]);
 export type GrDamageInput = z.input<typeof grDamageSchema>;
 

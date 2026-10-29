@@ -186,7 +186,16 @@ describe('mark as fresh', () => {
         { pcs: 3, resolvedPcs: 0, status: 'open' },
         { pcs: 4, resolvedPcs: 4, status: 'resolved' },
       ]),
-    ).toEqual({ resolved: 2, openPcsBefore: 6, openPcsAfter: 0 });
+    ).toEqual({ resolved: 2, openPcsBefore: 6, openPcsAfter: 0, openMetersBefore: 0, openMetersAfter: 0 });
+  });
+
+  it('resolves a meter order damage in metres instead', () => {
+    expect(
+      markFreshResult([
+        { pcs: null, meters: 5, resolvedMeters: 2, resolvedPcs: 0, status: 'open' },
+        { pcs: null, meters: 3, resolvedMeters: 0, resolvedPcs: 0, status: 'open' },
+      ]),
+    ).toEqual({ resolved: 2, openPcsBefore: 0, openPcsAfter: 0, openMetersBefore: 6, openMetersAfter: 0 });
   });
 });
 

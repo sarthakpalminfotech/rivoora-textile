@@ -109,6 +109,11 @@ export function lumpGrDamagePcsOk(takaPcs: number | null, damagePcs: number): bo
   return Number.isInteger(damagePcs) && damagePcs >= 1 && (takaPcs === null || damagePcs <= takaPcs);
 }
 
+/** Sprint 19: the meter twin of `lumpGrDamagePcsOk` — a meter order's lump GR (meter orders are always lump). */
+export function lumpGrDamageMetersOk(takaMeters: number | null, damageMeters: number): boolean {
+  return Number.isFinite(damageMeters) && damageMeters > 0 && (takaMeters === null || damageMeters <= takaMeters);
+}
+
 export function orderTypeUsesTakaNumbers(orderType: OrderType): boolean {
   return orderType === 'lump';
 }
@@ -141,12 +146,19 @@ export function moveTotals(takas: readonly { pcs: number | null; actualPcs: numb
 /* Mark as fresh                                                        */
 /* ------------------------------------------------------------------ */
 
-/** Mark as fresh resolves EVERY open damage in full: the open pcs of each damage drop to 0. */
-export function markFreshResult(damages: readonly { pcs: number | null; resolvedPcs: number; status: string }[]): { resolved: number; openPcsBefore: number; openPcsAfter: number } {
+/**
+ * Mark as fresh resolves EVERY open damage in full: the open pcs (or, for a meter-order damage — `pcs` null,
+ * `meters` set — the open metres) of each damage drop to 0.
+ */
+export function markFreshResult(
+  damages: readonly { pcs: number | null; resolvedPcs: number; meters?: number | null; resolvedMeters?: number; status: string }[],
+): { resolved: number; openPcsBefore: number; openPcsAfter: number; openMetersBefore: number; openMetersAfter: number } {
   const open = damages.filter((d) => d.status === 'open');
   return {
     resolved: open.length,
-    openPcsBefore: open.reduce((n, d) => n + Math.max((d.pcs ?? 0) - d.resolvedPcs, 0), 0),
+    openPcsBefore: open.reduce((n, d) => n + (d.pcs != null ? Math.max(d.pcs - d.resolvedPcs, 0) : 0), 0),
     openPcsAfter: 0,
+    openMetersBefore: Math.round(open.reduce((n, d) => n + (d.pcs == null && d.meters != null ? Math.max(d.meters - (d.resolvedMeters ?? 0), 0) : 0), 0) * 100) / 100,
+    openMetersAfter: 0,
   };
 }

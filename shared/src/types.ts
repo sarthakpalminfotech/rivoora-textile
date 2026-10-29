@@ -1654,6 +1654,8 @@ export interface DispatchChallanDetail {
     orderId: number;
     orderNo: number;
     orderType: OrderType;
+    /** Sprint 19: a meter order's Goods return screen shows metres instead of pcs. */
+    unit: Unit;
     blouseOption: BlouseOption | null;
     status: OrderStatusKey;
     quality: string | null;

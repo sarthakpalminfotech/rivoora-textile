@@ -9,12 +9,14 @@ import {
   dispatchSchema,
   dispatchTotals,
   goodsReturnSchema,
+  lumpGrDamageMetersOk,
   lumpGrDamagePcsOk,
   lumpRevisionTakas,
   parseDispatchChallanNo,
   printTakaNo,
   reducePcsAcrossRows,
   returnLot,
+  takaActualMeters,
   takaActualPcs,
   validatePcsGr,
   GR_ERROR_TEXT,
@@ -86,7 +88,7 @@ export async function createDispatch(role: RoleKey, orderId: number, input: unkn
     const [order] = await tx.select({ id: orders.id }).from(orders).where(eq(orders.id, orderId));
     if (!order) throw notFound('Order');
     const ready = await tx
-      .select({ id: takas.id, takaNo: takas.takaNo, meters: takas.meters, pcs: takas.pcs, actualPcs: takas.actualPcs })
+      .select({ id: takas.id, takaNo: takas.takaNo, meters: takas.meters, pcs: takas.pcs, actualPcs: takas.actualPcs, actualMeters: takas.actualMeters })
       .from(takas)
       .innerJoin(jobsheets, eq(jobsheets.id, takas.jobsheetId))
       .where(and(takaInOrder(orderId), eq(takas.stage, 'ready_dispatch'), eq(takas.isDeleted, false), eq(jobsheets.isDeleted, false)));
@@ -111,7 +113,8 @@ export async function createDispatch(role: RoleKey, orderId: number, input: unkn
         updatedAt: at,
       })
       .returning({ id: dispatchChallans.id });
-    const rows = ready.map((t) => ({ takaId: t.id, takaNo: t.takaNo, meters: t.meters, pcs: takaActualPcs(t) ?? 0 }));
+    // Sprint 19: the dispatch snapshot uses the ACTUAL quantity — a godown metres edit must be reflected here too.
+    const rows = ready.map((t) => ({ takaId: t.id, takaNo: t.takaNo, meters: takaActualMeters(t), pcs: takaActualPcs(t) ?? 0 }));
     for (const part of chunk(rows, 100)) {
       await tx.insert(dispatchChallanTakas).values(part.map((r) => ({ challanId: challan.id, ...r, createdAt: at })));
     }
@@ -157,6 +160,7 @@ export async function getDispatchChallan(id: number): Promise<DispatchChallanDet
         orderId: orders.id,
         orderNo: orders.orderNo,
         orderType: orders.orderType,
+        unit: orders.unit,
         blouseOption: orders.blouseOption,
         orderStatus: orders.status,
         quality: materials.name,
@@ -209,6 +213,7 @@ export async function getDispatchChallan(id: number): Promise<DispatchChallanDet
       orderId: row.orderId,
       orderNo: row.orderNo,
       orderType: row.orderType,
+      unit: row.unit,
       blouseOption: row.blouseOption,
       status: row.orderStatus as OrderStatusKey,
       quality: row.quality,
@@ -433,21 +438,36 @@ export async function createGoodsReturn(role: RoleKey, challanId: number, input:
       const onChallan = new Map(rows.map((r) => [r.takaId, r]));
       for (const id of ids) if (!onChallan.has(id)) throw badRequest('One of the returned takas is not on this challan.');
       const takaInfo = new Map(
-        (await tx.select({ id: takas.id, stage: takas.stage, orderId: takas.orderId, pcs: takas.pcs, actualPcs: takas.actualPcs }).from(takas).where(inArray(takas.id, ids))).map((t) => [t.id, t]),
+        (
+          await tx
+            .select({ id: takas.id, stage: takas.stage, orderId: takas.orderId, pcs: takas.pcs, actualPcs: takas.actualPcs, meters: takas.meters, actualMeters: takas.actualMeters })
+            .from(takas)
+            .where(inArray(takas.id, ids))
+        ).map((t) => [t.id, t]),
       );
       for (const [i, r] of data.returns.entries()) {
         const row = onChallan.get(r.takaId)!;
         const info = takaInfo.get(r.takaId);
         if (!info || info.stage !== 'dispatched') throw conflict(`Taka ${row.takaNo} is no longer dispatched. Refresh and try again.`);
-        const max = row.pcs ?? takaActualPcs(info) ?? 9999;
-        r.damages.forEach((d, j) => {
-          // Sprint 19: GR for meter orders is not wired up yet (dispatch is pcs-only so far) — pcs is always present here.
-          if (!lumpGrDamagePcsOk(max, d.pcs ?? 0)) throw badRequest(`A damage can't have more pcs than the taka (${max}).`, `returns.${i}.damages.${j}.pcs`);
-        });
-        assertNewDamages(r.damages, max, `returns.${i}.damages`);
+        // Sprint 19: a meter order's returned taka carries row.meters (its pcs stays null) — bound the damage in metres.
+        const meterTaka = row.pcs == null && row.meters != null;
+        if (meterTaka) {
+          const maxM = row.meters ?? takaActualMeters(info) ?? 9999;
+          r.damages.forEach((d, j) => {
+            if (!lumpGrDamageMetersOk(maxM, d.meters ?? 0)) throw badRequest(`A damage can't have more metres than the taka (${maxM} m).`, `returns.${i}.damages.${j}.meters`);
+          });
+          assertNewDamages(r.damages, Number.MAX_SAFE_INTEGER, `returns.${i}.damages`);
+        } else {
+          const max = row.pcs ?? takaActualPcs(info) ?? 9999;
+          r.damages.forEach((d, j) => {
+            if (!lumpGrDamagePcsOk(max, d.pcs ?? 0)) throw badRequest(`A damage can't have more pcs than the taka (${max}).`, `returns.${i}.damages.${j}.pcs`);
+          });
+          assertNewDamages(r.damages, max, `returns.${i}.damages`);
+        }
       }
       for (const [i, r] of data.returns.entries()) {
         const row = onChallan.get(r.takaId)!;
+        const meterTaka = row.pcs == null && row.meters != null;
         const moved = await tx
           .update(takas)
           .set({
@@ -461,14 +481,16 @@ export async function createGoodsReturn(role: RoleKey, challanId: number, input:
           .where(and(eq(takas.id, r.takaId), eq(takas.stage, 'dispatched')))
           .returning({ id: takas.id });
         if (!moved.length) throw conflict(`Taka ${row.takaNo} changed meanwhile. Refresh and try again.`);
-        const damaged = r.damages.reduce((n, d) => n + (d.pcs ?? 0), 0);
-        events.push({ takaId: r.takaId, event: 'goods_returned', dispatchChallanId: challanId, note: `Returned from ${label}${damaged ? ` · ${damaged} pcs damaged` : ''} · now free stock` });
+        const damagedP = r.damages.reduce((n, d) => n + (d.pcs ?? 0), 0);
+        const damagedM = Math.round(r.damages.reduce((n, d) => n + (d.meters ?? 0), 0) * 100) / 100;
+        const damagedNote = meterTaka ? (damagedM ? ` · ${damagedM} m damaged` : '') : damagedP ? ` · ${damagedP} pcs damaged` : '';
+        events.push({ takaId: r.takaId, event: 'goods_returned', dispatchChallanId: challanId, note: `Returned from ${label}${damagedNote} · now free stock` });
         events.push(...(await addNewDamages(tx, role, r.takaId, r.damages, 'goods_return', at, `returns.${i}.damages`)));
         touched.push(r.takaId);
         returnedTakas += 1;
         returnedPcs += row.pcs ?? 0;
-        damagedPcs += damaged;
-        returnedForGr.push({ takaId: r.takaId, pcs: row.pcs, damagedPcs: damaged });
+        damagedPcs += meterTaka ? 0 : damagedP;
+        returnedForGr.push({ takaId: r.takaId, pcs: row.pcs, damagedPcs: damagedP });
       }
       remaining = lumpRevisionTakas(
         rows.map((r) => ({ id: r.takaId, takaId: r.takaId, takaNo: r.takaNo, meters: r.meters, pcs: r.pcs })),

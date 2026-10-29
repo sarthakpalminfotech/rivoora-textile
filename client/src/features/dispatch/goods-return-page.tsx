@@ -19,7 +19,7 @@ import { DamageDialog, entryLabel, grEntryPayload, nextEntryKey, type DamageEntr
 import { useDispatchChallan, useGoodsReturn } from './api';
 
 /** Where the damage popup was opened from: a lump taka, or the one damage of a pcs-to-pcs return. */
-type DamageTarget = { type: 'taka'; takaId: number; takaNo: string; pcs: number | null } | { type: 'pcs' } | null;
+type DamageTarget = { type: 'taka'; takaId: number; takaNo: string; pcs: number | null; meters: number | null } | { type: 'pcs' } | null;
 
 function TakaDamageChips({ entries, onRemove }: { entries: DamageEntry[]; onRemove: (key: number) => void }) {
   return (
@@ -41,6 +41,7 @@ function Form({ challan }: { challan: DispatchChallanDetail }) {
   const navigate = useNavigate();
   const save = useGoodsReturn(challan.id);
   const lump = challan.order.orderType === 'lump';
+  const meterOrder = challan.order.unit === 'meters';
   const [returned, setReturned] = useState<Set<number>>(new Set());
   const [damages, setDamages] = useState<Record<number, DamageEntry[]>>({});
   const [returnedPcs, setReturnedPcs] = useState('');
@@ -61,8 +62,12 @@ function Form({ challan }: { challan: DispatchChallanDetail }) {
     return e === 'damage_missing' ? null : e; // the damage name is asked for in the confirm step button state
   }, [lump, returnedPcs, damagedPcs, challanPcs, rp, dp, pcsDamage]);
 
-  const lumpDamagedPcs = [...returned].reduce((n, id) => n + (damages[id] ?? []).reduce((m, e) => m + (e.pcs ?? 0), 0), 0);
-  const lumpReturnedPcs = challan.takas.filter((t) => returned.has(t.takaId)).reduce((n, t) => n + (t.pcs ?? 0), 0);
+  const lumpDamagedPcs = meterOrder
+    ? Math.round([...returned].reduce((n, id) => n + (damages[id] ?? []).reduce((m, e) => m + (e.meters ?? 0), 0), 0) * 100) / 100
+    : [...returned].reduce((n, id) => n + (damages[id] ?? []).reduce((m, e) => m + (e.pcs ?? 0), 0), 0);
+  const lumpReturnedPcs = meterOrder
+    ? Math.round(challan.takas.filter((t) => returned.has(t.takaId)).reduce((n, t) => n + (t.meters ?? 0), 0) * 100) / 100
+    : challan.takas.filter((t) => returned.has(t.takaId)).reduce((n, t) => n + (t.pcs ?? 0), 0);
 
   const toggle = (takaId: number, on: boolean) => {
     setReturned((prev) => {
@@ -79,7 +84,7 @@ function Form({ challan }: { challan: DispatchChallanDetail }) {
 
   const body = (): GoodsReturnInput =>
     lump
-      ? { returns: [...returned].map((takaId) => ({ takaId, damages: (damages[takaId] ?? []).map((e) => grEntryPayload(e)) })), date, note }
+      ? { returns: [...returned].map((takaId) => ({ takaId, damages: (damages[takaId] ?? []).map((e) => grEntryPayload(e, meterOrder)) })), date, note }
       : { returnedPcs: rp, damagedPcs: dp, ...(dp > 0 && pcsDamage ? { damage: grEntryPayload(pcsDamage) } : {}), date, note };
 
   const submit = () => {
@@ -106,7 +111,8 @@ function Form({ challan }: { challan: DispatchChallanDetail }) {
         </p>
         <h1 className="text-2xl font-extrabold tracking-tight text-slate-900">Goods return · {challan.label}</h1>
         <p className="mt-0.5 text-sm tabular-nums text-slate-500">
-          {challan.totals.takas} {challan.totals.takas === 1 ? 'taka' : 'takas'} · {challanPcs.toLocaleString('en-IN')} pcs on the challan
+          {challan.totals.takas} {challan.totals.takas === 1 ? 'taka' : 'takas'} ·{' '}
+          {meterOrder ? challan.totals.meters.toLocaleString('en-IN', { maximumFractionDigits: 2 }) : challanPcs.toLocaleString('en-IN')} {meterOrder ? 'm' : 'pcs'} on the challan
         </p>
       </section>
 
@@ -124,12 +130,11 @@ function Form({ challan }: { challan: DispatchChallanDetail }) {
                     <div className="min-w-0 flex-1">
                       <p className="text-xl font-bold tabular-nums text-slate-900">{t.takaNo}</p>
                       <p className="text-xs tabular-nums text-slate-500">
-                        {t.meters != null ? `${t.meters.toFixed(2)} m · ` : ''}
-                        {t.pcs ?? '—'} pcs
+                        {meterOrder ? `${t.meters != null ? t.meters.toFixed(2) : '—'} m` : `${t.meters != null ? `${t.meters.toFixed(2)} m · ` : ''}${t.pcs ?? '—'} pcs`}
                       </p>
                     </div>
                     {on && (
-                      <Button variant="secondary" className="h-11" onClick={() => setTarget({ type: 'taka', takaId: t.takaId, takaNo: t.takaNo, pcs: t.pcs })}>
+                      <Button variant="secondary" className="h-11" onClick={() => setTarget({ type: 'taka', takaId: t.takaId, takaNo: t.takaNo, pcs: t.pcs, meters: t.meters })}>
                         <TriangleAlert className="text-red-600" /> Damaged
                       </Button>
                     )}
@@ -199,10 +204,19 @@ function Form({ challan }: { challan: DispatchChallanDetail }) {
         takaLabel={target?.type === 'taka' ? `Taka ${target.takaNo}` : `${challan.label} return`}
         typeOptional
         takaPcs={target?.type === 'taka' ? target.pcs : dp > 0 ? dp : null}
+        meterOrder={target?.type === 'taka' && meterOrder}
+        takaMeters={target?.type === 'taka' ? target.meters : null}
         value={null}
         allowImages
         onConfirm={(v) => {
-          const entry: DamageEntry = { key: nextEntryKey(), foundAt: v.type, choice: v.choice, pcs: target?.type === 'pcs' ? dp : v.pcs, images: v.images };
+          const entry: DamageEntry = {
+            key: nextEntryKey(),
+            foundAt: v.type,
+            choice: v.choice,
+            pcs: target?.type === 'pcs' ? dp : v.pcs,
+            meters: v.meters,
+            images: v.images,
+          };
           if (target?.type === 'taka') setDamages((d) => ({ ...d, [target.takaId]: [...(d[target.takaId] ?? []), entry] }));
           else setPcsDamage(entry);
         }}
@@ -234,11 +248,11 @@ function Form({ challan }: { challan: DispatchChallanDetail }) {
               <dd className="text-2xl font-bold tabular-nums text-slate-900">{lump ? returned.size : 1}</dd>
             </div>
             <div>
-              <dt className="text-[12px] text-muted-foreground">Returned pcs</dt>
+              <dt className="text-[12px] text-muted-foreground">Returned {meterOrder ? 'metres' : 'pcs'}</dt>
               <dd className="text-2xl font-bold tabular-nums text-slate-900">{lump ? lumpReturnedPcs : rp}</dd>
             </div>
             <div>
-              <dt className="text-[12px] text-muted-foreground">Damaged pcs</dt>
+              <dt className="text-[12px] text-muted-foreground">Damaged {meterOrder ? 'metres' : 'pcs'}</dt>
               <dd className={cn('text-2xl font-bold tabular-nums', (lump ? lumpDamagedPcs : dp) > 0 ? 'text-red-600' : 'text-slate-900')}>{lump ? lumpDamagedPcs : dp}</dd>
             </div>
           </dl>
