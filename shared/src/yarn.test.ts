@@ -202,9 +202,10 @@ describe('TFO programs', () => {
     expect(b.get(balanceKey('tfo', 'twisted', 2))).toBe(48_200);
   });
 
-  it('stop schema: returned is optional', () => {
-    expect(tfoProgramStopSchema.parse({ twistedKg: 48.2 }).returnedRawKg).toBe(0);
-    expect(() => tfoProgramStopSchema.parse({ twistedKg: 1.2345 })).toThrow();
+  it('stop schema (Sprint 20 boxes): returned is optional, kg keep 3 decimals', () => {
+    const box = { boxNo: 'B1', rolls: 4, grossKg: 50, netKg: 48.2, avgKg: 12.05 };
+    expect(tfoProgramStopSchema.parse({ warpingQualityId: 1, boxes: [box] }).returnedRawKg).toBe(0);
+    expect(() => tfoProgramStopSchema.parse({ warpingQualityId: 1, boxes: [{ ...box, netKg: 1.2345 }] })).toThrow();
   });
 });
 

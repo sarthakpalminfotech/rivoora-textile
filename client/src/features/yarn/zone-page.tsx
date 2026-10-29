@@ -7,13 +7,15 @@ import { ErrorState } from '@/components/list-parts';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Skeleton } from '@/components/ui/skeleton';
+import { useRole } from '@/hooks/useRole';
 import { formatDate } from '@/lib/format';
+import { cn } from '@/lib/utils';
 import { useYarnZone } from './api';
 import { MovementsSection } from './movements';
 import { BackLink, Kg, Section, ZONE_ICON } from './parts';
-import { TfoBoardSection } from './tfo-board';
+import { TfoProgramsSection } from './tfo-board';
 import { WarpingJobsSection } from './warping';
-import { ZoneActionDialogs, type ZoneAction } from './zone-actions';
+import { ZoneActionDialogs, zoneMainAction, type ZoneAction } from './zone-actions';
 
 function BeamsList({ beams }: { beams: Beam[] }) {
   if (!beams.length) return <EmptyState icon={Cylinder} title="No beams here" description="Beams come from finished warping jobs." className="py-8" />;
@@ -76,7 +78,10 @@ export default function YarnZonePage() {
   usePageTitle(c ? c.label : 'Yarn inventory');
   const { data, isPending, isError, error, refetch } = useYarnZone(zone ?? 'direct', !!zone);
   const [action, setAction] = useState<ZoneAction | null>(null);
+  const { can } = useRole();
   if (!zone || !c) return <Navigate to="/yarn" replace />;
+  // TFO: "New programs" sits on the Programs section itself.
+  const main = zone === 'tfo' ? null : zoneMainAction(zone, can);
   const Icon = ZONE_ICON[zone];
 
   return (
@@ -91,13 +96,15 @@ export default function YarnZonePage() {
             <h2 className="truncate text-2xl font-extrabold tracking-tight text-slate-900">{c.label}</h2>
             <p className="truncate text-sm text-slate-600">{c.description}</p>
           </div>
-          <div className="grid w-full grid-cols-2 gap-2 sm:w-auto sm:flex">
-            <Button variant="secondary" className="bg-white" onClick={() => setAction({ kind: 'transfer', zone })}>
+          <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto">
+            <Button variant="secondary" className={main ? 'bg-white' : 'col-span-2 bg-white'} onClick={() => setAction({ kind: 'transfer', zone })}>
               <ArrowLeftRight /> Transfer
             </Button>
-            <Button className="text-white hover:opacity-90" style={{ backgroundColor: c.accent.solid }} onClick={() => setAction({ kind: zone === 'direct' ? 'withdraw' : zone === 'tfo' ? 'program' : 'warping', zone })}>
-              {c.actionLabel}
-            </Button>
+            {main && (
+              <Button className="text-white hover:opacity-90" style={{ backgroundColor: c.accent.solid }} onClick={() => setAction({ kind: main, zone })}>
+                {c.actionLabel}
+              </Button>
+            )}
           </div>
         </div>
         <div className="grid grid-cols-2 divide-x divide-border border-t md:grid-cols-3" style={{ borderColor: c.accent.border }}>
@@ -118,7 +125,7 @@ export default function YarnZonePage() {
         </div>
       </section>
 
-      {zone === 'tfo' && <TfoBoardSection />}
+      {zone === 'tfo' && <TfoProgramsSection />}
       {zone === 'warping' && <WarpingJobsSection />}
 
       {isPending ? (
@@ -152,8 +159,30 @@ export default function YarnZonePage() {
                   ))}
                 </tbody>
               </table>
-            ) : (
+            ) : !data.warpingQualities.length ? (
               <EmptyState icon={Spool} title="No yarn in this zone" description="Receive a challan here, or transfer yarn in from another zone." className="py-8" />
+            ) : null}
+            {data.warpingQualities.length > 0 && (
+              <table className={cn('w-full table-fixed text-sm', data.qualities.length > 0 && 'mt-4')}>
+                <thead className="border-b border-border text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  <tr>
+                    <th className="py-2 text-left">Warping quality (twisted)</th>
+                    <th className="w-[22%] py-2 text-right">Boxes</th>
+                    <th className="w-[28%] py-2 text-right">Twisted</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.warpingQualities.map((w) => (
+                    <tr key={w.quality.id} className="border-b border-border last:border-0">
+                      <td className="truncate py-2.5 font-semibold text-slate-900">{w.quality.name}</td>
+                      <td className="py-2.5 text-right tabular-nums">{w.boxes || <span className="text-slate-300">—</span>}</td>
+                      <td className="py-2.5 text-right">
+                        <Kg g={w.twistedG} className="font-semibold" />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             )}
           </Section>
           {c.hasBeams && (

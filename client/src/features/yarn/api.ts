@@ -8,8 +8,11 @@ import type {
   TfoBoard,
   TfoMachine,
   TfoMachineInput,
+  TfoPendingProgram,
+  TfoPendingProgramInput,
+  TfoPendingProgramsCreateInput,
+  TfoPendingStartInput,
   TfoProgram,
-  TfoProgramStartInput,
   TfoProgramStopInput,
   TfoSection,
   WarpingDoneResult,
@@ -281,7 +284,25 @@ export function useTfoPrograms(machineId: number | undefined, section: TfoSectio
   });
 }
 
-export const useStartProgram = () => useYarnMutation((data: TfoProgramStartInput) => api.post<TfoProgram>('/yarn/tfo/programs', data), { silentFieldErrors: true });
+/** Sprint 20 — pending programs: create (owners), edit / cancel / start (the floor). */
+export const useCreatePendingPrograms = () =>
+  useYarnMutation((data: TfoPendingProgramsCreateInput) => api.post<TfoPendingProgram[]>('/yarn/tfo/pending', data), { silentFieldErrors: true });
+export const useUpdatePendingProgram = (id: number) =>
+  useYarnMutation((data: TfoPendingProgramInput) => api.put<TfoPendingProgram>(`/yarn/tfo/pending/${id}`, data), { silentFieldErrors: true });
+export const useCancelPendingProgram = () => useYarnMutation((id: number) => api.post<{ id: number }>(`/yarn/tfo/pending/${id}/cancel`));
+export const useStartPendingProgram = () =>
+  useYarnMutation(({ id, data }: { id: number; data: TfoPendingStartInput }) => api.post<TfoProgram>(`/yarn/tfo/pending/${id}/start`, data), { silentFieldErrors: true });
+
+/** Sprint 20 — live "box no. is free" check on the Stop screen. */
+export function useCheckBoxNo(boxNo: string, enabled = true) {
+  return useQuery({
+    queryKey: ['yarn', 'box-no-check', boxNo.trim().toLowerCase()],
+    queryFn: ({ signal }) => api.get<{ available: boolean }>('/yarn/boxes/check', { boxNo: boxNo.trim() }, signal),
+    enabled: enabled && boxNo.trim().length > 0,
+    staleTime: 5_000,
+  });
+}
+
 export const useStopProgram = (id: number) =>
   useYarnMutation((data: TfoProgramStopInput) => api.post<TfoProgram>(`/yarn/tfo/programs/${id}/stop`, data), { silentFieldErrors: true });
 

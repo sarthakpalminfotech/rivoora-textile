@@ -104,6 +104,8 @@ export interface RolePermissions {
   canViewYarn: boolean;
   /** Sprint 17: Yarn inventory (`/yarn`): zones, transfer, withdraw, TFO programs, warping. */
   canUseYarnInventory: boolean;
+  /** Sprint 20: create TFO programs and warping jobs (they wait as Pending until someone on the floor starts them). */
+  canPlanYarn: boolean;
   /** Sprint 18: the Design library (/designs: qualities → designs → design), read. */
   canViewDesignLibrary: boolean;
   /** Sprint 18: add / edit / delete designs and Upload many (Jenish + Gaurang). */
@@ -146,6 +148,7 @@ const NO_SPRINT12 = {
   canReceiveYarn: false,
   canViewYarn: false,
   canUseYarnInventory: false,
+  canPlanYarn: false,
   canViewDesignLibrary: false,
   canManageDesigns: false,
 };
@@ -175,6 +178,7 @@ const OWNER_SPRINT12 = {
   canReceiveYarn: true,
   canViewYarn: true,
   canUseYarnInventory: true,
+  canPlanYarn: true,
   // Sprint 18: the design library — both manage designs (add / edit / delete, Upload many).
   canViewDesignLibrary: true,
   canManageDesigns: true,

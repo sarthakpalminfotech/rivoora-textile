@@ -1,5 +1,6 @@
 import { and, desc, eq, inArray, or, sql, type SQL } from 'drizzle-orm';
 import {
+  availableAfterReserved,
   beamLabel,
   kgToGrams,
   kindsForFilters,
@@ -33,9 +34,12 @@ import {
   beamMoves,
   beams,
   tfoMachines,
+  tfoPendingPrograms,
   tfoPrograms,
   users,
   warpingJobs,
+  warpingPendingJobInputs,
+  warpingPendingJobs,
   warpingQualities,
   yarnBoxes,
   yarnLots,
@@ -134,7 +138,7 @@ export async function listBeams(q: { zone?: BeamZone; status?: Beam['status'] })
 }
 
 export async function yarnZone(zone: YarnZone): Promise<YarnZoneData> {
-  const [stocks, qualities, zoneBeams] = await Promise.all([
+  const [stocks, qualities, twistedByWq, boxCounts, zoneBeams] = await Promise.all([
     zoneStocks(db),
     db
       .select({
@@ -147,9 +151,22 @@ export async function yarnZone(zone: YarnZone): Promise<YarnZoneData> {
       })
       .from(yarnStockMoves)
       .innerJoin(yarnQualities, eq(yarnQualities.id, yarnStockMoves.qualityId))
-      .where(eq(yarnStockMoves.zone, zone))
+      // Sprint 20: twisted rows under a warping quality carry the system yarn quality — listed by warping quality below.
+      .where(and(eq(yarnStockMoves.zone, zone), eq(yarnQualities.isSystem, false)))
       .groupBy(yarnQualities.id)
       .orderBy(sql`lower(${yarnQualities.name})`),
+    db
+      .select({ id: warpingQualities.id, name: warpingQualities.name, g: sql<number>`COALESCE(SUM(${yarnStockMoves.qtyG}), 0)` })
+      .from(yarnStockMoves)
+      .innerJoin(warpingQualities, eq(warpingQualities.id, yarnStockMoves.warpingQualityId))
+      .where(and(eq(yarnStockMoves.zone, zone), eq(yarnStockMoves.item, 'twisted')))
+      .groupBy(warpingQualities.id)
+      .orderBy(sql`lower(${warpingQualities.name})`),
+    db
+      .select({ id: yarnBoxes.warpingQualityId, n: sql<number>`COUNT(*)` })
+      .from(yarnBoxes)
+      .where(and(eq(yarnBoxes.zone, zone), eq(yarnBoxes.status, 'in_stock')))
+      .groupBy(yarnBoxes.warpingQualityId),
     YARN_ZONE_CONFIG[zone].hasBeams ? listBeams({ zone: zone as BeamZone }) : Promise.resolve([]),
   ]);
   return {
@@ -158,6 +175,9 @@ export async function yarnZone(zone: YarnZone): Promise<YarnZoneData> {
     qualities: qualities
       .map((q) => ({ quality: { id: q.id, name: q.name, denier: q.denier, filament: q.filament }, rawG: Number(q.rawG), twistedG: Number(q.twistedG) }))
       .filter((q) => q.rawG !== 0 || q.twistedG !== 0),
+    warpingQualities: twistedByWq
+      .map((w) => ({ quality: { id: w.id, name: w.name }, twistedG: Number(w.g), boxes: Number(boxCounts.find((b) => b.id === w.id)?.n ?? 0) }))
+      .filter((w) => w.twistedG !== 0 || w.boxes > 0),
     beams: zoneBeams,
   };
 }
@@ -165,6 +185,16 @@ export async function yarnZone(zone: YarnZone): Promise<YarnZoneData> {
 /* ------------------------------------------------------------------ */
 /* Sprint 20: lots + boxes                                              */
 /* ------------------------------------------------------------------ */
+
+/** GET /yarn/boxes/check — the live "box no. is free" check (unique across ALL boxes, any case). */
+export async function checkBoxNo(boxNo: string): Promise<{ available: boolean }> {
+  const [row] = await db
+    .select({ id: yarnBoxes.id })
+    .from(yarnBoxes)
+    .where(sql`lower(${yarnBoxes.boxNo}) = lower(${boxNo.trim()})`)
+    .limit(1);
+  return { available: !row };
+}
 
 /** GET /yarn/lots/check — the live "lot no. is free for this party" check (lots are never edited or deleted). */
 export async function checkLotNo(partyId: number, lotNo: string): Promise<{ available: boolean }> {
@@ -176,16 +206,39 @@ export async function checkLotNo(partyId: number, lotNo: string): Promise<{ avai
   return { available: !row };
 }
 
-/** GET /yarn/lots — raw lots (+ "No lot") with stock of one quality in one zone, for the lot picker. */
+/** Reserved raw grams per lot (null = "No lot") of one quality in a zone — pending programs (TFO) / jobs (Warping). */
+async function reservedByLot(tx: DbOrTx, zone: YarnZone, qualityId: number): Promise<Map<number | null, number>> {
+  let rows: { lotId: number | null; g: number }[] = [];
+  if (zone === 'tfo') {
+    rows = await tx
+      .select({ lotId: tfoPendingPrograms.lotId, g: sql<number>`COALESCE(SUM(${tfoPendingPrograms.rawG}), 0)` })
+      .from(tfoPendingPrograms)
+      .where(and(eq(tfoPendingPrograms.status, 'pending'), eq(tfoPendingPrograms.rawQualityId, qualityId)))
+      .groupBy(tfoPendingPrograms.lotId);
+  } else if (zone === 'warping') {
+    rows = await tx
+      .select({ lotId: warpingPendingJobInputs.lotId, g: sql<number>`COALESCE(SUM(${warpingPendingJobInputs.qtyG}), 0)` })
+      .from(warpingPendingJobInputs)
+      .innerJoin(warpingPendingJobs, eq(warpingPendingJobs.id, warpingPendingJobInputs.jobId))
+      .where(and(eq(warpingPendingJobs.status, 'pending'), eq(warpingPendingJobInputs.item, 'raw'), eq(warpingPendingJobInputs.qualityId, qualityId)))
+      .groupBy(warpingPendingJobInputs.lotId);
+  }
+  return new Map(rows.map((r) => [r.lotId, Number(r.g)]));
+}
+
+/** GET /yarn/lots — raw lots (+ "No lot") with stock of one quality in one zone, for the lot picker (available = balance − reserved). */
 export async function listLotStock(zone: YarnZone, qualityId: number): Promise<YarnLotStock[]> {
-  const rows = await db
-    .select({
-      lotId: yarnStockMoves.lotId,
-      g: sql<number>`COALESCE(SUM(${yarnStockMoves.qtyG}), 0)`,
-    })
-    .from(yarnStockMoves)
-    .where(and(eq(yarnStockMoves.zone, zone), eq(yarnStockMoves.item, 'raw'), eq(yarnStockMoves.qualityId, qualityId)))
-    .groupBy(yarnStockMoves.lotId);
+  const [rows, reserved] = await Promise.all([
+    db
+      .select({
+        lotId: yarnStockMoves.lotId,
+        g: sql<number>`COALESCE(SUM(${yarnStockMoves.qtyG}), 0)`,
+      })
+      .from(yarnStockMoves)
+      .where(and(eq(yarnStockMoves.zone, zone), eq(yarnStockMoves.item, 'raw'), eq(yarnStockMoves.qualityId, qualityId)))
+      .groupBy(yarnStockMoves.lotId),
+    reservedByLot(db, zone, qualityId),
+  ]);
   const lotIds = rows.map((r) => r.lotId).filter((id): id is number => id !== null);
   const lots = lotIds.length
     ? await db
@@ -198,9 +251,10 @@ export async function listLotStock(zone: YarnZone, qualityId: number): Promise<Y
   return rows
     .map((r): YarnLotStock => {
       const lot = r.lotId === null ? null : byId.get(r.lotId);
-      return { id: r.lotId, lotNo: lot?.lotNo ?? null, partyName: lot?.partyName ?? null, availableG: Number(r.g) };
+      const reservedG = reserved.get(r.lotId) ?? 0;
+      return { id: r.lotId, lotNo: lot?.lotNo ?? null, partyName: lot?.partyName ?? null, availableG: availableAfterReserved(Number(r.g), reservedG), reservedG };
     })
-    .filter((l) => l.availableG > 0)
+    .filter((l) => l.availableG > 0 || l.reservedG > 0)
     .sort((a, b) => (a.id === null ? -1 : b.id === null ? 1 : (a.lotNo ?? '').localeCompare(b.lotNo ?? '')));
 }
 

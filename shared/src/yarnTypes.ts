@@ -229,7 +229,10 @@ export interface YarnLotStock {
   id: number | null;
   lotNo: string | null;
   partyName: string | null;
+  /** Balance minus reservations (pending programs / warping jobs) — what can still be taken. */
   availableG: number;
+  /** Held by pending programs / warping jobs (0 outside TFO / Warping). */
+  reservedG: number;
 }
 
 /** Sprint 20 — a TFO output box, for box pickers and zone stock screens. */
@@ -284,6 +287,8 @@ export interface YarnZoneData {
   stock: YarnZoneStock;
   /** Qualities with stock in this zone (raw or twisted ≠ 0), by name. */
   qualities: YarnQualityStock[];
+  /** Sprint 20: twisted yarn recorded under a warping quality (TFO boxes, manual "No box" additions) + its boxes here. */
+  warpingQualities: { quality: { id: number; name: string }; twistedG: number; boxes: number }[];
   /** In-stock beams of the zone (Direct consumption, Warping), newest first. */
   beams: Beam[];
 }
@@ -312,6 +317,39 @@ export interface TfoProgram {
   twistedMeters: number | null;
   returnedRawG: number | null;
   stopNote: string | null;
+  /** Sprint 20: the raw lot issued (null = "No lot"). */
+  lot: { id: number; lotNo: string; partyName: string } | null;
+  /** Sprint 20: the stop quality (warping quality) of the boxes; null on older programs / while running. */
+  warpingQuality: { id: number; name: string } | null;
+  /** Sprint 20: boxes recorded at stop (empty for older programs). */
+  boxes: TfoProgramBox[];
+}
+
+/** Sprint 20 — one box recorded at a program's stop (`zone` = where it went then; `currentZone` = where it is now). */
+export interface TfoProgramBox {
+  id: number;
+  boxNo: string;
+  rolls: number;
+  grossG: number;
+  netG: number;
+  avgG: number;
+  currentZone: YarnZone;
+}
+
+/** Sprint 20 — a TFO program waiting for a section (its raw kg reserved on its lot). */
+export interface TfoPendingProgram {
+  id: number;
+  rawQuality: { id: number; name: string };
+  lot: { id: number; lotNo: string; partyName: string } | null;
+  rawG: number;
+  outputQuality: { id: number; name: string };
+  windingMeter: number | null;
+  denierFilament: string | null;
+  tpm: number;
+  direction: TwistDirection;
+  note: string | null;
+  createdAt: string;
+  createdBy: YarnActor;
 }
 
 export interface TfoBoardMachine {
@@ -324,8 +362,10 @@ export interface TfoBoardMachine {
 export interface TfoBoard {
   machines: TfoBoardMachine[];
   runningSections: number;
-  /** Raw stock in the TFO zone per quality (for the Assign program dialog). */
-  rawStock: { quality: { id: number; name: string; denier: string | null; filament: string | null }; rawG: number }[];
+  /** Sprint 20: programs waiting for a section, oldest first. */
+  pending: TfoPendingProgram[];
+  /** Raw stock in the TFO zone per quality (for the Create program form): balance, reserved by pending programs, available. */
+  rawStock: { quality: { id: number; name: string; denier: string | null; filament: string | null }; rawG: number; reservedG: number; availableG: number }[];
 }
 
 /* ---------- warping ---------- */

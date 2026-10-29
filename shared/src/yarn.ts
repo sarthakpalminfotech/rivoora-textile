@@ -40,7 +40,7 @@ export const YARN_ZONE_CONFIG: Record<YarnZone, YarnZoneConfig> = {
   tfo: {
     label: 'TFO',
     description: 'Raw yarn twisted on TFO machines',
-    actionLabel: 'Run program',
+    actionLabel: 'New programs',
     hasBeams: false,
     accent: { solid: '#6D28D9', soft: '#F5F3FF', text: '#5B21B6', border: '#DDD6FE' },
   },
@@ -394,6 +394,84 @@ export function programResultLine(p: { rawG: number; twistedG: number | null; re
   if (p.twistedG !== null) parts.push(`twisted ${formatKg(p.twistedG)}`);
   const line = parts.join(' → ');
   return p.returnedG ? `${line} · returned ${formatKg(p.returnedG)}` : line;
+}
+
+/* ---------- Sprint 20: pending programs, reservations, boxes at stop ---------- */
+
+/** The most programs created in one go ("Add another"). */
+export const MAX_PENDING_PROGRAMS = 20;
+/** The most boxes recorded at one stop. */
+export const MAX_BOXES_PER_STOP = 200;
+export const BOX_NO_MAX_LENGTH = 30;
+
+/** Stock you can still take: the balance minus what pending programs / warping jobs have reserved (never below 0). */
+export const availableAfterReserved = (balanceG: number, reservedG: number) => Math.max(0, balanceG - reservedG);
+
+/** "12.5 kg available · reserved 40 kg" — the picker line under a lot / quality. */
+export function availableText(availableG: number, reservedG: number): string {
+  return reservedG > 0 ? `${formatKg(availableG)} available · reserved ${formatKg(reservedG)}` : `${formatKg(availableG)} available`;
+}
+
+/** Where a box goes when its program stops: stays in TFO (default), or straight to Warping / Direct consumption. */
+export const BOX_DESTINATIONS = ['tfo', 'warping', 'direct'] as const;
+export type BoxDestination = (typeof BOX_DESTINATIONS)[number];
+export const BOX_DESTINATION_LABEL: Record<BoxDestination, string> = { tfo: 'Stay in TFO', warping: 'Warping', direct: 'Direct consumption' };
+
+export interface StopBoxLike {
+  boxNo: string;
+  rolls: number;
+  grossG: number;
+  netG: number;
+  avgG: number;
+  zone: BoxDestination;
+}
+
+export type StopBoxError = 'box_no' | 'box_no_repeat' | 'rolls' | 'gross' | 'net' | 'net_over_gross' | 'avg';
+export const STOP_BOX_ERROR_TEXT: Record<StopBoxError, string> = {
+  box_no: 'Enter the box no.',
+  box_no_repeat: 'This box no. is already on this stop',
+  rolls: 'Rolls is a whole number of at least 1',
+  gross: 'Enter the gross wt',
+  net: 'Enter the net wt',
+  net_over_gross: 'Net wt can’t be more than gross wt',
+  avg: 'Enter the avg kg',
+};
+
+/** Box numbers compare without case and outer spaces ("b-12" = "B-12 "). */
+export const boxNoKey = (no: string) => no.trim().toLowerCase();
+
+/** One box at Stop (`others` = the numbers of the boxes before it on the same stop). */
+export function validateStopBox(b: StopBoxLike, others: readonly string[] = []): StopBoxError | null {
+  const no = b.boxNo.trim();
+  if (!no || no.length > BOX_NO_MAX_LENGTH) return 'box_no';
+  if (others.some((o) => boxNoKey(o) === boxNoKey(no))) return 'box_no_repeat';
+  if (!Number.isInteger(b.rolls) || b.rolls < 1) return 'rolls';
+  if (!(b.grossG > 0)) return 'gross';
+  if (!(b.netG > 0)) return 'net';
+  if (b.netG > b.grossG) return 'net_over_gross';
+  if (!(b.avgG > 0)) return 'avg';
+  return null;
+}
+
+/** Live totals of the Stop screen: boxes, rolls, gross, net (= the TFO output) and how many stay in TFO. */
+export function stopTotals(boxes: readonly Pick<StopBoxLike, 'rolls' | 'grossG' | 'netG' | 'zone'>[]) {
+  let rolls = 0;
+  let grossG = 0;
+  let netG = 0;
+  let stayInTfo = 0;
+  for (const b of boxes) {
+    rolls += Number.isFinite(b.rolls) ? b.rolls : 0;
+    grossG += Number.isFinite(b.grossG) ? b.grossG : 0;
+    netG += Number.isFinite(b.netG) ? b.netG : 0;
+    if (b.zone === 'tfo') stayInTfo += 1;
+  }
+  return { boxes: boxes.length, rolls, grossG, netG, stayInTfo };
+}
+
+/** "2 boxes stay in TFO — move them later with Transfer." (null when none stay). */
+export function boxesStayText(n: number): string | null {
+  if (n <= 0) return null;
+  return `${n} ${n === 1 ? 'box stays' : 'boxes stay'} in TFO — move ${n === 1 ? 'it' : 'them'} later with Transfer.`;
 }
 
 /** Sections running out of all sections of the active machines: "3 of 10 running". */

@@ -13,10 +13,12 @@ import { ErrorState } from '@/components/list-parts';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Skeleton } from '@/components/ui/skeleton';
+import { useRole } from '@/hooks/useRole';
+import { cn } from '@/lib/utils';
 import { useYarnSummary } from './api';
 import { MovementList } from './movements';
 import { Kg, ZONE_ICON } from './parts';
-import { ZoneActionDialogs, type ZoneAction } from './zone-actions';
+import { ZoneActionDialogs, zoneMainAction, type ZoneAction } from './zone-actions';
 
 function KpiTile({ label, value, icon: Icon, tone }: { label: string; value: React.ReactNode; icon: typeof Spool; tone?: string }) {
   return (
@@ -46,6 +48,8 @@ function ZonePanel({ stock, summary, onAction }: { stock: YarnZoneStock; summary
   const z = stock.zone;
   const c = YARN_ZONE_CONFIG[z];
   const Icon = ZONE_ICON[z];
+  const { can } = useRole();
+  const main = zoneMainAction(z, can);
   return (
     <section className="flex min-w-0 flex-col overflow-hidden rounded-2xl border bg-white shadow-soft" style={{ borderColor: c.accent.border }}>
       <Link to={`/yarn/${z}`} className="group flex-1 p-4 transition-colors hover:bg-slate-50/60 md:p-3.5 lg:p-5" aria-label={`Open ${c.label}`}>
@@ -72,16 +76,14 @@ function ZonePanel({ stock, summary, onAction }: { stock: YarnZoneStock; summary
         </div>
       </Link>
       <div className="grid grid-cols-2 gap-2 border-t p-3 md:grid-cols-1 lg:grid-cols-2" style={{ borderColor: c.accent.border, backgroundColor: c.accent.soft }}>
-        <Button variant="secondary" className="bg-white" onClick={() => onAction({ kind: 'transfer', zone: z })}>
+        <Button variant="secondary" className={cn('bg-white', !main && 'col-span-2 md:col-span-1 lg:col-span-2')} onClick={() => onAction({ kind: 'transfer', zone: z })}>
           <ArrowLeftRight /> Transfer
         </Button>
-        <Button
-          className="text-white hover:opacity-90"
-          style={{ backgroundColor: c.accent.solid }}
-          onClick={() => onAction({ kind: z === 'direct' ? 'withdraw' : z === 'tfo' ? 'program' : 'warping', zone: z })}
-        >
-          {c.actionLabel}
-        </Button>
+        {main && (
+          <Button className="text-white hover:opacity-90" style={{ backgroundColor: c.accent.solid }} onClick={() => onAction({ kind: main, zone: z })}>
+            {c.actionLabel}
+          </Button>
+        )}
       </div>
     </section>
   );

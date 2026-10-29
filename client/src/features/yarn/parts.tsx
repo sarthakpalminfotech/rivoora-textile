@@ -2,9 +2,11 @@ import { ArrowLeft, Package, Plus, RotateCw, Waves, X, type LucideIcon } from 'l
 import { forwardRef, useMemo, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import {
+  availableText,
   cleanKgText,
   formatKg,
   formatKgNumber,
+  NO_LOT_LABEL,
   YARN_PO_STATUS_CONFIG,
   YARN_ZONE_CONFIG,
   YARN_ZONES,
@@ -18,7 +20,8 @@ import { Input, type InputProps } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { formatMoney } from '@/lib/format';
 import { cn } from '@/lib/utils';
-import { useLotStock, useYarnQualityLookup } from './api';
+import { WarpingQualityFormDialog } from '../masters/yarn/warping-quality-form';
+import { useLotStock, useWarpingQualityLookup, useYarnQualityLookup } from './api';
 
 /** Sprint 17 — small building blocks shared by the yarn screens. */
 
@@ -167,7 +170,8 @@ export function QualitySelect({ value, onChange, id, invalid, placeholder = 'Sel
 
 /**
  * Sprint 20 — the lot picker for raw yarn moves ("No lot" first, then lots by number). `value` is the lot id, or
- * `0` to mean "No lot" (lot ids are never 0).
+ * `0` to mean "No lot" (lot ids are never 0). Shows "available · reserved" (pending programs / warping jobs hold
+ * reserved kg); `own` adds back what the program / job being EDITED reserves itself.
  */
 export function LotSelect({
   zone,
@@ -177,36 +181,96 @@ export function LotSelect({
   invalid,
   disabled,
   className,
+  own,
 }: {
   zone: YarnZone;
   qualityId: number | null;
   value: number;
-  onChange: (lotId: number) => void;
+  onChange: (lotId: number, availableG: number) => void;
   invalid?: boolean;
   disabled?: boolean;
   className?: string;
+  own?: { lotId: number | null; g: number };
 }) {
   const lots = useLotStock(zone, qualityId, !!qualityId);
-  const options = (lots.data ?? []).map((l) => ({
-    value: l.id ?? 0,
-    label: l.id === null ? 'No lot' : l.lotNo!,
-    description: [l.partyName, `${formatKg(l.availableG)} available`].filter(Boolean).join(' · '),
-  }));
+  const options = (lots.data ?? []).map((l) => {
+    const back = own && own.lotId === l.id ? own.g : 0;
+    const availableG = l.availableG + back;
+    const reservedG = Math.max(0, l.reservedG - back);
+    return {
+      value: l.id ?? 0,
+      label: l.id === null ? NO_LOT_LABEL : l.lotNo!,
+      description: [l.partyName, availableText(availableG, reservedG)].filter(Boolean).join(' · '),
+      disabled: availableG <= 0,
+      availableG,
+    };
+  });
   return (
     <Select
       value={value}
-      onChange={onChange}
+      onChange={(v) => onChange(v, options.find((o) => o.value === v)?.availableG ?? 0)}
       options={options}
       placeholder={qualityId ? 'Select lot' : 'Pick a quality first'}
       searchable
       searchPlaceholder="Search lots…"
-      loading={lots.isPending}
+      loading={!!qualityId && lots.isPending}
       emptyText="No stock here"
       invalid={invalid}
       disabled={disabled || !qualityId}
       className={className}
+      panelClassName="min-w-[min(300px,calc(100vw-24px))]"
       aria-label="Lot"
     />
+  );
+}
+
+/** Sprint 20 — the warping quality dropdown (searchable) with a ➕ quick add beside it. */
+export function WarpingQualitySelect({
+  value,
+  onChange,
+  invalid,
+  placeholder = 'Select warping quality',
+  className,
+  selectedLabel,
+  canAdd = true,
+}: {
+  value: number | null;
+  onChange: (id: number, name: string) => void;
+  invalid?: boolean;
+  placeholder?: string;
+  className?: string;
+  selectedLabel?: string;
+  canAdd?: boolean;
+}) {
+  const lookup = useWarpingQualityLookup('');
+  const [adding, setAdding] = useState(false);
+  const options = (lookup.data ?? []).map((q) => ({ value: q.id, label: q.name }));
+  return (
+    <>
+      <Select
+        value={value}
+        onChange={(v, o) => onChange(v, o.label)}
+        options={options}
+        placeholder={placeholder}
+        searchable
+        searchPlaceholder="Search warping qualities…"
+        loading={lookup.isPending}
+        emptyText="No warping qualities yet"
+        invalid={invalid}
+        className={className}
+        selectedLabel={selectedLabel}
+        panelClassName="min-w-[min(300px,calc(100vw-24px))]"
+        aria-label={placeholder}
+        action={
+          canAdd && (
+            <Button variant="secondary" size="icon" className="shrink-0" onClick={() => setAdding(true)} aria-label="Add warping quality" title="Add warping quality">
+              <Plus className="!size-5" />
+            </Button>
+          )
+        }
+      />
+      {canAdd && <WarpingQualityFormDialog open={adding} onOpenChange={setAdding} onSaved={(q) => onChange(q.id, q.name)} />}
+    </>
   );
 }
 

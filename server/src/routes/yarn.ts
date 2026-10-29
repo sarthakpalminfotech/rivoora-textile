@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import {
   beamsQuerySchema,
+  checkBoxNoQuerySchema,
   checkLotNoQuerySchema,
   isYarnZone,
   tfoProgramsQuerySchema,
@@ -12,8 +13,18 @@ import {
 import { notFound } from '../lib/errors';
 import { ah, parseId } from '../lib/http';
 import { requirePermission } from '../middleware/role';
-import { checkLotNo, createTransfer, createWithdrawal, listBeams, listBoxStock, listLotStock, listMoves, yarnSummary, yarnZone } from '../services/yarn-stock';
-import { getProgram, listPrograms, startProgram, stopProgram, tfoBoard } from '../services/yarn-tfo';
+import { checkBoxNo, checkLotNo, createTransfer, createWithdrawal, listBeams, listBoxStock, listLotStock, listMoves, yarnSummary, yarnZone } from '../services/yarn-stock';
+import {
+  cancelPendingProgram,
+  createPendingPrograms,
+  getProgram,
+  listPendingPrograms,
+  listPrograms,
+  startPendingProgram,
+  stopProgram,
+  tfoBoard,
+  updatePendingProgram,
+} from '../services/yarn-tfo';
 import { finishWarpingJob, getWarpingJob, listWarpingJobs, startWarpingJob } from '../services/yarn-warping';
 
 /**
@@ -85,6 +96,15 @@ yarnRouter.get(
   }),
 );
 
+/** Sprint 20 — the live "box no. is free" check, used on the Stop screen. */
+yarnRouter.get(
+  '/boxes/check',
+  ah(async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    res.json(await checkBoxNo(checkBoxNoQuerySchema.parse(req.query).boxNo));
+  }),
+);
+
 yarnRouter.post(
   '/transfers',
   ah(async (req, res) => {
@@ -125,10 +145,42 @@ yarnRouter.get(
   }),
 );
 
+/* Sprint 20 — pending programs: owners create (`canPlanYarn`); the floor edits / cancels / starts. */
+
+yarnRouter.get(
+  '/tfo/pending',
+  ah(async (_req, res) => {
+    res.set('Cache-Control', 'no-store');
+    res.json(await listPendingPrograms());
+  }),
+);
+
 yarnRouter.post(
-  '/tfo/programs',
+  '/tfo/pending',
+  requirePermission('canPlanYarn'),
   ah(async (req, res) => {
-    res.status(201).json(await startProgram(req.role, req.body));
+    res.status(201).json(await createPendingPrograms(req.role, req.body));
+  }),
+);
+
+yarnRouter.put(
+  '/tfo/pending/:id',
+  ah(async (req, res) => {
+    res.json(await updatePendingProgram(req.role, parseId(req.params.id), req.body));
+  }),
+);
+
+yarnRouter.post(
+  '/tfo/pending/:id/cancel',
+  ah(async (req, res) => {
+    res.json(await cancelPendingProgram(req.role, parseId(req.params.id)));
+  }),
+);
+
+yarnRouter.post(
+  '/tfo/pending/:id/start',
+  ah(async (req, res) => {
+    res.status(201).json(await startPendingProgram(req.role, parseId(req.params.id), req.body));
   }),
 );
 

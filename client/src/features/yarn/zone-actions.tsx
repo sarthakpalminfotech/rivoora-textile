@@ -1,16 +1,17 @@
 import { useRef } from 'react';
-import type { YarnZone } from '@rivoora/shared';
-import { useTfoBoard } from './api';
+import type { RolePermissions, YarnZone } from '@rivoora/shared';
 import { TransferDialog, WithdrawDialog } from './stock-dialogs';
-import { AssignProgramDialog } from './tfo-board';
+import { CreateProgramsDialog } from './tfo-board';
 import { StartWarpingDialog } from './warping';
 
-/** The two buttons of every zone: Transfer, and Withdraw / Run program / Start warping. */
+/** The two buttons of every zone: Transfer, and Withdraw / New programs / Start warping. */
 export type ZoneAction = { kind: 'transfer' | 'withdraw' | 'program' | 'warping'; zone: YarnZone };
 
-function RunProgram({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const board = useTfoBoard();
-  return <AssignProgramDialog open={open} onOpenChange={(o) => !o && onClose()} target={null} board={board.data} />;
+/** The zone's second action. Sprint 20: new TFO programs are created by the owners only (`canPlanYarn`). */
+export function zoneMainAction(zone: YarnZone, can: (p: keyof RolePermissions) => boolean): ZoneAction['kind'] | null {
+  if (zone === 'direct') return 'withdraw';
+  if (zone === 'tfo') return can('canPlanYarn') ? 'program' : null;
+  return 'warping';
 }
 
 /** Opens the dialog of a zone action (zone panels on /yarn and the zone screen header). */
@@ -22,7 +23,7 @@ export function ZoneActionDialogs({ action, onClose }: { action: ZoneAction | nu
     <>
       <TransferDialog open={action?.kind === 'transfer'} onOpenChange={(o) => !o && onClose()} from={lastZone.current} />
       <WithdrawDialog open={action?.kind === 'withdraw'} onOpenChange={(o) => !o && onClose()} />
-      {action?.kind === 'program' && <RunProgram open onClose={onClose} />}
+      <CreateProgramsDialog open={action?.kind === 'program'} onOpenChange={(o) => !o && onClose()} />
       <StartWarpingDialog open={action?.kind === 'warping'} onOpenChange={(o) => !o && onClose()} />
     </>
   );
