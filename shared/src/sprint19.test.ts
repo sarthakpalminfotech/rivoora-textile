@@ -21,6 +21,7 @@ import {
 } from './jobsheets';
 import { formatQty, isManualStockOrderNo, isMeterOrder, MANUAL_STOCK_LABEL, orderRefText, qtyLabel, takaQty } from './orderUnit';
 import { takaActualMeters } from './takas';
+import { buildOrderDashboard, type DashboardInput } from './orderDashboard';
 
 /** n jobsheets numbered from `start`, each with `meters` loom metres (ids = numbers). */
 function metersSheets(meters: number[], start = 1): AdjustMetersJobsheet[] {
@@ -272,5 +273,69 @@ describe('supervisor dialog helpers (meters)', () => {
     expect(completedMetersNote(50, 50)).toBeNull();
     expect(completedMetersNote(50, 48)).toBe('Assigned 50 m — you\'re recording 48 m (2 m fewer).');
     expect(completedMetersNote(50, 52)).toBe('Assigned 50 m — you\'re recording 52 m (2 m more).');
+  });
+});
+
+describe('buildOrderDashboard (meter orders — bar share / sub-stage / damage tiles)', () => {
+  const baseOrder = { orderNo: 26, unit: 'meters', quantity: 200 };
+
+  it('reports the order unit and a non-zero bar/progress even with frames=0 sentinel jobsheets', () => {
+    const input: DashboardInput = {
+      order: baseOrder,
+      jobsheets: [
+        { id: 1, jobsheetNo: 1, status: 'completed', frames: 0, completedFrames: null, meters: 50, completedMeters: 48, sections: 3, sentAt: null, startedAt: null, completedAt: null, runningMachineId: null },
+        { id: 2, jobsheetNo: 2, status: 'ongoing', frames: 0, completedFrames: null, meters: 40, completedMeters: null, sections: 3, sentAt: null, startedAt: null, completedAt: null, runningMachineId: 9 },
+      ],
+      takas: [{ jobsheetId: 1, stage: 'entered', isDamaged: false, count: 1, meters: 144 }],
+    };
+    const data = buildOrderDashboard(input);
+    expect(data.unit).toBe('meters');
+    expect(data.isPcs).toBe(true); // "has jobsheet support" — exposed under the old name
+    // Jobsheet 1 completed: 48 m effective × 3 sections = 144 m cloth claimed by its one taka (still at 'entered',
+    // i.e. still Production); jobsheet 2 (ongoing, no takas yet) adds its own 40 m × 3 = 120 m to Production too.
+    expect(data.bar.find((b) => b.stage === 'production')!.pcs).toBe(264);
+    expect(data.barTotalPcs).toBe(264);
+    expect(data.production.takaPcs).toBe(144);
+    // Target = live jobsheet cloth-metres plan (order has jobsheets).
+    expect(data.progress.targetPcs).toBeGreaterThan(0);
+    expect(data.progress.wovenPcs).toBe(144);
+  });
+
+  it('sub-stage "frames" accumulator holds loom metres for a meter order (never mistaken for the pcs frame count)', () => {
+    const input: DashboardInput = {
+      order: baseOrder,
+      jobsheets: [
+        { id: 1, jobsheetNo: 1, status: 'sent', frames: 0, completedFrames: null, meters: 30, completedMeters: null, sections: 3, sentAt: new Date().toISOString(), startedAt: null, completedAt: null, runningMachineId: null },
+      ],
+      takas: [],
+    };
+    const data = buildOrderDashboard(input);
+    const withSupervisor = data.subStages.find((s) => s.key === 'with_supervisor')!;
+    expect(withSupervisor.frames).toBe(30);
+  });
+
+  it('damage-type tiles hold open damaged metres (pcs field reused) for a meter order', () => {
+    const input: DashboardInput = {
+      order: baseOrder,
+      jobsheets: [],
+      takas: [],
+      damages: [{ foundAt: 'butta', count: 2, meters: 12.5 }],
+    };
+    const data = buildOrderDashboard(input);
+    const butta = data.damages.find((d) => d.type === 'butta')!;
+    expect(butta.count).toBe(2);
+    expect(butta.pcs).toBe(12.5);
+  });
+
+  it('a pcs order is completely unaffected by the meter branch (regression)', () => {
+    const input: DashboardInput = {
+      order: { orderNo: 1, unit: 'pcs', quantity: 100 },
+      jobsheets: [{ id: 1, jobsheetNo: 1, status: 'completed', frames: 34, completedFrames: 34, sections: 3, sentAt: null, startedAt: null, completedAt: null, runningMachineId: null }],
+      takas: [{ jobsheetId: 1, stage: 'entered', isDamaged: false, count: 1, pcs: 100 }],
+    };
+    const data = buildOrderDashboard(input);
+    expect(data.unit).toBe('pcs');
+    expect(data.production.wovenPcs).toBe(102);
+    expect(data.production.takaPcs).toBe(100);
   });
 });

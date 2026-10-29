@@ -5,7 +5,6 @@ import { toast } from 'sonner';
 import {
   ALERT_NOT_STARTED_HOURS,
   formatHours,
-  formatPcs,
   jobsheetRef,
   getMainStage,
   getSubStage,
@@ -52,6 +51,15 @@ const unitWord = (unit: StageUnit, n: number) =>
 const fmt = (n: number) => n.toLocaleString('en-IN', { maximumFractionDigits: 1 });
 const hoursSince = (iso: string | null, now: number) => (iso ? (now - Date.parse(iso)) / 3_600_000 : null);
 
+/** Sprint 19: throughout this tab, every "pcs"/"frame" figure holds metres for a meter order instead (see
+ * `OrderDashboardData.unit`) — these helpers pick the right word/decimals at render time. */
+const isMeterOrder = (data: OrderDashboard) => data.unit === 'meters';
+const qtyWord = (data: OrderDashboard) => (isMeterOrder(data) ? 'm' : 'pcs');
+const qtyFmt = (n: number, data: OrderDashboard) =>
+  isMeterOrder(data) ? n.toLocaleString('en-IN', { maximumFractionDigits: 2 }) : n.toLocaleString('en-IN');
+const loomWord = (data: OrderDashboard, n: number) => (isMeterOrder(data) ? 'm' : n === 1 ? 'frame' : 'frames');
+const loomFmt = (n: number, data: OrderDashboard) => `${isMeterOrder(data) ? fmt(n) : n.toLocaleString('en-IN')} ${loomWord(data, n)}`;
+
 export function ComingSoon({ className }: { className?: string }) {
   return (
     <span className={cn('inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-500', className)}>
@@ -90,15 +98,15 @@ function ProgressCard({ data }: { data: OrderDashboard }) {
     <section className="rounded-xl border border-border bg-white p-4 shadow-soft md:p-5" aria-label="Progress">
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:gap-6">
         <p className="shrink-0 text-slate-900">
-          <span className="text-2xl font-bold tabular-nums">{barTotalPcs.toLocaleString('en-IN')}</span>
-          <span className="text-lg font-semibold text-slate-400"> / {progress.targetPcs.toLocaleString('en-IN')}</span>
-          <span className="ml-1.5 text-sm font-medium text-slate-500">pcs</span>
+          <span className="text-2xl font-bold tabular-nums">{qtyFmt(barTotalPcs, data)}</span>
+          <span className="text-lg font-semibold text-slate-400"> / {qtyFmt(progress.targetPcs, data)}</span>
+          <span className="ml-1.5 text-sm font-medium text-slate-500">{qtyWord(data)}</span>
         </p>
         <div className="min-w-0 flex-1">
           <div
             className="flex h-3 w-full overflow-hidden rounded-full bg-slate-100"
             role="img"
-            aria-label={`Pcs by stage: ${bar.map((b) => `${getMainStage(b.stage).label} ${fmt(b.pcs)}`).join(', ')}`}
+            aria-label={`${qtyWord(data)} by stage: ${bar.map((b) => `${getMainStage(b.stage).label} ${qtyFmt(b.pcs, data)}`).join(', ')}`}
           >
             {barTotalPcs > 0 &&
               bar
@@ -108,12 +116,12 @@ function ProgressCard({ data }: { data: OrderDashboard }) {
                     key={b.stage}
                     className="h-full first:rounded-l-full last:rounded-r-full [&:not(:last-child)]:border-r-2 [&:not(:last-child)]:border-white"
                     style={{ width: `${b.share * 100}%`, backgroundColor: getMainStage(b.stage).colour }}
-                    title={`${getMainStage(b.stage).label}: ${fmt(b.pcs)} pcs · ${Math.round(b.share * 100)}%`}
+                    title={`${getMainStage(b.stage).label}: ${qtyFmt(b.pcs, data)} ${qtyWord(data)} · ${Math.round(b.share * 100)}%`}
                   />
                 ))}
           </div>
           <p className="mt-2 text-[12px] font-medium tabular-nums text-slate-600">
-            Pcs by stage
+            {isMeterOrder(data) ? 'Metres' : 'Pcs'} by stage
             {bar
               .filter((b) => b.share > 0)
               .map((b) => (
@@ -158,8 +166,8 @@ function MainStageCard({ stage, data, selected, onSelect }: { stage: MainStageCo
   let secondary: ReactNode;
   if (stage.key === 'production') {
     secondary = data.isPcs ? (
-      `${plural(data.production.frames, 'frame')} · ${plural(data.production.takas, 'taka')} made${
-        data.production.takaPcs !== null ? ` · ${formatPcs(data.production.takaPcs)}` : ''
+      `${loomFmt(data.production.frames, data)} · ${plural(data.production.takas, 'taka')} made${
+        data.production.takaPcs !== null ? ` · ${qtyFmt(data.production.takaPcs, data)} ${qtyWord(data)}` : ''
       }`
     ) : (
       <span className="text-slate-500">Jobsheets for kg / g / meter orders — coming soon</span>
@@ -169,7 +177,7 @@ function MainStageCard({ stage, data, selected, onSelect }: { stage: MainStageCo
   } else if (stage.key === 'purchase') {
     secondary = stage.takas > 0 ? `${plural(stage.takas, 'taka')} received` : 'Awaiting goods';
   } else {
-    secondary = stage.connected ? `${stage.pcs.toLocaleString('en-IN')} pcs` : <ComingSoon />;
+    secondary = stage.connected ? `${qtyFmt(stage.pcs, data)} ${qtyWord(data)}` : <ComingSoon />;
   }
   return (
     <button type="button" onClick={onSelect} aria-pressed={selected} className={cn(selectable(selected), 'relative flex h-full w-full flex-col gap-1.5 p-3.5 md:p-4', (muted || done) && !selected && 'bg-slate-50/70')}>
@@ -225,18 +233,23 @@ function SummaryLine({ data, stage }: { data: OrderDashboard; stage: MainStageKe
   let parts: ReactNode[];
   if (stage === 'production') {
     const p = data.production;
+    const meterOrder = isMeterOrder(data);
     parts = [
       <>Total jobsheets <b>{p.jobsheets}</b></>,
-      <>Total frames <b>{fmt(p.frames)}</b></>,
-      <>Woven <b>{fmt(p.wovenFrames)}</b> frames ({p.wovenPcs.toLocaleString('en-IN')} pcs)</>,
-      <>On loom <b>{fmt(p.onLoomFrames)}</b> frames</>,
+      <>Total {meterOrder ? 'loom metres' : 'frames'} <b>{fmt(p.frames)}</b></>,
+      <>Woven <b>{fmt(p.wovenFrames)}</b> {meterOrder ? 'loom m' : 'frames'} ({qtyFmt(p.wovenPcs, data)} {qtyWord(data)})</>,
+      <>On loom <b>{fmt(p.onLoomFrames)}</b> {meterOrder ? 'loom m' : 'frames'}</>,
       <>Takas <b>{p.takas}</b></>,
-      <>Taka pcs <b>{p.takaPcs !== null ? p.takaPcs.toLocaleString('en-IN') : '—'}</b></>,
+      <>Taka {qtyWord(data)} <b>{p.takaPcs !== null ? qtyFmt(p.takaPcs, data) : '—'}</b></>,
     ];
   } else {
     const m = data.mainStages.find((s) => s.key === stage)!;
     parts = m.connected
-      ? [<>Takas <b>{m.takas}</b></>, <>Pieces <b>{m.pcs.toLocaleString('en-IN')}</b></>, <>Damaged <b className={cn(m.damaged > 0 && 'text-red-600')}>{m.damaged}</b></>]
+      ? [
+          <>Takas <b>{m.takas}</b></>,
+          <>{isMeterOrder(data) ? 'Metres' : 'Pieces'} <b>{qtyFmt(m.pcs, data)}</b></>,
+          <>Damaged <b className={cn(m.damaged > 0 && 'text-red-600')}>{m.damaged}</b></>,
+        ]
       : [<>{getMainStage(stage).label} will be connected when it's built</>];
   }
   return (
@@ -251,24 +264,24 @@ function SummaryLine({ data, stage }: { data: OrderDashboard; stage: MainStageKe
   );
 }
 
-function subFact(s: SubStageCount, now: number): ReactNode {
+function subFact(s: SubStageCount, now: number, data: OrderDashboard): ReactNode {
   if (!s.connected) return <ComingSoon />;
   switch (s.key) {
     case 'not_sent':
     case 'taka_pending':
-      return plural(s.frames, 'frame');
+      return loomFmt(s.frames, data);
     case 'with_supervisor': {
       const h = hoursSince(s.oldestSince, now);
       const over = h !== null && h > ALERT_NOT_STARTED_HOURS;
       return (
         <>
-          {plural(s.frames, 'frame')}
+          {loomFmt(s.frames, data)}
           {h !== null && <span className={cn(over && 'font-semibold text-amber-600')}> · oldest {formatHours(h)}</span>}
         </>
       );
     }
     case 'on_loom':
-      return `${plural(s.frames, 'frame')} · ${plural(s.machines, 'machine')}`;
+      return `${loomFmt(s.frames, data)} · ${plural(s.machines, 'machine')}`;
     case 'outside_po':
     case 'at_weaver':
       return s.takaPcs !== null ? `${plural(s.takaPcs, 'pc')} pending` : 'pending';
@@ -276,14 +289,14 @@ function subFact(s: SubStageCount, now: number): ReactNode {
       return (
         <>
           from {plural(s.jobsheetCount, 'jobsheet')}
-          {s.takaPcs !== null && ` · ${formatPcs(s.takaPcs)}`}
+          {s.takaPcs !== null && ` · ${qtyFmt(s.takaPcs, data)} ${qtyWord(data)}`}
           {s.damaged > 0 && <span className="font-semibold text-red-600"> · {s.damaged} damaged</span>}
         </>
       );
   }
 }
 
-function SubStageCards({ subs, selected, onToggle }: { subs: SubStageCount[]; selected: SubStageKey | null; onToggle: (k: SubStageKey) => void }) {
+function SubStageCards({ subs, selected, onToggle, data }: { subs: SubStageCount[]; selected: SubStageKey | null; onToggle: (k: SubStageKey) => void; data: OrderDashboard }) {
   const now = useNow();
   return (
     <ul className="grid grid-cols-2 gap-2.5 md:grid-cols-[repeat(auto-fit,minmax(9.5rem,1fr))] md:gap-3">
@@ -307,7 +320,7 @@ function SubStageCards({ subs, selected, onToggle }: { subs: SubStageCount[]; se
                 {s.count}
                 <span className="ml-1 text-[13px] font-semibold text-slate-500">{unitWord(s.unit, s.count)}</span>
               </span>
-              <span className="text-[12px] leading-snug text-slate-500">{subFact(s, now)}</span>
+              <span className="text-[12px] leading-snug text-slate-500">{subFact(s, now, data)}</span>
             </button>
           </li>
         );
@@ -754,7 +767,7 @@ export function DashboardTab({ order, view }: { order: OrderDetail; view: OrderV
       ) : (
         <div className="space-y-3 rounded-xl border border-border bg-slate-50/60 p-3 md:p-4" aria-label={`${getMainStage(stage).label} details`}>
           <SummaryLine data={data} stage={stage} />
-          {subs.length > 0 && <SubStageCards subs={subs} selected={view.sub} onToggle={view.toggleSub} />}
+          {subs.length > 0 && <SubStageCards subs={subs} selected={view.sub} onToggle={view.toggleSub} data={data} />}
         </div>
       )}
 

@@ -5,6 +5,7 @@ import {
   can,
   canRoleSeeStatus,
   compareTakaNo,
+  damageOpenMeters,
   damageOpenPcs,
   DAMAGE_TYPE_CONFIG,
   DAMAGE_TYPES,
@@ -70,6 +71,8 @@ export async function getOrderDashboard(role: RoleKey, orderId: number): Promise
         status: jobsheets.status,
         frames: jobsheets.frames,
         completedFrames: jobsheets.completedFrames,
+        meters: jobsheets.meters,
+        completedMeters: jobsheets.completedMeters,
         sections: jobsheets.sections,
         sentAt: jobsheets.sentAt,
         startedAt: jobsheets.startedAt,
@@ -87,6 +90,9 @@ export async function getOrderDashboard(role: RoleKey, orderId: number): Promise
         // Actual pcs (counted by the godown supervisor) when set, else the taka's pcs.
         pcs: sql<number | null>`SUM(COALESCE(${takas.actualPcs}, ${takas.pcs}))`,
         withoutPcs: sql<number>`SUM(CASE WHEN COALESCE(${takas.actualPcs}, ${takas.pcs}) IS NULL THEN 1 ELSE 0 END)`,
+        // Sprint 19: the meter twin (meter orders only — pcs stays null for them, meters stays null for pcs orders).
+        meters: sql<number | null>`SUM(COALESCE(${takas.actualMeters}, ${takas.meters}))`,
+        withoutMeters: sql<number>`SUM(CASE WHEN COALESCE(${takas.actualMeters}, ${takas.meters}) IS NULL THEN 1 ELSE 0 END)`,
       })
       .from(takas)
       .innerJoin(jobsheets, eq(jobsheets.id, takas.jobsheetId))
@@ -99,6 +105,8 @@ export async function getOrderDashboard(role: RoleKey, orderId: number): Promise
         count: sql<number>`COUNT(*)`,
         // Damaged pcs still OPEN (a partly resolved damage counts only what is left).
         pcs: sql<number | null>`SUM(${takaDamages.pcs} - ${takaDamages.resolvedPcs})`,
+        // Sprint 19: damaged metres still OPEN (meter orders only).
+        meters: sql<number | null>`SUM(${takaDamages.meters} - ${takaDamages.resolvedMeters})`,
       })
       .from(takaDamages)
       .innerJoin(takas, eq(takas.id, takaDamages.takaId))
@@ -119,8 +127,20 @@ export async function getOrderDashboard(role: RoleKey, orderId: number): Promise
     {
       order,
       jobsheets: sheetRows,
-      takas: takaRows.map((t) => ({ ...t, count: Number(t.count), pcs: t.pcs === null ? null : Number(t.pcs), withoutPcs: Number(t.withoutPcs) })),
-      damages: damageRows.map((d) => ({ foundAt: d.foundAt, count: Number(d.count), pcs: d.pcs === null ? null : Number(d.pcs) })),
+      takas: takaRows.map((t) => ({
+        ...t,
+        count: Number(t.count),
+        pcs: t.pcs === null ? null : Number(t.pcs),
+        withoutPcs: Number(t.withoutPcs),
+        meters: t.meters === null ? null : Number(t.meters),
+        withoutMeters: Number(t.withoutMeters),
+      })),
+      damages: damageRows.map((d) => ({
+        foundAt: d.foundAt,
+        count: Number(d.count),
+        pcs: d.pcs === null ? null : Number(d.pcs),
+        meters: d.meters === null ? null : Number(d.meters),
+      })),
       buttaTakas: Number(buttaRows[0]?.n ?? 0),
       // Sprint 16: the order's steps decide its stages; outside POs feed the Outside card / sub-stages.
       steps: { hasProduction: order.hasProduction, hasButta: order.hasButta, hasMill: order.hasMill },
@@ -298,6 +318,9 @@ export async function getOrderDamages(role: RoleKey, orderId: number, query: unk
   ]);
   const order = assertVisible(role, orderRows[0]);
 
+  // Sprint 19: `c.pcs` is reused to hold damaged metres for a meter order (the DTO field is shared; the client
+  // branches on `order.unit` the same way `OrderDashboardData` does).
+  const meterOrder = order.unit === 'meters';
   const counts = new Map<DamageType, { count: number; pcs: number | null }>(DAMAGE_TYPES.map((t) => [t, { count: 0, pcs: null }]));
   let resolvedTotal = 0;
   const items: DamagedTaka[] = [];
@@ -307,7 +330,7 @@ export async function getOrderDamages(role: RoleKey, orderId: number, query: unk
       if (d.status === 'open') {
         const c = counts.get(d.foundAt)!;
         c.count += 1;
-        const open = damageOpenPcs(d);
+        const open = meterOrder ? damageOpenMeters(d) : damageOpenPcs(d);
         if (open !== null) c.pcs = (c.pcs ?? 0) + open;
       } else resolvedTotal += 1;
     }

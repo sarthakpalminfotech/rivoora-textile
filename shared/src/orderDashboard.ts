@@ -1,4 +1,17 @@
-import { coverageWarnings, effectiveFrames, coverageFrames, jobsheetRef, orderJobsheetPlan, sectionsOf, type CoverageWarningKind } from './jobsheets';
+import {
+  coverageWarnings,
+  coverageWarningsMeters,
+  effectiveFrames,
+  effectiveMeters,
+  coverageFrames,
+  coverageMeters,
+  jobsheetMeters,
+  jobsheetRef,
+  orderJobsheetMetersPlan,
+  orderJobsheetPlan,
+  sectionsOf,
+  type CoverageWarningKind,
+} from './jobsheets';
 import {
   ALERT_NOT_STARTED_HOURS,
   DAMAGE_TYPE_CONFIG,
@@ -42,6 +55,9 @@ export interface DashboardJobsheetInput {
   status: string;
   frames: number;
   completedFrames: number | null;
+  /** Sprint 19: meter twins (null for a pcs jobsheet; frames stays the 0 sentinel). */
+  meters?: number | null;
+  completedMeters?: number | null;
   sentAt: string | null;
   startedAt: string | null;
   completedAt: string | null;
@@ -61,6 +77,10 @@ export interface DashboardTakaInput {
   pcs?: number | null;
   /** Aggregated rows: how many of the takas have no pcs (default: all of them when `pcs` is null, else none). */
   withoutPcs?: number;
+  /** Sprint 19: metres of the taka (meter orders only — aggregated rows: the sum; null when none has metres yet). */
+  meters?: number | null;
+  /** Sprint 19: aggregated rows: how many of the takas have no metres yet. */
+  withoutMeters?: number;
 }
 
 /** OPEN damages of the order, aggregated by where they were found (`taka_damages.found_at`). */
@@ -69,6 +89,8 @@ export interface DashboardDamageInput {
   count?: number;
   /** Damaged pcs (the sum; null when none of them has pcs). */
   pcs?: number | null;
+  /** Sprint 19: damaged metres (meter orders only; the sum, open qty — resolved already subtracted). */
+  meters?: number | null;
 }
 
 export interface DashboardInput {
@@ -184,6 +206,10 @@ export interface OrderDashboardData {
   /** Sprint 16: the order's outside POs (all zero when it has none). */
   outside: OutsidePoTotals;
   isPcs: boolean;
+  /** Sprint 19: the order's own unit ('pcs' | 'meters' | …). `progress` / `bar` / `production` / damage-tile
+   * quantities are already in THIS unit (pcs fields are reused to carry metres for a meter order — see their
+   * individual comments); the client reads `unit` to pick the right word/decimals when rendering them. */
+  unit: string;
   hasJobsheets: boolean;
   progress: DashboardProgress;
   bar: BarShare[];
@@ -225,6 +251,10 @@ const damageOf = (foundAt: string | null): DamageType => (isDamageType(foundAt) 
 export function buildOrderDashboard(input: DashboardInput, now: Date = new Date()): OrderDashboardData {
   const { order, jobsheets, takas, damages: openDamages = [] } = input;
   const isPcs = order.unit === 'pcs';
+  // Sprint 19: a meter order also has jobsheets — `isPcs` below is exposed to the client as "has jobsheet support",
+  // true for both units (only kg / g orders still show "coming soon").
+  const meterOrder = order.unit === 'meters';
+  const hasJobsheetSupport = isPcs || meterOrder;
   // Sprint 16: the order's steps decide which main stages show; outside / FG orders get their own first card.
   const steps = input.steps ?? ALL_STEPS;
   const kind = orderKind(steps);
@@ -258,14 +288,21 @@ export function buildOrderDashboard(input: DashboardInput, now: Date = new Date(
   const subJobsheets = new Map<SubStageKey, Set<number>>();
   let takaCount = 0;
   let takaPcs: number | null = null;
+  // Sprint 19: for a meter order every taka's quantity is in `t.meters`, never `t.pcs` — `qtyOf`/`withoutOf` read the
+  // field matching the ORDER's own unit (never inferred from the taka row itself, since `takas.meters` is an old
+  // column a pcs-order's taka may also carry as an optional supplementary length).
+  const qtyOf = (t: DashboardTakaInput): number | null => (meterOrder ? t.meters ?? null : t.pcs ?? null);
+  const withoutOf = (t: DashboardTakaInput, n: number): number =>
+    meterOrder ? Math.min(n, t.withoutMeters ?? (t.meters == null ? n : 0)) : Math.min(n, t.withoutPcs ?? (t.pcs == null ? n : 0));
   for (const t of takas) {
     const n = t.count ?? 1;
     if (n <= 0) continue;
     takaCount += n;
-    if (t.pcs != null) takaPcs = (takaPcs ?? 0) + t.pcs;
+    const q = qtyOf(t);
+    if (q != null) takaPcs = (takaPcs ?? 0) + q;
     const sub = subs.get(takaSub(t.stage))!;
     sub.count += n;
-    if (t.pcs != null) sub.takaPcs = (sub.takaPcs ?? 0) + t.pcs;
+    if (q != null) sub.takaPcs = (sub.takaPcs ?? 0) + q;
     if (t.isDamaged) sub.damaged += n;
     const set = subJobsheets.get(sub.key) ?? new Set<number>();
     set.add(t.jobsheetId);
@@ -276,8 +313,8 @@ export function buildOrderDashboard(input: DashboardInput, now: Date = new Date(
     takasByJobsheet.set(t.jobsheetId, perMain);
     const perPcs = pcsByJobsheet.get(t.jobsheetId) ?? new Map<MainStageKey, { pcs: number; without: number }>();
     const cur = perPcs.get(main) ?? { pcs: 0, without: 0 };
-    cur.pcs += t.pcs ?? 0;
-    cur.without += Math.min(n, t.withoutPcs ?? (t.pcs == null ? n : 0));
+    cur.pcs += q ?? 0;
+    cur.without += withoutOf(t, n);
     perPcs.set(main, cur);
     pcsByJobsheet.set(t.jobsheetId, perPcs);
   }
@@ -295,17 +332,26 @@ export function buildOrderDashboard(input: DashboardInput, now: Date = new Date(
 
   for (const j of sorted) {
     const frames = effectiveFrames({ frames: j.frames, status: j.status as JobsheetStatusKey, completedFrames: j.completedFrames });
+    // Sprint 19: a meter jobsheet stores `frames = 0` (sentinel) and keeps its own `meters`/`completedMeters` — the
+    // "frames"-named accumulators below are reused to hold EFFECTIVE LOOM METRES for a meter order (never mixed:
+    // every jobsheet of one order shares the order's unit).
+    const effUnits = meterOrder
+      ? effectiveMeters({ meters: j.meters ?? null, status: j.status as JobsheetStatusKey, completedMeters: j.completedMeters ?? null })
+      : frames;
     const perMain = takasByJobsheet.get(j.id);
     const jsTakas = perMain ? [...perMain.values()].reduce((s, n) => s + n, 0) : 0;
-    // Sprint 18: every jobsheet has its own sections per beam.
-    const sheetPcs = frames * sectionsOf(j);
+    // Sprint 18: every jobsheet has its own sections per beam. Sprint 19: a meter jobsheet's cloth metres = its own
+    // effective loom metres × sections (the meter twin of `frames * sectionsOf(j)`).
+    const sheetPcs = meterOrder
+      ? jobsheetMeters({ meters: j.meters ?? null, status: j.status as JobsheetStatusKey, completedMeters: j.completedMeters ?? null, sections: j.sections })
+      : frames * sectionsOf(j);
 
     if (j.status === 'completed') {
-      wovenFrames += frames;
+      wovenFrames += effUnits;
       wovenPcs += sheetPcs;
     }
     if (j.status === 'ongoing') {
-      onLoomFrames += frames;
+      onLoomFrames += effUnits;
       if (j.runningMachineId !== null) loomMachines.add(j.runningMachineId);
     }
 
@@ -313,7 +359,7 @@ export function buildOrderDashboard(input: DashboardInput, now: Date = new Date(
     if (subKey) {
       const sub = subs.get(subKey)!;
       sub.count += 1;
-      sub.frames += frames;
+      sub.frames += effUnits;
       if (subKey === 'with_supervisor' && j.sentAt && (!sub.oldestSince || j.sentAt < sub.oldestSince)) {
         sub.oldestSince = j.sentAt;
       }
@@ -366,16 +412,24 @@ export function buildOrderDashboard(input: DashboardInput, now: Date = new Date(
     Math.max(0, order.quantity - outside.pcsCommitted),
     jobsheets.map((j) => ({ frames: j.frames, status: j.status as JobsheetStatusKey, completedFrames: j.completedFrames, sections: j.sections, jobsheetNo: j.jobsheetNo })),
   );
-  // Rule 2: the coverage warnings (frames short / over, jobsheet quantity less / more), texts unchanged.
-  if (isPcs && jobsheets.length > 0) {
-    const warnings = coverageWarnings(livePlan);
+  // Sprint 19: the meter twin (outside-committed metres aren't tracked into the dashboard yet, so 0 there).
+  const liveMetersPlan = orderJobsheetMetersPlan(
+    order.quantity,
+    0,
+    jobsheets.map((j) => ({ meters: j.meters ?? null, status: j.status as JobsheetStatusKey, completedMeters: j.completedMeters ?? null, sections: j.sections, jobsheetNo: j.jobsheetNo })),
+  );
+  // Rule 2: the coverage warnings (frames/metres short / over, jobsheet quantity less / more), texts unchanged.
+  if (hasJobsheetSupport && jobsheets.length > 0) {
+    const warnings = meterOrder ? coverageWarningsMeters(liveMetersPlan) : coverageWarnings(livePlan);
     for (const w of warnings) alerts.push({ rule: 'coverage', kind: w.kind, message: w.message });
   }
 
   const totalPcs = [...barPcs.values()].reduce((s, n) => s + n, 0);
+  // Sprint 19: a meter order's bar shares keep 2dp (never rounded to a whole number like pcs are).
+  const roundQty = (n: number) => (meterOrder ? Math.round(n * 100) / 100 : Math.round(n));
   const allBar: BarShare[] = MAIN_STAGES.map((m) => {
     const p = barPcs.get(m.key)!;
-    return { stage: m.key, pcs: Math.round(p), share: totalPcs > 0 ? p / totalPcs : 0 };
+    return { stage: m.key, pcs: roundQty(p), share: totalPcs > 0 ? p / totalPcs : 0 };
   });
 
   // Completed / skipped main stages (visual state only).
@@ -454,7 +508,14 @@ export function buildOrderDashboard(input: DashboardInput, now: Date = new Date(
   const bar = allBar.filter((b) => shownKeys.has(b.stage));
 
   // In-house: the jobsheet quantity (+ what is given outside); outside / FG orders: the order quantity.
-  const targetPcs = kind === 'in_house' && jobsheets.length > 0 ? livePlan.jobsheetPieces + outside.pcsCommitted : order.quantity;
+  // Sprint 19: a meter order's target is its live cloth-metres plan (outside-committed metres aren't tracked yet).
+  const targetPcs = meterOrder
+    ? jobsheets.length > 0
+      ? liveMetersPlan.jobsheetClothMeters
+      : order.quantity
+    : kind === 'in_house' && jobsheets.length > 0
+      ? livePlan.jobsheetPieces + outside.pcsCommitted
+      : order.quantity;
   const damageCounts = new Map<DamageType, { count: number; pcs: number | null }>();
   for (const d of openDamages) {
     const n = d.count ?? 1;
@@ -462,7 +523,9 @@ export function buildOrderDashboard(input: DashboardInput, now: Date = new Date(
     const type = damageOf(d.foundAt);
     const cur = damageCounts.get(type) ?? { count: 0, pcs: null };
     cur.count += n;
-    if (d.pcs != null) cur.pcs = (cur.pcs ?? 0) + d.pcs;
+    // Sprint 19: `cur.pcs` holds damaged metres for a meter order (the `DamageCount.pcs` field is reused, see `unit`).
+    const dq = meterOrder ? d.meters : d.pcs;
+    if (dq != null) cur.pcs = (cur.pcs ?? 0) + dq;
     damageCounts.set(type, cur);
   }
   const damages: DamageCount[] = DAMAGE_TYPE_CONFIG.map((d) => ({
@@ -476,7 +539,8 @@ export function buildOrderDashboard(input: DashboardInput, now: Date = new Date(
     kind,
     steps,
     outside,
-    isPcs,
+    isPcs: hasJobsheetSupport,
+    unit: order.unit,
     hasJobsheets: jobsheets.length > 0,
     progress: {
       wovenFrames,
@@ -485,12 +549,15 @@ export function buildOrderDashboard(input: DashboardInput, now: Date = new Date(
       percent: targetPcs > 0 ? Math.round((wovenPcs / targetPcs) * 1000) / 10 : 0,
     },
     bar,
-    barTotalPcs: Math.round(totalPcs),
+    barTotalPcs: roundQty(totalPcs),
     mainStages,
     subStages: subList,
     production: {
       jobsheets: jobsheets.length,
-      frames: coverageFrames(jobsheets.map((j) => ({ frames: j.frames, status: j.status as JobsheetStatusKey, completedFrames: j.completedFrames }))),
+      // Sprint 19: a meter order's "frames" total is its live loom-metres coverage (the meter twin of `coverageFrames`).
+      frames: meterOrder
+        ? coverageMeters(jobsheets.map((j) => ({ meters: j.meters ?? null, status: j.status as JobsheetStatusKey, completedMeters: j.completedMeters ?? null })))
+        : coverageFrames(jobsheets.map((j) => ({ frames: j.frames, status: j.status as JobsheetStatusKey, completedFrames: j.completedFrames }))),
       wovenFrames,
       wovenPcs,
       onLoomFrames,

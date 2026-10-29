@@ -85,7 +85,11 @@ export function DamagesTab({ order, view }: { order: OrderDetail; view: OrderVie
                 </span>
                 {!d.connected && <ComingSoon />}
               </p>
-              {n > 0 && count?.pcs != null && <p className="text-xs font-medium text-red-600">{formatPcs(count.pcs)} damaged</p>}
+              {n > 0 && count?.pcs != null && (
+                <p className="text-xs font-medium text-red-600">
+                  {order.unit === 'meters' ? formatMeters(count.pcs) : formatPcs(count.pcs)} damaged
+                </p>
+              )}
             </li>
           );
         })}

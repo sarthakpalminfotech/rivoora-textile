@@ -63,7 +63,12 @@ export const usePendingOrders = (kind: ChallanKind, search: string, mode: SendMo
 export function useKindCounts(kind: ChallanKind) {
   return useQuery({
     queryKey: challanKeys.counts(kind),
-    queryFn: ({ signal }) => api.get<{ pending: number; inKind: number; refinish: number; pendingPcs: number; inKindPcs: number }>(`${base(kind)}/counts`, undefined, signal),
+    queryFn: ({ signal }) =>
+      api.get<{ pending: number; inKind: number; refinish: number; pendingPcs: number; inKindPcs: number; pendingMeters: number; inKindMeters: number }>(
+        `${base(kind)}/counts`,
+        undefined,
+        signal,
+      ),
     refetchOnWindowFocus: true,
     refetchInterval: 30_000,
   });

@@ -166,10 +166,16 @@ function toPendingOrder(r: {
 async function expectedMoreByOrder(kind: ChallanKind, mode: SendMode, orderIds: number[]): Promise<Map<number, number>> {
   const map = new Map<number, number>();
   if (kind !== 'mill' || mode !== 'send' || orderIds.length === 0) return map;
+  // Sprint 19: a meter order's jobsheet carries frames=0 (the sentinel) — approximate from metres × sections instead.
   const rows = await db
     .select({
       orderId: jobsheets.orderId,
-      expected: sql<number>`COALESCE(SUM(COALESCE(${jobsheets.completedFrames}, ${jobsheets.frames}) * ${jobsheets.sections}), 0)`,
+      expected: sql<number>`COALESCE(SUM(
+        CASE WHEN ${jobsheets.meters} IS NOT NULL
+          THEN COALESCE(${jobsheets.completedMeters}, ${jobsheets.meters}) * ${jobsheets.sections}
+          ELSE COALESCE(${jobsheets.completedFrames}, ${jobsheets.frames}) * ${jobsheets.sections}
+        END
+      ), 0)`,
     })
     .from(jobsheets)
     .where(
@@ -289,11 +295,17 @@ export interface KindCounts {
   refinish: number;
   pendingPcs: number;
   inKindPcs: number;
+  /** Sprint 19: the meter twins — a meter-order taka's quantity (pcs null) counts here instead. */
+  pendingMeters: number;
+  inKindMeters: number;
 }
 
 export async function getKindCounts(kind: ChallanKind): Promise<KindCounts> {
   const cfg = CHALLAN_KIND_CONFIG[kind];
   const pcsOf = sql`COALESCE(${takas.actualPcs}, ${takas.pcs}, 0)`;
+  // Only a true meter-order taka (pcs null) counts here — a pcs order's taka may still carry an optional
+  // supplementary `meters` length (Sprint 6), which must not be double-counted into this total.
+  const metersOf = sql`CASE WHEN ${takas.pcs} IS NULL THEN COALESCE(${takas.actualMeters}, ${takas.meters}, 0) ELSE 0 END`;
   const [row] = await db
     .select({
       pending: sql<number>`COALESCE(SUM(CASE WHEN ${inArray(takas.stage, readyStagesOf(kind))} AND ${takaOrderNotHeld} THEN 1 ELSE 0 END), 0)`,
@@ -301,6 +313,8 @@ export async function getKindCounts(kind: ChallanKind): Promise<KindCounts> {
       refinish: sql<number>`COALESCE(SUM(CASE WHEN ${takas.stage} = ${cfg.refinishStage ?? '-'} AND ${takaOrderNotHeld} THEN 1 ELSE 0 END), 0)`,
       pendingPcs: sql<number>`COALESCE(SUM(CASE WHEN ${inArray(takas.stage, readyStagesOf(kind))} AND ${takaOrderNotHeld} THEN ${pcsOf} ELSE 0 END), 0)`,
       inKindPcs: sql<number>`COALESCE(SUM(CASE WHEN ${takas.stage} = ${cfg.sentStage} THEN ${pcsOf} ELSE 0 END), 0)`,
+      pendingMeters: sql<number>`COALESCE(SUM(CASE WHEN ${inArray(takas.stage, readyStagesOf(kind))} AND ${takaOrderNotHeld} THEN ${metersOf} ELSE 0 END), 0)`,
+      inKindMeters: sql<number>`COALESCE(SUM(CASE WHEN ${takas.stage} = ${cfg.sentStage} THEN ${metersOf} ELSE 0 END), 0)`,
     })
     .from(takas)
     .innerJoin(jobsheets, eq(jobsheets.id, takas.jobsheetId))
@@ -311,6 +325,8 @@ export async function getKindCounts(kind: ChallanKind): Promise<KindCounts> {
     refinish: Number(row?.refinish ?? 0),
     pendingPcs: Number(row?.pendingPcs ?? 0),
     inKindPcs: Number(row?.inKindPcs ?? 0),
+    pendingMeters: Math.round(Number(row?.pendingMeters ?? 0) * 100) / 100,
+    inKindMeters: Math.round(Number(row?.inKindMeters ?? 0) * 100) / 100,
   };
 }
 
