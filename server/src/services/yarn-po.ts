@@ -30,7 +30,7 @@ import { db, type DbOrTx, type Tx } from '../db/client';
 import { users, yarnParties, yarnPoEvents, yarnPoLines, yarnPos, yarnQualities, yarnReceiptLines, yarnReceipts } from '../db/schema';
 import { badRequest, conflict, notFound } from '../lib/errors';
 import { likePattern } from '../lib/http';
-import { actor, addStock, nowIso, qualityNames } from './yarn-ledger';
+import { actor, addStock, allocateYarnPoNo, nowIso, qualityNames } from './yarn-ledger';
 
 /**
  * Sprint 17 — Yarn POs: list / create / edit / close / cancel / print, and receiving a party's challan into a zone.
@@ -261,13 +261,6 @@ export async function getYarnPo(role: RoleKey, id: number): Promise<YarnPoDetail
   };
 }
 
-/** GET /yarn-pos/check-no?no=&exceptId= — the live "PO no. is free" check. */
-export async function checkPoNo(no: number, exceptId?: number): Promise<{ available: boolean; poId: number | null }> {
-  const [row] = await db.select({ id: yarnPos.id }).from(yarnPos).where(eq(yarnPos.poNo, no)).limit(1);
-  const taken = !!row && row.id !== exceptId;
-  return { available: !taken, poId: taken ? row.id : null };
-}
-
 /* ------------------------------------------------------------------ */
 /* writes                                                               */
 /* ------------------------------------------------------------------ */
@@ -281,11 +274,6 @@ async function assertParty(tx: DbOrTx, partyId: number) {
   if (!p) throw badRequest('That party no longer exists — pick another', 'partyId');
 }
 
-async function assertPoNoFree(tx: DbOrTx, poNo: number, exceptId?: number) {
-  const [row] = await tx.select({ id: yarnPos.id }).from(yarnPos).where(eq(yarnPos.poNo, poNo)).limit(1);
-  if (row && row.id !== exceptId) throw conflict(`PO no. ${poNo} is already used`, 'poNo');
-}
-
 type ParsedPo = ReturnType<typeof yarnPoInputSchema.parse>;
 
 async function insertLines(tx: Tx, poId: number, lines: ParsedPo['lines']) {
@@ -294,32 +282,21 @@ async function insertLines(tx: Tx, poId: number, lines: ParsedPo['lines']) {
   );
 }
 
-/** A unique-index race on po_no reads as the same friendly 409. */
-function rethrowPoNo(err: unknown, poNo: number): never {
-  if (String((err as { message?: string })?.message ?? err).includes('yarn_pos.po_no') || String(err).includes('yarn_pos_po_no_unique')) {
-    throw conflict(`PO no. ${poNo} is already used`, 'poNo');
-  }
-  throw err;
-}
-
+/** Sprint 20: the PO number is assigned by the system (counter `yarn_po_no`), never typed. */
 export async function createYarnPo(role: RoleKey, input: unknown): Promise<YarnPoWriteResult> {
   const data = yarnPoInputSchema.parse(input);
-  try {
-    return await db.transaction(async (tx) => {
-      await assertParty(tx, data.partyId);
-      await qualityNames(tx, data.lines.map((l) => l.qualityId), 'lines');
-      await assertPoNoFree(tx, data.poNo);
-      const [po] = await tx
-        .insert(yarnPos)
-        .values({ poNo: data.poNo, poDate: data.poDate, partyId: data.partyId, remark: data.remark, status: 'open', createdBy: role, createdByUserId: actor(role).userId })
-        .returning({ id: yarnPos.id, poNo: yarnPos.poNo, status: yarnPos.status });
-      await insertLines(tx, po.id, data.lines);
-      await writeEvent(tx, po.id, 'created', role);
-      return po;
-    });
-  } catch (err) {
-    rethrowPoNo(err, data.poNo);
-  }
+  return db.transaction(async (tx) => {
+    await assertParty(tx, data.partyId);
+    await qualityNames(tx, data.lines.map((l) => l.qualityId), 'lines');
+    const poNo = await allocateYarnPoNo(tx);
+    const [po] = await tx
+      .insert(yarnPos)
+      .values({ poNo, poDate: data.poDate, partyId: data.partyId, remark: data.remark, status: 'open', createdBy: role, createdByUserId: actor(role).userId })
+      .returning({ id: yarnPos.id, poNo: yarnPos.poNo, status: yarnPos.status });
+    await insertLines(tx, po.id, data.lines);
+    await writeEvent(tx, po.id, 'created', role);
+    return po;
+  });
 }
 
 /**
@@ -329,36 +306,30 @@ export async function createYarnPo(role: RoleKey, input: unknown): Promise<YarnP
 export async function updateYarnPo(role: RoleKey, id: number, input: unknown): Promise<YarnPoWriteResult> {
   const remarkOnly = yarnPoRemarkSchema.safeParse(input);
   const full = remarkOnly.success ? null : yarnPoInputSchema.parse(input);
-  try {
-    return await db.transaction(async (tx) => {
-      const po = await loadPo(tx, id);
-      if (po.status === 'cancelled') throw conflict('A cancelled PO can’t be edited.');
-      const totals = totalsOf(await linesOf(tx, [id]));
-      if (!full) {
-        const remark = remarkOnly.success ? remarkOnly.data.remark : null;
-        if ((remark ?? null) !== (po.remark ?? null)) {
-          await tx.update(yarnPos).set({ remark }).where(eq(yarnPos.id, id));
-          await writeEvent(tx, id, 'edited', role, 'Remark changed');
-        }
-        return { id, poNo: po.poNo, status: po.status };
+  return db.transaction(async (tx) => {
+    const po = await loadPo(tx, id);
+    if (po.status === 'cancelled') throw conflict('A cancelled PO can’t be edited.');
+    const totals = totalsOf(await linesOf(tx, [id]));
+    if (!full) {
+      const remark = remarkOnly.success ? remarkOnly.data.remark : null;
+      if ((remark ?? null) !== (po.remark ?? null)) {
+        await tx.update(yarnPos).set({ remark }).where(eq(yarnPos.id, id));
+        await writeEvent(tx, id, 'edited', role, 'Remark changed');
       }
-      if (!yarnPoCanEditAll({ status: po.status, receivedG: totals.receivedG })) {
-        throw conflict('Yarn has been received on this PO — only the remark can change now.');
-      }
-      await assertParty(tx, full.partyId);
-      await qualityNames(tx, full.lines.map((l) => l.qualityId), 'lines');
-      await assertPoNoFree(tx, full.poNo, id);
-      // Nothing is received, so no receipt line points at these lines — replace them.
-      await tx.delete(yarnPoLines).where(eq(yarnPoLines.poId, id));
-      await insertLines(tx, id, full.lines);
-      await tx.update(yarnPos).set({ poNo: full.poNo, poDate: full.poDate, partyId: full.partyId, remark: full.remark }).where(eq(yarnPos.id, id));
-      await writeEvent(tx, id, 'edited', role, po.poNo !== full.poNo ? `PO no. ${po.poNo} → ${full.poNo}` : null);
-      return { id, poNo: full.poNo, status: po.status };
-    });
-  } catch (err) {
-    if (full) rethrowPoNo(err, full.poNo);
-    throw err;
-  }
+      return { id, poNo: po.poNo, status: po.status };
+    }
+    if (!yarnPoCanEditAll({ status: po.status, receivedG: totals.receivedG })) {
+      throw conflict('Yarn has been received on this PO — only the remark can change now.');
+    }
+    await assertParty(tx, full.partyId);
+    await qualityNames(tx, full.lines.map((l) => l.qualityId), 'lines');
+    // Nothing is received, so no receipt line points at these lines — replace them. The PO no. is never editable.
+    await tx.delete(yarnPoLines).where(eq(yarnPoLines.poId, id));
+    await insertLines(tx, id, full.lines);
+    await tx.update(yarnPos).set({ poDate: full.poDate, partyId: full.partyId, remark: full.remark }).where(eq(yarnPos.id, id));
+    await writeEvent(tx, id, 'edited', role);
+    return { id, poNo: po.poNo, status: po.status };
+  });
 }
 
 async function setStatus(role: RoleKey, id: number, to: 'closed' | 'cancelled'): Promise<YarnPoWriteResult> {

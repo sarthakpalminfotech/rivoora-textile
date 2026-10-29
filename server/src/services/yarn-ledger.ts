@@ -1,4 +1,4 @@
-import { and, eq, inArray, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import {
   checkTake,
   MOVE_KIND_SIGN,
@@ -11,7 +11,7 @@ import {
   type YarnZone,
 } from '@rivoora/shared';
 import type { DbOrTx, Tx } from '../db/client';
-import { counters, yarnQualities, yarnStockMoves } from '../db/schema';
+import { counters, yarnPos, yarnQualities, yarnStockMoves } from '../db/schema';
 import { badRequest, conflict } from '../lib/errors';
 import { currentUserId } from '../lib/request-context';
 
@@ -26,22 +26,45 @@ export const nowIso = () => new Date().toISOString();
 /** Who does it: the acting role + the real user (request context). */
 export const actor = (role: RoleKey) => ({ role, userId: currentUserId() });
 
-export async function balanceG(tx: DbOrTx, zone: YarnZone, item: YarnItem, qualityId: number): Promise<number> {
+/**
+ * Sprint 20: balances are per zone + item + quality, optionally narrowed to one lot (raw) or one box (twisted).
+ * Pass `lotId`/`boxId` as `null` to mean "No lot" / "No box" specifically, or omit them to total across all of
+ * them (the pre-Sprint-20 behaviour, still used where lot/box doesn't apply).
+ */
+export async function balanceG(
+  tx: DbOrTx,
+  zone: YarnZone,
+  item: YarnItem,
+  qualityId: number,
+  scope: { lotId?: number | null; boxId?: number | null } = {},
+): Promise<number> {
+  const conds = [eq(yarnStockMoves.zone, zone), eq(yarnStockMoves.item, item), eq(yarnStockMoves.qualityId, qualityId)];
+  if (scope.lotId !== undefined) conds.push(scope.lotId === null ? isNull(yarnStockMoves.lotId) : eq(yarnStockMoves.lotId, scope.lotId));
+  if (scope.boxId !== undefined) conds.push(scope.boxId === null ? isNull(yarnStockMoves.boxId) : eq(yarnStockMoves.boxId, scope.boxId));
   const [row] = await tx
     .select({ g: sql<number>`COALESCE(SUM(${yarnStockMoves.qtyG}), 0)` })
     .from(yarnStockMoves)
-    .where(and(eq(yarnStockMoves.zone, zone), eq(yarnStockMoves.item, item), eq(yarnStockMoves.qualityId, qualityId)));
+    .where(and(...conds));
   return Number(row?.g ?? 0);
+}
+
+/** The one reserved "system" yarn quality (Sprint 20) — stands in for `quality_id` on box-tied / warping-quality twisted rows. */
+export async function systemQualityId(tx: DbOrTx): Promise<number> {
+  const [row] = await tx.select({ id: yarnQualities.id }).from(yarnQualities).where(eq(yarnQualities.isSystem, true)).limit(1);
+  if (!row) throw new Error('System yarn quality row is missing — migration 0019 did not run');
+  return row.id;
 }
 
 /** Active qualities by id → name; 400 (with `field`) when one is missing or deleted. */
 export async function qualityNames(tx: DbOrTx, ids: number[], field = 'qualityId'): Promise<Map<number, string>> {
   const unique = [...new Set(ids)];
   if (!unique.length) return new Map();
+  // Sprint 20: the reserved system row is never a pickable quality — only `systemQualityId()` may use it, for the
+  // box-tied / warping-quality bookkeeping it was made for.
   const rows = await tx
     .select({ id: yarnQualities.id, name: yarnQualities.name })
     .from(yarnQualities)
-    .where(and(inArray(yarnQualities.id, unique), eq(yarnQualities.isDeleted, false)));
+    .where(and(inArray(yarnQualities.id, unique), eq(yarnQualities.isDeleted, false), eq(yarnQualities.isSystem, false)));
   const map = new Map(rows.map((r) => [r.id, r.name]));
   if (unique.some((id) => !map.has(id))) throw badRequest('That yarn quality no longer exists — pick another', field);
   return map;
@@ -59,6 +82,12 @@ interface MoveInput {
   note?: string | null;
   role: RoleKey;
   createdAt?: string;
+  /** Sprint 20: raw yarn's lot (omit when not applicable; null = "No lot"). */
+  lotId?: number | null;
+  /** Sprint 20: twisted yarn's box (omit when not applicable; null = "No box"). */
+  boxId?: number | null;
+  /** Sprint 20: twisted yarn's real quality from the TFO stop onward. */
+  warpingQualityId?: number | null;
 }
 
 async function insertMove(tx: Tx, m: MoveInput) {
@@ -71,6 +100,9 @@ async function insertMove(tx: Tx, m: MoveInput) {
     refType: m.refType,
     refId: m.refId,
     note: m.note ?? null,
+    lotId: m.lotId ?? null,
+    boxId: m.boxId ?? null,
+    warpingQualityId: m.warpingQualityId ?? null,
     ...actor(m.role),
     ...(m.createdAt ? { createdAt: m.createdAt } : {}),
   });
@@ -89,7 +121,10 @@ export async function addStock(tx: Tx, m: MoveInput): Promise<void> {
  */
 export async function takeStock(tx: Tx, m: MoveInput & { qualityName: string; field?: string }): Promise<void> {
   if (MOVE_KIND_SIGN[m.kind] !== -1) throw new Error(`takeStock with ${m.kind}`);
-  const available = await balanceG(tx, m.zone, m.item, m.qualityId);
+  const scope: { lotId?: number | null; boxId?: number | null } = {};
+  if (m.lotId !== undefined) scope.lotId = m.lotId;
+  if (m.boxId !== undefined) scope.boxId = m.boxId;
+  const available = await balanceG(tx, m.zone, m.item, m.qualityId, scope);
   const err = checkTake(available, m.qtyG);
   if (err === 'not_enough') throw conflict(notEnoughText({ availableG: available, item: m.item, qualityName: m.qualityName, zone: m.zone }), m.field ?? 'qtyKg');
   if (err) throw badRequest(TAKE_ERROR_TEXT[err], m.field ?? 'qtyKg');
@@ -105,4 +140,22 @@ export async function allocateNumbers(tx: Tx, name: string, n = 1): Promise<numb
     .returning({ value: counters.value });
   const first = row.value - n + 1;
   return Array.from({ length: n }, (_, i) => first + i);
+}
+
+/**
+ * Sprint 20 — `yarn_po_no`: new POs are numbered by the system. The counter starts at 1 and simply advances past
+ * any number already used by an existing (typed) PO, so it never clashes and nothing is ever reused. Must run
+ * inside the write transaction that inserts the PO.
+ */
+export async function allocateYarnPoNo(tx: Tx): Promise<number> {
+  for (let i = 0; i < 10_000; i++) {
+    const [row] = await tx
+      .insert(counters)
+      .values({ name: 'yarn_po_no', value: 1 })
+      .onConflictDoUpdate({ target: counters.name, set: { value: sql`${counters.value} + 1` } })
+      .returning({ value: counters.value });
+    const [taken] = await tx.select({ id: yarnPos.id }).from(yarnPos).where(eq(yarnPos.poNo, row.value)).limit(1);
+    if (!taken) return row.value;
+  }
+  throw new Error('Could not allocate a yarn PO number');
 }

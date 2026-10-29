@@ -1,4 +1,4 @@
-import { CheckCircle2, Loader2, Plus, Trash2, XCircle } from 'lucide-react';
+import { Plus, Trash2 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
@@ -11,13 +11,12 @@ import { Field } from '@/components/ui/field';
 import { Input, Textarea } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
-import { useDebounce } from '@/hooks/useDebounce';
 import { ApiError, errorMessage } from '@/lib/api';
 import { toApiDate } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { YarnPartyFormDialog } from '../masters/yarn/yarn-party-form';
 import { YarnQualityFormDialog } from '../masters/yarn/yarn-quality-form';
-import { useCreateYarnPo, usePoNoCheck, useUpdateYarnPo, useYarnPartyLookup, useYarnPo } from './api';
+import { useCreateYarnPo, useUpdateYarnPo, useYarnPartyLookup, useYarnPo } from './api';
 import { cleanDecimal, FormHeader, KgInput, money, numOrNull, QualitySelect, Section } from './parts';
 
 interface Line {
@@ -60,7 +59,7 @@ export default function YarnPoFormPage() {
   const saving = create.isPending || update.isPending;
 
   const [poDate, setPoDate] = useState(toApiDate(new Date()));
-  const [poNo, setPoNo] = useState('');
+  const [existingPoNo, setExistingPoNo] = useState<number | null>(null);
   const [partyId, setPartyId] = useState<number | null>(null);
   const [partyName, setPartyName] = useState<string | undefined>();
   const [remark, setRemark] = useState('');
@@ -79,7 +78,7 @@ export default function YarnPoFormPage() {
     if (!po || loaded.current) return;
     loaded.current = true;
     setPoDate(po.poDate);
-    setPoNo(String(po.poNo));
+    setExistingPoNo(po.poNo);
     setPartyId(po.party.id);
     setPartyName(po.party.name);
     setRemark(po.remark ?? '');
@@ -95,15 +94,10 @@ export default function YarnPoFormPage() {
   }, [existing.data]);
 
   const parties = useYarnPartyLookup('');
-  const poNoNum = /^\d+$/.test(poNo) ? Number(poNo) : null;
-  const debouncedNo = useDebounce(poNoNum, 300);
-  const noCheck = usePoNoCheck(remarkOnly ? null : debouncedNo, isEdit ? editId : undefined);
-  const noTaken = noCheck.data && debouncedNo === poNoNum && !noCheck.data.available;
 
   const errs = useMemo(() => lines.map((l) => lineErrors(l, lines)), [lines]);
   const headerErrors = {
     poDate: !poDate ? 'Pick the PO date' : undefined,
-    poNo: !poNoNum || poNoNum < 1 ? 'Enter the PO number' : noTaken ? `PO no. ${poNoNum} is already used` : undefined,
     partyId: !partyId ? 'Select the party' : undefined,
   };
   const totals = useMemo(() => {
@@ -140,7 +134,6 @@ export default function YarnPoFormPage() {
       return;
     }
     const body = {
-      poNo: poNoNum!,
       poDate,
       partyId: partyId!,
       remark: remark.trim() || null,
@@ -162,14 +155,6 @@ export default function YarnPoFormPage() {
   }
 
   const partyOptions = (parties.data ?? []).map((p) => ({ value: p.id, label: p.name }));
-  const noStatus =
-    remarkOnly || !poNoNum ? null : noCheck.isFetching || debouncedNo !== poNoNum ? (
-      <Loader2 className="size-4 animate-spin text-slate-400" aria-label="Checking" />
-    ) : noCheck.data?.available ? (
-      <CheckCircle2 className="size-5 text-emerald-600" aria-label="Available" />
-    ) : noCheck.data ? (
-      <XCircle className="size-5 text-destructive" aria-label="Taken" />
-    ) : null;
 
   return (
     <div className="flex min-h-[100dvh] flex-col bg-background">
@@ -200,18 +185,8 @@ export default function YarnPoFormPage() {
             <Field label="Date" htmlFor="po-date" required error={show(headerErrors.poDate)}>
               <DatePicker id="po-date" value={poDate} onChange={setPoDate} invalid={tried && !!headerErrors.poDate} />
             </Field>
-            <Field label="PO no." htmlFor="po-no" required error={show(headerErrors.poNo) ?? (noTaken ? headerErrors.poNo : undefined) ?? serverFor('poNo')}>
-              <Input
-                id="po-no"
-                inputMode="numeric"
-                autoComplete="off"
-                autoFocus={!isEdit}
-                value={poNo}
-                onChange={(e) => setPoNo(e.target.value.replace(/\D/g, '').slice(0, 9))}
-                invalid={(tried && !!headerErrors.poNo) || !!noTaken}
-                className="text-base font-semibold tabular-nums"
-                suffix={noStatus}
-              />
+            <Field label="PO no." htmlFor="po-no">
+              <Input id="po-no" readOnly disabled value={isEdit ? (existingPoNo ?? '') : 'Assigned on save'} className="text-base font-semibold tabular-nums text-slate-500" />
             </Field>
             <Field label="Party" htmlFor="po-party" required error={show(headerErrors.partyId) ?? serverFor('partyId')} className="md:col-span-2 lg:col-span-1">
               <Select

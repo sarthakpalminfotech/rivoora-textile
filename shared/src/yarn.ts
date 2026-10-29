@@ -591,11 +591,6 @@ export function overReceiptText(lines: readonly { qualityName: string; pendingG:
   return over.map((l) => `${formatKg(l.qtyG - l.pendingG)} more than pending on ${l.qualityName}`).join(' · ');
 }
 
-/** PO numbers are typed by the user and unique among every PO ever raised (cancelled ones keep theirs). */
-export function poNoTaken(no: number, existing: readonly { id: number; poNo: number }[], exceptId?: number): boolean {
-  return existing.some((p) => p.poNo === no && p.id !== exceptId);
-}
-
 /** The quality lines of a PO: one line per quality. Returns the index of the first repeated quality, or -1. */
 export function duplicateQualityIndex(lines: readonly { qualityId: number }[]): number {
   const seen = new Set<number>();

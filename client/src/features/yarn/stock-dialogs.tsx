@@ -11,6 +11,7 @@ import {
   YARN_STOCK_WHAT_LABEL,
   YARN_ZONE_CONFIG,
   type Beam,
+  type YarnBox,
   type YarnStockWhat,
   type YarnZone,
 } from '@rivoora/shared';
@@ -21,9 +22,9 @@ import { TickBox } from '@/components/ui/tick-box';
 import { ApiError, errorMessage } from '@/lib/api';
 import { formatDate } from '@/lib/format';
 import { cn } from '@/lib/utils';
-import { useTransfer, useWithdraw, useYarnZone } from './api';
+import { useBoxStock, useTransfer, useWithdraw, useYarnZone } from './api';
 import { DialogButtons, YarnDialog } from './dialog';
-import { KgInput, QualitySelect, Toggle2, ZoneChoice, ZoneTag } from './parts';
+import { KgInput, LotSelect, QualitySelect, Toggle2, ZoneChoice, ZoneTag } from './parts';
 
 /** Tick in-stock beams of a zone (beam no · quality · taar / panna / meters). */
 export function BeamChecklist({ beams, selected, onChange, invalid }: { beams: Beam[]; selected: number[]; onChange: (ids: number[]) => void; invalid?: boolean }) {
@@ -62,25 +63,105 @@ export function BeamChecklist({ beams, selected, onChange, invalid }: { beams: B
   );
 }
 
-type What = YarnStockWhat;
+/**
+ * Sprint 20 — tick in-stock boxes. `partial`: Withdraw shows a kg field per ticked box (≤ remaining); Transfer moves
+ * whole boxes (no kg field, the full remaining amount goes).
+ */
+function BoxChecklist({
+  boxes,
+  selected,
+  onChange,
+  partial,
+  boxKg,
+  onKgChange,
+  invalid,
+}: {
+  boxes: YarnBox[];
+  selected: number[];
+  onChange: (ids: number[]) => void;
+  partial?: boolean;
+  boxKg?: Record<number, string>;
+  onKgChange?: (boxId: number, kg: string) => void;
+  invalid?: boolean;
+}) {
+  if (!boxes.length) return <p className="rounded-xl border border-dashed border-border px-4 py-6 text-center text-sm text-slate-500">No boxes in this zone.</p>;
+  const all = selected.length === boxes.length;
+  return (
+    <div className={cn('overflow-hidden rounded-xl border', invalid ? 'border-destructive' : 'border-border')}>
+      <label className="flex min-h-12 cursor-pointer items-center gap-3 border-b border-border bg-slate-50 px-3">
+        <TickBox size="lg" checked={all} partial={selected.length > 0 && !all} onCheckedChange={(c) => onChange(c ? boxes.map((b) => b.id) : [])} aria-label="Select all boxes" />
+        <span className="text-sm font-semibold text-slate-700">{selected.length ? `${selected.length} of ${boxes.length} selected` : `Select all (${boxes.length})`}</span>
+      </label>
+      <ul className="max-h-[22rem] divide-y divide-border overflow-y-auto">
+        {boxes.map((b) => {
+          const on = selected.includes(b.id);
+          const kgErr = on && partial ? (() => {
+            const g = parseKgText(boxKg?.[b.id] ?? '');
+            return g === null || g <= 0 ? 'Enter the kg' : g > b.remainingG ? `Only ${formatKg(b.remainingG)} left` : null;
+          })() : null;
+          return (
+            <li key={b.id} className={cn('px-3 py-2', on && 'bg-primary-soft/50')}>
+              <label className="flex min-h-14 cursor-pointer items-center gap-3">
+                <TickBox size="lg" checked={on} onCheckedChange={(c) => onChange(c ? [...selected, b.id] : selected.filter((x) => x !== b.id))} aria-label={b.boxNo} />
+                <span className="min-w-0 flex-1">
+                  <span className="flex items-baseline gap-2">
+                    <span className="font-bold tabular-nums text-slate-900">{b.boxNo}</span>
+                    <span className="truncate text-sm font-medium text-slate-700">{b.warpingQuality.name}</span>
+                  </span>
+                  <span className="block truncate text-xs text-slate-500">
+                    {b.rolls} rolls · {formatKg(b.remainingG)} left of {formatKg(b.netG)} · {b.lot ? b.lot.lotNo : 'No lot'}
+                  </span>
+                </span>
+              </label>
+              {on && partial && (
+                <div className="mt-2 ml-9 flex items-center gap-2">
+                  <KgInput value={boxKg?.[b.id] ?? ''} onValueChange={(v) => onKgChange?.(b.id, v)} invalid={!!kgErr} className="max-w-36" aria-label={`Kg from ${b.boxNo}`} />
+                  <button type="button" className="text-xs font-semibold text-primary hover:underline" onClick={() => onKgChange?.(b.id, String(b.remainingG / 1000))}>
+                    Use all
+                  </button>
+                  {kgErr && <span className="text-xs font-medium text-destructive">{kgErr}</span>}
+                </div>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
 
-/** The stock part shared by Transfer and Withdraw: What → quality + kg, or beams. */
+type What = YarnStockWhat;
+type TwistedMode = 'boxes' | 'no_box';
+
+/** The stock part shared by Transfer and Withdraw: What → (raw: quality + lot + kg) / (twisted: boxes or "No box" quality + kg) / beams. */
 function useStockPick(zone: YarnZone, open: boolean) {
   const zoneData = useYarnZone(zone, open);
   const [what, setWhat] = useState<What>('raw');
   const [qualityId, setQualityId] = useState<number | null>(null);
+  const [lotId, setLotId] = useState(0); // raw only; 0 = "No lot"
   const [kg, setKg] = useState('');
+  const [twistedMode, setTwistedMode] = useState<TwistedMode>('boxes');
+  const [boxIds, setBoxIds] = useState<number[]>([]);
+  const [boxKg, setBoxKg] = useState<Record<number, string>>({});
   const [beamIds, setBeamIds] = useState<number[]>([]);
   const [note, setNote] = useState('');
+  const boxesQuery = useBoxStock(zone, open && what === 'twisted' && twistedMode === 'boxes');
+
   useEffect(() => {
     if (open) {
       setWhat('raw');
       setQualityId(null);
+      setLotId(0);
       setKg('');
+      setTwistedMode('boxes');
+      setBoxIds([]);
+      setBoxKg({});
       setBeamIds([]);
       setNote('');
     }
   }, [open]);
+  useEffect(() => setLotId(0), [qualityId]);
+
   const stock = useMemo(
     () =>
       (zoneData.data?.qualities ?? [])
@@ -91,7 +172,37 @@ function useStockPick(zone: YarnZone, open: boolean) {
   const available = stock.find((q) => q.id === qualityId)?.availableG ?? 0;
   const grams = parseKgText(kg);
   const yarnError = !qualityId ? 'Select the quality' : grams === null ? 'Enter the kg' : checkTake(available, grams) ? TAKE_ERROR_TEXT[checkTake(available, grams)!] : null;
-  return { zoneData, what, setWhat, qualityId, setQualityId, kg, setKg, beamIds, setBeamIds, note, setNote, stock, available, grams, yarnError };
+
+  const boxes = boxesQuery.data ?? [];
+  const setBoxKgOne = (boxId: number, v: string) => setBoxKg((m) => ({ ...m, [boxId]: v }));
+
+  return {
+    zoneData,
+    what,
+    setWhat,
+    qualityId,
+    setQualityId,
+    lotId,
+    setLotId,
+    kg,
+    setKg,
+    twistedMode,
+    setTwistedMode,
+    boxesQuery,
+    boxes,
+    boxIds,
+    setBoxIds,
+    boxKg,
+    setBoxKgOne,
+    beamIds,
+    setBeamIds,
+    note,
+    setNote,
+    stock,
+    available,
+    grams,
+    yarnError,
+  };
 }
 
 function WhatPicker({ zone, value, onChange }: { zone: YarnZone; value: What; onChange: (w: What) => void }) {
@@ -99,26 +210,107 @@ function WhatPicker({ zone, value, onChange }: { zone: YarnZone; value: What; on
   return <Toggle2 value={value} onChange={onChange} options={options} />;
 }
 
-function StockFields({ pick, tried, serverErr, zone }: { pick: ReturnType<typeof useStockPick>; tried: boolean; serverErr: { field: string; message: string } | null; zone: YarnZone }) {
-  if (pick.zoneData.isPending) return <Skeleton className="h-24 w-full rounded-xl" />;
+/** True once the twisted-box selection (whole for transfer, partial-kg for withdraw) is complete and valid. */
+function boxesValid(pick: ReturnType<typeof useStockPick>, partial: boolean): boolean {
+  if (!pick.boxIds.length) return false;
+  if (!partial) return true;
+  return pick.boxIds.every((id) => {
+    const box = pick.boxes.find((b) => b.id === id);
+    const g = parseKgText(pick.boxKg[id] ?? '');
+    return box && g !== null && g > 0 && g <= box.remainingG;
+  });
+}
+
+function StockFields({
+  pick,
+  tried,
+  serverErr,
+  zone,
+  partialBoxes,
+}: {
+  pick: ReturnType<typeof useStockPick>;
+  tried: boolean;
+  serverErr: { field: string; message: string } | null;
+  zone: YarnZone;
+  /** Withdraw lets kg per box be less than the remaining; Transfer always moves the whole box. */
+  partialBoxes: boolean;
+}) {
   if (pick.what === 'beams') {
+    if (pick.zoneData.isPending) return <Skeleton className="h-24 w-full rounded-xl" />;
     return (
       <Field label="Beams" required error={(tried && !pick.beamIds.length ? 'Select at least one beam' : undefined) ?? (serverErr?.field === 'beamIds' ? serverErr.message : undefined)}>
         <BeamChecklist beams={pick.zoneData.data?.beams ?? []} selected={pick.beamIds} onChange={pick.setBeamIds} invalid={tried && !pick.beamIds.length} />
       </Field>
     );
   }
+  if (pick.what === 'twisted') {
+    return (
+      <div className="grid gap-4">
+        <Toggle2 value={pick.twistedMode} onChange={pick.setTwistedMode} options={[{ value: 'boxes', label: 'Boxes' }, { value: 'no_box', label: 'No box' }]} />
+        {pick.twistedMode === 'boxes' ? (
+          pick.boxesQuery.isPending ? (
+            <Skeleton className="h-24 w-full rounded-xl" />
+          ) : (
+            <Field label="Boxes" required error={(tried && !boxesValid(pick, partialBoxes) ? 'Pick boxes with a valid kg' : undefined) ?? (serverErr?.field === 'boxIds' || serverErr?.field === 'boxes' ? serverErr.message : undefined)}>
+              <BoxChecklist
+                boxes={pick.boxes}
+                selected={pick.boxIds}
+                onChange={pick.setBoxIds}
+                partial={partialBoxes}
+                boxKg={pick.boxKg}
+                onKgChange={pick.setBoxKgOne}
+                invalid={tried && !boxesValid(pick, partialBoxes)}
+              />
+            </Field>
+          )
+        ) : (
+          <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_11rem]">
+            <Field label="Quality (No box)" required error={tried && !pick.qualityId ? 'Select the quality' : undefined}>
+              <QualitySelect
+                value={pick.qualityId}
+                onChange={(id) => pick.setQualityId(id)}
+                only={pick.stock}
+                invalid={tried && !pick.qualityId}
+                placeholder={pick.stock.length ? 'Select quality' : `No twisted yarn in ${YARN_ZONE_CONFIG[zone].label}`}
+              />
+            </Field>
+            <Field
+              label="Kg"
+              required
+              error={(tried && pick.qualityId && pick.yarnError ? pick.yarnError : undefined) ?? (serverErr?.field === 'qtyKg' ? serverErr.message : undefined)}
+              hint={
+                pick.qualityId ? (
+                  <button type="button" className="font-semibold text-primary hover:underline" onClick={() => pick.setKg(String(pick.available / 1000))}>
+                    Use all {formatKg(pick.available)}
+                  </button>
+                ) : undefined
+              }
+            >
+              <KgInput value={pick.kg} onValueChange={pick.setKg} invalid={tried && !!pick.qualityId && !!pick.yarnError} />
+            </Field>
+          </div>
+        )}
+      </div>
+    );
+  }
+  // raw
+  if (pick.zoneData.isPending) return <Skeleton className="h-24 w-full rounded-xl" />;
   return (
-    <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_11rem]">
-      <Field label="Quality" required error={tried && !pick.qualityId ? 'Select the quality' : undefined}>
-        <QualitySelect
-          value={pick.qualityId}
-          onChange={(id) => pick.setQualityId(id)}
-          only={pick.stock}
-          invalid={tried && !pick.qualityId}
-          placeholder={pick.stock.length ? 'Select quality' : `No ${pick.what} yarn in ${YARN_ZONE_CONFIG[zone].label}`}
-        />
-      </Field>
+    <div className="grid gap-4">
+      <div className="grid gap-4 md:grid-cols-2">
+        <Field label="Quality" required error={tried && !pick.qualityId ? 'Select the quality' : undefined}>
+          <QualitySelect
+            value={pick.qualityId}
+            onChange={(id) => pick.setQualityId(id)}
+            only={pick.stock}
+            invalid={tried && !pick.qualityId}
+            placeholder={pick.stock.length ? 'Select quality' : `No raw yarn in ${YARN_ZONE_CONFIG[zone].label}`}
+          />
+        </Field>
+        <Field label="Lot">
+          <LotSelect zone={zone} qualityId={pick.qualityId} value={pick.lotId} onChange={pick.setLotId} />
+        </Field>
+      </div>
       <Field
         label="Kg"
         required
@@ -156,7 +348,8 @@ export function TransferDialog({ open, onOpenChange, from }: { open: boolean; on
     if (to && !targets.includes(to)) setTo(null);
   }, [targets, to]);
 
-  const invalid = !to || (pick.what === 'beams' ? !pick.beamIds.length : !!pick.yarnError);
+  const twistedOk = pick.twistedMode === 'boxes' ? boxesValid(pick, false) : !pick.yarnError && !!pick.qualityId;
+  const invalid = !to || (pick.what === 'beams' ? !pick.beamIds.length : pick.what === 'twisted' ? !twistedOk : !!pick.yarnError);
   const submit = () => {
     setTried(true);
     setServerErr(null);
@@ -164,12 +357,25 @@ export function TransferDialog({ open, onOpenChange, from }: { open: boolean; on
     const body =
       pick.what === 'beams'
         ? { what: 'beams' as const, from: from as 'direct' | 'warping', to: to as 'direct' | 'warping', beamIds: pick.beamIds, note: pick.note.trim() || null }
-        : { what: pick.what, from, to: to!, qualityId: pick.qualityId!, qtyKg: pick.grams! / 1000, note: pick.note.trim() || null };
+        : pick.what === 'twisted'
+          ? {
+              what: 'twisted' as const,
+              from,
+              to: to!,
+              boxIds: pick.twistedMode === 'boxes' ? pick.boxIds : [],
+              noBox: pick.twistedMode === 'no_box' ? { qualityId: pick.qualityId!, qtyKg: pick.grams! / 1000 } : null,
+              note: pick.note.trim() || null,
+            }
+          : { what: 'raw' as const, from, to: to!, qualityId: pick.qualityId!, lotId: pick.lotId || null, qtyKg: pick.grams! / 1000, note: pick.note.trim() || null };
     transfer.mutate(body, {
       onSuccess: () => {
-        toast.success(
-          `${pick.what === 'beams' ? `${pick.beamIds.length} beam${pick.beamIds.length === 1 ? '' : 's'}` : formatKg(pick.grams!)} moved to ${YARN_ZONE_CONFIG[to!].label}`,
-        );
+        const moved =
+          pick.what === 'beams'
+            ? `${pick.beamIds.length} beam${pick.beamIds.length === 1 ? '' : 's'}`
+            : pick.what === 'twisted' && pick.twistedMode === 'boxes'
+              ? `${pick.boxIds.length} box${pick.boxIds.length === 1 ? '' : 'es'}`
+              : formatKg(pick.grams ?? 0);
+        toast.success(`${moved} moved to ${YARN_ZONE_CONFIG[to!].label}`);
         onOpenChange(false);
       },
       onError: (err) => {
@@ -186,7 +392,7 @@ export function TransferDialog({ open, onOpenChange, from }: { open: boolean; on
       title="Transfer"
       description={<>Move stock from {YARN_ZONE_CONFIG[from].label} to another zone.</>}
       busy={transfer.isPending}
-      dirty={!!pick.kg || pick.beamIds.length > 0}
+      dirty={!!pick.kg || pick.beamIds.length > 0 || pick.boxIds.length > 0}
       footer={<DialogButtons onCancel={() => onOpenChange(false)} busy={transfer.isPending} label="Transfer" form="yarn-transfer-form" />}
     >
       <form
@@ -212,7 +418,7 @@ export function TransferDialog({ open, onOpenChange, from }: { open: boolean; on
           <ZoneChoice value={to} onChange={setTo} zones={targets} invalid={tried && !to} compact aria-label="To zone" />
           {pick.what === 'beams' && <p className="mt-1.5 text-xs text-slate-500">Beams move only between Direct consumption and Warping.</p>}
         </Field>
-        <StockFields pick={pick} tried={tried} serverErr={serverErr} zone={from} />
+        <StockFields pick={pick} tried={tried} serverErr={serverErr} zone={from} partialBoxes={false} />
         <Field label="Note" htmlFor="tr-note">
           <Textarea id="tr-note" rows={2} maxLength={1000} value={pick.note} onChange={(e) => pick.setNote(e.target.value)} className="min-h-[72px]" />
         </Field>
@@ -233,7 +439,8 @@ export function WithdrawDialog({ open, onOpenChange }: { open: boolean; onOpenCh
       setServerErr(null);
     }
   }, [open]);
-  const invalid = pick.what === 'beams' ? !pick.beamIds.length : !!pick.yarnError;
+  const twistedOk = pick.twistedMode === 'boxes' ? boxesValid(pick, true) : !pick.yarnError && !!pick.qualityId;
+  const invalid = pick.what === 'beams' ? !pick.beamIds.length : pick.what === 'twisted' ? !twistedOk : !!pick.yarnError;
   const submit = () => {
     setTried(true);
     setServerErr(null);
@@ -241,10 +448,24 @@ export function WithdrawDialog({ open, onOpenChange }: { open: boolean; onOpenCh
     const body =
       pick.what === 'beams'
         ? { what: 'beams' as const, zone: 'direct' as const, beamIds: pick.beamIds, note: pick.note.trim() || null }
-        : { what: pick.what, zone: 'direct' as const, qualityId: pick.qualityId!, qtyKg: pick.grams! / 1000, note: pick.note.trim() || null };
+        : pick.what === 'twisted'
+          ? {
+              what: 'twisted' as const,
+              zone: 'direct' as const,
+              boxes: pick.twistedMode === 'boxes' ? pick.boxIds.map((id) => ({ boxId: id, qtyKg: parseKgText(pick.boxKg[id] ?? '')! / 1000 })) : [],
+              noBox: pick.twistedMode === 'no_box' ? { qualityId: pick.qualityId!, qtyKg: pick.grams! / 1000 } : null,
+              note: pick.note.trim() || null,
+            }
+          : { what: 'raw' as const, zone: 'direct' as const, qualityId: pick.qualityId!, lotId: pick.lotId || null, qtyKg: pick.grams! / 1000, note: pick.note.trim() || null };
     withdraw.mutate(body, {
       onSuccess: () => {
-        toast.success(pick.what === 'beams' ? `${pick.beamIds.length} beam${pick.beamIds.length === 1 ? '' : 's'} consumed` : `${formatKg(pick.grams!)} withdrawn`);
+        const label =
+          pick.what === 'beams'
+            ? `${pick.beamIds.length} beam${pick.beamIds.length === 1 ? '' : 's'} consumed`
+            : pick.what === 'twisted' && pick.twistedMode === 'boxes'
+              ? `${pick.boxIds.length} box${pick.boxIds.length === 1 ? '' : 'es'} withdrawn`
+              : `${formatKg(pick.grams ?? 0)} withdrawn`;
+        toast.success(label);
         onOpenChange(false);
       },
       onError: (err) => {
@@ -260,7 +481,7 @@ export function WithdrawDialog({ open, onOpenChange }: { open: boolean; onOpenCh
       title="Withdraw"
       description="Yarn or beams used directly from Direct consumption."
       busy={withdraw.isPending}
-      dirty={!!pick.kg || pick.beamIds.length > 0}
+      dirty={!!pick.kg || pick.beamIds.length > 0 || pick.boxIds.length > 0}
       footer={<DialogButtons onCancel={() => onOpenChange(false)} busy={withdraw.isPending} label={pick.what === 'beams' ? 'Mark consumed' : 'Withdraw'} form="yarn-withdraw-form" />}
     >
       <form
@@ -275,7 +496,7 @@ export function WithdrawDialog({ open, onOpenChange }: { open: boolean; onOpenCh
         <Field label="What" required>
           <WhatPicker zone="direct" value={pick.what} onChange={pick.setWhat} />
         </Field>
-        <StockFields pick={pick} tried={tried} serverErr={serverErr} zone="direct" />
+        <StockFields pick={pick} tried={tried} serverErr={serverErr} zone="direct" partialBoxes />
         <Field label="Note" htmlFor="wd-note" hint={pick.what === 'beams' ? 'e.g. which loom it went to' : undefined}>
           <Textarea id="wd-note" rows={2} maxLength={1000} value={pick.note} onChange={(e) => pick.setNote(e.target.value)} className="min-h-[72px]" />
         </Field>

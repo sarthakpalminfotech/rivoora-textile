@@ -19,6 +19,8 @@ import type {
   WarpingQuality,
   WarpingQualityInput,
   WarpingStatus,
+  YarnBox,
+  YarnLotStock,
   YarnMove,
   YarnParty,
   YarnPartyInput,
@@ -60,11 +62,12 @@ export const yarnKeys = {
   pos: ['yarn', 'pos'] as const,
   po: (id: number) => ['yarn', 'po', id] as const,
   poPrint: (id: number) => ['yarn', 'po', id, 'print'] as const,
-  poNo: (no: number, exceptId?: number) => ['yarn', 'po-no', no, exceptId ?? 0] as const,
   summary: ['yarn', 'summary'] as const,
   zone: (zone: YarnZone) => ['yarn', 'zone', zone] as const,
   moves: ['yarn', 'moves'] as const,
   beams: (zone?: BeamZone, status?: Beam['status']) => ['yarn', 'beams', zone ?? 'all', status ?? 'in_stock'] as const,
+  lots: (zone: YarnZone, qualityId: number) => ['yarn', 'lots', zone, qualityId] as const,
+  boxes: (zone?: YarnZone) => ['yarn', 'boxes', zone ?? 'all'] as const,
   board: ['yarn', 'tfo', 'board'] as const,
   programs: (machineId?: number, section?: TfoSection) => ['yarn', 'tfo', 'programs', machineId ?? 0, section ?? ''] as const,
   jobs: (status?: WarpingStatus) => ['yarn', 'warping', 'jobs', status ?? 'all'] as const,
@@ -182,16 +185,6 @@ export function useYarnPoPrint(id: number) {
   });
 }
 
-/** Live "PO no. is free" check (like design codes). */
-export function usePoNoCheck(no: number | null, exceptId?: number) {
-  return useQuery({
-    queryKey: yarnKeys.poNo(no ?? 0, exceptId),
-    queryFn: ({ signal }) => api.get<{ available: boolean; poId: number | null }>('/yarn-pos/check-no', { no: no ?? 0, exceptId }, signal),
-    enabled: !!no && no > 0,
-    staleTime: 5_000,
-  });
-}
-
 export const useCreateYarnPo = () => useYarnMutation((data: YarnPoInput) => api.post<YarnPoWriteResult>('/yarn-pos', data), { silentFieldErrors: true });
 export const useUpdateYarnPo = (id: number) =>
   useYarnMutation((data: YarnPoInput | YarnPoRemarkInput) => api.put<YarnPoWriteResult>(`/yarn-pos/${id}`, data), { silentFieldErrors: true });
@@ -224,15 +217,35 @@ export interface MovesParams {
   quality: number[];
   from?: string;
   to?: string;
+  /** Sprint 20 — matches a lot no or a box no. */
+  search?: string;
 }
 
 export const useYarnMoves = (p: MovesParams) =>
-  useInfiniteList<YarnMove>([...yarnKeys.moves], '/yarn/moves', { zone: p.zone, kind: p.kind, quality: p.quality, from: p.from, to: p.to });
+  useInfiniteList<YarnMove>([...yarnKeys.moves, p.search ?? ''], '/yarn/moves', { zone: p.zone, kind: p.kind, quality: p.quality, from: p.from, to: p.to, search: p.search });
 
 export function useBeams(zone: BeamZone | undefined, status: Beam['status'] = 'in_stock', enabled = true) {
   return useQuery({
     queryKey: yarnKeys.beams(zone, status),
     queryFn: ({ signal }) => api.get<Beam[]>('/yarn/beams', { zone, status }, signal),
+    enabled,
+  });
+}
+
+/** Sprint 20 — raw lots (+ "No lot") with stock of one quality in one zone, for the lot picker. */
+export function useLotStock(zone: YarnZone, qualityId: number | null, enabled = true) {
+  return useQuery({
+    queryKey: yarnKeys.lots(zone, qualityId ?? 0),
+    queryFn: ({ signal }) => api.get<YarnLotStock[]>('/yarn/lots', { zone, qualityId }, signal),
+    enabled: enabled && !!qualityId,
+  });
+}
+
+/** Sprint 20 — in-stock boxes of a zone, for the box checklist. */
+export function useBoxStock(zone: YarnZone | undefined, enabled = true) {
+  return useQuery({
+    queryKey: yarnKeys.boxes(zone),
+    queryFn: ({ signal }) => api.get<YarnBox[]>('/yarn/boxes', { zone, status: 'in_stock' }, signal),
     enabled,
   });
 }

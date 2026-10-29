@@ -2,6 +2,7 @@ import { z } from 'zod';
 import {
   BEAM_ZONES,
   BEAM_STATUSES,
+  BOX_STATUSES,
   hasKgPrecision,
   isMoveFilter,
   isYarnPoStatus,
@@ -102,13 +103,9 @@ export const yarnPoLineInputSchema = z.object({
 });
 export type YarnPoLineInput = z.input<typeof yarnPoLineInputSchema>;
 
+/** Sprint 20: `poNo` is no longer in the body — it's assigned by the server (counter `yarn_po_no`). */
 export const yarnPoInputSchema = z
   .object({
-    poNo: z
-      .number({ required_error: 'Enter the PO number', invalid_type_error: 'Enter the PO number' })
-      .int('Use a whole number')
-      .min(1, 'Use a whole number of at least 1')
-      .max(999_999_999, 'PO number is too long'),
     poDate: isoDate('Pick the PO date'),
     partyId: id('Select the party'),
     remark: optText(2000),
@@ -170,43 +167,98 @@ export type YarnPoListQuery = z.infer<typeof yarnPoListQuerySchema>;
 /* ---------- stock: transfers, withdrawals ---------- */
 
 const beamIds = z.array(z.number().int().positive(), { required_error: 'Select at least one beam' }).min(1, 'Select at least one beam').max(500);
+/** null / undefined on the wire both mean "No lot". */
+const lotIdField = z.number().int().positive().nullish();
+const boxIdField = id('Select a box');
+const noBoxInput = z.object({ qualityId: id('Select the quality'), qtyKg: kg('Enter the kg') });
 
-export const yarnTransferSchema = z.discriminatedUnion('what', [
-  z.object({
-    what: z.enum(['raw', 'twisted']),
-    from: z.enum(YARN_ZONES),
-    to: z.enum(YARN_ZONES, { errorMap: () => ({ message: 'Pick the zone to move to' }) }),
-    qualityId: id('Select the quality'),
-    qtyKg: kg('Enter the kg'),
-    note: optText(1000),
-  }),
-  z.object({
-    what: z.literal('beams'),
-    from: z.enum(BEAM_ZONES, { errorMap: () => ({ message: 'Beams can move only between Direct consumption and Warping' }) }),
-    to: z.enum(BEAM_ZONES, { errorMap: () => ({ message: 'Beams can move only between Direct consumption and Warping' }) }),
-    beamIds,
-    note: optText(1000),
-  }),
-]);
+/** Sprint 20: raw moves carry a lot (null = "No lot"); twisted moves are whole boxes OR a "No box" quality + kg. */
+export const yarnTransferSchema = z
+  .discriminatedUnion('what', [
+    z.object({
+      what: z.literal('raw'),
+      from: z.enum(YARN_ZONES),
+      to: z.enum(YARN_ZONES, { errorMap: () => ({ message: 'Pick the zone to move to' }) }),
+      qualityId: id('Select the quality'),
+      lotId: lotIdField,
+      qtyKg: kg('Enter the kg'),
+      note: optText(1000),
+    }),
+    z.object({
+      what: z.literal('twisted'),
+      from: z.enum(YARN_ZONES),
+      to: z.enum(YARN_ZONES, { errorMap: () => ({ message: 'Pick the zone to move to' }) }),
+      boxIds: z.array(boxIdField).max(200).default([]),
+      noBox: noBoxInput.nullish(),
+      note: optText(1000),
+    }),
+    z.object({
+      what: z.literal('beams'),
+      from: z.enum(BEAM_ZONES, { errorMap: () => ({ message: 'Beams can move only between Direct consumption and Warping' }) }),
+      to: z.enum(BEAM_ZONES, { errorMap: () => ({ message: 'Beams can move only between Direct consumption and Warping' }) }),
+      beamIds,
+      note: optText(1000),
+    }),
+  ])
+  .superRefine((v, ctx) => {
+    if (v.what !== 'twisted') return;
+    const hasBoxes = v.boxIds.length > 0;
+    const hasNoBox = !!v.noBox;
+    if (hasBoxes === hasNoBox) {
+      ctx.addIssue({ code: 'custom', path: ['boxIds'], message: hasBoxes ? 'Pick boxes or enter "No box" kg, not both' : 'Pick at least one box, or enter "No box" kg' });
+    }
+  });
 export type YarnTransferInput = z.input<typeof yarnTransferSchema>;
 
 /** POST /yarn/withdrawals — Direct consumption only (TFO = Run program, Warping = Start warping). */
-export const yarnWithdrawSchema = z.discriminatedUnion('what', [
-  z.object({
-    what: z.enum(['raw', 'twisted']),
-    zone: z.literal('direct', { errorMap: () => ({ message: 'Withdraw is for Direct consumption' }) }),
-    qualityId: id('Select the quality'),
-    qtyKg: kg('Enter the kg'),
-    note: optText(1000),
-  }),
-  z.object({
-    what: z.literal('beams'),
-    zone: z.literal('direct', { errorMap: () => ({ message: 'Withdraw is for Direct consumption' }) }),
-    beamIds,
-    note: optText(1000),
-  }),
-]);
+export const yarnWithdrawSchema = z
+  .discriminatedUnion('what', [
+    z.object({
+      what: z.literal('raw'),
+      zone: z.literal('direct', { errorMap: () => ({ message: 'Withdraw is for Direct consumption' }) }),
+      qualityId: id('Select the quality'),
+      lotId: lotIdField,
+      qtyKg: kg('Enter the kg'),
+      note: optText(1000),
+    }),
+    z.object({
+      what: z.literal('twisted'),
+      zone: z.literal('direct', { errorMap: () => ({ message: 'Withdraw is for Direct consumption' }) }),
+      boxes: z.array(z.object({ boxId: boxIdField, qtyKg: kg('Enter the kg') })).max(200).default([]),
+      noBox: noBoxInput.nullish(),
+      note: optText(1000),
+    }),
+    z.object({
+      what: z.literal('beams'),
+      zone: z.literal('direct', { errorMap: () => ({ message: 'Withdraw is for Direct consumption' }) }),
+      beamIds,
+      note: optText(1000),
+    }),
+  ])
+  .superRefine((v, ctx) => {
+    if (v.what !== 'twisted') return;
+    const hasBoxes = v.boxes.length > 0;
+    const hasNoBox = !!v.noBox;
+    if (hasBoxes === hasNoBox) {
+      ctx.addIssue({ code: 'custom', path: ['boxes'], message: hasBoxes ? 'Pick boxes or enter "No box" kg, not both' : 'Pick at least one box, or enter "No box" kg' });
+    }
+  });
 export type YarnWithdrawInput = z.input<typeof yarnWithdrawSchema>;
+
+/** GET /yarn/lots — raw lots (+ "No lot") with stock of one quality in one zone. */
+export const yarnLotsQuerySchema = z.object({
+  zone: z.enum(YARN_ZONES),
+  qualityId: z.coerce.number().int().positive(),
+});
+export type YarnLotsQuery = z.infer<typeof yarnLotsQuerySchema>;
+
+/** GET /yarn/boxes — in-stock (or used) boxes, optionally filtered by zone + searched by box no / lot no. */
+export const yarnBoxesQuerySchema = z.object({
+  zone: z.enum(YARN_ZONES).optional().catch(undefined),
+  status: z.enum(BOX_STATUSES).optional().catch(undefined),
+  search: z.string().trim().max(60).optional().transform((v) => v || undefined),
+});
+export type YarnBoxesQuery = z.infer<typeof yarnBoxesQuerySchema>;
 
 export const yarnMovesQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
@@ -216,6 +268,8 @@ export const yarnMovesQuerySchema = z.object({
   quality: z.unknown().transform(idList),
   from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().catch(undefined),
   to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().catch(undefined),
+  /** Sprint 20: matches a lot no or a box no. */
+  search: z.string().trim().max(60).optional().transform((v) => v || undefined),
 });
 export type YarnMovesQuery = z.infer<typeof yarnMovesQuerySchema>;
 

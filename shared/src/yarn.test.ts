@@ -19,7 +19,6 @@ import {
   overReceiptLines,
   overReceiptText,
   parseKgText,
-  poNoTaken,
   programResultLine,
   ratePaise,
   receiptHasQuantity,
@@ -293,19 +292,9 @@ describe('Yarn PO', () => {
     expect(yarnReceiptInputSchema.safeParse({ challanNo: '55', date: '2026-10-26', zone: 'tfo', lines: [{ poLineId: 1, qtyKg: 0 }] }).success).toBe(false);
   });
 
-  it('PO no is unique (also against cancelled POs)', () => {
-    const existing = [
-      { id: 1, poNo: 101 },
-      { id: 2, poNo: 102 },
-    ];
-    expect(poNoTaken(101, existing)).toBe(true);
-    expect(poNoTaken(101, existing, 1)).toBe(false);
-    expect(poNoTaken(103, existing)).toBe(false);
-  });
-
   it('one line per quality', () => {
     expect(duplicateQualityIndex([{ qualityId: 1 }, { qualityId: 2 }, { qualityId: 1 }])).toBe(2);
-    const base = { poNo: 1, poDate: '2026-10-26', partyId: 1 };
+    const base = { poDate: '2026-10-26', partyId: 1 };
     expect(yarnPoInputSchema.safeParse({ ...base, lines: [{ qualityId: 1, qtyKg: 10, rate: 200 }] }).success).toBe(true);
     const dup = yarnPoInputSchema.safeParse({ ...base, lines: [{ qualityId: 1, qtyKg: 10, rate: 200 }, { qualityId: 1, qtyKg: 5, rate: 210 }] });
     expect(dup.success).toBe(false);

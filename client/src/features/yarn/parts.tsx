@@ -18,7 +18,7 @@ import { Input, type InputProps } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { formatMoney } from '@/lib/format';
 import { cn } from '@/lib/utils';
-import { useYarnQualityLookup } from './api';
+import { useLotStock, useYarnQualityLookup } from './api';
 
 /** Sprint 17 — small building blocks shared by the yarn screens. */
 
@@ -161,6 +161,51 @@ export function QualitySelect({ value, onChange, id, invalid, placeholder = 'Sel
           </Button>
         )
       }
+    />
+  );
+}
+
+/**
+ * Sprint 20 — the lot picker for raw yarn moves ("No lot" first, then lots by number). `value` is the lot id, or
+ * `0` to mean "No lot" (lot ids are never 0).
+ */
+export function LotSelect({
+  zone,
+  qualityId,
+  value,
+  onChange,
+  invalid,
+  disabled,
+  className,
+}: {
+  zone: YarnZone;
+  qualityId: number | null;
+  value: number;
+  onChange: (lotId: number) => void;
+  invalid?: boolean;
+  disabled?: boolean;
+  className?: string;
+}) {
+  const lots = useLotStock(zone, qualityId, !!qualityId);
+  const options = (lots.data ?? []).map((l) => ({
+    value: l.id ?? 0,
+    label: l.id === null ? 'No lot' : l.lotNo!,
+    description: [l.partyName, `${formatKg(l.availableG)} available`].filter(Boolean).join(' · '),
+  }));
+  return (
+    <Select
+      value={value}
+      onChange={onChange}
+      options={options}
+      placeholder={qualityId ? 'Select lot' : 'Pick a quality first'}
+      searchable
+      searchPlaceholder="Search lots…"
+      loading={lots.isPending}
+      emptyText="No stock here"
+      invalid={invalid}
+      disabled={disabled || !qualityId}
+      className={className}
+      aria-label="Lot"
     />
   );
 }

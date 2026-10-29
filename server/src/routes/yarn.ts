@@ -4,12 +4,14 @@ import {
   isYarnZone,
   tfoProgramsQuerySchema,
   warpingJobsQuerySchema,
+  yarnBoxesQuerySchema,
+  yarnLotsQuerySchema,
   yarnMovesQuerySchema,
 } from '@rivoora/shared';
 import { notFound } from '../lib/errors';
 import { ah, parseId } from '../lib/http';
 import { requirePermission } from '../middleware/role';
-import { createTransfer, createWithdrawal, listBeams, listMoves, yarnSummary, yarnZone } from '../services/yarn-stock';
+import { createTransfer, createWithdrawal, listBeams, listBoxStock, listLotStock, listMoves, yarnSummary, yarnZone } from '../services/yarn-stock';
 import { getProgram, listPrograms, startProgram, stopProgram, tfoBoard } from '../services/yarn-tfo';
 import { finishWarpingJob, getWarpingJob, listWarpingJobs, startWarpingJob } from '../services/yarn-warping';
 
@@ -50,6 +52,25 @@ yarnRouter.get(
   ah(async (req, res) => {
     res.set('Cache-Control', 'no-store');
     res.json(await listBeams(beamsQuerySchema.parse(req.query)));
+  }),
+);
+
+/** Sprint 20 — raw lots (+ "No lot") with stock of one quality in one zone, for the lot picker. */
+yarnRouter.get(
+  '/lots',
+  ah(async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    const q = yarnLotsQuerySchema.parse(req.query);
+    res.json(await listLotStock(q.zone, q.qualityId));
+  }),
+);
+
+/** Sprint 20 — boxes for the box pickers (and, eventually, zone stock screens). */
+yarnRouter.get(
+  '/boxes',
+  ah(async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    res.json(await listBoxStock(yarnBoxesQuerySchema.parse(req.query)));
   }),
 );
 

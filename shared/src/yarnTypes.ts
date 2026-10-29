@@ -1,6 +1,7 @@
 import type {
   BeamStatus,
   BeamZone,
+  BoxStatus,
   MoveKind,
   TfoSection,
   TwistDirection,
@@ -203,6 +204,35 @@ export interface YarnMove extends YarnActor {
   /** A short "what" line: "PO 104 · challan 55", "To TFO", "3A · 75D", "WJ-2"… */
   context: string | null;
   note: string | null;
+  createdAt: string;
+  /** Sprint 20: raw rows' lot — null = "No lot". */
+  lot: { id: number; lotNo: string } | null;
+  /** Sprint 20: twisted rows' box — null = "No box". */
+  box: { id: number; boxNo: string } | null;
+}
+
+/** Sprint 20 — a raw-yarn lot's stock in one zone, for the lot picker (null id = "No lot"). */
+export interface YarnLotStock {
+  id: number | null;
+  lotNo: string | null;
+  partyName: string | null;
+  availableG: number;
+}
+
+/** Sprint 20 — a TFO output box, for box pickers and zone stock screens. */
+export interface YarnBox {
+  id: number;
+  boxNo: string;
+  zone: YarnZone;
+  status: BoxStatus;
+  warpingQuality: { id: number; name: string };
+  lot: { id: number; lotNo: string; partyName: string } | null;
+  rolls: number;
+  grossG: number;
+  netG: number;
+  /** Net wt minus whatever has been withdrawn / moved out so far. */
+  remainingG: number;
+  programId: number;
   createdAt: string;
 }
 

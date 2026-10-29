@@ -1,11 +1,9 @@
 import { Router } from 'express';
-import { z } from 'zod';
 import { yarnPoListQuerySchema } from '@rivoora/shared';
 import { ah, parseId } from '../lib/http';
 import { requirePermission } from '../middleware/role';
 import {
   cancelYarnPo,
-  checkPoNo,
   closeYarnPo,
   createYarnPo,
   getYarnPo,
@@ -29,18 +27,6 @@ yarnPosRouter.get(
   ah(async (req, res) => {
     res.set('Cache-Control', 'no-store');
     res.json(await listYarnPos(req.role, yarnPoListQuerySchema.parse(req.query)));
-  }),
-);
-
-yarnPosRouter.get(
-  '/check-no',
-  manage,
-  ah(async (req, res) => {
-    res.set('Cache-Control', 'no-store');
-    const q = z
-      .object({ no: z.coerce.number().int().min(1).max(999_999_999), exceptId: z.coerce.number().int().positive().optional() })
-      .parse(req.query);
-    res.json(await checkPoNo(q.no, q.exceptId));
   }),
 );
 

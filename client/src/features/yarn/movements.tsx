@@ -1,5 +1,5 @@
 import { ArrowDownLeft, ArrowUpRight, History } from 'lucide-react';
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
   beamLabel,
@@ -18,20 +18,23 @@ import {
 import { ErrorState, LoadMore } from '@/components/list-parts';
 import { DateRangePicker } from '@/components/ui/date-picker';
 import { EmptyState } from '@/components/ui/empty-state';
+import { Input } from '@/components/ui/input';
 import { MultiSelect } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
+import { useDebounce } from '@/hooks/useDebounce';
 import { formatDateTime } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { useYarnMoves, useYarnQualityLookup, type MovesParams } from './api';
 import { actorText, Kg, Pill, ZoneTag } from './parts';
 
-/** "Raw yarn · 75D" / "2 beams · BM-3, BM-4" */
+/** "Raw yarn · 75D · Lot 123" / "Twisted yarn · Box BX-5" / "2 beams · BM-3, BM-4" */
 function whatLine(m: YarnMove) {
   if (m.source === 'beam') {
     const n = Math.abs(m.beams ?? 0);
     return `${n} beam${n === 1 ? '' : 's'}${m.quality ? ` · ${m.quality.name}` : ''}`;
   }
-  return `${m.item ? YARN_ITEM_LABEL[m.item] : ''}${m.quality ? ` · ${m.quality.name}` : ''}`;
+  const lotOrBox = m.box ? `Box ${m.box.boxNo}` : m.lot ? `Lot ${m.lot.lotNo}` : null;
+  return `${m.item ? YARN_ITEM_LABEL[m.item] : ''}${m.quality ? ` · ${m.quality.name}` : ''}${lotOrBox ? ` · ${lotOrBox}` : ''}`;
 }
 
 function Qty({ m, className }: { m: YarnMove; className?: string }) {
@@ -123,7 +126,7 @@ export function MovementList({ items, showZone = true }: { items: YarnMove[]; sh
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
-/** Movement filters in the URL: `mz` (zone, only when no fixed zone), `mtype`, `mq`, `mfrom`, `mto`. */
+/** Movement filters in the URL: `mz` (zone, only when no fixed zone), `mtype`, `mq`, `mfrom`, `mto`, `msearch`. */
 function useMoveFilters(fixedZone?: YarnZone) {
   const [params, setParams] = useSearchParams();
   const value = useMemo<MovesParams>(() => {
@@ -136,6 +139,7 @@ function useMoveFilters(fixedZone?: YarnZone) {
       quality: (params.get('mq') ?? '').split(',').map(Number).filter((n) => Number.isInteger(n) && n > 0),
       from: DATE_RE.test(from) ? from : undefined,
       to: DATE_RE.test(to) ? to : undefined,
+      search: params.get('msearch') || undefined,
     };
   }, [params, fixedZone]);
   const set = (patch: Partial<MovesParams>) =>
@@ -148,6 +152,7 @@ function useMoveFilters(fixedZone?: YarnZone) {
         if ('quality' in patch) put('mq', patch.quality?.join(','));
         if ('from' in patch) put('mfrom', patch.from);
         if ('to' in patch) put('mto', patch.to);
+        if ('search' in patch) put('msearch', patch.search);
         return next;
       },
       { replace: true },
@@ -160,8 +165,14 @@ export function MovementsSection({ zone, title = 'Movements' }: { zone?: YarnZon
   const { value, set } = useMoveFilters(zone);
   const query = useYarnMoves(value);
   const qualities = useYarnQualityLookup('');
+  const [search, setSearch] = useState(value.search ?? '');
+  const debouncedSearch = useDebounce(search.trim(), 300);
+  useEffect(() => {
+    if (debouncedSearch !== (value.search ?? '')) set({ search: debouncedSearch || undefined });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debouncedSearch]);
   const toggleKind = (k: MoveFilter) => set({ kind: value.kind.includes(k) ? value.kind.filter((x) => x !== k) : [...value.kind, k] });
-  const filtered = value.kind.length > 0 || value.quality.length > 0 || !!value.from || !!value.to || (!zone && !!value.zone);
+  const filtered = value.kind.length > 0 || value.quality.length > 0 || !!value.from || !!value.to || !!value.search || (!zone && !!value.zone);
 
   return (
     <section className="rounded-2xl border border-border bg-white p-4 shadow-soft md:p-5">
@@ -191,7 +202,7 @@ export function MovementsSection({ zone, title = 'Movements' }: { zone?: YarnZon
               </Pill>
             ))}
         </div>
-        <div className="grid gap-3 md:grid-cols-2 lg:max-w-3xl">
+        <div className="grid gap-3 md:grid-cols-3 lg:max-w-4xl">
           <MultiSelect
             options={(qualities.data ?? []).map((q) => ({ value: q.id, label: q.name }))}
             value={value.quality}
@@ -202,6 +213,7 @@ export function MovementsSection({ zone, title = 'Movements' }: { zone?: YarnZon
             aria-label="Quality"
           />
           <DateRangePicker value={{ from: value.from, to: value.to }} onChange={(r) => set({ from: r.from, to: r.to })} />
+          <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search lot / box no…" aria-label="Search lot / box no" />
         </div>
       </div>
       {query.isPending ? (
