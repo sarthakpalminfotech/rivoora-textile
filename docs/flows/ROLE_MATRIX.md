@@ -158,8 +158,10 @@ into **More**.
 | INV-01..06 | Inventory screens | 👁 | 👁 | ✖ | ✖ | ✖ | ✖ | ✖ (free stock of one item inside FS-02 only) |
 
 ### Yarn
-| Op | Description | J | G | S | T | Q | GS | D |
-|---|---|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
+Sprint 20: **Y** = Yarn inventory supervisor (same yarn rights as S, nothing else); the godown supervisor (GS) has no yarn access.
+
+| Op | Description | J | G | S | Y | T | Q | GS | D |
+|---|---|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
 | YPO-01, YPO-04 | Yarn PO list / details (rates hidden for S, Y) | ✅ | ✅ | 👁 | 👁 | ✖ | ✖ | ✖ | ✖ |
 | YPO-02, YPO-03, YPO-06..08 | Create / edit / close / cancel / print | ✅ | ✅ | ✖ | ✖ | ✖ | ✖ | ✖ | ✖ |
 | YPO-05 | Receive yarn challan into a zone | ✅ | ✅ | ✅ | ✅ | ✖ | ✖ | ✖ | ✖ |
