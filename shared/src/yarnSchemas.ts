@@ -124,25 +124,47 @@ export type YarnPoInput = z.input<typeof yarnPoInputSchema>;
 export const yarnPoRemarkSchema = z.object({ remark: optText(2000) }).strict();
 export type YarnPoRemarkInput = z.input<typeof yarnPoRemarkSchema>;
 
-export const yarnReceiptInputSchema = z
+/** Sprint 20 — one allocation row: part of a lot's kg going to one zone. */
+const receiptAllocationInput = z.object({
+  zone: z.enum(YARN_ZONES, { errorMap: () => ({ message: 'Pick a zone' }) }),
+  qtyKg: kg('Enter the kg'),
+});
+
+/** Sprint 20 — one lot received in this challan: its PO line (quality), lot no, total kg, and where it's split. */
+const receiptLotInput = z
   .object({
-    challanNo: z.string({ required_error: 'Enter the challan number' }).trim().min(1, 'Enter the challan number').max(40, 'At most 40 characters'),
-    date: isoDate('Pick the date'),
-    zone: z.enum(YARN_ZONES, { errorMap: () => ({ message: 'Pick the zone the yarn goes to' }) }),
-    notes: optText(1000),
-    lines: z
-      .array(
-        z.object({
-          poLineId: id('Line missing'),
-          qtyKg: kg('Enter the received kg', { allowZero: true }),
-          boxes: z.number({ invalid_type_error: 'Use a whole number' }).int('Use a whole number').min(0, 'Cannot be negative').max(100_000).nullish().transform((v) => v ?? null),
-        }),
-      )
-      .min(1, 'Enter the received kg')
-      .max(MAX_PO_LINES),
+    poLineId: id('Pick the PO line'),
+    lotNo: z.string({ required_error: 'Enter the lot no.' }).trim().min(1, 'Enter the lot no.').max(40, 'At most 40 characters'),
+    qtyKg: kg('Enter the kg'),
+    boxes: z.number({ invalid_type_error: 'Use a whole number' }).int('Use a whole number').min(0, 'Cannot be negative').max(100_000).nullish().transform((v) => v ?? null),
+    /** Any kg not allocated here goes to Direct consumption. */
+    allocations: z.array(receiptAllocationInput).max(YARN_ZONES.length).default([]),
   })
-  .refine((v) => v.lines.some((l) => l.qtyKg > 0), { message: 'Enter the received kg on at least one line', path: ['lines'] });
+  .superRefine((v, ctx) => {
+    const allocatedKg = v.allocations.reduce((s, a) => s + a.qtyKg, 0);
+    if (allocatedKg - v.qtyKg > 1e-6) ctx.addIssue({ code: 'custom', path: ['allocations'], message: "Allocations can't exceed the lot's kg" });
+    const seen = new Set<string>();
+    v.allocations.forEach((a, i) => {
+      if (seen.has(a.zone)) ctx.addIssue({ code: 'custom', path: ['allocations', i, 'zone'], message: 'Pick each zone at most once' });
+      seen.add(a.zone);
+    });
+  });
+export type YarnReceiptLotInput = z.input<typeof receiptLotInput>;
+
+export const yarnReceiptInputSchema = z.object({
+  challanNo: z.string({ required_error: 'Enter the challan number' }).trim().min(1, 'Enter the challan number').max(40, 'At most 40 characters'),
+  date: isoDate('Pick the date'),
+  notes: optText(1000),
+  lots: z.array(receiptLotInput, { required_error: 'Add at least one lot' }).min(1, 'Add at least one lot').max(MAX_PO_LINES, `At most ${MAX_PO_LINES} lots`),
+});
 export type YarnReceiptInput = z.input<typeof yarnReceiptInputSchema>;
+
+/** GET /yarn/lots/check — the live "lot no. is free for this party" check. */
+export const checkLotNoQuerySchema = z.object({
+  partyId: z.coerce.number().int().positive(),
+  lotNo: z.string().trim().min(1).max(40),
+});
+export type CheckLotNoQuery = z.infer<typeof checkLotNoQuerySchema>;
 
 const idList = (v: unknown) =>
   (typeof v === 'string' ? v.split(',') : [])

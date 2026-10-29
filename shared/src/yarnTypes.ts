@@ -103,18 +103,29 @@ export interface YarnPoLine {
   progress: number;
 }
 
+/** Sprint 20 — part of a receipt line's kg that went to one zone. */
+export interface YarnReceiptAllocation {
+  zone: YarnZone;
+  qtyG: number;
+}
+
 export interface YarnReceiptLine {
   id: number;
   poLineId: number;
   quality: { id: number; name: string };
   qtyG: number;
   boxes: number | null;
+  /** Sprint 20: the lot this line was received as (null on pre-Sprint-20 receipts). */
+  lot: { id: number; lotNo: string } | null;
+  /** Sprint 20: where this lot's kg went. Empty on pre-Sprint-20 lines — all of it went to the receipt's `zone`. */
+  allocations: YarnReceiptAllocation[];
 }
 
 export interface YarnReceipt extends YarnActor {
   id: number;
   challanNo: string;
   receiptDate: string;
+  /** Sprint 20: descriptive only (the biggest allocation across the whole receipt) — see each line's `allocations`. */
   zone: YarnZone;
   notes: string | null;
   totalG: number;
@@ -172,7 +183,9 @@ export interface YarnReceiptResult {
   poId: number;
   status: YarnPoStatus;
   totalG: number;
+  /** Sprint 20: descriptive only (the biggest allocation) — see `byZone` for the real split. */
   zone: YarnZone;
+  byZone: { zone: YarnZone; qtyG: number }[];
 }
 
 /* ---------- stock ---------- */

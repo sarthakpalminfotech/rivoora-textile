@@ -285,11 +285,25 @@ describe('Yarn PO', () => {
     const parsed = yarnReceiptInputSchema.safeParse({
       challanNo: '55',
       date: '2026-10-26',
-      zone: 'tfo',
-      lines: [{ poLineId: 1, qtyKg: 12 }],
+      lots: [{ poLineId: 1, lotNo: 'LOT1', qtyKg: 12, allocations: [{ zone: 'tfo', qtyKg: 12 }] }],
     });
     expect(parsed.success).toBe(true);
-    expect(yarnReceiptInputSchema.safeParse({ challanNo: '55', date: '2026-10-26', zone: 'tfo', lines: [{ poLineId: 1, qtyKg: 0 }] }).success).toBe(false);
+    // allocations can't exceed the lot's kg
+    expect(
+      yarnReceiptInputSchema.safeParse({
+        challanNo: '55',
+        date: '2026-10-26',
+        lots: [{ poLineId: 1, lotNo: 'LOT1', qtyKg: 10, allocations: [{ zone: 'tfo', qtyKg: 12 }] }],
+      }).success,
+    ).toBe(false);
+    // unallocated kg is fine — it goes to Direct consumption
+    expect(
+      yarnReceiptInputSchema.safeParse({
+        challanNo: '55',
+        date: '2026-10-26',
+        lots: [{ poLineId: 1, lotNo: 'LOT1', qtyKg: 12, allocations: [] }],
+      }).success,
+    ).toBe(true);
   });
 
   it('one line per quality', () => {

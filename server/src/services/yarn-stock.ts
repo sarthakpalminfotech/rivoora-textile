@@ -166,6 +166,16 @@ export async function yarnZone(zone: YarnZone): Promise<YarnZoneData> {
 /* Sprint 20: lots + boxes                                              */
 /* ------------------------------------------------------------------ */
 
+/** GET /yarn/lots/check — the live "lot no. is free for this party" check (lots are never edited or deleted). */
+export async function checkLotNo(partyId: number, lotNo: string): Promise<{ available: boolean }> {
+  const [row] = await db
+    .select({ id: yarnLots.id })
+    .from(yarnLots)
+    .where(and(eq(yarnLots.partyId, partyId), sql`lower(${yarnLots.lotNo}) = lower(${lotNo})`))
+    .limit(1);
+  return { available: !row };
+}
+
 /** GET /yarn/lots — raw lots (+ "No lot") with stock of one quality in one zone, for the lot picker. */
 export async function listLotStock(zone: YarnZone, qualityId: number): Promise<YarnLotStock[]> {
   const rows = await db

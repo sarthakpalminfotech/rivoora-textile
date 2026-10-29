@@ -25,9 +25,21 @@ import {
   type YarnPoStatus,
   type YarnPoWriteResult,
   type YarnReceiptResult,
+  type YarnZone,
 } from '@rivoora/shared';
 import { db, type DbOrTx, type Tx } from '../db/client';
-import { users, yarnParties, yarnPoEvents, yarnPoLines, yarnPos, yarnQualities, yarnReceiptLines, yarnReceipts } from '../db/schema';
+import {
+  yarnLots,
+  yarnParties,
+  yarnPoEvents,
+  yarnPoLines,
+  yarnPos,
+  yarnQualities,
+  yarnReceiptLineAllocations,
+  yarnReceiptLines,
+  yarnReceipts,
+  users,
+} from '../db/schema';
 import { badRequest, conflict, notFound } from '../lib/errors';
 import { likePattern } from '../lib/http';
 import { actor, addStock, allocateYarnPoNo, nowIso, qualityNames } from './yarn-ledger';
@@ -187,10 +199,13 @@ export async function getYarnPo(role: RoleKey, id: number): Promise<YarnPoDetail
         qualityName: yarnQualities.name,
         qtyG: yarnReceiptLines.qtyG,
         boxes: yarnReceiptLines.boxes,
+        lotId: yarnReceiptLines.lotId,
+        lotNo: yarnLots.lotNo,
       })
       .from(yarnReceiptLines)
       .innerJoin(yarnReceipts, eq(yarnReceipts.id, yarnReceiptLines.receiptId))
       .innerJoin(yarnQualities, eq(yarnQualities.id, yarnReceiptLines.qualityId))
+      .leftJoin(yarnLots, eq(yarnLots.id, yarnReceiptLines.lotId))
       .where(eq(yarnReceipts.poId, id))
       .orderBy(asc(yarnReceiptLines.id)),
     db
@@ -201,6 +216,12 @@ export async function getYarnPo(role: RoleKey, id: number): Promise<YarnPoDetail
       .orderBy(desc(yarnPoEvents.createdAt), desc(yarnPoEvents.id)),
     db.select({ name: users.name }).from(users).where(eq(users.id, po.createdByUserId ?? 0)),
   ]);
+  const allocations = receiptLines.length
+    ? await db
+        .select({ receiptLineId: yarnReceiptLineAllocations.receiptLineId, zone: yarnReceiptLineAllocations.zone, qtyG: yarnReceiptLineAllocations.qtyG })
+        .from(yarnReceiptLineAllocations)
+        .where(inArray(yarnReceiptLineAllocations.receiptLineId, receiptLines.map((l) => l.id)))
+    : [];
   const lines = await linesOf(db, [id]);
   const totals = totalsOf(lines);
   const seeRate = can(role, 'canSeeRate');
@@ -246,7 +267,15 @@ export async function getYarnPo(role: RoleKey, id: number): Promise<YarnPoDetail
         role: r.role,
         userName: r.userName,
         totalG: own.reduce((s, l) => s + l.qtyG, 0),
-        lines: own.map((l) => ({ id: l.id, poLineId: l.poLineId, quality: { id: l.qualityId, name: l.qualityName }, qtyG: l.qtyG, boxes: l.boxes })),
+        lines: own.map((l) => ({
+          id: l.id,
+          poLineId: l.poLineId,
+          quality: { id: l.qualityId, name: l.qualityName },
+          qtyG: l.qtyG,
+          boxes: l.boxes,
+          lot: l.lotId !== null && l.lotNo !== null ? { id: l.lotId, lotNo: l.lotNo } : null,
+          allocations: allocations.filter((a) => a.receiptLineId === l.id).map((a) => ({ zone: a.zone, qtyG: a.qtyG })),
+        })),
         createdAt: r.createdAt,
       };
     }),
@@ -357,9 +386,30 @@ async function setStatus(role: RoleKey, id: number, to: 'closed' | 'cancelled'):
 export const closeYarnPo = (role: RoleKey, id: number) => setStatus(role, id, 'closed');
 export const cancelYarnPo = (role: RoleKey, id: number) => setStatus(role, id, 'cancelled');
 
+/** 409 when a typed lot no. is already used by this party (lots are never edited or deleted). */
+async function assertLotNosFree(tx: DbOrTx, partyId: number, entries: { lotNo: string; i: number }[]) {
+  const seen = new Map<string, number>();
+  for (const e of entries) {
+    const key = e.lotNo.toLowerCase();
+    if (seen.has(key)) throw conflict(`Lot "${e.lotNo}" is used twice in this challan`, `lots.${e.i}.lotNo`);
+    seen.set(key, e.i);
+  }
+  if (!entries.length) return;
+  const existing = await tx
+    .select({ lotNo: yarnLots.lotNo })
+    .from(yarnLots)
+    .where(and(eq(yarnLots.partyId, partyId), inArray(sql`lower(${yarnLots.lotNo})`, [...seen.keys()])));
+  if (existing.length) {
+    const first = existing[0];
+    const i = seen.get(first.lotNo.toLowerCase())!;
+    throw conflict(`Lot "${first.lotNo}" already exists for this party`, `lots.${i}.lotNo`);
+  }
+}
+
 /**
- * POST /yarn-pos/:id/receipts — one transaction: the receipt + its lines (only lines > 0 kg), raw yarn into the chosen
- * zone in the ledger per quality, and the PO status. Over-receipt is allowed (the screen warns).
+ * POST /yarn-pos/:id/receipts — Sprint 20: one transaction per challan — a receipt, one NEW lot per entry (unique per
+ * party), its receipt line (with that lot), and its allocation rows (any kg not explicitly allocated goes to Direct
+ * consumption). One ledger `receipt` row per allocation, tagged with the lot. Over-receipt is allowed (the screen warns).
  */
 export async function receiveYarn(role: RoleKey, poId: number, input: unknown): Promise<YarnReceiptResult> {
   const data = yarnReceiptInputSchema.parse(input);
@@ -369,50 +419,56 @@ export async function receiveYarn(role: RoleKey, poId: number, input: unknown): 
       throw conflict(po.status === 'received' ? 'This PO is fully received.' : `This PO is ${po.status} — it can’t receive yarn.`);
     }
     const lines = await linesOf(tx, [poId]);
-    const byId = new Map(lines.map((l) => [l.id, l]));
-    const seen = new Set<number>();
-    const taken = data.lines
-      .map((l, i) => ({ ...l, i, qtyG: kgToGrams(l.qtyKg) }))
-      .filter((l) => l.qtyG > 0);
-    for (const l of taken) {
-      if (!byId.has(l.poLineId)) throw badRequest('A line is not on this PO — refresh and try again', `lines.${l.i}.qtyKg`);
-      if (seen.has(l.poLineId)) throw badRequest('A PO line appears twice', `lines.${l.i}.qtyKg`);
-      seen.add(l.poLineId);
-    }
+    const byLineId = new Map(lines.map((l) => [l.id, l]));
+    data.lots.forEach((lot, i) => {
+      if (!byLineId.has(lot.poLineId)) throw badRequest('A line is not on this PO — refresh and try again', `lots.${i}.poLineId`);
+    });
+    await assertLotNosFree(tx, po.partyId, data.lots.map((l, i) => ({ lotNo: l.lotNo, i })));
+
     const [receipt] = await tx
       .insert(yarnReceipts)
-      .values({
-        poId,
-        challanNo: data.challanNo,
-        receiptDate: data.date,
-        zone: data.zone,
-        notes: data.notes,
-        receivedBy: role,
-        receivedByUserId: actor(role).userId,
-      })
+      .values({ poId, challanNo: data.challanNo, receiptDate: data.date, zone: 'direct', notes: data.notes, receivedBy: role, receivedByUserId: actor(role).userId })
       .returning({ id: yarnReceipts.id });
-    await tx.insert(yarnReceiptLines).values(
-      taken.map((l) => ({ receiptId: receipt.id, poLineId: l.poLineId, qualityId: byId.get(l.poLineId)!.qualityId, qtyG: l.qtyG, boxes: l.boxes })),
-    );
-    for (const l of taken) {
-      await addStock(tx, {
-        zone: data.zone,
-        item: 'raw',
-        qualityId: byId.get(l.poLineId)!.qualityId,
-        qtyG: l.qtyG,
-        kind: 'receipt',
-        refType: 'receipt',
-        refId: receipt.id,
-        note: data.notes,
-        role,
-      });
+
+    const receivedByLine = new Map<number, number>();
+    const totalByZone = new Map<YarnZone, number>();
+    let totalG = 0;
+
+    for (const lot of data.lots) {
+      const qualityId = byLineId.get(lot.poLineId)!.qualityId;
+      const lotTotalG = kgToGrams(lot.qtyKg);
+      const [newLot] = await tx.insert(yarnLots).values({ lotNo: lot.lotNo, partyId: po.partyId, qualityId, createdByUserId: actor(role).userId }).returning({ id: yarnLots.id });
+      const [receiptLine] = await tx
+        .insert(yarnReceiptLines)
+        .values({ receiptId: receipt.id, poLineId: lot.poLineId, qualityId, qtyG: lotTotalG, boxes: lot.boxes, lotId: newLot.id })
+        .returning({ id: yarnReceiptLines.id });
+
+      const allocG = new Map<YarnZone, number>();
+      for (const a of lot.allocations) allocG.set(a.zone, (allocG.get(a.zone) ?? 0) + kgToGrams(a.qtyKg));
+      const allocatedG = [...allocG.values()].reduce((s, v) => s + v, 0);
+      const remainderG = lotTotalG - allocatedG;
+      if (remainderG > 0) allocG.set('direct', (allocG.get('direct') ?? 0) + remainderG);
+
+      for (const [zone, qtyG] of allocG) {
+        if (qtyG <= 0) continue;
+        await tx.insert(yarnReceiptLineAllocations).values({ receiptLineId: receiptLine.id, zone, qtyG });
+        await addStock(tx, { zone, item: 'raw', qualityId, qtyG, kind: 'receipt', refType: 'receipt', refId: receipt.id, note: data.notes, role, lotId: newLot.id });
+        totalByZone.set(zone, (totalByZone.get(zone) ?? 0) + qtyG);
+      }
+      receivedByLine.set(lot.poLineId, (receivedByLine.get(lot.poLineId) ?? 0) + lotTotalG);
+      totalG += lotTotalG;
     }
-    const totalG = taken.reduce((s, l) => s + l.qtyG, 0);
-    const after = totalsOf(lines.map((l) => ({ ...l, receivedG: l.receivedG + (taken.find((t) => t.poLineId === l.id)?.qtyG ?? 0) })));
+
+    const byZone = [...totalByZone.entries()].map(([zone, qtyG]) => ({ zone, qtyG })).sort((a, b) => b.qtyG - a.qtyG);
+    const descriptiveZone = byZone[0]?.zone ?? 'direct';
+    if (descriptiveZone !== 'direct') await tx.update(yarnReceipts).set({ zone: descriptiveZone }).where(eq(yarnReceipts.id, receipt.id));
+
+    const after = totalsOf(lines.map((l) => ({ ...l, receivedG: l.receivedG + (receivedByLine.get(l.id) ?? 0) })));
     const status: YarnPoStatus = yarnPoStatusFor({ status: po.status, orderedG: after.orderedG, receivedG: after.receivedG });
     if (status !== po.status) await tx.update(yarnPos).set({ status }).where(eq(yarnPos.id, poId));
-    await writeEvent(tx, poId, 'received', role, `Challan ${data.challanNo} · ${formatKg(totalG)} → ${YARN_ZONE_CONFIG[data.zone].label}`);
-    return { receiptId: receipt.id, poId, status, totalG, zone: data.zone };
+    const zoneBreakdown = byZone.map((z) => `${YARN_ZONE_CONFIG[z.zone].label} ${formatKg(z.qtyG)}`).join(', ');
+    await writeEvent(tx, poId, 'received', role, `Challan ${data.challanNo} · ${formatKg(totalG)} → ${zoneBreakdown}`);
+    return { receiptId: receipt.id, poId, status, totalG, zone: descriptiveZone, byZone };
   });
 }
 

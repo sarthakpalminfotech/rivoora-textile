@@ -2,7 +2,7 @@ import { Ban, ChevronDown, Lock, PackageCheck, Pencil, Printer } from 'lucide-re
 import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
-import { YARN_PO_EVENT_LABEL, type YarnPoDetail, type YarnReceipt } from '@rivoora/shared';
+import { formatKg, YARN_PO_EVENT_LABEL, type YarnPoDetail, type YarnReceipt } from '@rivoora/shared';
 import { usePageTitle } from '@/components/layout/page-title';
 import { ErrorState } from '@/components/list-parts';
 import { Button } from '@/components/ui/button';
@@ -55,18 +55,22 @@ function ReceiptRow({ r }: { r: YarnReceipt }) {
             <thead className="text-xs uppercase tracking-wide text-slate-400">
               <tr>
                 <th className="pb-1 text-left font-semibold">Quality</th>
+                <th className="pb-1 text-left font-semibold">Lot</th>
                 <th className="pb-1 text-right font-semibold">Kg</th>
-                <th className="pb-1 text-right font-semibold">Boxes / cones</th>
+                <th className="pb-1 text-right font-semibold">Boxes</th>
+                <th className="pb-1 text-left font-semibold">Where it went</th>
               </tr>
             </thead>
             <tbody>
               {r.lines.map((l) => (
                 <tr key={l.id} className="border-t border-slate-200">
                   <td className="py-1.5 font-medium text-slate-800">{l.quality.name}</td>
+                  <td className="py-1.5 text-slate-600">{l.lot ? l.lot.lotNo : '—'}</td>
                   <td className="py-1.5 text-right">
                     <Kg g={l.qtyG} />
                   </td>
                   <td className="py-1.5 text-right tabular-nums text-slate-600">{l.boxes ?? '—'}</td>
+                  <td className="py-1.5 text-slate-600">{l.allocations.length ? l.allocations.map((a) => `${a.zone} ${formatKg(a.qtyG)}`).join(', ') : '—'}</td>
                 </tr>
               ))}
             </tbody>

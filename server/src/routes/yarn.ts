@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import {
   beamsQuerySchema,
+  checkLotNoQuerySchema,
   isYarnZone,
   tfoProgramsQuerySchema,
   warpingJobsQuerySchema,
@@ -11,7 +12,7 @@ import {
 import { notFound } from '../lib/errors';
 import { ah, parseId } from '../lib/http';
 import { requirePermission } from '../middleware/role';
-import { createTransfer, createWithdrawal, listBeams, listBoxStock, listLotStock, listMoves, yarnSummary, yarnZone } from '../services/yarn-stock';
+import { checkLotNo, createTransfer, createWithdrawal, listBeams, listBoxStock, listLotStock, listMoves, yarnSummary, yarnZone } from '../services/yarn-stock';
 import { getProgram, listPrograms, startProgram, stopProgram, tfoBoard } from '../services/yarn-tfo';
 import { finishWarpingJob, getWarpingJob, listWarpingJobs, startWarpingJob } from '../services/yarn-warping';
 
@@ -62,6 +63,16 @@ yarnRouter.get(
     res.set('Cache-Control', 'no-store');
     const q = yarnLotsQuerySchema.parse(req.query);
     res.json(await listLotStock(q.zone, q.qualityId));
+  }),
+);
+
+/** Sprint 20 — the live "lot no. is free for this party" check, used on the Receive screen. */
+yarnRouter.get(
+  '/lots/check',
+  ah(async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    const q = checkLotNoQuerySchema.parse(req.query);
+    res.json(await checkLotNo(q.partyId, q.lotNo));
   }),
 );
 
