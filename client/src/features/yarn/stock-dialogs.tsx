@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import {
+  availableText,
   checkTake,
   formatKg,
   isBeamZone,
@@ -16,12 +17,13 @@ import {
 } from '@rivoora/shared';
 import { Field } from '@/components/ui/field';
 import { Textarea } from '@/components/ui/input';
+import { Select } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { TickBox } from '@/components/ui/tick-box';
 import { ApiError, errorMessage } from '@/lib/api';
 import { formatDate } from '@/lib/format';
 import { cn } from '@/lib/utils';
-import { useBoxStock, useTransfer, useWithdraw, useYarnZone } from './api';
+import { useBoxStock, useNoBoxStock, useTransfer, useWithdraw, useYarnZone } from './api';
 import { DialogButtons, YarnDialog } from './dialog';
 import { KgInput, LotSelect, QualitySelect, Toggle2, ZoneChoice, ZoneTag } from './parts';
 
@@ -88,20 +90,23 @@ function BoxChecklist({
   return (
     <div className={cn('overflow-hidden rounded-xl border', invalid ? 'border-destructive' : 'border-border')}>
       <label className="flex min-h-12 cursor-pointer items-center gap-3 border-b border-border bg-slate-50 px-3">
-        <TickBox size="lg" checked={all} partial={selected.length > 0 && !all} onCheckedChange={(c) => onChange(c ? boxes.map((b) => b.id) : [])} aria-label="Select all boxes" />
+        <TickBox size="lg" checked={all} partial={selected.length > 0 && !all} onCheckedChange={(c) => onChange(c ? boxes.filter((b) => boxFreeG(b) > 0 && (partial || b.reservedG === 0)).map((b) => b.id) : [])} aria-label="Select all boxes" />
         <span className="text-sm font-semibold text-slate-700">{selected.length ? `${selected.length} of ${boxes.length} selected` : `Select all (${boxes.length})`}</span>
       </label>
       <ul className="max-h-[22rem] divide-y divide-border overflow-y-auto">
         {boxes.map((b) => {
           const on = selected.includes(b.id);
+          const free = boxFreeG(b);
+          // A box with a reservation (pending warping job) can't move as a whole; part of it can still be taken.
+          const locked = free <= 0 || (!partial && b.reservedG > 0);
           const kgErr = on && partial ? (() => {
             const g = parseKgText(boxKg?.[b.id] ?? '');
-            return g === null || g <= 0 ? 'Enter the kg' : g > b.remainingG ? `Only ${formatKg(b.remainingG)} left` : null;
+            return g === null || g <= 0 ? 'Enter the kg' : g > free ? `Only ${formatKg(free)} free` : null;
           })() : null;
           return (
             <li key={b.id} className={cn('px-3 py-2', on && 'bg-primary-soft/50')}>
               <label className="flex min-h-14 cursor-pointer items-center gap-3">
-                <TickBox size="lg" checked={on} onCheckedChange={(c) => onChange(c ? [...selected, b.id] : selected.filter((x) => x !== b.id))} aria-label={b.boxNo} />
+                <TickBox size="lg" checked={on} disabled={locked && !on} onCheckedChange={(c) => onChange(c ? [...selected, b.id] : selected.filter((x) => x !== b.id))} aria-label={b.boxNo} />
                 <span className="min-w-0 flex-1">
                   <span className="flex items-baseline gap-2">
                     <span className="font-bold tabular-nums text-slate-900">{b.boxNo}</span>
@@ -109,13 +114,14 @@ function BoxChecklist({
                   </span>
                   <span className="block truncate text-xs text-slate-500">
                     {b.rolls} rolls · {formatKg(b.remainingG)} left of {formatKg(b.netG)} · {b.lot ? b.lot.lotNo : 'No lot'}
+                    {b.reservedG > 0 ? ` · reserved ${formatKg(b.reservedG)}` : ''}
                   </span>
                 </span>
               </label>
               {on && partial && (
                 <div className="mt-2 ml-9 flex items-center gap-2">
                   <KgInput value={boxKg?.[b.id] ?? ''} onValueChange={(v) => onKgChange?.(b.id, v)} invalid={!!kgErr} className="max-w-36" aria-label={`Kg from ${b.boxNo}`} />
-                  <button type="button" className="text-xs font-semibold text-primary hover:underline" onClick={() => onKgChange?.(b.id, String(b.remainingG / 1000))}>
+                  <button type="button" className="text-xs font-semibold text-primary hover:underline" onClick={() => onKgChange?.(b.id, String(free / 1000))}>
                     Use all
                   </button>
                   {kgErr && <span className="text-xs font-medium text-destructive">{kgErr}</span>}
@@ -129,15 +135,22 @@ function BoxChecklist({
   );
 }
 
+/** What can still be taken from a box: its remaining kg minus what pending warping jobs reserve. */
+const boxFreeG = (b: YarnBox) => Math.max(0, b.remainingG - b.reservedG);
+
 type What = YarnStockWhat;
 type TwistedMode = 'boxes' | 'no_box';
 
 /** The stock part shared by Transfer and Withdraw: What → (raw: quality + lot + kg) / (twisted: boxes or "No box" quality + kg) / beams. */
-function useStockPick(zone: YarnZone, open: boolean) {
+export function useStockPick(zone: YarnZone, open: boolean) {
   const zoneData = useYarnZone(zone, open);
   const [what, setWhat] = useState<What>('raw');
   const [qualityId, setQualityId] = useState<number | null>(null);
-  const [lotId, setLotId] = useState(0); // raw only; 0 = "No lot"
+  /** raw only: null = not picked yet, 0 = "No lot" */
+  const [lotId, setLotId] = useState<number | null>(null);
+  const [lotAvailableG, setLotAvailableG] = useState(0);
+  /** twisted "No box": `q-<yarn quality>` / `w-<warping quality>` */
+  const [noBoxKey, setNoBoxKey] = useState<string | null>(null);
   const [kg, setKg] = useState('');
   const [twistedMode, setTwistedMode] = useState<TwistedMode>('boxes');
   const [boxIds, setBoxIds] = useState<number[]>([]);
@@ -145,12 +158,14 @@ function useStockPick(zone: YarnZone, open: boolean) {
   const [beamIds, setBeamIds] = useState<number[]>([]);
   const [note, setNote] = useState('');
   const boxesQuery = useBoxStock(zone, open && what === 'twisted' && twistedMode === 'boxes');
+  const noBoxQuery = useNoBoxStock(zone, open && what === 'twisted' && twistedMode === 'no_box');
 
   useEffect(() => {
     if (open) {
       setWhat('raw');
       setQualityId(null);
-      setLotId(0);
+      setLotId(null);
+      setNoBoxKey(null);
       setKg('');
       setTwistedMode('boxes');
       setBoxIds([]);
@@ -159,18 +174,51 @@ function useStockPick(zone: YarnZone, open: boolean) {
       setNote('');
     }
   }, [open]);
-  useEffect(() => setLotId(0), [qualityId]);
+  useEffect(() => {
+    setLotId(null);
+    setLotAvailableG(0);
+  }, [qualityId, zone]);
+  useEffect(() => {
+    setBoxIds([]);
+    setBeamIds([]);
+    setNoBoxKey(null);
+  }, [zone]);
 
   const stock = useMemo(
-    () =>
-      (zoneData.data?.qualities ?? [])
-        .map((q) => ({ id: q.quality.id, name: q.quality.name, availableG: what === 'twisted' ? q.twistedG : q.rawG }))
-        .filter((q) => q.availableG > 0),
-    [zoneData.data, what],
+    () => (zoneData.data?.qualities ?? []).map((q) => ({ id: q.quality.id, name: q.quality.name, availableG: q.rawG })).filter((q) => q.availableG > 0),
+    [zoneData.data],
   );
-  const available = stock.find((q) => q.id === qualityId)?.availableG ?? 0;
+  const noBoxOptions = useMemo(
+    () =>
+      (noBoxQuery.data ?? []).map((n) => ({
+        value: n.warpingQualityId ? `w-${n.warpingQualityId}` : `q-${n.qualityId}`,
+        label: n.name,
+        description: availableText(n.availableG, n.reservedG),
+        disabled: n.availableG <= 0,
+        availableG: n.availableG,
+      })),
+    [noBoxQuery.data],
+  );
+  const available = what === 'twisted' ? (noBoxOptions.find((o) => o.value === noBoxKey)?.availableG ?? 0) : lotAvailableG;
   const grams = parseKgText(kg);
-  const yarnError = !qualityId ? 'Select the quality' : grams === null ? 'Enter the kg' : checkTake(available, grams) ? TAKE_ERROR_TEXT[checkTake(available, grams)!] : null;
+  const picked = what === 'twisted' ? !!noBoxKey : !!qualityId && lotId !== null;
+  const yarnError =
+    what === 'twisted' && !noBoxKey
+      ? 'Select the quality'
+      : what === 'raw' && !qualityId
+        ? 'Select the quality'
+        : what === 'raw' && lotId === null
+          ? 'Pick the lot (or No lot)'
+          : grams === null
+            ? 'Enter the kg'
+            : checkTake(available, grams)
+              ? TAKE_ERROR_TEXT[checkTake(available, grams)!]
+              : null;
+  /** The "No box" part of a request body. */
+  const noBoxBody = () => {
+    const [t, id] = (noBoxKey ?? '').split('-');
+    return t === 'w' ? { warpingQualityId: Number(id), qtyKg: grams! / 1000 } : { qualityId: Number(id), qtyKg: grams! / 1000 };
+  };
 
   const boxes = boxesQuery.data ?? [];
   const setBoxKgOne = (boxId: number, v: string) => setBoxKg((m) => ({ ...m, [boxId]: v }));
@@ -183,6 +231,12 @@ function useStockPick(zone: YarnZone, open: boolean) {
     setQualityId,
     lotId,
     setLotId,
+    setLotAvailableG,
+    noBoxKey,
+    setNoBoxKey,
+    noBoxQuery,
+    noBoxOptions,
+    noBoxBody,
     kg,
     setKg,
     twistedMode,
@@ -199,28 +253,29 @@ function useStockPick(zone: YarnZone, open: boolean) {
     setNote,
     stock,
     available,
+    picked,
     grams,
     yarnError,
   };
 }
 
-function WhatPicker({ zone, value, onChange }: { zone: YarnZone; value: What; onChange: (w: What) => void }) {
+export function WhatPicker({ zone, value, onChange }: { zone: YarnZone; value: What; onChange: (w: What) => void }) {
   const options = (isBeamZone(zone) ? (['raw', 'twisted', 'beams'] as const) : (['raw', 'twisted'] as const)).map((w) => ({ value: w, label: YARN_STOCK_WHAT_LABEL[w] }));
   return <Toggle2 value={value} onChange={onChange} options={options} />;
 }
 
 /** True once the twisted-box selection (whole for transfer, partial-kg for withdraw) is complete and valid. */
-function boxesValid(pick: ReturnType<typeof useStockPick>, partial: boolean): boolean {
+export function boxesValid(pick: ReturnType<typeof useStockPick>, partial: boolean): boolean {
   if (!pick.boxIds.length) return false;
-  if (!partial) return true;
+  if (!partial) return pick.boxIds.every((id) => pick.boxes.find((b) => b.id === id)?.reservedG === 0);
   return pick.boxIds.every((id) => {
     const box = pick.boxes.find((b) => b.id === id);
     const g = parseKgText(pick.boxKg[id] ?? '');
-    return box && g !== null && g > 0 && g <= box.remainingG;
+    return box && g !== null && g > 0 && g <= boxFreeG(box);
   });
 }
 
-function StockFields({
+export function StockFields({
   pick,
   tried,
   serverErr,
@@ -264,28 +319,33 @@ function StockFields({
           )
         ) : (
           <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_11rem]">
-            <Field label="Quality (No box)" required error={tried && !pick.qualityId ? 'Select the quality' : undefined}>
-              <QualitySelect
-                value={pick.qualityId}
-                onChange={(id) => pick.setQualityId(id)}
-                only={pick.stock}
-                invalid={tried && !pick.qualityId}
-                placeholder={pick.stock.length ? 'Select quality' : `No twisted yarn in ${YARN_ZONE_CONFIG[zone].label}`}
+            <Field label="Quality (No box)" required error={tried && !pick.noBoxKey ? 'Select the quality' : undefined}>
+              <Select
+                value={pick.noBoxKey}
+                onChange={pick.setNoBoxKey}
+                options={pick.noBoxOptions}
+                placeholder={pick.noBoxOptions.length ? 'Select quality' : `No “No box” twisted yarn in ${YARN_ZONE_CONFIG[zone].label}`}
+                searchable
+                loading={pick.noBoxQuery.isPending}
+                emptyText="Nothing here"
+                invalid={tried && !pick.noBoxKey}
+                panelClassName="min-w-[min(300px,calc(100vw-24px))]"
+                aria-label="No box quality"
               />
             </Field>
             <Field
               label="Kg"
               required
-              error={(tried && pick.qualityId && pick.yarnError ? pick.yarnError : undefined) ?? (serverErr?.field === 'qtyKg' ? serverErr.message : undefined)}
+              error={(tried && pick.noBoxKey && pick.yarnError ? pick.yarnError : undefined) ?? (serverErr?.field === 'qtyKg' ? serverErr.message : undefined)}
               hint={
-                pick.qualityId ? (
+                pick.noBoxKey ? (
                   <button type="button" className="font-semibold text-primary hover:underline" onClick={() => pick.setKg(String(pick.available / 1000))}>
                     Use all {formatKg(pick.available)}
                   </button>
                 ) : undefined
               }
             >
-              <KgInput value={pick.kg} onValueChange={pick.setKg} invalid={tried && !!pick.qualityId && !!pick.yarnError} />
+              <KgInput value={pick.kg} onValueChange={pick.setKg} invalid={tried && !!pick.noBoxKey && !!pick.yarnError} />
             </Field>
           </div>
         )}
@@ -306,23 +366,32 @@ function StockFields({
             placeholder={pick.stock.length ? 'Select quality' : `No raw yarn in ${YARN_ZONE_CONFIG[zone].label}`}
           />
         </Field>
-        <Field label="Lot">
-          <LotSelect zone={zone} qualityId={pick.qualityId} value={pick.lotId} onChange={pick.setLotId} />
+        <Field label="Lot" required error={tried && pick.qualityId && pick.lotId === null ? 'Pick the lot (or No lot)' : undefined}>
+          <LotSelect
+            zone={zone}
+            qualityId={pick.qualityId}
+            value={pick.lotId ?? -1}
+            onChange={(lotId, availableG) => {
+              pick.setLotId(lotId);
+              pick.setLotAvailableG(availableG);
+            }}
+            invalid={tried && !!pick.qualityId && pick.lotId === null}
+          />
         </Field>
       </div>
       <Field
         label="Kg"
         required
-        error={(tried && pick.qualityId && pick.yarnError ? pick.yarnError : undefined) ?? (serverErr?.field === 'qtyKg' ? serverErr.message : undefined)}
+        error={(tried && pick.picked && pick.yarnError ? pick.yarnError : undefined) ?? (serverErr?.field === 'qtyKg' ? serverErr.message : undefined)}
         hint={
-          pick.qualityId ? (
+          pick.picked ? (
             <button type="button" className="font-semibold text-primary hover:underline" onClick={() => pick.setKg(String(pick.available / 1000))}>
               Use all {formatKg(pick.available)}
             </button>
           ) : undefined
         }
       >
-        <KgInput value={pick.kg} onValueChange={pick.setKg} invalid={tried && !!pick.qualityId && !!pick.yarnError} />
+        <KgInput value={pick.kg} onValueChange={pick.setKg} invalid={tried && !!pick.picked && !!pick.yarnError} />
       </Field>
     </div>
   );
@@ -347,7 +416,7 @@ export function TransferDialog({ open, onOpenChange, from }: { open: boolean; on
     if (to && !targets.includes(to)) setTo(null);
   }, [targets, to]);
 
-  const twistedOk = pick.twistedMode === 'boxes' ? boxesValid(pick, false) : !pick.yarnError && !!pick.qualityId;
+  const twistedOk = pick.twistedMode === 'boxes' ? boxesValid(pick, false) : !pick.yarnError;
   const invalid = !to || (pick.what === 'beams' ? !pick.beamIds.length : pick.what === 'twisted' ? !twistedOk : !!pick.yarnError);
   const submit = () => {
     setTried(true);
@@ -362,7 +431,7 @@ export function TransferDialog({ open, onOpenChange, from }: { open: boolean; on
               from,
               to: to!,
               boxIds: pick.twistedMode === 'boxes' ? pick.boxIds : [],
-              noBox: pick.twistedMode === 'no_box' ? { qualityId: pick.qualityId!, qtyKg: pick.grams! / 1000 } : null,
+              noBox: pick.twistedMode === 'no_box' ? pick.noBoxBody() : null,
               note: pick.note.trim() || null,
             }
           : { what: 'raw' as const, from, to: to!, qualityId: pick.qualityId!, lotId: pick.lotId || null, qtyKg: pick.grams! / 1000, note: pick.note.trim() || null };
@@ -438,7 +507,7 @@ export function WithdrawDialog({ open, onOpenChange }: { open: boolean; onOpenCh
       setServerErr(null);
     }
   }, [open]);
-  const twistedOk = pick.twistedMode === 'boxes' ? boxesValid(pick, true) : !pick.yarnError && !!pick.qualityId;
+  const twistedOk = pick.twistedMode === 'boxes' ? boxesValid(pick, true) : !pick.yarnError;
   const invalid = pick.what === 'beams' ? !pick.beamIds.length : pick.what === 'twisted' ? !twistedOk : !!pick.yarnError;
   const submit = () => {
     setTried(true);
@@ -452,7 +521,7 @@ export function WithdrawDialog({ open, onOpenChange }: { open: boolean; onOpenCh
               what: 'twisted' as const,
               zone: 'direct' as const,
               boxes: pick.twistedMode === 'boxes' ? pick.boxIds.map((id) => ({ boxId: id, qtyKg: parseKgText(pick.boxKg[id] ?? '')! / 1000 })) : [],
-              noBox: pick.twistedMode === 'no_box' ? { qualityId: pick.qualityId!, qtyKg: pick.grams! / 1000 } : null,
+              noBox: pick.twistedMode === 'no_box' ? pick.noBoxBody() : null,
               note: pick.note.trim() || null,
             }
           : { what: 'raw' as const, zone: 'direct' as const, qualityId: pick.qualityId!, lotId: pick.lotId || null, qtyKg: pick.grams! / 1000, note: pick.note.trim() || null };

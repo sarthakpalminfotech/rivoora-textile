@@ -15,7 +15,7 @@ import {
 import { notFound } from '../lib/errors';
 import { ah, parseId } from '../lib/http';
 import { requirePermission } from '../middleware/role';
-import { checkBoxNo, checkLotNo, createTransfer, listNoBoxStock, createWithdrawal, listBeams, listBoxStock, listLotStock, listMoves, yarnSummary, yarnZone } from '../services/yarn-stock';
+import { checkBoxNo, checkLotNo, createTransfer, listNoBoxStock, manualAdd, manualRemove, createWithdrawal, listBeams, listBoxStock, listLotStock, listMoves, yarnSummary, yarnZone } from '../services/yarn-stock';
 import {
   cancelPendingProgram,
   createPendingPrograms,
@@ -146,6 +146,24 @@ yarnRouter.post(
   '/withdrawals',
   ah(async (req, res) => {
     res.status(201).json(await createWithdrawal(req.role, req.body));
+  }),
+);
+
+/* Sprint 20 — manual add / remove (Jenish, Gaurang only). */
+
+yarnRouter.post(
+  '/adjustments/add',
+  requirePermission('canAdjustYarnStock'),
+  ah(async (req, res) => {
+    res.status(201).json(await manualAdd(req.role, req.body));
+  }),
+);
+
+yarnRouter.post(
+  '/adjustments/remove',
+  requirePermission('canAdjustYarnStock'),
+  ah(async (req, res) => {
+    res.status(201).json(await manualRemove(req.role, req.body));
   }),
 );
 

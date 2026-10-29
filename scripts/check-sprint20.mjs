@@ -260,7 +260,43 @@ check(beamMovesNow.some((m) => m.kind === 'beam_created' && m.beamCodes.includes
 await ok('supervisor', 'POST', '/yarn/transfers', { what: 'beams', from: 'direct', to: 'warping', beamIds: [bm1.id] });
 check((await ok('jemish', 'GET', '/yarn/beams?zone=warping')).some((b) => b.id === bm1.id), 'beam transfer Direct → Warping as before');
 
-// Exports for later phases (manual add / remove) live below this line.
+// ---------------------------------------------------------------- manual add / remove (owners only)
+check((await call('yarn', 'POST', '/yarn/adjustments/add', { zone: 'direct', item: 'raw', qualityId: q75.id, qtyKg: 1 })).status === 403, 'yarn supervisor cannot add stock manually (403)');
+check((await call('supervisor', 'POST', '/yarn/adjustments/remove', { what: 'raw', zone: 'direct', qualityId: q75.id, qtyKg: 1, remark: 'x' })).status === 403, 'production supervisor cannot remove stock manually (403)');
+const noLotBefore = (await lotAvail('direct', q75.id, null)).availableG;
+await ok('jemish', 'POST', '/yarn/adjustments/add', { zone: 'direct', item: 'raw', qualityId: q75.id, qtyKg: 12.5, remark: 'found in store' });
+check((await lotAvail('direct', q75.id, null)).availableG === noLotBefore + 12_500, 'manual add raw → No lot stock');
+await ok('gaurang', 'POST', '/yarn/adjustments/add', { zone: 'tfo', item: 'twisted', warpingQualityId: stopQ.id, qtyKg: 7 });
+const nb = (await ok('jemish', 'GET', '/yarn/no-box?zone=tfo')).find((n) => n.warpingQualityId === stopQ.id);
+check(nb?.availableG === 7_000, 'manual add twisted → No box stock under the warping quality', nb);
+check((await call('jemish', 'POST', '/yarn/adjustments/add', { zone: 'tfo', item: 'twisted', qualityId: q75.id, qtyKg: 1 })).status === 400, 'twisted add needs a warping quality');
+await ok('jemish', 'POST', '/yarn/transfers', { what: 'twisted', from: 'tfo', to: 'warping', noBox: { warpingQualityId: stopQ.id, qtyKg: 3 } });
+check((await ok('jemish', 'GET', '/yarn/no-box?zone=warping')).find((n) => n.warpingQualityId === stopQ.id)?.availableG === 3_000, 'No box (warping quality) stock is transferable');
+check((await call('jemish', 'POST', '/yarn/adjustments/remove', { what: 'raw', zone: 'direct', qualityId: q75.id, lotId: null, qtyKg: 1 })).status === 400, 'remove needs a remark (400)');
+check((await call('jemish', 'POST', '/yarn/adjustments/remove', { what: 'raw', zone: 'direct', qualityId: q75.id, lotId: null, qtyKg: 999999, remark: 'x' })).status === 409, 'remove more than stock → 409 (no negative stock)');
+await ok('jemish', 'POST', '/yarn/adjustments/remove', { what: 'raw', zone: 'direct', qualityId: q75.id, lotId: null, qtyKg: 2.5, remark: 'wet, thrown away' });
+check((await lotAvail('direct', q75.id, null)).availableG === noLotBefore + 10_000, 'manual remove raw (No lot)');
+const b2now = await boxIn('direct', bx(2));
+await ok('jemish', 'POST', '/yarn/adjustments/remove', { what: 'twisted', zone: 'direct', boxes: [{ boxId: b2now.id, qtyKg: 0.25 }], remark: 'sample' });
+check((await boxIn('direct', bx(2))).remainingG === b2now.remainingG - 250, 'manual remove part of a box');
+await ok('jemish', 'POST', '/yarn/adjustments/remove', { what: 'twisted', zone: 'warping', noBox: { warpingQualityId: stopQ.id, qtyKg: 3 }, remark: 'count' });
+const beamToRemove = (await ok('jemish', 'GET', '/yarn/beams?zone=warping')).find((b) => b.beamCode === code(2));
+await ok('jemish', 'POST', '/yarn/adjustments/remove', { what: 'beams', zone: 'warping', beamIds: [beamToRemove.id], remark: 'damaged beam' });
+check((await ok('jemish', 'GET', '/yarn/beams?zone=warping&status=removed')).some((b) => b.id === beamToRemove.id), 'manual remove of a beam → status Removed');
+const manualMoves = (await ok('jemish', 'GET', '/yarn/moves?kind=manual&limit=50')).items;
+check(
+  manualMoves.some((m) => m.kind === 'manual_add' && m.note === 'found in store' && m.userName) &&
+    manualMoves.some((m) => m.kind === 'manual_remove' && m.note === 'sample' && m.box?.boxNo === bx(2)) &&
+    manualMoves.some((m) => m.kind === 'removed' && m.beams === -1 && m.beamCodes.includes(code(2))),
+  'movements: "Added / Removed manually" with user + remark',
+  manualMoves.slice(0, 6).map((m) => [m.kind, m.note]),
+);
+
+// ---------------------------------------------------------------- old No-lot / No-box stock still usable
+await ok('jemish', 'POST', '/yarn/adjustments/add', { zone: 'direct', item: 'raw', qualityId: q75.id, qtyKg: 1 });
+await ok('jemish', 'POST', '/yarn/withdrawals', { what: 'raw', zone: 'direct', qualityId: q75.id, lotId: null, qtyKg: 1 });
+check(true, 'No lot raw stock can be withdrawn');
+
 globalThis.s20 = { party, q75, qOut, wq, stopQ, machine, lotAId, lotBId, b1, b2, b3, bx };
 
 console.log(failed ? `\n${failed} check(s) FAILED` : '\nall checks passed');

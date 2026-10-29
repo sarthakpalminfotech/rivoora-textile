@@ -280,6 +280,55 @@ export const yarnWithdrawSchema = z
   });
 export type YarnWithdrawInput = z.input<typeof yarnWithdrawSchema>;
 
+/* ---------- Sprint 20: manual add / remove (owners) ---------- */
+
+/** POST /yarn/adjustments/add — goes in as "No lot" raw (yarn quality) / "No box" twisted (warping quality). */
+export const yarnManualAddSchema = z
+  .object({
+    zone: z.enum(YARN_ZONES, { errorMap: () => ({ message: 'Pick the zone' }) }),
+    item: z.enum(['raw', 'twisted'], { errorMap: () => ({ message: 'Pick raw or twisted' }) }),
+    qualityId: id('Select the quality').nullish(),
+    warpingQualityId: id('Select the quality').nullish(),
+    qtyKg: kg('Enter the kg'),
+    remark: optText(1000),
+  })
+  .superRefine((v, ctx) => {
+    if (v.item === 'raw' && !v.qualityId) ctx.addIssue({ code: 'custom', path: ['qualityId'], message: 'Select the yarn quality' });
+    if (v.item === 'twisted' && !v.warpingQualityId) ctx.addIssue({ code: 'custom', path: ['warpingQualityId'], message: 'Select the warping quality' });
+  });
+export type YarnManualAddInput = z.input<typeof yarnManualAddSchema>;
+
+const remarkRequired = z.string({ required_error: 'Enter the remark' }).trim().min(1, 'Enter the remark').max(1000, 'Must be at most 1000 characters');
+
+/** POST /yarn/adjustments/remove — raw (quality + lot), twisted (boxes + kg, or No box), beams; the remark is required. */
+export const yarnManualRemoveSchema = z
+  .discriminatedUnion('what', [
+    z.object({ what: z.literal('raw'), zone: z.enum(YARN_ZONES), qualityId: id('Select the quality'), lotId: lotIdField, qtyKg: kg('Enter the kg'), remark: remarkRequired }),
+    z.object({
+      what: z.literal('twisted'),
+      zone: z.enum(YARN_ZONES),
+      boxes: z.array(z.object({ boxId: boxIdField, qtyKg: kg('Enter the kg') })).max(200).default([]),
+      noBox: noBoxInput.nullish(),
+      remark: remarkRequired,
+    }),
+    z.object({
+      what: z.literal('beams'),
+      zone: z.enum(BEAM_ZONES, { errorMap: () => ({ message: 'Beams are kept in Direct consumption or Warping' }) }),
+      beamIds,
+      remark: remarkRequired,
+    }),
+  ])
+  .superRefine((v, ctx) => {
+    if (v.what !== 'twisted') return;
+    if ((v.boxes.length > 0) === !!v.noBox) ctx.addIssue({ code: 'custom', path: ['boxes'], message: v.boxes.length ? 'Pick boxes or enter "No box" kg, not both' : 'Pick at least one box, or enter "No box" kg' });
+    const seen = new Set<number>();
+    v.boxes.forEach((b, i) => {
+      if (seen.has(b.boxId)) ctx.addIssue({ code: 'custom', path: ['boxes', i, 'boxId'], message: 'A box appears twice' });
+      seen.add(b.boxId);
+    });
+  });
+export type YarnManualRemoveInput = z.input<typeof yarnManualRemoveSchema>;
+
 /** GET /yarn/lots — raw lots (+ "No lot") with stock of one quality in one zone. */
 export const yarnLotsQuerySchema = z.object({
   zone: z.enum(YARN_ZONES),

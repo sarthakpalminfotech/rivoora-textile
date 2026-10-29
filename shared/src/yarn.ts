@@ -98,11 +98,14 @@ export const YARN_MOVE_KINDS = [
   'tfo_output',
   'tfo_return',
   'warping_issue',
+  // Sprint 20: owners' manual corrections (remark kept in `note`).
+  'manual_add',
+  'manual_remove',
 ] as const;
 export type YarnMoveKind = (typeof YARN_MOVE_KINDS)[number];
 
 /** Kinds of beam history rows (`beam_moves.kind`). */
-export const BEAM_MOVE_KINDS = ['beam_created', 'transfer_in', 'transfer_out', 'consumed'] as const;
+export const BEAM_MOVE_KINDS = ['beam_created', 'transfer_in', 'transfer_out', 'consumed', 'removed'] as const;
 export type BeamMoveKind = (typeof BEAM_MOVE_KINDS)[number];
 
 export type MoveKind = YarnMoveKind | BeamMoveKind;
@@ -118,6 +121,9 @@ export const MOVE_KIND_LABEL: Record<MoveKind, string> = {
   warping_issue: 'Warping issue',
   beam_created: 'Beam created',
   consumed: 'Consumed',
+  manual_add: 'Added manually',
+  manual_remove: 'Removed manually',
+  removed: 'Removed manually',
 };
 
 /** The sign a kind always has (receipts / outputs add, issues / withdraws take away). */
@@ -130,10 +136,15 @@ export const MOVE_KIND_SIGN: Record<YarnMoveKind, 1 | -1> = {
   tfo_output: 1,
   tfo_return: 1,
   warping_issue: -1,
+  manual_add: 1,
+  manual_remove: -1,
 };
 
+/** Beam history kinds that take a beam out of a zone (shown as −1 beam). */
+export const BEAM_OUT_KINDS: readonly BeamMoveKind[] = ['transfer_out', 'consumed', 'removed'];
+
 /** Movement filter types on the zone screen → the ledger kinds they cover (yarn + beam rows). */
-export const MOVE_FILTERS = ['receipt', 'transfer_in', 'transfer_out', 'withdraw', 'tfo', 'warping'] as const;
+export const MOVE_FILTERS = ['receipt', 'transfer_in', 'transfer_out', 'withdraw', 'tfo', 'warping', 'manual'] as const;
 export type MoveFilter = (typeof MOVE_FILTERS)[number];
 export const MOVE_FILTER_LABEL: Record<MoveFilter, string> = {
   receipt: 'Receipt',
@@ -142,6 +153,7 @@ export const MOVE_FILTER_LABEL: Record<MoveFilter, string> = {
   withdraw: 'Withdraw',
   tfo: 'TFO',
   warping: 'Warping',
+  manual: 'Manual',
 };
 export const MOVE_FILTER_KINDS: Record<MoveFilter, MoveKind[]> = {
   receipt: ['receipt'],
@@ -150,6 +162,7 @@ export const MOVE_FILTER_KINDS: Record<MoveFilter, MoveKind[]> = {
   withdraw: ['withdraw', 'consumed'],
   tfo: ['tfo_issue', 'tfo_output', 'tfo_return'],
   warping: ['warping_issue', 'beam_created'],
+  manual: ['manual_add', 'manual_remove', 'removed'],
 };
 export const isMoveFilter = (v: string): v is MoveFilter => (MOVE_FILTERS as readonly string[]).includes(v);
 
@@ -159,7 +172,10 @@ export function kindsForFilters(filters: readonly MoveFilter[]): MoveKind[] {
 }
 
 /** What a ledger row points at (`ref_type`). */
-export const YARN_REF_TYPES = ['receipt', 'transfer', 'withdrawal', 'program', 'job'] as const;
+export const YARN_REF_TYPES = ['receipt', 'transfer', 'withdrawal', 'program', 'job', 'adjustment'] as const;
+
+/** Sprint 20: manual add / remove actions are numbered by this counter (rows of one action share the ref). */
+export const YARN_ADJUSTMENT_COUNTER = 'yarn_adjustment_no';
 export type YarnRefType = (typeof YARN_REF_TYPES)[number];
 
 /* ------------------------------------------------------------------ */
@@ -495,9 +511,10 @@ export const WARPING_STATUSES = ['in_process', 'done'] as const;
 export type WarpingStatus = (typeof WARPING_STATUSES)[number];
 export const WARPING_STATUS_LABEL: Record<WarpingStatus, string> = { in_process: 'In process', done: 'Done' };
 
-export const BEAM_STATUSES = ['in_stock', 'consumed'] as const;
+/** Sprint 20: `removed` = taken out by a manual remove (not used on a loom — that is `consumed`). */
+export const BEAM_STATUSES = ['in_stock', 'consumed', 'removed'] as const;
 export type BeamStatus = (typeof BEAM_STATUSES)[number];
-export const BEAM_STATUS_LABEL: Record<BeamStatus, string> = { in_stock: 'In stock', consumed: 'Consumed' };
+export const BEAM_STATUS_LABEL: Record<BeamStatus, string> = { in_stock: 'In stock', consumed: 'Consumed', removed: 'Removed' };
 
 export interface WarpingInputLike {
   item: YarnItem;

@@ -42,6 +42,8 @@ import type {
   YarnReceiptInput,
   YarnReceiptResult,
   YarnSummary,
+  YarnManualAddInput,
+  YarnManualRemoveInput,
   YarnTransferInput,
   YarnWithdrawInput,
   YarnZone,
@@ -278,6 +280,10 @@ export function useNoBoxStock(zone: YarnZone, enabled = true) {
 
 export const useTransfer = () => useYarnMutation((data: YarnTransferInput) => api.post<{ transferId: number }>('/yarn/transfers', data), { silentFieldErrors: true });
 export const useWithdraw = () => useYarnMutation((data: YarnWithdrawInput) => api.post<{ withdrawalId: number }>('/yarn/withdrawals', data), { silentFieldErrors: true });
+
+/** Sprint 20 — manual add / remove (owners). */
+export const useManualAdd = () => useYarnMutation((data: YarnManualAddInput) => api.post<{ adjustmentId: number }>('/yarn/adjustments/add', data), { silentFieldErrors: true });
+export const useManualRemove = () => useYarnMutation((data: YarnManualRemoveInput) => api.post<{ adjustmentId: number }>('/yarn/adjustments/remove', data), { silentFieldErrors: true });
 
 /* ---------- TFO ---------- */
 

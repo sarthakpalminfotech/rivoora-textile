@@ -1,4 +1,4 @@
-import { ArrowLeftRight, Cylinder, Spool } from 'lucide-react';
+import { ArrowLeftRight, Cylinder, SlidersHorizontal, Spool } from 'lucide-react';
 import { useState } from 'react';
 import { Navigate, useParams } from 'react-router-dom';
 import { isYarnZone, YARN_ZONE_CONFIG, type Beam, type YarnZone } from '@rivoora/shared';
@@ -11,6 +11,7 @@ import { useRole } from '@/hooks/useRole';
 import { formatDate } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { useYarnZone } from './api';
+import { ManualStockDialog } from './manual-stock';
 import { MovementsSection } from './movements';
 import { BackLink, Kg, Section, ZONE_ICON } from './parts';
 import { TfoProgramsSection } from './tfo-board';
@@ -79,6 +80,7 @@ export default function YarnZonePage() {
   const { data, isPending, isError, error, refetch } = useYarnZone(zone ?? 'direct', !!zone);
   const [action, setAction] = useState<ZoneAction | null>(null);
   const { can } = useRole();
+  const [manual, setManual] = useState(false);
   if (!zone || !c) return <Navigate to="/yarn" replace />;
   // TFO / Warping: "New programs" / "New job" sit on their sections.
   const main = zone === 'direct' ? zoneMainAction(zone, can) : null;
@@ -103,6 +105,11 @@ export default function YarnZonePage() {
             {main && (
               <Button className="text-white hover:opacity-90" style={{ backgroundColor: c.accent.solid }} onClick={() => setAction({ kind: main, zone })}>
                 {c.actionLabel}
+              </Button>
+            )}
+            {can('canAdjustYarnStock') && (
+              <Button variant="secondary" className="col-span-2 bg-white" onClick={() => setManual(true)}>
+                <SlidersHorizontal /> Add / remove
               </Button>
             )}
           </div>
@@ -195,6 +202,7 @@ export default function YarnZonePage() {
 
       <MovementsSection zone={zone} />
       <ZoneActionDialogs action={action} onClose={() => setAction(null)} />
+      <ManualStockDialog open={manual} onOpenChange={setManual} zone={zone} />
     </div>
   );
 }

@@ -1,6 +1,11 @@
 import { and, desc, eq, inArray, isNull, or, sql, type SQL } from 'drizzle-orm';
 import {
   availableAfterReserved,
+  BEAM_OUT_KINDS,
+  YARN_ADJUSTMENT_COUNTER,
+  yarnManualAddSchema,
+  yarnManualRemoveSchema,
+  type BeamMoveKind,
   kgToGrams,
   kindsForFilters,
   tfoSectionLabel,
@@ -52,7 +57,7 @@ import {
   yarnWithdrawals,
 } from '../db/schema';
 import { badRequest, conflict } from '../lib/errors';
-import { actor, addStock, nowIso, qualityNames, systemQualityId, takeStock } from './yarn-ledger';
+import { actor, addStock, allocateNumbers, nowIso, qualityNames, systemQualityId, takeStock } from './yarn-ledger';
 
 /**
  * Sprint 17 — Yarn inventory: the summary (KPIs + zone panels + recent movements), the zone screens (stock by quality,
@@ -590,7 +595,7 @@ async function decorateMoves(rows: MoveRow[]): Promise<YarnMove[]> {
   };
   return rows.map((r) => {
     const beamCodes = r.beam_nos ? r.beam_nos.split('\x1f').sort((a, b) => a.localeCompare(b, undefined, { numeric: true })) : [];
-    const beamSign = r.kind === 'transfer_out' || r.kind === 'consumed' ? -1 : 1;
+    const beamSign = BEAM_OUT_KINDS.includes(r.kind as BeamMoveKind) ? -1 : 1;
     const ctx = context(r);
     const box = r.box_id !== null ? boxById.get(r.box_id) : undefined;
     const lot = r.lot_id !== null ? lotById.get(r.lot_id) : undefined;
@@ -824,5 +829,79 @@ export async function createWithdrawal(role: RoleKey, input: unknown): Promise<{
       });
     }
     return { withdrawalId: w.id };
+  });
+}
+
+/* ------------------------------------------------------------------ */
+/* Sprint 20: manual add / remove (owners, `canAdjustYarnStock`)        */
+/* ------------------------------------------------------------------ */
+
+/**
+ * POST /yarn/adjustments/add — stock that came in outside a PO / program: raw yarn goes in as "No lot", twisted as
+ * "No box" under a warping quality (ledger `manual_add`, the remark in `note`). One adjustment number per action.
+ */
+export async function manualAdd(role: RoleKey, input: unknown): Promise<{ adjustmentId: number }> {
+  const data = yarnManualAddSchema.parse(input);
+  return db.transaction(async (tx) => {
+    const [ref] = await allocateNumbers(tx, YARN_ADJUSTMENT_COUNTER);
+    const common = { zone: data.zone, qtyG: kgToGrams(data.qtyKg), kind: 'manual_add' as const, refType: 'adjustment' as const, refId: ref, note: data.remark, role };
+    if (data.item === 'raw') {
+      await qualityNames(tx, [data.qualityId!]);
+      await addStock(tx, { ...common, item: 'raw', qualityId: data.qualityId!, lotId: null });
+    } else {
+      const { name: _name, ...target } = await noBoxTarget(tx, { warpingQualityId: data.warpingQualityId }, 'warpingQualityId');
+      await addStock(tx, { ...common, item: 'twisted', ...target });
+    }
+    return { adjustmentId: ref };
+  });
+}
+
+/**
+ * POST /yarn/adjustments/remove — remark required. Raw (quality + lot), twisted (kg per box — a box at 0 becomes Used —
+ * or "No box"), or beams (status Removed, a `removed` beam move). Ledger `manual_remove`; balances are checked as for any
+ * take (reserved stock can't be removed).
+ */
+export async function manualRemove(role: RoleKey, input: unknown): Promise<{ adjustmentId: number }> {
+  const data = yarnManualRemoveSchema.parse(input);
+  return db.transaction(async (tx) => {
+    const [ref] = await allocateNumbers(tx, YARN_ADJUSTMENT_COUNTER);
+    const at = nowIso();
+    const common = { zone: data.zone, kind: 'manual_remove' as const, refType: 'adjustment' as const, refId: ref, note: data.remark, role, createdAt: at };
+    if (data.what === 'beams') {
+      const list = await lockBeams(tx, data.beamIds, data.zone);
+      const ids = list.map((b) => b.id);
+      const who = actor(role);
+      const done = await tx
+        .update(beams)
+        .set({ status: 'removed', consumedAt: at, consumedByUserId: who.userId, consumedNote: data.remark })
+        .where(and(inArray(beams.id, ids), eq(beams.zone, data.zone), eq(beams.status, 'in_stock')))
+        .returning({ id: beams.id });
+      if (done.length !== ids.length) throw conflict('A selected beam changed meanwhile — refresh and try again.', 'beamIds');
+      await tx.insert(beamMoves).values(ids.map((beamId) => ({ beamId, kind: 'removed' as const, zone: data.zone, refType: 'adjustment' as const, refId: ref, note: data.remark, ...who, createdAt: at })));
+    } else if (data.what === 'raw') {
+      const names = await qualityNames(tx, [data.qualityId]);
+      await takeStock(tx, { ...common, item: 'raw', qualityId: data.qualityId, lotId: data.lotId ?? null, qtyG: kgToGrams(data.qtyKg), qualityName: names.get(data.qualityId)! });
+    } else if (data.boxes.length) {
+      const sysQ = await systemQualityId(tx);
+      const list = await lockBoxes(
+        tx,
+        data.boxes.map((b) => b.boxId),
+        data.zone,
+      );
+      const byId = new Map(list.map((b) => [b.id, b]));
+      const toMarkUsed: number[] = [];
+      for (const b of data.boxes) {
+        const box = byId.get(b.boxId)!;
+        const qtyG = kgToGrams(b.qtyKg);
+        await takeStock(tx, { ...common, item: 'twisted', qualityId: sysQ, boxId: box.id, warpingQualityId: box.warpingQuality.id, qtyG, qualityName: `box ${box.boxNo}`, field: 'boxes' });
+        if (box.remainingG - qtyG <= 0) toMarkUsed.push(box.id);
+      }
+      if (toMarkUsed.length) await tx.update(yarnBoxes).set({ status: 'used' }).where(inArray(yarnBoxes.id, toMarkUsed));
+    } else {
+      const noBox = data.noBox!;
+      const { name, ...target } = await noBoxTarget(tx, noBox);
+      await takeStock(tx, { ...common, item: 'twisted', ...target, qtyG: kgToGrams(noBox.qtyKg), qualityName: name });
+    }
+    return { adjustmentId: ref };
   });
 }

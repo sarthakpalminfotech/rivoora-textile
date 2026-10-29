@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
+  kindsForFilters,
+  MOVE_KIND_LABEL,
+  MOVE_KIND_SIGN,
   availableAfterReserved,
   prefillBeamQuality,
   validateBeam,
@@ -12,7 +15,7 @@ import {
 } from './yarn';
 import { switchableRoles } from './auth';
 import { can, ROLES } from './roles';
-import { tfoPendingProgramsCreateSchema, tfoProgramStopSchema, warpingJobDoneSchema, warpingPendingJobSchema } from './yarnSchemas';
+import { tfoPendingProgramsCreateSchema, tfoProgramStopSchema, warpingJobDoneSchema, warpingPendingJobSchema, yarnManualAddSchema, yarnManualRemoveSchema } from './yarnSchemas';
 
 /** Sprint 20 — lots, boxes, pending programs / jobs (pure rules). */
 
@@ -132,5 +135,32 @@ describe('Sprint 20 roles', () => {
   });
   it('the owners can act as the new role', () => {
     expect(switchableRoles('jemish')).toContain('yarn_supervisor');
+  });
+});
+
+describe('manual add / remove', () => {
+  it('kinds, signs and the Manual movement filter', () => {
+    expect(MOVE_KIND_SIGN.manual_add).toBe(1);
+    expect(MOVE_KIND_SIGN.manual_remove).toBe(-1);
+    expect(MOVE_KIND_LABEL.manual_add).toBe('Added manually');
+    expect(MOVE_KIND_LABEL.removed).toBe('Removed manually');
+    expect(kindsForFilters(['manual'])).toEqual(['manual_add', 'manual_remove', 'removed']);
+  });
+  it('add: raw needs a yarn quality, twisted a warping quality; remark optional', () => {
+    expect(yarnManualAddSchema.safeParse({ zone: 'direct', item: 'raw', qualityId: 1, qtyKg: 5 }).success).toBe(true);
+    expect(yarnManualAddSchema.safeParse({ zone: 'tfo', item: 'twisted', qualityId: 1, qtyKg: 5 }).success).toBe(false);
+    expect(yarnManualAddSchema.safeParse({ zone: 'tfo', item: 'twisted', warpingQualityId: 2, qtyKg: 5 }).success).toBe(true);
+  });
+  it('remove: the remark is required; beams only from beam zones', () => {
+    expect(yarnManualRemoveSchema.safeParse({ what: 'raw', zone: 'direct', qualityId: 1, qtyKg: 1 }).success).toBe(false);
+    expect(yarnManualRemoveSchema.safeParse({ what: 'raw', zone: 'direct', qualityId: 1, qtyKg: 1, remark: '  ' }).success).toBe(false);
+    expect(yarnManualRemoveSchema.safeParse({ what: 'raw', zone: 'direct', qualityId: 1, lotId: null, qtyKg: 1, remark: 'wet' }).success).toBe(true);
+    expect(yarnManualRemoveSchema.safeParse({ what: 'beams', zone: 'tfo', beamIds: [1], remark: 'x' }).success).toBe(false);
+    expect(yarnManualRemoveSchema.safeParse({ what: 'twisted', zone: 'direct', boxes: [{ boxId: 1, qtyKg: 0.5 }], remark: 'x' }).success).toBe(true);
+    expect(yarnManualRemoveSchema.safeParse({ what: 'twisted', zone: 'direct', boxes: [], remark: 'x' }).success).toBe(false);
+  });
+  it('only the owners may adjust', () => {
+    expect(can('jemish', 'canAdjustYarnStock') && can('gaurang', 'canAdjustYarnStock')).toBe(true);
+    expect(can('yarn_supervisor', 'canAdjustYarnStock') || can('supervisor', 'canAdjustYarnStock')).toBe(false);
   });
 });

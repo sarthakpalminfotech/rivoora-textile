@@ -1,4 +1,4 @@
-import { ArrowLeftRight, ChevronRight, Cylinder, History, RotateCw, Spool, Waves } from 'lucide-react';
+import { ArrowLeftRight, ChevronRight, Cylinder, History, PackagePlus, RotateCw, SlidersHorizontal, Spool, Waves } from 'lucide-react';
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
@@ -16,6 +16,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { useRole } from '@/hooks/useRole';
 import { cn } from '@/lib/utils';
 import { useYarnSummary } from './api';
+import { ManualStockDialog } from './manual-stock';
 import { MovementList } from './movements';
 import { Kg, ZONE_ICON } from './parts';
 import { ZoneActionDialogs, zoneMainAction, type ZoneAction } from './zone-actions';
@@ -98,6 +99,8 @@ export default function YarnInventoryPage() {
   const navigate = useNavigate();
   const { data, isPending, isError, error, refetch } = useYarnSummary();
   const [action, setAction] = useState<ZoneAction | null>(null);
+  const [manual, setManual] = useState(false);
+  const { can } = useRole();
 
   if (isPending) {
     return (
@@ -119,6 +122,20 @@ export default function YarnInventoryPage() {
 
   return (
     <div className="page-container space-y-5 pb-24 pt-5 lg:pb-6">
+      {(can('canViewYarn') || can('canAdjustYarnStock')) && (
+        <div className="flex flex-wrap justify-end gap-2">
+          {can('canViewYarn') && (
+            <Button variant="secondary" onClick={() => navigate('/yarn-po')}>
+              <PackagePlus /> Receive (via PO)
+            </Button>
+          )}
+          {can('canAdjustYarnStock') && (
+            <Button variant="secondary" onClick={() => setManual(true)}>
+              <SlidersHorizontal /> Add / remove stock
+            </Button>
+          )}
+        </div>
+      )}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
         <KpiTile label="Raw yarn" value={<Kg g={data.totals.rawG} />} icon={Spool} />
         <KpiTile label="Twisted yarn" value={<Kg g={data.totals.twistedG} />} icon={RotateCw} />
@@ -150,6 +167,7 @@ export default function YarnInventoryPage() {
       </section>
 
       <ZoneActionDialogs action={action} onClose={() => setAction(null)} />
+      <ManualStockDialog open={manual} onOpenChange={setManual} />
     </div>
   );
 }
