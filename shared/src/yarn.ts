@@ -47,7 +47,7 @@ export const YARN_ZONE_CONFIG: Record<YarnZone, YarnZoneConfig> = {
   warping: {
     label: 'Warping',
     description: 'Raw and twisted yarn warped into beams',
-    actionLabel: 'Start warping',
+    actionLabel: 'New warping job',
     hasBeams: true,
     accent: { solid: '#B45309', soft: '#FFFBEB', text: '#92400E', border: '#FDE68A' },
   },
@@ -537,28 +537,72 @@ export function warpingInputsSummary(inputs: readonly { item: YarnItem; qtyG: nu
   return parts.join(' · ') || '—';
 }
 
+/* ---------- Sprint 20: pending warping jobs, typed beam codes ---------- */
+
+/** What one warping input is: raw yarn of a lot, (part of) a TFO box, or "No box" twisted yarn. */
+export const WARPING_INPUT_KINDS = ['raw', 'box', 'no_box'] as const;
+export type WarpingInputKind = (typeof WARPING_INPUT_KINDS)[number];
+export const WARPING_INPUT_KIND_LABEL: Record<WarpingInputKind, string> = { raw: 'Raw', box: 'Box', no_box: 'No box' };
+
+export const MAX_PENDING_JOBS_INPUTS = MAX_WARPING_INPUTS;
+export const BEAM_CODE_MAX_LENGTH = 30;
+/** Beam codes compare without case and outer spaces. */
+export const beamCodeKey = (code: string) => code.trim().toLowerCase();
+
+export type WarpingJobError = 'taar' | 'panna' | 'meters' | 'no_inputs';
+export const WARPING_JOB_ERROR_TEXT: Record<WarpingJobError, string> = {
+  taar: 'Taar is a whole number of at least 1',
+  panna: 'Enter the panna',
+  meters: 'Enter the meters, or tick Full meter',
+  no_inputs: 'Add at least one input',
+};
+
+/** A pending warping job's header: taar, panna, and meters OR "Full meter" (then meters are entered per beam at Done). */
+export function validateWarpingJob(p: { taar: number; panna: number; meters: number | null; fullMeter: boolean; inputs: number }): WarpingJobError | null {
+  if (p.inputs <= 0) return 'no_inputs';
+  if (!Number.isInteger(p.taar) || p.taar < 1) return 'taar';
+  if (!(p.panna > 0)) return 'panna';
+  if (!p.fullMeter && !(p.meters !== null && p.meters > 0)) return 'meters';
+  return null;
+}
+
+/**
+ * The warping quality pre-filled on each beam at Mark done: the twisted inputs' warping quality when there is exactly
+ * one, else nothing (the user picks).
+ */
+export function prefillBeamQuality(inputs: readonly { warpingQualityId: number | null }[]): number | null {
+  const ids = [...new Set(inputs.map((i) => i.warpingQualityId).filter((v): v is number => v !== null))];
+  return ids.length === 1 ? ids[0] : null;
+}
+
 export interface BeamInputLike {
+  beamCode: string;
   taar: number;
   panna: number;
   meters: number;
-  qualityId: number;
+  warpingQualityId: number;
   zone: string;
 }
-export type BeamInputError = 'taar' | 'panna' | 'meters' | 'quality' | 'zone';
+export type BeamInputError = 'code' | 'code_repeat' | 'taar' | 'panna' | 'meters' | 'quality' | 'zone';
 export const BEAM_INPUT_ERROR_TEXT: Record<BeamInputError, string> = {
+  code: 'Enter the beam no.',
+  code_repeat: 'This beam no. is already on this job',
   taar: 'Taar is a whole number of at least 1',
   panna: 'Enter the panna',
   meters: 'Enter the meters',
-  quality: 'Select the quality',
+  quality: 'Select the warping quality',
   zone: 'Keep it in Direct consumption or Warping',
 };
 
-/** One beam on Mark done. */
-export function validateBeam(b: BeamInputLike): BeamInputError | null {
+/** One beam on Mark done (`others` = the codes of the beams before it on the same job). */
+export function validateBeam(b: BeamInputLike, others: readonly string[] = []): BeamInputError | null {
+  const code = b.beamCode.trim();
+  if (!code || code.length > BEAM_CODE_MAX_LENGTH) return 'code';
+  if (others.some((o) => beamCodeKey(o) === beamCodeKey(code))) return 'code_repeat';
   if (!Number.isInteger(b.taar) || b.taar < 1) return 'taar';
   if (!(b.panna > 0)) return 'panna';
   if (!(b.meters > 0)) return 'meters';
-  if (!Number.isInteger(b.qualityId) || b.qualityId <= 0) return 'quality';
+  if (!Number.isInteger(b.warpingQualityId) || b.warpingQualityId <= 0) return 'quality';
   if (!isBeamZone(b.zone)) return 'zone';
   return null;
 }

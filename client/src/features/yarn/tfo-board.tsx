@@ -155,7 +155,7 @@ function ProgramFields({
   set: (patch: Partial<ProgramRow>) => void;
   errors?: RowErrors;
   stock: { id: number; name: string; availableG: number }[];
-  own?: { lotId: number | null; g: number };
+  own?: { lotId: number | null; g: number }[];
   idPrefix: string;
 }) {
   return (
@@ -330,7 +330,7 @@ function EditPendingDialog({ program, onOpenChange }: { program: TfoPendingProgr
   if (!program) return null;
   // The program's own reservation counts as free for itself.
   const stock = rawStockOf(board.data).map((s) => (s.id === program.rawQuality.id ? { ...s, availableG: s.availableG + program.rawG } : s));
-  const own = { lotId: program.lot?.id ?? null, g: program.rawG };
+  const own = [{ lotId: program.lot?.id ?? null, g: program.rawG }];
   // Until the lot picker reports, the original lot has at least its own kg free.
   const r = row.lotAvailableG === 0 && row.lotId === (program.lot?.id ?? 0) && row.rawQualityId === program.rawQuality.id ? { ...row, lotAvailableG: program.rawG } : row;
   const errors = rowErrors([r])[0];

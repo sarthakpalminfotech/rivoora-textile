@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import {
-  beamLabel,
   checkTake,
   formatKg,
   isBeamZone,
@@ -44,10 +43,10 @@ export function BeamChecklist({ beams, selected, onChange, invalid }: { beams: B
           return (
             <li key={b.id}>
               <label className={cn('flex min-h-14 cursor-pointer items-center gap-3 px-3 py-2', on && 'bg-primary-soft/50')}>
-                <TickBox size="lg" checked={on} onCheckedChange={(c) => onChange(c ? [...selected, b.id] : selected.filter((x) => x !== b.id))} aria-label={beamLabel(b.beamNo)} />
+                <TickBox size="lg" checked={on} onCheckedChange={(c) => onChange(c ? [...selected, b.id] : selected.filter((x) => x !== b.id))} aria-label={b.beamCode} />
                 <span className="min-w-0 flex-1">
                   <span className="flex items-baseline gap-2">
-                    <span className="font-bold tabular-nums text-slate-900">{beamLabel(b.beamNo)}</span>
+                    <span className="font-bold tabular-nums text-slate-900">{b.beamCode}</span>
                     <span className="truncate text-sm font-medium text-slate-700">{b.quality.name}</span>
                   </span>
                   <span className="block truncate text-xs text-slate-500">

@@ -2,7 +2,9 @@ import { Router } from 'express';
 import {
   beamsQuerySchema,
   checkBoxNoQuerySchema,
+  checkBeamCodeQuerySchema,
   checkLotNoQuerySchema,
+  noBoxQuerySchema,
   isYarnZone,
   tfoProgramsQuerySchema,
   warpingJobsQuerySchema,
@@ -13,7 +15,7 @@ import {
 import { notFound } from '../lib/errors';
 import { ah, parseId } from '../lib/http';
 import { requirePermission } from '../middleware/role';
-import { checkBoxNo, checkLotNo, createTransfer, createWithdrawal, listBeams, listBoxStock, listLotStock, listMoves, yarnSummary, yarnZone } from '../services/yarn-stock';
+import { checkBoxNo, checkLotNo, createTransfer, listNoBoxStock, createWithdrawal, listBeams, listBoxStock, listLotStock, listMoves, yarnSummary, yarnZone } from '../services/yarn-stock';
 import {
   cancelPendingProgram,
   createPendingPrograms,
@@ -25,7 +27,17 @@ import {
   tfoBoard,
   updatePendingProgram,
 } from '../services/yarn-tfo';
-import { finishWarpingJob, getWarpingJob, listWarpingJobs, startWarpingJob } from '../services/yarn-warping';
+import {
+  cancelPendingJob,
+  checkBeamCode,
+  createPendingJob,
+  finishWarpingJob,
+  getWarpingJob,
+  listPendingJobs,
+  listWarpingJobs,
+  startPendingJob,
+  updatePendingJob,
+} from '../services/yarn-warping';
 
 /**
  * Sprint 17 — Yarn inventory (`canUseYarnInventory`: Jenish, Gaurang, the Supervisor, the Godown supervisor — all may
@@ -102,6 +114,24 @@ yarnRouter.get(
   ah(async (req, res) => {
     res.set('Cache-Control', 'no-store');
     res.json(await checkBoxNo(checkBoxNoQuerySchema.parse(req.query).boxNo));
+  }),
+);
+
+/** Sprint 20 — "No box" twisted stock of a zone (yarn quality or warping quality), for the pickers. */
+yarnRouter.get(
+  '/no-box',
+  ah(async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    res.json(await listNoBoxStock(noBoxQuerySchema.parse(req.query).zone));
+  }),
+);
+
+/** Sprint 20 — the live "beam no. is free" check, used on Mark done. */
+yarnRouter.get(
+  '/beams/check',
+  ah(async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    res.json(await checkBeamCode(checkBeamCodeQuerySchema.parse(req.query).code));
   }),
 );
 
@@ -209,10 +239,42 @@ yarnRouter.get(
   }),
 );
 
+/* Sprint 20 — pending warping jobs: owners create (`canPlanYarn`); the floor edits / cancels / starts. */
+
+yarnRouter.get(
+  '/warping/pending',
+  ah(async (_req, res) => {
+    res.set('Cache-Control', 'no-store');
+    res.json(await listPendingJobs());
+  }),
+);
+
 yarnRouter.post(
-  '/warping/jobs',
+  '/warping/pending',
+  requirePermission('canPlanYarn'),
   ah(async (req, res) => {
-    res.status(201).json(await startWarpingJob(req.role, req.body));
+    res.status(201).json(await createPendingJob(req.role, req.body));
+  }),
+);
+
+yarnRouter.put(
+  '/warping/pending/:id',
+  ah(async (req, res) => {
+    res.json(await updatePendingJob(req.role, parseId(req.params.id), req.body));
+  }),
+);
+
+yarnRouter.post(
+  '/warping/pending/:id/cancel',
+  ah(async (req, res) => {
+    res.json(await cancelPendingJob(req.role, parseId(req.params.id)));
+  }),
+);
+
+yarnRouter.post(
+  '/warping/pending/:id/start',
+  ah(async (req, res) => {
+    res.status(201).json(await startPendingJob(req.role, parseId(req.params.id)));
   }),
 );
 

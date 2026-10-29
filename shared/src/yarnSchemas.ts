@@ -1,5 +1,7 @@
 import { z } from 'zod';
 import {
+  BEAM_CODE_MAX_LENGTH,
+  beamCodeKey,
   BEAM_ZONES,
   BEAM_STATUSES,
   BOX_DESTINATIONS,
@@ -18,7 +20,6 @@ import {
   TFO_SECTIONS,
   TWIST_DIRECTIONS,
   WARPING_STATUSES,
-  YARN_ITEMS,
   YARN_ZONES,
   type MoveFilter,
   type YarnPoStatus,
@@ -197,7 +198,14 @@ const beamIds = z.array(z.number().int().positive(), { required_error: 'Select a
 /** null / undefined on the wire both mean "No lot". */
 const lotIdField = z.number().int().positive().nullish();
 const boxIdField = id('Select a box');
-const noBoxInput = z.object({ qualityId: id('Select the quality'), qtyKg: kg('Enter the kg') });
+/**
+ * "No box" twisted stock: pre-Sprint-20 stock is kept under a YARN quality (`qualityId`); manual additions under a
+ * WARPING quality (`warpingQualityId`). Exactly one of the two.
+ */
+const noBoxInput = z
+  .object({ qualityId: id('Select the quality').nullish(), warpingQualityId: id('Select the quality').nullish(), qtyKg: kg('Enter the kg') })
+  .refine((v) => !!v.qualityId !== !!v.warpingQualityId, { message: 'Select the quality', path: ['qualityId'] });
+export type NoBoxInput = z.input<typeof noBoxInput>;
 
 /** Sprint 20: raw moves carry a lot (null = "No lot"); twisted moves are whole boxes OR a "No box" quality + kg. */
 export const yarnTransferSchema = z
@@ -389,39 +397,72 @@ export const tfoProgramsQuerySchema = z.object({
 
 /* ---------- warping ---------- */
 
-export const warpingJobStartSchema = z.object({
-  inputs: z
-    .array(
-      z.object({
-        item: z.enum(YARN_ITEMS, { errorMap: () => ({ message: 'Pick raw or twisted' }) }),
-        qualityId: id('Select the quality'),
-        qtyKg: kg('Enter the kg'),
-      }),
-      { required_error: 'Add at least one input' },
-    )
-    .min(1, 'Add at least one input')
-    .max(MAX_WARPING_INPUTS, `At most ${MAX_WARPING_INPUTS} inputs`),
-  note: optText(1000),
-});
-export type WarpingJobStartInput = z.input<typeof warpingJobStartSchema>;
+/** Sprint 20 — one input of a pending warping job (all from Warping stock, reserved while pending). */
+const warpingInput = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('raw'), qualityId: id('Select the quality'), lotId: lotIdField, qtyKg: kg('Enter the kg') }),
+  z.object({ kind: z.literal('box'), boxId: boxIdField, qtyKg: kg('Enter the kg') }),
+  z.object({ kind: z.literal('no_box'), qualityId: id('Select the quality').nullish(), warpingQualityId: id('Select the quality').nullish(), qtyKg: kg('Enter the kg') }),
+]);
+export type WarpingInputInput = z.input<typeof warpingInput>;
 
-export const warpingJobDoneSchema = z.object({
-  beams: z
-    .array(
-      z.object({
-        taar: z.number({ required_error: 'Enter the taar', invalid_type_error: 'Enter the taar' }).int('Use a whole number').min(1, 'At least 1').max(1_000_000),
-        panna: z.number({ required_error: 'Enter the panna', invalid_type_error: 'Enter the panna' }).positive('Enter the panna').max(100_000),
-        meters: z.number({ required_error: 'Enter the meters', invalid_type_error: 'Enter the meters' }).positive('Enter the meters').max(10_000_000),
-        qualityId: id('Select the quality'),
-        zone: z.enum(BEAM_ZONES, { errorMap: () => ({ message: 'Pick where to keep it' }) }),
-      }),
-      { required_error: 'Add at least one beam' },
-    )
-    .min(1, 'Add at least one beam')
-    .max(MAX_BEAMS_PER_JOB, `At most ${MAX_BEAMS_PER_JOB} beams`),
-  note: optText(1000),
-});
+/** POST /yarn/warping/pending · PUT /yarn/warping/pending/:id — inputs + taar + panna + meters OR Full meter. */
+export const warpingPendingJobSchema = z
+  .object({
+    inputs: z.array(warpingInput, { required_error: 'Add at least one input' }).min(1, 'Add at least one input').max(MAX_WARPING_INPUTS, `At most ${MAX_WARPING_INPUTS} inputs`),
+    taar: z.number({ required_error: 'Enter the taar', invalid_type_error: 'Enter the taar' }).int('Use a whole number').min(1, 'At least 1').max(1_000_000),
+    panna: z.number({ required_error: 'Enter the panna', invalid_type_error: 'Enter the panna' }).positive('Enter the panna').max(100_000),
+    meters: z.number({ invalid_type_error: 'Enter the meters' }).positive('Enter the meters').max(10_000_000).nullish().transform((v) => v ?? null),
+    fullMeter: z.boolean().default(false),
+    note: optText(1000),
+  })
+  .superRefine((v, ctx) => {
+    if (!v.fullMeter && v.meters === null) ctx.addIssue({ code: 'custom', path: ['meters'], message: 'Enter the meters, or tick Full meter' });
+    const boxes = new Set<number>();
+    v.inputs.forEach((i, idx) => {
+      if (i.kind === 'no_box' && !!i.qualityId === !!i.warpingQualityId) ctx.addIssue({ code: 'custom', path: ['inputs', idx, 'qualityId'], message: 'Select the quality' });
+      if (i.kind === 'box') {
+        if (boxes.has(i.boxId)) ctx.addIssue({ code: 'custom', path: ['inputs', idx, 'boxId'], message: 'This box is already an input' });
+        boxes.add(i.boxId);
+      }
+    });
+  })
+  .transform((v) => (v.fullMeter ? { ...v, meters: null } : v));
+export type WarpingPendingJobInput = z.input<typeof warpingPendingJobSchema>;
+
+/** POST /yarn/warping/jobs/:id/done — one or more beams: typed beam no. (unique across all beams), warping quality, … */
+export const warpingJobDoneSchema = z
+  .object({
+    beams: z
+      .array(
+        z.object({
+          beamCode: z.string({ required_error: 'Enter the beam no.' }).trim().min(1, 'Enter the beam no.').max(BEAM_CODE_MAX_LENGTH, `At most ${BEAM_CODE_MAX_LENGTH} characters`),
+          warpingQualityId: id('Select the warping quality'),
+          taar: z.number({ required_error: 'Enter the taar', invalid_type_error: 'Enter the taar' }).int('Use a whole number').min(1, 'At least 1').max(1_000_000),
+          panna: z.number({ required_error: 'Enter the panna', invalid_type_error: 'Enter the panna' }).positive('Enter the panna').max(100_000),
+          meters: z.number({ required_error: 'Enter the meters', invalid_type_error: 'Enter the meters' }).positive('Enter the meters').max(10_000_000),
+          zone: z.enum(BEAM_ZONES, { errorMap: () => ({ message: 'Pick where to keep it' }) }),
+        }),
+        { required_error: 'Add at least one beam' },
+      )
+      .min(1, 'Add at least one beam')
+      .max(MAX_BEAMS_PER_JOB, `At most ${MAX_BEAMS_PER_JOB} beams`),
+    note: optText(1000),
+  })
+  .superRefine((v, ctx) => {
+    const seen = new Set<string>();
+    v.beams.forEach((b, i) => {
+      const k = beamCodeKey(b.beamCode);
+      if (seen.has(k)) ctx.addIssue({ code: 'custom', path: ['beams', i, 'beamCode'], message: 'This beam no. is already on this job' });
+      seen.add(k);
+    });
+  });
 export type WarpingJobDoneInput = z.input<typeof warpingJobDoneSchema>;
+
+/** GET /yarn/beams/check — the live "beam no. is free" check. */
+export const checkBeamCodeQuerySchema = z.object({ code: z.string().trim().min(1).max(BEAM_CODE_MAX_LENGTH) });
+
+/** GET /yarn/no-box — "No box" twisted stock of a zone. */
+export const noBoxQuerySchema = z.object({ zone: z.enum(YARN_ZONES) });
 
 export const warpingJobsQuerySchema = z.object({
   status: z.enum(WARPING_STATUSES).optional().catch(undefined),

@@ -235,10 +235,10 @@ describe('beams', () => {
 
   it('a warping job → several beams in different zones', () => {
     const out = [
-      { taar: 4800, panna: 52, meters: 1200, qualityId: 1, zone: 'direct' },
-      { taar: 4800, panna: 52, meters: 1150.5, qualityId: 1, zone: 'warping' },
+      { beamCode: 'B-1', taar: 4800, panna: 52, meters: 1200, warpingQualityId: 1, zone: 'direct' },
+      { beamCode: 'B-2', taar: 4800, panna: 52, meters: 1150.5, warpingQualityId: 1, zone: 'warping' },
     ];
-    expect(out.map(validateBeam)).toEqual([null, null]);
+    expect(out.map((b) => validateBeam(b))).toEqual([null, null]);
     expect(beamsByZone(out)).toEqual({ direct: 1, warping: 1 });
     expect(validateBeam({ ...out[0], taar: 10.5 })).toBe('taar');
     expect(validateBeam({ ...out[0], zone: 'tfo' })).toBe('zone');

@@ -5,6 +5,7 @@ import type {
   MoveKind,
   TfoSection,
   TwistDirection,
+  WarpingInputKind,
   WarpingStatus,
   YarnItem,
   YarnPoEventKind,
@@ -211,7 +212,8 @@ export interface YarnMove extends YarnActor {
   qtyG: number | null;
   /** Beams in the action (signed: + in, − out) — null for yarn rows. */
   beams: number | null;
-  beamNos: number[];
+  /** Sprint 20: the beams' codes ("BM-12", typed codes). */
+  beamCodes: string[];
   refType: YarnRefType | null;
   refId: number | null;
   /** A short "what" line: "PO 104 · challan 55", "To TFO", "3A · 75D", "WJ-2"… */
@@ -248,6 +250,8 @@ export interface YarnBox {
   netG: number;
   /** Net wt minus whatever has been withdrawn / moved out so far. */
   remainingG: number;
+  /** Held by pending warping jobs (Warping zone only). */
+  reservedG: number;
   programId: number;
   createdAt: string;
 }
@@ -269,8 +273,13 @@ export interface YarnQualityStock {
 export interface Beam {
   id: number;
   beamNo: number;
+  /** Sprint 20: what is shown — typed on new beams, "BM-<n>" on older ones. */
+  beamCode: string;
   zone: BeamZone;
+  /** The shown quality: the warping quality on new beams, the yarn quality on older ones. */
   quality: { id: number; name: string };
+  /** Sprint 20: set on beams made from Sprint 20 on. */
+  warpingQuality: { id: number; name: string } | null;
   taar: number;
   panna: number;
   meters: number;
@@ -370,11 +379,42 @@ export interface TfoBoard {
 
 /* ---------- warping ---------- */
 
+/** Sprint 20 — "No box" twisted stock of a zone: under a yarn quality (old stock) or a warping quality (manual adds). */
+export interface NoBoxStock {
+  qualityId: number | null;
+  warpingQualityId: number | null;
+  name: string;
+  availableG: number;
+  reservedG: number;
+}
+
 export interface WarpingJobInput {
   id: number;
   item: YarnItem;
+  /** Sprint 20: raw (lot) · box · no_box; older inputs are raw / no_box. */
+  kind: WarpingInputKind;
+  /** The shown quality (warping quality for boxes / warping-quality no-box stock, else the yarn quality). */
   quality: { id: number; name: string };
   qtyG: number;
+  lot: { id: number; lotNo: string } | null;
+  box: { id: number; boxNo: string } | null;
+  /** Raw yarn quality id (raw / old no-box) or null. */
+  qualityId: number | null;
+  warpingQualityId: number | null;
+}
+
+/** Sprint 20 — a warping job waiting to start (its inputs reserved in Warping stock). */
+export interface WarpingPendingJob {
+  id: number;
+  inputs: WarpingJobInput[];
+  totalG: number;
+  taar: number;
+  panna: number;
+  meters: number | null;
+  fullMeter: boolean;
+  note: string | null;
+  createdAt: string;
+  createdBy: YarnActor;
 }
 
 export interface WarpingJob {
@@ -384,14 +424,19 @@ export interface WarpingJob {
   note: string | null;
   inputs: WarpingJobInput[];
   totalG: number;
+  /** Sprint 20: from the pending job it was started from (null on older jobs). */
+  taar: number | null;
+  panna: number | null;
+  meters: number | null;
+  fullMeter: boolean;
   startedAt: string;
   startedBy: YarnActor;
   doneAt: string | null;
   doneBy: YarnActor | null;
-  beams: { id: number; beamNo: number; zone: BeamZone; quality: string; taar: number; panna: number; meters: number; status: BeamStatus }[];
+  beams: { id: number; beamNo: number; beamCode: string; zone: BeamZone; quality: string; taar: number; panna: number; meters: number; status: BeamStatus }[];
 }
 
 export interface WarpingDoneResult {
   jobId: number;
-  beams: { id: number; beamNo: number; zone: BeamZone }[];
+  beams: { id: number; beamCode: string; zone: BeamZone }[];
 }

@@ -1,7 +1,7 @@
 import { ArrowLeftRight, Cylinder, Spool } from 'lucide-react';
 import { useState } from 'react';
 import { Navigate, useParams } from 'react-router-dom';
-import { beamLabel, isYarnZone, YARN_ZONE_CONFIG, type Beam, type YarnZone } from '@rivoora/shared';
+import { isYarnZone, YARN_ZONE_CONFIG, type Beam, type YarnZone } from '@rivoora/shared';
 import { usePageTitle } from '@/components/layout/page-title';
 import { ErrorState } from '@/components/list-parts';
 import { Button } from '@/components/ui/button';
@@ -36,7 +36,7 @@ function BeamsList({ beams }: { beams: Beam[] }) {
           <tbody>
             {beams.map((b) => (
               <tr key={b.id} className="border-b border-border last:border-0">
-                <td className="py-2.5 font-bold tabular-nums text-slate-900">{beamLabel(b.beamNo)}</td>
+                <td className="py-2.5 font-bold tabular-nums text-slate-900">{b.beamCode}</td>
                 <td className="truncate py-2.5 font-medium text-slate-800">{b.quality.name}</td>
                 <td className="py-2.5 text-right tabular-nums">{b.taar}</td>
                 <td className="py-2.5 text-right tabular-nums">{b.panna}</td>
@@ -54,7 +54,7 @@ function BeamsList({ beams }: { beams: Beam[] }) {
         {beams.map((b) => (
           <li key={b.id} className="py-2.5">
             <p className="flex items-baseline gap-2">
-              <span className="font-bold tabular-nums text-slate-900">{beamLabel(b.beamNo)}</span>
+              <span className="font-bold tabular-nums text-slate-900">{b.beamCode}</span>
               <span className="truncate text-sm font-medium text-slate-700">{b.quality.name}</span>
             </p>
             <p className="text-xs text-slate-500">
@@ -80,8 +80,8 @@ export default function YarnZonePage() {
   const [action, setAction] = useState<ZoneAction | null>(null);
   const { can } = useRole();
   if (!zone || !c) return <Navigate to="/yarn" replace />;
-  // TFO: "New programs" sits on the Programs section itself.
-  const main = zone === 'tfo' ? null : zoneMainAction(zone, can);
+  // TFO / Warping: "New programs" / "New job" sit on their sections.
+  const main = zone === 'direct' ? zoneMainAction(zone, can) : null;
   const Icon = ZONE_ICON[zone];
 
   return (

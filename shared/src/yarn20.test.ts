@@ -1,13 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import {
   availableAfterReserved,
+  prefillBeamQuality,
+  validateBeam,
+  validateWarpingJob,
   availableText,
   boxesStayText,
   boxNoKey,
   stopTotals,
   validateStopBox,
 } from './yarn';
-import { tfoPendingProgramsCreateSchema, tfoProgramStopSchema } from './yarnSchemas';
+import { tfoPendingProgramsCreateSchema, tfoProgramStopSchema, warpingJobDoneSchema, warpingPendingJobSchema } from './yarnSchemas';
 
 /** Sprint 20 — lots, boxes, pending programs / jobs (pure rules). */
 
@@ -65,5 +68,43 @@ describe('stop with boxes', () => {
     expect(tfoProgramStopSchema.safeParse({ warpingQualityId: 1, boxes: [{ boxNo: 'X1', rolls: 1, grossKg: 2, netKg: 3, avgKg: 1 }] }).success).toBe(false);
     expect(tfoProgramStopSchema.safeParse({ warpingQualityId: 1, boxes: [] }).success).toBe(false);
     expect(tfoProgramStopSchema.safeParse({ warpingQualityId: 1, boxes: [], returnedRawKg: 5 }).success).toBe(true);
+  });
+});
+
+describe('warping: pending jobs and beams', () => {
+  it('meters OR Full meter', () => {
+    expect(validateWarpingJob({ taar: 4800, panna: 52, meters: null, fullMeter: true, inputs: 1 })).toBeNull();
+    expect(validateWarpingJob({ taar: 4800, panna: 52, meters: null, fullMeter: false, inputs: 1 })).toBe('meters');
+    expect(validateWarpingJob({ taar: 4800, panna: 52, meters: 1200, fullMeter: false, inputs: 0 })).toBe('no_inputs');
+    expect(validateWarpingJob({ taar: 1.5, panna: 52, meters: 1200, fullMeter: false, inputs: 1 })).toBe('taar');
+  });
+  it('inputs from lots and boxes; Full meter clears the meters; a box only once', () => {
+    const base = { taar: 4800, panna: 52, fullMeter: true, meters: 999 };
+    const ok = warpingPendingJobSchema.parse({
+      ...base,
+      inputs: [
+        { kind: 'raw', qualityId: 1, lotId: 3, qtyKg: 40 },
+        { kind: 'raw', qualityId: 1, qtyKg: 5 },
+        { kind: 'box', boxId: 9, qtyKg: 12.5 },
+        { kind: 'no_box', warpingQualityId: 2, qtyKg: 1 },
+        { kind: 'no_box', qualityId: 4, qtyKg: 1 },
+      ],
+    });
+    expect(ok.meters).toBeNull();
+    expect(warpingPendingJobSchema.safeParse({ ...base, inputs: [{ kind: 'box', boxId: 9, qtyKg: 1 }, { kind: 'box', boxId: 9, qtyKg: 1 }] }).success).toBe(false);
+    expect(warpingPendingJobSchema.safeParse({ ...base, inputs: [{ kind: 'no_box', qtyKg: 1 }] }).success).toBe(false);
+    expect(warpingPendingJobSchema.safeParse({ taar: 1, panna: 1, inputs: [{ kind: 'raw', qualityId: 1, qtyKg: 1 }] }).success).toBe(false);
+  });
+  it('beam quality is pre-filled only when the twisted inputs have exactly one warping quality', () => {
+    expect(prefillBeamQuality([{ warpingQualityId: 7 }, { warpingQualityId: null }, { warpingQualityId: 7 }])).toBe(7);
+    expect(prefillBeamQuality([{ warpingQualityId: 7 }, { warpingQualityId: 8 }])).toBeNull();
+    expect(prefillBeamQuality([{ warpingQualityId: null }])).toBeNull();
+  });
+  it('beam codes are unique (any case) on a job', () => {
+    const b = { beamCode: 'B-1', taar: 1, panna: 1, meters: 1, warpingQualityId: 1, zone: 'direct' };
+    expect(validateBeam(b, ['b-1'])).toBe('code_repeat');
+    expect(validateBeam({ ...b, beamCode: ' ' })).toBe('code');
+    expect(warpingJobDoneSchema.safeParse({ beams: [b, { ...b, beamCode: 'b-1 ' }] }).success).toBe(false);
+    expect(warpingJobDoneSchema.safeParse({ beams: [b, { ...b, beamCode: 'B-2' }] }).success).toBe(true);
   });
 });

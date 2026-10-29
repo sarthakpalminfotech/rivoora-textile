@@ -171,7 +171,7 @@ export function QualitySelect({ value, onChange, id, invalid, placeholder = 'Sel
 /**
  * Sprint 20 — the lot picker for raw yarn moves ("No lot" first, then lots by number). `value` is the lot id, or
  * `0` to mean "No lot" (lot ids are never 0). Shows "available · reserved" (pending programs / warping jobs hold
- * reserved kg); `own` adds back what the program / job being EDITED reserves itself.
+ * reserved kg); `own` adds back what the program / job being EDITED reserves itself (per lot).
  */
 export function LotSelect({
   zone,
@@ -190,11 +190,11 @@ export function LotSelect({
   invalid?: boolean;
   disabled?: boolean;
   className?: string;
-  own?: { lotId: number | null; g: number };
+  own?: { lotId: number | null; g: number }[];
 }) {
   const lots = useLotStock(zone, qualityId, !!qualityId);
   const options = (lots.data ?? []).map((l) => {
-    const back = own && own.lotId === l.id ? own.g : 0;
+    const back = (own ?? []).filter((o) => o.lotId === l.id).reduce((s, o) => s + o.g, 0);
     const availableG = l.availableG + back;
     const reservedG = Math.max(0, l.reservedG - back);
     return {
