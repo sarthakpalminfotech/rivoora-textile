@@ -1,12 +1,14 @@
 import { and, asc, count, eq, ne, or, sql } from 'drizzle-orm';
 import {
   tfoMachineInputSchema,
+  warpingQualityInputSchema,
   yarnPartyInputSchema,
   yarnQualityInputSchema,
   type LookupItem,
   type Paginated,
   type TfoMachine,
   type TfoSection,
+  type WarpingQuality,
   type YarnParty,
   type YarnQuality,
   type YarnQualityLookupItem,
@@ -17,6 +19,9 @@ import {
   tfoMachines,
   tfoPrograms,
   warpingJobInputs,
+  warpingPendingJobInputs,
+  warpingQualities,
+  yarnBoxes,
   yarnParties,
   yarnPoLines,
   yarnPos,
@@ -133,6 +138,7 @@ export async function listYarnQualities({ page, limit, search }: PaginationQuery
   const p = search ? likePattern(search) : null;
   const where = and(
     eq(yarnQualities.isDeleted, false),
+    eq(yarnQualities.isSystem, false),
     p
       ? or(
           sql`${yarnQualities.name} LIKE ${p} ESCAPE '\\'`,
@@ -152,7 +158,13 @@ export async function lookupYarnQualities(search?: string): Promise<YarnQualityL
   return db
     .select({ id: yarnQualities.id, name: yarnQualities.name, denier: yarnQualities.denier, filament: yarnQualities.filament })
     .from(yarnQualities)
-    .where(and(eq(yarnQualities.isDeleted, false), search ? sql`${yarnQualities.name} LIKE ${likePattern(search)} ESCAPE '\\'` : undefined))
+    .where(
+      and(
+        eq(yarnQualities.isDeleted, false),
+        eq(yarnQualities.isSystem, false),
+        search ? sql`${yarnQualities.name} LIKE ${likePattern(search)} ESCAPE '\\'` : undefined,
+      ),
+    )
     .orderBy(asc(sql`lower(${yarnQualities.name})`))
     .limit(200);
 }
@@ -292,4 +304,96 @@ export async function deleteTfoMachine(id: number): Promise<void> {
     throw conflict(`TFO machine ${machine.machineNo} can't be deleted while a program is running on it — stop the program first, or mark the machine inactive.`);
   }
   await db.update(tfoMachines).set({ isDeleted: true }).where(eq(tfoMachines.id, id));
+}
+
+/* ------------------------------------------------------------------ */
+/* Sprint 20: Warping qualities                                        */
+/* ------------------------------------------------------------------ */
+
+const warpingQualityColumns = {
+  id: warpingQualities.id,
+  name: warpingQualities.name,
+  notes: warpingQualities.notes,
+  createdAt: warpingQualities.createdAt,
+  updatedAt: warpingQualities.updatedAt,
+};
+
+export async function listWarpingQualities({ page, limit, search }: PaginationQuery): Promise<Paginated<WarpingQuality>> {
+  const p = search ? likePattern(search) : null;
+  const where = and(eq(warpingQualities.isDeleted, false), p ? sql`${warpingQualities.name} LIKE ${p} ESCAPE '\\'` : undefined);
+  const [items, [{ total }]] = await db.batch([
+    db.select(warpingQualityColumns).from(warpingQualities).where(where).orderBy(asc(sql`lower(${warpingQualities.name})`)).limit(limit).offset((page - 1) * limit),
+    db.select({ total: count() }).from(warpingQualities).where(where),
+  ]);
+  return { items, page, limit, total, hasMore: page * limit < total };
+}
+
+export async function lookupWarpingQualities(search?: string): Promise<LookupItem[]> {
+  return db
+    .select({ id: warpingQualities.id, name: warpingQualities.name })
+    .from(warpingQualities)
+    .where(and(eq(warpingQualities.isDeleted, false), search ? sql`${warpingQualities.name} LIKE ${likePattern(search)} ESCAPE '\\'` : undefined))
+    .orderBy(asc(sql`lower(${warpingQualities.name})`))
+    .limit(200);
+}
+
+export async function getWarpingQuality(id: number): Promise<WarpingQuality> {
+  const [row] = await db.select(warpingQualityColumns).from(warpingQualities).where(and(eq(warpingQualities.id, id), eq(warpingQualities.isDeleted, false)));
+  if (!row) throw notFound('Warping quality');
+  return row;
+}
+
+async function assertWarpingQualityName(name: string, exceptId?: number) {
+  const [row] = await db
+    .select({ name: warpingQualities.name })
+    .from(warpingQualities)
+    .where(
+      and(
+        eq(warpingQualities.isDeleted, false),
+        exceptId ? ne(warpingQualities.id, exceptId) : undefined,
+        sql`lower(${warpingQualities.name}) = lower(${name})`,
+      ),
+    )
+    .limit(1);
+  if (row) throw conflict(`A warping quality named "${row.name}" already exists`, 'name');
+}
+
+export async function createWarpingQuality(input: unknown): Promise<WarpingQuality> {
+  const data = warpingQualityInputSchema.parse(input);
+  await assertWarpingQualityName(data.name);
+  const [row] = await db.insert(warpingQualities).values(data).returning(warpingQualityColumns);
+  return row;
+}
+
+export async function updateWarpingQuality(id: number, input: unknown): Promise<WarpingQuality> {
+  const data = warpingQualityInputSchema.parse(input);
+  await getWarpingQuality(id);
+  await assertWarpingQualityName(data.name, id);
+  const [row] = await db
+    .update(warpingQualities)
+    .set(data)
+    .where(and(eq(warpingQualities.id, id), eq(warpingQualities.isDeleted, false)))
+    .returning(warpingQualityColumns);
+  if (!row) throw notFound('Warping quality');
+  return row;
+}
+
+/** Soft delete; blocked while the quality is on a box, a beam, in the stock ledger or a warping input. */
+export async function deleteWarpingQuality(id: number): Promise<void> {
+  await getWarpingQuality(id);
+  const [[boxRows], [beamRows], [moves], [inputs], [pendingInputs]] = await db.batch([
+    db.select({ n: count() }).from(yarnBoxes).where(eq(yarnBoxes.warpingQualityId, id)),
+    db.select({ n: count() }).from(beams).where(eq(beams.warpingQualityId, id)),
+    db.select({ n: count() }).from(yarnStockMoves).where(eq(yarnStockMoves.warpingQualityId, id)),
+    db.select({ n: count() }).from(warpingJobInputs).where(eq(warpingJobInputs.warpingQualityId, id)),
+    db.select({ n: count() }).from(warpingPendingJobInputs).where(eq(warpingPendingJobInputs.warpingQualityId, id)),
+  ]);
+  const uses = [
+    boxRows.n ? plural(boxRows.n, 'box') : null,
+    beamRows.n ? plural(beamRows.n, 'beam') : null,
+    moves.n ? plural(moves.n, 'stock movement') : null,
+    inputs.n + pendingInputs.n ? plural(inputs.n + pendingInputs.n, 'warping input') : null,
+  ].filter(Boolean);
+  if (uses.length) throw conflict(`This quality can't be deleted because it is used on ${uses.join(', ')}.`);
+  await db.update(warpingQualities).set({ isDeleted: true }).where(eq(warpingQualities.id, id));
 }

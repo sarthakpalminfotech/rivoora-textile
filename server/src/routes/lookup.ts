@@ -8,7 +8,7 @@ import { lookupDamages } from '../services/damages';
 import { lookupMachines } from '../services/machines';
 import { lookupMaterials } from '../services/materials';
 import { lookupWeavers } from '../services/weavers';
-import { lookupYarnParties, lookupYarnQualities } from '../services/yarn-masters';
+import { lookupWarpingQualities, lookupYarnParties, lookupYarnQualities } from '../services/yarn-masters';
 
 /** Lightweight id + name endpoints for dropdowns. */
 export const lookupRouter = Router();
@@ -119,5 +119,15 @@ lookupRouter.get(
   ah(async (req, res) => {
     res.set('Cache-Control', 'private, max-age=10');
     res.json(await lookupYarnQualities(querySchema.parse(req.query).search));
+  }),
+);
+
+/** Sprint 20: warping qualities (TFO stop quality, warping beams). */
+lookupRouter.get(
+  '/warping-qualities',
+  requirePermission('canManageYarnMasters', 'canManageYarnPo', 'canUseYarnInventory', 'canReceiveYarn', 'canViewYarn'),
+  ah(async (req, res) => {
+    res.set('Cache-Control', 'private, max-age=10');
+    res.json(await lookupWarpingQualities(querySchema.parse(req.query).search));
   }),
 );

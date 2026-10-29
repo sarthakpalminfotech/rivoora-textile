@@ -66,6 +66,7 @@ const UsersPage = lazy(() => import('@/features/masters/users/users-page'));
 const YarnPartiesPage = lazy(() => import('@/features/masters/yarn/yarn-parties-page'));
 const YarnQualitiesPage = lazy(() => import('@/features/masters/yarn/yarn-qualities-page'));
 const TfoMachinesPage = lazy(() => import('@/features/masters/yarn/tfo-machines-page'));
+const WarpingQualitiesPage = lazy(() => import('@/features/masters/yarn/warping-qualities-page'));
 const YarnPoListPage = lazy(() => import('@/features/yarn/po-list-page'));
 const YarnPoDetailsPage = lazy(() => import('@/features/yarn/po-details-page'));
 const YarnPoFormPage = lazy(() => import('@/features/yarn/po-form-page'));
@@ -299,6 +300,8 @@ const router = createBrowserRouter([
           { path: 'yarn-parties', element: guard('canManageYarnMasters', <YarnPartiesPage />) },
           { path: 'yarn-qualities', element: guard('canManageYarnMasters', <YarnQualitiesPage />) },
           { path: 'tfo-machines', element: guard('canManageYarnMasters', <TfoMachinesPage />) },
+          // Sprint 20: Warping qualities master.
+          { path: 'warping-qualities', element: guard('canManageYarnMasters', <WarpingQualitiesPage />) },
           { path: 'jobsheets', element: <JobsheetsRoute /> },
           // The supervisor's Order view: one order's jobsheets.
           { path: 'jobsheets/order/:orderId', element: guard('canViewJobsheetsModule', <SupervisorOrderJobsheetsPage />) },

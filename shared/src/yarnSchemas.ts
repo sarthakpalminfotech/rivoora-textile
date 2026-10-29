@@ -80,6 +80,13 @@ export const tfoMachineInputSchema = z.object({
 });
 export type TfoMachineInput = z.input<typeof tfoMachineInputSchema>;
 
+/** Sprint 20 — Warping qualities master: twisted yarn's identity from the TFO stop onward. */
+export const warpingQualityInputSchema = z.object({
+  name: z.string({ required_error: 'Name is required' }).trim().min(1, 'Name is required').max(YARN_NAME_MAX_LENGTH, 'Name is too long'),
+  notes: optText(1000),
+});
+export type WarpingQualityInput = z.input<typeof warpingQualityInputSchema>;
+
 /* ---------- Yarn PO ---------- */
 
 export const yarnPoLineInputSchema = z.object({

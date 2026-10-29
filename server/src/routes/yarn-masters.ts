@@ -3,18 +3,23 @@ import { ah, paginationSchema, parseId, type PaginationQuery } from '../lib/http
 import { requirePermission } from '../middleware/role';
 import {
   createTfoMachine,
+  createWarpingQuality,
   createYarnParty,
   createYarnQuality,
   deleteTfoMachine,
+  deleteWarpingQuality,
   deleteYarnParty,
   deleteYarnQuality,
   getTfoMachine,
+  getWarpingQuality,
   getYarnParty,
   getYarnQuality,
   listTfoMachines,
+  listWarpingQualities,
   listYarnParties,
   listYarnQualities,
   updateTfoMachine,
+  updateWarpingQuality,
   updateYarnParty,
   updateYarnQuality,
 } from '../services/yarn-masters';
@@ -90,4 +95,13 @@ export const yarnQualitiesRouter = crudRouter(
 export const tfoMachinesRouter = crudRouter(
   { list: listTfoMachines, get: getTfoMachine, create: createTfoMachine, update: updateTfoMachine, remove: deleteTfoMachine },
   requirePermission('canManageYarnMasters'),
+);
+
+/**
+ * Sprint 20 — Warping qualities: picked on the TFO stop screen and at Mark done, so the quick-add is open to anyone
+ * who can work those screens (`canUseYarnInventory`), not just the PO role.
+ */
+export const warpingQualitiesRouter = crudRouter(
+  { list: listWarpingQualities, get: getWarpingQuality, create: createWarpingQuality, update: updateWarpingQuality, remove: deleteWarpingQuality },
+  requirePermission('canManageYarnMasters', 'canUseYarnInventory'),
 );

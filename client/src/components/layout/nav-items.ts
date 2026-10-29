@@ -83,6 +83,8 @@ export const NAV_ITEMS: NavItem[] = [
   { to: '/yarn-parties', label: 'Yarn parties', icon: Store, permission: 'canManageYarnMasters', group: 'masters' },
   { to: '/yarn-qualities', label: 'Yarn qualities', icon: Spool, permission: 'canManageYarnMasters', group: 'masters' },
   { to: '/tfo-machines', label: 'TFO machines', icon: RotateCw, permission: 'canManageYarnMasters', group: 'masters' },
+  // Sprint 20: Warping qualities (twisted yarn's identity from the TFO stop onward).
+  { to: '/warping-qualities', label: 'Warping qualities', icon: Spool, permission: 'canManageYarnMasters', group: 'masters' },
   { to: '/users', label: 'Users', icon: UserCog, permission: 'canManageUsers', group: 'masters' },
 ];
 

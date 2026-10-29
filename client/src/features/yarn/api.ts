@@ -16,6 +16,8 @@ import type {
   WarpingJob,
   WarpingJobDoneInput,
   WarpingJobStartInput,
+  WarpingQuality,
+  WarpingQualityInput,
   WarpingStatus,
   YarnMove,
   YarnParty,
@@ -51,8 +53,10 @@ export const yarnKeys = {
   parties: ['yarn', 'parties'] as const,
   qualities: ['yarn', 'qualities'] as const,
   machines: ['yarn', 'tfo-machines'] as const,
+  warpingQualities: ['yarn', 'warping-qualities'] as const,
   lookupParties: (search: string) => ['yarn', 'lookup', 'parties', search] as const,
   lookupQualities: (search: string) => ['yarn', 'lookup', 'qualities', search] as const,
+  lookupWarpingQualities: (search: string) => ['yarn', 'lookup', 'warping-qualities', search] as const,
   pos: ['yarn', 'pos'] as const,
   po: (id: number) => ['yarn', 'po', id] as const,
   poPrint: (id: number) => ['yarn', 'po', id, 'print'] as const,
@@ -119,6 +123,27 @@ export const useSaveTfoMachine = () =>
     silentFieldErrors: true,
   });
 export const useDeleteTfoMachine = () => useYarnMutation((id: number) => api.delete(`/tfo-machines/${id}`));
+
+/** Sprint 20 — Warping qualities: twisted yarn's identity from the TFO stop onward. */
+export const useWarpingQualities = (search: string) => useInfiniteList<WarpingQuality>([...yarnKeys.warpingQualities, 'list'], '/warping-qualities', { search });
+
+export function useWarpingQualityLookup(search = '', enabled = true) {
+  return useQuery({
+    queryKey: yarnKeys.lookupWarpingQualities(search),
+    queryFn: ({ signal }) => api.get<LookupItem[]>('/lookup/warping-qualities', { search }, signal),
+    placeholderData: keepPreviousData,
+    staleTime: 30_000,
+    enabled,
+  });
+}
+
+export const useSaveWarpingQuality = () =>
+  useYarnMutation(
+    ({ id, data }: { id?: number; data: WarpingQualityInput }) =>
+      id ? api.put<WarpingQuality>(`/warping-qualities/${id}`, data) : api.post<WarpingQuality>('/warping-qualities', data),
+    { silentFieldErrors: true },
+  );
+export const useDeleteWarpingQuality = () => useYarnMutation((id: number) => api.delete(`/warping-qualities/${id}`));
 
 /* ---------- Yarn PO ---------- */
 

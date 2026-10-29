@@ -38,6 +38,15 @@ export interface YarnQuality {
   updatedAt: string;
 }
 
+/** Sprint 20 — Warping qualities master: twisted yarn's identity from the TFO stop onward (boxes, beams). */
+export interface WarpingQuality {
+  id: number;
+  name: string;
+  notes: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface YarnQualityLookupItem {
   id: number;
   name: string;
