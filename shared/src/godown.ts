@@ -2,7 +2,7 @@
  * Mill QC and the godown (Sprint 9): which takas the Mill QC may open, and the godown order screen's numbers (KPIs,
  * the checked-pcs bar, expected vs actual pcs, the ready-to-dispatch rules). Pure — server and client share it.
  */
-import { takaActualPcs } from './takas';
+import { takaActualMeters, takaActualPcs } from './takas';
 
 /* ------------------------------------------------------------------ */
 /* Mill QC: which takas can be opened                                   */
@@ -47,6 +47,9 @@ export interface GodownTakaLike {
   stage: string;
   pcs: number | null;
   actualPcs: number | null;
+  /** Sprint 19: the meter twins (set instead, for a meter order's taka). */
+  meters?: number | null;
+  actualMeters?: number | null;
   /** Ticked by the godown supervisor ("I have checked this taka"). */
   checked: boolean;
 }
@@ -72,7 +75,14 @@ export interface GodownKpis {
   /** Expected vs actual pcs of all final takas (final + ready to dispatch). */
   expectedPcs: number;
   actualPcs: number;
+  /** Sprint 19: the meter twins — populated instead of the pcs figures above for a meter order's takas. */
+  checkedMeters: number;
+  readyMeters: number;
+  expectedMeters: number;
+  actualMeters: number;
 }
+
+const round2 = (n: number) => Math.round(n * 100) / 100;
 
 export function godownKpis(takas: readonly GodownTakaLike[]): GodownKpis {
   const k: GodownKpis = {
@@ -86,22 +96,32 @@ export function godownKpis(takas: readonly GodownTakaLike[]): GodownKpis {
     uncheckedCount: 0,
     expectedPcs: 0,
     actualPcs: 0,
+    checkedMeters: 0,
+    readyMeters: 0,
+    expectedMeters: 0,
+    actualMeters: 0,
   };
   for (const t of takas) {
     if (t.stage === 'refinish') k.refinish += 1;
     if (!FINAL_STAGES.includes(t.stage)) continue;
-    const actual = takaActualPcs(t) ?? 0;
+    const meterTaka = t.pcs == null && t.meters != null;
+    const actualP = takaActualPcs(t) ?? 0;
+    const actualM = takaActualMeters(t) ?? 0;
     k.cleared += 1;
     k.expectedPcs += t.pcs ?? 0;
-    k.actualPcs += actual;
+    k.actualPcs += actualP;
+    k.expectedMeters = round2(k.expectedMeters + (meterTaka ? t.meters ?? 0 : 0));
+    k.actualMeters = round2(k.actualMeters + (meterTaka ? actualM : 0));
     if (t.stage === 'ready_dispatch' || t.checked) {
       k.checkedTakas += 1;
-      k.checkedPcs += actual;
+      k.checkedPcs += actualP;
+      k.checkedMeters = round2(k.checkedMeters + (meterTaka ? actualM : 0));
     }
     if (t.stage === 'final') {
       if (t.checked) {
         k.readyCount += 1;
-        k.readyPcs += actual;
+        k.readyPcs += actualP;
+        k.readyMeters = round2(k.readyMeters + (meterTaka ? actualM : 0));
       } else k.uncheckedCount += 1;
     }
   }
@@ -132,6 +152,25 @@ export function actualVsExpectedLine(actual: number, expected: number): { text: 
   const diff = actual - expected;
   const sign = diff === 0 ? '' : ` (${diff > 0 ? '+' : '−'}${Math.abs(diff)})`;
   return { text: `Actual ${actual.toLocaleString('en-IN')} pcs vs expected ${expected.toLocaleString('en-IN')}${sign}`, differs: diff !== 0 };
+}
+
+/** Sprint 19: the meter twin of `checkedPcsBar`. */
+export function checkedMetersBar(checkedMeters: number, orderedMeters: number): PcsBar {
+  const percent = orderedMeters > 0 ? (checkedMeters / orderedMeters) * 100 : 0;
+  const fmt = (n: number) => n.toLocaleString('en-IN', { maximumFractionDigits: 2 });
+  return {
+    fillPercent: Math.min(100, Math.round(percent * 10) / 10),
+    over: orderedMeters > 0 && checkedMeters > orderedMeters,
+    text: `${fmt(checkedMeters)} / ${fmt(orderedMeters)} m checked`,
+  };
+}
+
+/** Sprint 19: the meter twin of `actualVsExpectedLine`. */
+export function actualVsExpectedMetersLine(actual: number, expected: number): { text: string; differs: boolean } {
+  const diff = round2(actual - expected);
+  const fmt = (n: number) => n.toLocaleString('en-IN', { maximumFractionDigits: 2 });
+  const sign = diff === 0 ? '' : ` (${diff > 0 ? '+' : '−'}${fmt(Math.abs(diff))})`;
+  return { text: `Actual ${fmt(actual)} m vs expected ${fmt(expected)}${sign}`, differs: diff !== 0 };
 }
 
 /** A taka can be confirmed "Ready to dispatch" only when it is final (in the godown) and ticked. */

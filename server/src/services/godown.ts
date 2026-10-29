@@ -12,13 +12,16 @@ import {
   damageLabel,
   godownSplitSchema,
   godownTakaPatchSchema,
+  isMeterOrder,
   qcNewDamageSchema,
   readyDispatchBlockers,
   readyDispatchSchema,
   orderKind,
   splitWeaverTakaNo,
   splitMeters,
+  takaActualMeters,
   takaActualPcs,
+  validateMeterSplit,
   validateSplit,
   type GodownListQuery,
   type GodownOrder,
@@ -167,6 +170,7 @@ export async function getGodownOrder(role: RoleKey, orderId: number): Promise<Go
         imageUrl: designImageSql,
         quality: materials.name,
         orderedPcs: orders.quantity,
+        unit: orders.unit,
         rate: orders.rate,
         orderType: orders.orderType,
         blouseOption: orders.blouseOption,
@@ -196,6 +200,7 @@ export async function getGodownOrder(role: RoleKey, orderId: number): Promise<Go
         meters: takas.meters,
         pcs: takas.pcs,
         actualPcs: takas.actualPcs,
+        actualMeters: takas.actualMeters,
         stage: takas.stage,
         godownCheckedAt: takas.godownCheckedAt,
         parentTakaNo: takaParentNo,
@@ -210,9 +215,12 @@ export async function getGodownOrder(role: RoleKey, orderId: number): Promise<Go
       .from(takas)
       .innerJoin(jobsheets, eq(jobsheets.id, takas.jobsheetId))
       .where(and(takaInOrder(orderId), eq(takas.isDeleted, false), eq(jobsheets.isDeleted, false))),
-    // Open damaged pcs (pcs − resolved_pcs) on the godown stock — same definition as the Inventory.
+    // Open damaged pcs / metres (qty − resolved) on the godown stock — same definition as the Inventory.
     db
-      .select({ pcs: sql<number | null>`SUM(MAX(${takaDamages.pcs} - ${takaDamages.resolvedPcs}, 0))` })
+      .select({
+        pcs: sql<number | null>`SUM(MAX(${takaDamages.pcs} - ${takaDamages.resolvedPcs}, 0))`,
+        meters: sql<number | null>`SUM(MAX(${takaDamages.meters} - ${takaDamages.resolvedMeters}, 0))`,
+      })
       .from(takaDamages)
       .innerJoin(takas, eq(takas.id, takaDamages.takaId))
       .innerJoin(jobsheets, eq(jobsheets.id, takas.jobsheetId))
@@ -232,14 +240,21 @@ export async function getGodownOrder(role: RoleKey, orderId: number): Promise<Go
   const { customerId, customerName, customerPhone, customerAddress, customerGstin, brokerName, rate, designId, hasProduction, hasButta, hasMill, ...order } = row;
   const orderSteps = { hasProduction, hasButta, hasMill };
   const seesClient = can(role, 'canSeeClient');
-  const kpis = godownKpis(takaRows.map((t) => ({ stage: t.stage, pcs: t.pcs, actualPcs: t.actualPcs, checked: t.godownCheckedAt !== null })));
+  const kpis = godownKpis(
+    takaRows.map((t) => ({ stage: t.stage, pcs: t.pcs, actualPcs: t.actualPcs, meters: t.meters, actualMeters: t.actualMeters, checked: t.godownCheckedAt !== null })),
+  );
   const stagePcs = (stage: string) => takaRows.filter((t) => t.stage === stage).reduce((n, t) => n + (takaActualPcs(t) ?? 0), 0);
+  const stageMeters = (stage: string) =>
+    Math.round(takaRows.filter((t) => t.stage === stage && t.pcs == null && t.meters != null).reduce((n, t) => n + (takaActualMeters(t) ?? 0), 0) * 100) / 100;
   const pcsKpis: GodownPcsKpis = {
     readyDispatchPcs: stagePcs('ready_dispatch'),
     readyDispatchTakas: takaRows.filter((t) => t.stage === 'ready_dispatch').length,
     refinishPcs: stagePcs('refinish'),
     refinishTakas: kpis.refinish,
     damagedPcs: Number(damagedRows[0]?.pcs ?? 0),
+    readyDispatchMeters: stageMeters('ready_dispatch'),
+    refinishMeters: stageMeters('refinish'),
+    damagedMeters: Number(damagedRows[0]?.meters ?? 0),
   };
   const list: GodownTaka[] = takaRows
     .filter((t) => t.stage === 'final' || t.stage === 'ready_dispatch')
@@ -275,6 +290,7 @@ async function loadFinalTaka(tx: Tx, id: number) {
       meters: takas.meters,
       pcs: takas.pcs,
       actualPcs: takas.actualPcs,
+      actualMeters: takas.actualMeters,
       godownCheckedAt: takas.godownCheckedAt,
       refinishCount: takas.refinishCount,
       hasBeenToMill: takas.hasBeenToMill,
@@ -289,8 +305,10 @@ async function loadFinalTaka(tx: Tx, id: number) {
       weaverTakaNo: takas.weaverTakaNo,
       hasOwnNumber: takas.hasOwnNumber,
       outsideReceiptId: takas.outsideReceiptId,
+      unit: orders.unit,
     })
     .from(takas)
+    .innerJoin(orders, eq(orders.id, takas.orderId))
     .where(and(eq(takas.id, id), eq(takas.isDeleted, false)));
   if (!taka) throw notFound('Taka');
   if (taka.stage !== 'final') {
@@ -326,6 +344,17 @@ export async function patchGodownTaka(role: RoleKey, id: number, input: unknown)
         set.actualPcs = next;
       }
     }
+    // Sprint 19: the meter twin of actualPcs.
+    if (data.actualMeters !== undefined) {
+      const before = takaActualMeters(taka);
+      const next = data.actualMeters === taka.meters ? null : data.actualMeters;
+      if (data.actualMeters !== before) {
+        set.actualMeters = next;
+        events.push({ takaId: id, event: 'actual_pcs_changed', note: `metres ${before ?? '–'} → ${data.actualMeters}${taka.meters != null ? ` (expected ${taka.meters})` : ''}` });
+      } else if (next !== taka.actualMeters) {
+        set.actualMeters = next;
+      }
+    }
     if (data.checked !== undefined && data.checked !== (taka.godownCheckedAt !== null)) {
       set.godownCheckedAt = data.checked ? at : null;
       set.godownCheckedBy = data.checked ? role : null;
@@ -347,6 +376,7 @@ export async function patchGodownTaka(role: RoleKey, id: number, input: unknown)
         meters: takas.meters,
         pcs: takas.pcs,
         actualPcs: takas.actualPcs,
+        actualMeters: takas.actualMeters,
         stage: takas.stage,
         godownCheckedAt: takas.godownCheckedAt,
         parentTakaNo: takaParentNo,
@@ -374,8 +404,17 @@ export async function markGodownDamage(role: RoleKey, id: number, input: unknown
   const damage = qcNewDamageSchema.parse(input);
   return db.transaction(async (tx) => {
     const taka = await loadFinalTaka(tx, id);
-    const pcs = takaActualPcs(taka) ?? 9999;
-    assertNewDamages([damage], pcs, 'damage');
+    const meterOrder = isMeterOrder(taka);
+    if (meterOrder) {
+      const meters = takaActualMeters(taka) ?? 9999;
+      if (damage.meters === undefined) throw badRequest('Enter the damaged metres.', 'damage.meters');
+      if (damage.meters > meters) throw badRequest(`A damage can't have more metres than the taka (${meters} m).`, 'damage.meters');
+      assertNewDamages([damage], Number.MAX_SAFE_INTEGER, 'damage');
+    } else {
+      const pcs = takaActualPcs(taka) ?? 9999;
+      if (damage.pcs === undefined) throw badRequest('Enter the damaged pcs.', 'damage.pcs');
+      assertNewDamages([damage], pcs, 'damage');
+    }
     const events = await addNewDamages(tx, role, id, [damage], 'godown', now(), 'damage');
     await refreshIsDamaged(tx, [id]);
     await writeTakaEvents(tx, role, events);
@@ -403,15 +442,21 @@ export async function sendGodownRefinish(role: RoleKey, id: number, input: unkno
 /** Marks the taka's open damages (one, or all) as fully resolved; returns the `damage_resolved` events. */
 export async function clearOpenDamages(tx: Tx, role: RoleKey, takaId: number, onlyId: number | undefined, stage: string, at: string): Promise<TakaEventInput[]> {
   const open = await tx
-    .select({ id: takaDamages.id, foundAt: takaDamages.foundAt, pcs: takaDamages.pcs, name: damageMaster.name })
+    .select({ id: takaDamages.id, foundAt: takaDamages.foundAt, pcs: takaDamages.pcs, meters: takaDamages.meters, name: damageMaster.name })
     .from(takaDamages)
     .leftJoin(damageMaster, eq(damageMaster.id, takaDamages.damageId))
     .where(and(eq(takaDamages.takaId, takaId), eq(takaDamages.status, 'open'), eq(takaDamages.isDeleted, false), onlyId !== undefined ? eq(takaDamages.id, onlyId) : undefined));
   const events: TakaEventInput[] = [];
   for (const d of open) {
+    // taka_damages.meters is a Sprint 19 column only ever written for a meter order's damage — a safe per-row switch.
+    const meterDamage = d.pcs == null && d.meters != null;
     await tx
       .update(takaDamages)
-      .set({ status: 'resolved', resolvedPcs: d.pcs ?? 0, resolvedAt: at, resolvedBy: role, resolvedStage: stage })
+      .set(
+        meterDamage
+          ? { status: 'resolved', resolvedMeters: d.meters ?? 0, resolvedAt: at, resolvedBy: role, resolvedStage: stage }
+          : { status: 'resolved', resolvedPcs: d.pcs ?? 0, resolvedAt: at, resolvedBy: role, resolvedStage: stage },
+      )
       .where(eq(takaDamages.id, d.id));
     events.push({ takaId, event: 'damage_resolved', takaDamageId: d.id, note: `${damageLabel(d.foundAt, d.name)} · ${stage === 'split' ? 'cleared by split' : stage === 'inventory' ? 'marked fresh in inventory' : 'resolved at the godown'}` });
   }
@@ -436,58 +481,110 @@ export async function resolveGodownDamage(role: RoleKey, id: number, input: unkn
 /* ------------------------------------------------------------------ */
 
 /**
- * POST /godown/takas/:id/split — `{ parts: [{ takaNo, pcs, damages?, refinish? }] }`, the first part is the original
- * taka (it keeps its row, with its new pcs). The parts must add up to the taka's actual pcs and every number must be
- * valid and unique system-wide. New parts: same order / jobsheet, stage `final` (`refinish` when sent to refinish),
- * `parent_taka_id`, meters = parent meters × part pcs ÷ total (the last part takes the remainder). Existing open
+ * POST /godown/takas/:id/split — `{ parts: [{ takaNo, pcs | meters, damages?, refinish? }] }`, the first part is the
+ * original taka (it keeps its row, with its new pcs / metres). The parts must add up to the taka's actual pcs (pcs
+ * order) or metres (meter order, Sprint 19 — metres is the primary input there, pcs stays null throughout) and every
+ * number must be valid and unique system-wide. New parts: same order / jobsheet, stage `final` (`refinish` when sent
+ * to refinish), `parent_taka_id`; a pcs order's meters = parent meters × part pcs ÷ total (the last part takes the
+ * remainder) — not apportioned for a meter order, where each part's own `meters` is used directly. Existing open
  * damages stay on the original taka.
  */
 export async function splitTaka(role: RoleKey, id: number, input: unknown): Promise<GodownSplitResult> {
   const data = godownSplitSchema.parse(input);
   return db.transaction(async (tx) => {
     const parent = await loadFinalTaka(tx, id);
-    const actual = takaActualPcs(parent);
-    if (actual === null) throw badRequest(`Taka ${parent.takaNo} has no pcs to split.`);
-
+    const meterOrder = isMeterOrder(parent);
     const numbers = data.parts.map((p) => p.takaNo);
     const used = await usedTakaNumbers(tx, numbers, [id]);
-    const check = validateSplit(
-      data.parts.map((p) => ({ takaNo: p.takaNo, pcs: p.pcs })),
-      actual,
-      new Set(used.keys()),
-    );
-    const bad = check.rows.findIndex((r) => r !== null);
-    if (bad >= 0) {
-      const err = check.rows[bad];
-      const no = numbers[bad];
-      throw badRequest(
-        err === 'already_used'
-          ? usedMessage(no, used.get(no.trim()))
-          : err === 'duplicate'
-            ? `Taka ${no} is typed twice.`
-            : err === 'pcs_required'
-              ? `Taka ${no || bad + 1}: enter the pcs (at least 1).`
-              : `Taka ${no || bad + 1}: use digits, - or / (and a capital letter at the end).`,
-        `parts.${bad}.${err === 'pcs_required' ? 'pcs' : 'takaNo'}`,
+
+    let partPcs: (number | null)[];
+    let partMeters: (number | null)[];
+
+    if (meterOrder) {
+      const actual = takaActualMeters(parent);
+      if (actual === null) throw badRequest(`Taka ${parent.takaNo} has no metres to split.`);
+      const check = validateMeterSplit(
+        data.parts.map((p) => ({ takaNo: p.takaNo, meters: p.meters ?? null })),
+        actual,
+        new Set(used.keys()),
       );
-    }
-    if (check.diff !== 0) {
-      throw badRequest(`The parts add up to ${check.total} pcs, but the taka has ${actual} pcs (${check.diff > 0 ? `${check.diff} short` : `${-check.diff} too many`}).`, 'parts');
+      const bad = check.rows.findIndex((r) => r !== null);
+      if (bad >= 0) {
+        const err = check.rows[bad]!;
+        const no = numbers[bad];
+        throw badRequest(
+          err === 'already_used'
+            ? usedMessage(no, used.get(no.trim()))
+            : err === 'duplicate'
+              ? `Taka ${no} is typed twice.`
+              : err === 'meters_required'
+                ? `Taka ${no || bad + 1}: enter the metres (more than 0).`
+                : `Taka ${no || bad + 1}: use digits, - or / (and a capital letter at the end).`,
+          `parts.${bad}.${err === 'meters_required' ? 'meters' : 'takaNo'}`,
+        );
+      }
+      if (check.diff !== 0) {
+        throw badRequest(`The parts add up to ${check.total} m, but the taka has ${actual} m (${check.diff > 0 ? `${check.diff} short` : `${-check.diff} too many`}).`, 'parts');
+      }
+      partMeters = data.parts.map((p) => p.meters ?? null);
+      partPcs = data.parts.map(() => null);
+    } else {
+      const actual = takaActualPcs(parent);
+      if (actual === null) throw badRequest(`Taka ${parent.takaNo} has no pcs to split.`);
+      const check = validateSplit(
+        data.parts.map((p) => ({ takaNo: p.takaNo, pcs: p.pcs ?? null })),
+        actual,
+        new Set(used.keys()),
+      );
+      const bad = check.rows.findIndex((r) => r !== null);
+      if (bad >= 0) {
+        const err = check.rows[bad];
+        const no = numbers[bad];
+        throw badRequest(
+          err === 'already_used'
+            ? usedMessage(no, used.get(no.trim()))
+            : err === 'duplicate'
+              ? `Taka ${no} is typed twice.`
+              : err === 'pcs_required'
+                ? `Taka ${no || bad + 1}: enter the pcs (at least 1).`
+                : `Taka ${no || bad + 1}: use digits, - or / (and a capital letter at the end).`,
+          `parts.${bad}.${err === 'pcs_required' ? 'pcs' : 'takaNo'}`,
+        );
+      }
+      if (check.diff !== 0) {
+        throw badRequest(`The parts add up to ${check.total} pcs, but the taka has ${actual} pcs (${check.diff > 0 ? `${check.diff} short` : `${-check.diff} too many`}).`, 'parts');
+      }
+      partPcs = data.parts.map((p) => p.pcs ?? null);
+      partMeters = splitMeters(parent.meters, partPcs.map((p) => p ?? 0));
     }
 
     const first = data.parts[0];
     // Sprint 15: a part's damages are NEW ones or EARLIER open damages of the order moved onto it.
-    const isMoved = (d: (typeof data.parts)[number]['damages'][number]): d is { fromTakaDamageId: number; pcs: number } => 'fromTakaDamageId' in d;
+    const isMoved = (d: (typeof data.parts)[number]['damages'][number]): d is { fromTakaDamageId: number; pcs?: number; meters?: number } => 'fromTakaDamageId' in d;
     const newOf = (p: (typeof data.parts)[number]) => p.damages.filter((d) => !isMoved(d)) as NewDamageInput[];
     const movedOf = (p: (typeof data.parts)[number]) => p.damages.filter(isMoved);
     if (duplicateMovedDamages(data.parts.map((p) => movedOf(p).map((m) => m.fromTakaDamageId))).length) {
       throw conflict('Each earlier damage can be moved to one part only.', 'parts');
     }
     data.parts.forEach((p, i) => {
-      assertNewDamages(newOf(p), p.pcs, `parts.${i}.damages`);
-      movedOf(p).forEach((m, j) => {
-        if (m.pcs > p.pcs) throw badRequest(`Damaged pcs can't be more than the part's ${p.pcs} pcs.`, `parts.${i}.damages.${j}.pcs`);
-      });
+      if (meterOrder) {
+        const bound = partMeters[i] ?? 0;
+        assertNewDamages(newOf(p), Number.MAX_SAFE_INTEGER, `parts.${i}.damages`);
+        newOf(p).forEach((d, j) => {
+          if (d.meters === undefined) throw badRequest('Enter the damaged metres.', `parts.${i}.damages.${j}.meters`);
+          if (d.meters > bound) throw badRequest(`Damaged metres can't be more than the part's ${bound} m.`, `parts.${i}.damages.${j}.meters`);
+        });
+        movedOf(p).forEach((m, j) => {
+          if (m.meters === undefined) throw badRequest('Enter the damaged metres.', `parts.${i}.damages.${j}.meters`);
+          if (m.meters > bound) throw badRequest(`Damaged metres can't be more than the part's ${bound} m.`, `parts.${i}.damages.${j}.meters`);
+        });
+      } else {
+        const bound = partPcs[i] ?? 0;
+        assertNewDamages(newOf(p), bound, `parts.${i}.damages`);
+        movedOf(p).forEach((m, j) => {
+          if ((m.pcs ?? 0) > bound) throw badRequest(`Damaged pcs can't be more than the part's ${bound} pcs.`, `parts.${i}.damages.${j}.pcs`);
+        });
+      }
     });
     // The earlier damages must be open and belong to takas of this same order.
     const movedIds = data.parts.flatMap((p) => movedOf(p).map((m) => m.fromTakaDamageId));
@@ -523,7 +620,6 @@ export async function splitTaka(role: RoleKey, id: number, input: unknown): Prom
     }
 
     const at = now();
-    const meters = splitMeters(parent.meters, data.parts.map((p) => p.pcs));
     const events: TakaEventInput[] = [];
     const touched = [id];
 
@@ -544,7 +640,8 @@ export async function splitTaka(role: RoleKey, id: number, input: unknown): Prom
           .values({
             takaId: partTakaId,
             damageId: src.damageId,
-            pcs: m.pcs,
+            pcs: m.pcs ?? null,
+            meters: m.meters ?? null,
             foundAt: src.foundAt,
             recordedAt: src.recordedAt,
             status: 'open' as const,
@@ -558,13 +655,18 @@ export async function splitTaka(role: RoleKey, id: number, input: unknown): Prom
           await tx.insert(takaDamageImages).values(pics.map((p) => ({ takaDamageId: row.id, imageUrl: p.imageUrl, thumbUrl: p.thumbUrl, createdBy: p.createdBy, createdAt: at })));
         }
         events.push({ takaId: src.takaId, event: 'edited', takaDamageId: src.id, note: `${damageLabel(src.foundAt, src.name)} · moved to ${partNo}` });
-        events.push({ takaId: partTakaId, event: 'damage_added', takaDamageId: row.id, note: `${damageLabel(src.foundAt, src.name, m.pcs)} · moved from Taka ${src.takaNo}` });
+        events.push({
+          takaId: partTakaId,
+          event: 'damage_added',
+          takaDamageId: row.id,
+          note: `${damageLabel(src.foundAt, src.name, m.pcs ?? null, m.meters ?? null)} · moved from Taka ${src.takaNo}`,
+        });
       }
     };
 
     // Part 1 keeps the original row (a renamed number goes through a temporary value, nothing else uses it).
     const renamed = first.takaNo !== parent.takaNo;
-    const firstSet: Partial<typeof takas.$inferInsert> = { pcs: first.pcs, actualPcs: null, meters: meters[0] };
+    const firstSet: Partial<typeof takas.$inferInsert> = { pcs: partPcs[0], meters: partMeters[0], actualPcs: null, actualMeters: null };
     if (first.refinish) Object.assign(firstSet, { stage: 'refinish', godownCheckedAt: null, godownCheckedBy: null });
     if (renamed) firstSet.takaNo = first.takaNo;
     const firstMoved = await tx
@@ -579,7 +681,7 @@ export async function splitTaka(role: RoleKey, id: number, input: unknown): Prom
     await moveDamagesTo(id, first.takaNo, first);
 
     // The other parts are new takas of the same jobsheet.
-    const created: GodownSplitResult['parts'] = [{ id, takaNo: first.takaNo, pcs: first.pcs, meters: meters[0], stage: first.refinish ? 'refinish' : 'final' }];
+    const created: GodownSplitResult['parts'] = [{ id, takaNo: first.takaNo, pcs: partPcs[0], meters: partMeters[0], stage: first.refinish ? 'refinish' : 'final' }];
     for (let i = 1; i < data.parts.length; i += 1) {
       const p = data.parts[i];
       const [row] = await tx
@@ -588,8 +690,8 @@ export async function splitTaka(role: RoleKey, id: number, input: unknown): Prom
           jobsheetId: parent.jobsheetId,
           orderId: parent.orderId,
           takaNo: p.takaNo,
-          meters: meters[i],
-          pcs: p.pcs,
+          meters: partMeters[i],
+          pcs: partPcs[i],
           stage: p.refinish ? 'refinish' : 'final',
           refinishCount: p.refinish ? 1 : 0,
           parentTakaId: id,
@@ -613,7 +715,7 @@ export async function splitTaka(role: RoleKey, id: number, input: unknown): Prom
         })
         .returning({ id: takas.id });
       touched.push(row.id);
-      created.push({ id: row.id, takaNo: p.takaNo, pcs: p.pcs, meters: meters[i], stage: p.refinish ? 'refinish' : 'final' });
+      created.push({ id: row.id, takaNo: p.takaNo, pcs: partPcs[i], meters: partMeters[i], stage: p.refinish ? 'refinish' : 'final' });
       events.push({ takaId: row.id, event: 'split', note: `split from ${first.takaNo}` });
       if (p.refinish) events.push({ takaId: row.id, event: 'sent_refinish', note: 'Godown · split' });
       events.push(...(await addNewDamages(tx, role, row.id, newOf(p), 'split', at, `parts.${i}.damages`)));
@@ -647,6 +749,8 @@ export async function listSplitDamageOptions(role: RoleKey, takaId: number): Pro
       damageName: damageMaster.name,
       pcs: takaDamages.pcs,
       resolvedPcs: takaDamages.resolvedPcs,
+      meters: takaDamages.meters,
+      resolvedMeters: takaDamages.resolvedMeters,
       markedAt: takaDamages.createdAt,
       recordedAt: takaDamages.recordedAt,
     })
@@ -668,6 +772,8 @@ export async function listSplitDamageOptions(role: RoleKey, takaId: number): Pro
     damageName: r.damageName,
     openPcs: Math.max((r.pcs ?? 0) - r.resolvedPcs, 0),
     pcs: r.pcs,
+    openMeters: r.meters != null ? Math.max(Math.round((r.meters - (r.resolvedMeters ?? 0)) * 100) / 100, 0) : undefined,
+    meters: r.meters,
     markedAt: r.markedAt,
     recordedAt: r.recordedAt,
     images: pics.filter((p) => p.damageId === r.id).map(({ id, url, thumbUrl }) => ({ id, url, thumbUrl })),

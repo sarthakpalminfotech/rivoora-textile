@@ -4,11 +4,15 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import {
   actualVsExpectedLine,
+  actualVsExpectedMetersLine,
   checkedPcsBar,
+  checkedMetersBar,
+  cleanMeters,
   cleanPcs,
   dispatchTotals,
   moveToInventorySelectable,
   formatMeters,
+  takaActualMeters,
   takaActualPcs,
   type GodownOrder,
   type GodownTaka,
@@ -65,7 +69,9 @@ function Header({ order }: { order: GodownOrder }) {
           {order.quality && <span className="font-medium text-slate-500"> · {order.quality}</span>}
           {order.blouseOption && <BlouseTag option={order.blouseOption} className="ml-2 align-middle" />}
         </p>
-        <p className="text-sm font-medium tabular-nums text-slate-500">{order.orderedPcs.toLocaleString('en-IN')} pcs ordered</p>
+        <p className="text-sm font-medium tabular-nums text-slate-500">
+          {order.orderedPcs.toLocaleString('en-IN', order.unit === 'meters' ? { maximumFractionDigits: 2 } : undefined)} {order.unit === 'meters' ? 'm' : 'pcs'} ordered
+        </p>
         {order.customer && (
           <p className="truncate text-sm font-semibold text-slate-700">
             M/s {order.customer.name}
@@ -94,8 +100,11 @@ function Kpi({ label, children, className }: { label: string; children: React.Re
 function Summary({ order }: { order: GodownOrder }) {
   const k = order.kpis;
   const p = order.pcsKpis;
-  const bar = checkedPcsBar(k.checkedPcs, order.orderedPcs);
-  const line = actualVsExpectedLine(k.actualPcs, k.expectedPcs);
+  const meterOrder = order.unit === 'meters';
+  const fmt = (n: number) => n.toLocaleString('en-IN', meterOrder ? { maximumFractionDigits: 2 } : undefined);
+  const unit = meterOrder ? 'm' : 'pcs';
+  const bar = meterOrder ? checkedMetersBar(k.checkedMeters, order.orderedPcs) : checkedPcsBar(k.checkedPcs, order.orderedPcs);
+  const line = meterOrder ? actualVsExpectedMetersLine(k.actualMeters, k.expectedMeters) : actualVsExpectedLine(k.actualPcs, k.expectedPcs);
   return (
     <div className="space-y-3">
       <ul className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-5">
@@ -103,16 +112,17 @@ function Summary({ order }: { order: GodownOrder }) {
           {k.cleared} <span className="text-slate-400">/ {k.total}</span> <span className="text-sm font-semibold text-slate-500">takas</span>
         </Kpi>
         <Kpi label="Checked">
-          {k.checkedTakas} <span className="text-sm font-semibold text-slate-500">{k.checkedTakas === 1 ? 'taka' : 'takas'} · {k.checkedPcs.toLocaleString('en-IN')} pcs</span>
+          {k.checkedTakas} <span className="text-sm font-semibold text-slate-500">{k.checkedTakas === 1 ? 'taka' : 'takas'} · {fmt(meterOrder ? k.checkedMeters : k.checkedPcs)} {unit}</span>
         </Kpi>
         <Kpi label="Ready for dispatch">
-          {p.readyDispatchPcs.toLocaleString('en-IN')} <span className="text-sm font-semibold text-slate-500">pcs</span>
+          {fmt(meterOrder ? p.readyDispatchMeters : p.readyDispatchPcs)} <span className="text-sm font-semibold text-slate-500">{unit}</span>
         </Kpi>
         <Kpi label="In refinish">
-          {p.refinishPcs.toLocaleString('en-IN')} <span className="text-sm font-semibold text-slate-500">pcs · {p.refinishTakas} {p.refinishTakas === 1 ? 'taka' : 'takas'}</span>
+          {fmt(meterOrder ? p.refinishMeters : p.refinishPcs)} <span className="text-sm font-semibold text-slate-500">{unit} · {p.refinishTakas} {p.refinishTakas === 1 ? 'taka' : 'takas'}</span>
         </Kpi>
         <Kpi label="Damaged" className="col-span-2 sm:col-span-1">
-          <span className={p.damagedPcs > 0 ? 'text-red-600' : undefined}>{p.damagedPcs.toLocaleString('en-IN')}</span> <span className="text-sm font-semibold text-slate-500">pcs</span>
+          <span className={(meterOrder ? p.damagedMeters : p.damagedPcs) > 0 ? 'text-red-600' : undefined}>{fmt(meterOrder ? p.damagedMeters : p.damagedPcs)}</span>{' '}
+          <span className="text-sm font-semibold text-slate-500">{unit}</span>
         </Kpi>
       </ul>
       <div className="rounded-xl border border-border bg-white px-4 py-3 shadow-soft">
@@ -148,19 +158,24 @@ function TakaRow({
   onRefinish,
   onResolve,
   select,
+  meterOrder,
 }: {
   taka: GodownTaka;
   /** Move-to-inventory selection mode: a tick box before the row; takas that cannot move are greyed with the reason. */
   select?: { on: boolean; allowed: boolean; reason: string | null; onToggle: () => void };
   disabled?: boolean;
-  onPatch: (patch: { checked?: boolean; actualPcs?: number }) => Promise<unknown>;
+  onPatch: (patch: { checked?: boolean; actualPcs?: number; actualMeters?: number }) => Promise<unknown>;
   onEditPcs: () => void;
   onSplit: () => void;
   onDamage: () => void;
   onRefinish: () => void;
   onResolve: () => void;
+  meterOrder?: boolean;
 }) {
-  const actual = takaActualPcs(taka);
+  const actualP = takaActualPcs(taka);
+  const actualM = takaActualMeters(taka);
+  const actual = meterOrder ? actualM : actualP;
+  const showSupplementaryMeters = !meterOrder && taka.meters != null;
 
   return (
     // One row, three columns (never wraps): taka · actual pcs right beside it · the ⋯ menu at the end.
@@ -194,21 +209,23 @@ function TakaRow({
               </span>
             )}
           </p>
-          {(taka.parentTakaNo || taka.refinishCount > 0 || taka.meters != null) && (
+          {(taka.parentTakaNo || taka.refinishCount > 0 || showSupplementaryMeters) && (
             <p className="text-xs font-medium text-slate-400">
               {taka.parentTakaNo && <span>from {taka.parentTakaNo}</span>}
-              {taka.parentTakaNo && (taka.refinishCount > 0 || taka.meters != null) && ' · '}
+              {taka.parentTakaNo && (taka.refinishCount > 0 || showSupplementaryMeters) && ' · '}
               {taka.refinishCount > 0 && <span>refinished ×{taka.refinishCount}</span>}
-              {taka.refinishCount > 0 && taka.meters != null && ' · '}
-              {taka.meters != null && <span>{formatMeters(taka.meters)}</span>}
+              {taka.refinishCount > 0 && showSupplementaryMeters && ' · '}
+              {showSupplementaryMeters && <span>{formatMeters(taka.meters!)}</span>}
             </p>
           )}
         </div>
       </div>
 
       <div className={cn('shrink-0 text-center', PCS_COL)}>
-        <p className="text-[11px] font-medium leading-tight text-slate-400 sm:hidden">pcs</p>
-        <p className={cn('text-xl font-bold tabular-nums', disabled ? 'text-slate-500' : 'text-slate-900')}>{actual ?? '—'}</p>
+        <p className="text-[11px] font-medium leading-tight text-slate-400 sm:hidden">{meterOrder ? 'm' : 'pcs'}</p>
+        <p className={cn('text-xl font-bold tabular-nums', disabled ? 'text-slate-500' : 'text-slate-900')}>
+          {actual != null ? actual.toLocaleString('en-IN', meterOrder ? { maximumFractionDigits: 2 } : undefined) : '—'}
+        </p>
       </div>
 
       <div className="ml-auto flex w-12 shrink-0 justify-end">
@@ -221,9 +238,9 @@ function TakaRow({
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
               <DropdownMenuItem onSelect={onEditPcs}>
-                <Pencil className="size-4 text-slate-600" /> Edit pcs
+                <Pencil className="size-4 text-slate-600" /> {meterOrder ? 'Edit metres' : 'Edit pcs'}
               </DropdownMenuItem>
-              {(actual ?? 0) >= 2 && (
+              {(meterOrder ? (actual ?? 0) > 0 : (actual ?? 0) >= 2) && (
                 <DropdownMenuItem onSelect={onSplit}>
                   <Scissors className="size-4 text-slate-600" /> Split
                 </DropdownMenuItem>
@@ -252,12 +269,22 @@ function TakaRow({
   );
 }
 
-/** ⋯ → Edit pcs: the actual pcs of one taka (the only place they can be changed). */
-function EditPcsDialog({ taka, onClose, onSave }: { taka: GodownTaka | null; onClose: () => void; onSave: (actualPcs: number) => Promise<unknown> }) {
+/** ⋯ → Edit pcs / Edit metres: the actual quantity of one taka (the only place it can be changed). */
+function EditPcsDialog({
+  taka,
+  onClose,
+  onSave,
+  meterOrder,
+}: {
+  taka: GodownTaka | null;
+  onClose: () => void;
+  onSave: (actual: number) => Promise<unknown>;
+  meterOrder?: boolean;
+}) {
   const [text, setText] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const actual = taka ? takaActualPcs(taka) : null;
+  const actual = taka ? (meterOrder ? takaActualMeters(taka) : takaActualPcs(taka)) : null;
   useEffect(() => {
     if (!taka) return;
     setText(actual != null ? String(actual) : '');
@@ -267,13 +294,14 @@ function EditPcsDialog({ taka, onClose, onSave }: { taka: GodownTaka | null; onC
   }, [taka?.id]);
 
   const save = async () => {
-    const n = /^\d+$/.test(text) ? Number(text) : NaN;
-    if (!Number.isFinite(n) || n < 1) return setError('Enter the pcs (at least 1)');
-    if (n === actual) return onClose();
+    const n = meterOrder ? Number(text) : /^\d+$/.test(text) ? Number(text) : NaN;
+    if (!Number.isFinite(n) || n <= 0) return setError(meterOrder ? 'Enter the metres (more than 0)' : 'Enter the pcs (at least 1)');
+    const rounded = meterOrder ? Math.round(n * 100) / 100 : n;
+    if (rounded === actual) return onClose();
     setSaving(true);
     try {
-      await onSave(n);
-      toast.success(`Taka ${taka!.takaNo}: ${n.toLocaleString('en-IN')} pcs`);
+      await onSave(rounded);
+      toast.success(`Taka ${taka!.takaNo}: ${rounded.toLocaleString('en-IN')} ${meterOrder ? 'm' : 'pcs'}`);
       onClose();
     } catch (err) {
       setError(errorMessage(err));
@@ -286,7 +314,7 @@ function EditPcsDialog({ taka, onClose, onSave }: { taka: GodownTaka | null; onC
     <ResponsiveModal
       open={taka !== null}
       onOpenChange={(o) => !o && !saving && onClose()}
-      title={taka ? `Edit pcs · Taka ${taka.takaNo}` : 'Edit pcs'}
+      title={taka ? `${meterOrder ? 'Edit metres' : 'Edit pcs'} · Taka ${taka.takaNo}` : meterOrder ? 'Edit metres' : 'Edit pcs'}
       desktopVariant="center"
       mobileVariant="bottom"
       size="sm"
@@ -310,16 +338,16 @@ function EditPcsDialog({ taka, onClose, onSave }: { taka: GodownTaka | null; onC
         }}
       >
         <label htmlFor="edit-actual-pcs" className="block text-sm font-semibold text-slate-600">
-          Actual pcs
+          {meterOrder ? 'Actual metres' : 'Actual pcs'}
         </label>
         <input
           id="edit-actual-pcs"
           value={text}
           onChange={(e) => {
-            setText(cleanPcs(e.target.value));
+            setText(meterOrder ? cleanMeters(e.target.value) : cleanPcs(e.target.value));
             setError(null);
           }}
-          inputMode="numeric"
+          inputMode={meterOrder ? 'decimal' : 'numeric'}
           autoComplete="off"
           autoFocus
           aria-invalid={!!error || undefined}
@@ -364,11 +392,13 @@ function FinalTakasTab({ order }: { order: GodownOrder }) {
   const finals = order.takas.filter((t) => t.stage === 'final');
   const ready = order.takas.filter((t) => t.stage === 'ready_dispatch');
   const k = order.kpis;
-  const dispatchSum = dispatchTotals(ready.map((t) => ({ meters: t.meters, pcs: takaActualPcs(t) })));
+  const meterOrder = order.unit === 'meters';
+  const dispatchSum = dispatchTotals(ready.map((t) => ({ meters: takaActualMeters(t), pcs: takaActualPcs(t) })));
   const lump = order.orderType === 'lump';
   // Sprint 15: a held order allows no changes (Jenish / Gaurang only ever see it here).
   const held = order.isOnHold;
-  const canMoveStock = can('canMoveToInventory') && !held;
+  // Sprint 19: free stock / Move to inventory is still pcs-only (Phase 9 work).
+  const canMoveStock = can('canMoveToInventory') && !held && !meterOrder;
   const godownPcs = order.takas.reduce((n, t) => n + (takaActualPcs(t) ?? 0), 0);
   const rowSelect = (t: GodownTaka) => {
     const sel = moveToInventorySelectable(t.stage);
@@ -385,7 +415,7 @@ function FinalTakasTab({ order }: { order: GodownOrder }) {
     setPicked([]);
   };
 
-  const onPatch = (id: number) => (body: { checked?: boolean; actualPcs?: number }) => patch.mutateAsync({ id, ...body });
+  const onPatch = (id: number) => (body: { checked?: boolean; actualPcs?: number; actualMeters?: number }) => patch.mutateAsync({ id, ...body });
 
   const confirmDispatch = () => {
     const ids = finals.filter((t) => t.checked).map((t) => t.id);
@@ -454,6 +484,7 @@ function FinalTakasTab({ order }: { order: GodownOrder }) {
                   onDamage={() => setDamageFor(t)}
                   onRefinish={() => setRefinishFor(t)}
                   onResolve={() => setResolveFor(t)}
+                  meterOrder={meterOrder}
                 />
               ))}
             </ul>
@@ -474,6 +505,7 @@ function FinalTakasTab({ order }: { order: GodownOrder }) {
                     onDamage={() => undefined}
                     onRefinish={() => undefined}
                     onResolve={() => undefined}
+                    meterOrder={meterOrder}
                   />
                 ))}
               </ul>
@@ -567,8 +599,9 @@ function FinalTakasTab({ order }: { order: GodownOrder }) {
 
       <EditPcsDialog
         taka={pcsFor}
+        meterOrder={meterOrder}
         onClose={() => setPcsFor(null)}
-        onSave={(actualPcs) => patch.mutateAsync({ id: pcsFor!.id, actualPcs })}
+        onSave={(actual) => patch.mutateAsync(meterOrder ? { id: pcsFor!.id, actualMeters: actual } : { id: pcsFor!.id, actualPcs: actual })}
       />
 
       <DamageDialog
@@ -576,11 +609,13 @@ function FinalTakasTab({ order }: { order: GodownOrder }) {
         onOpenChange={(o) => !o && setDamageFor(null)}
         takaLabel={damageFor ? `Taka ${damageFor.takaNo}` : ''}
         takaPcs={damageFor ? takaActualPcs(damageFor) : null}
+        meterOrder={meterOrder}
+        takaMeters={damageFor ? takaActualMeters(damageFor) : null}
         value={null}
         onConfirm={(v) => {
           const id = damageFor!.id;
           markDamage.mutate(
-            { id, damage: { ...entryPayload({ key: nextEntryKey(), foundAt: v.type, choice: v.choice, pcs: v.pcs }), images: [] } },
+            { id, damage: { ...entryPayload({ key: nextEntryKey(), foundAt: v.type, choice: v.choice, pcs: v.pcs, meters: v.meters }, meterOrder), images: [] } },
             {
               onSuccess: () => toast.success('Damage marked'),
               onError: (err) => toast.error(errorMessage(err)),

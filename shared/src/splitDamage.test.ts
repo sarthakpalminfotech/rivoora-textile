@@ -42,6 +42,9 @@ describe('split schema accepts moved damages', () => {
       ],
     });
     expect(r.parts[0].damages).toEqual([{ fromTakaDamageId: 7, pcs: 2 }]);
-    expect(godownSplitSchema.safeParse({ parts: [{ takaNo: '11', pcs: 5, damages: [{ fromTakaDamageId: 7 }] }, { takaNo: '11A', pcs: 5 }] }).success).toBe(false);
+    // Sprint 19: pcs/meters are both optional at the SCHEMA level on a moved damage (a meter order's split moves
+    // metres instead) — the server requires the one matching the order's unit.
+    expect(godownSplitSchema.safeParse({ parts: [{ takaNo: '11', pcs: 5, damages: [{ fromTakaDamageId: 7 }] }, { takaNo: '11A', pcs: 5 }] }).success).toBe(true);
+    expect(godownSplitSchema.safeParse({ parts: [{ takaNo: '11', meters: 5, damages: [{ fromTakaDamageId: 7, meters: 2 }] }, { takaNo: '11A', meters: 5 }] }).success).toBe(true);
   });
 });

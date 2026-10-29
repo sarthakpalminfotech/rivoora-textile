@@ -46,7 +46,7 @@ export function useGodownDamages(orderId: number, enabled = true) {
 
 /** The KPIs after a local change to the final takas (the takas of other stages keep their counts). */
 function kpisAfter(order: GodownOrder, takas: GodownTaka[]) {
-  const next = godownKpis(takas.map((t) => ({ stage: t.stage, pcs: t.pcs, actualPcs: t.actualPcs, checked: t.checked })));
+  const next = godownKpis(takas.map((t) => ({ stage: t.stage, pcs: t.pcs, actualPcs: t.actualPcs, meters: t.meters, actualMeters: t.actualMeters, checked: t.checked })));
   return { ...next, total: order.kpis.total, refinish: order.kpis.refinish };
 }
 
@@ -57,8 +57,8 @@ function kpisAfter(order: GodownOrder, takas: GodownTaka[]) {
 export function usePatchGodownTaka(orderId: number) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, ...body }: { id: number; checked?: boolean; actualPcs?: number }) => api.patch<GodownTaka>(`/godown/takas/${id}`, body),
-    onMutate: async ({ id, checked, actualPcs }) => {
+    mutationFn: ({ id, ...body }: { id: number; checked?: boolean; actualPcs?: number; actualMeters?: number }) => api.patch<GodownTaka>(`/godown/takas/${id}`, body),
+    onMutate: async ({ id, checked, actualPcs, actualMeters }) => {
       await qc.cancelQueries({ queryKey: godownKeys.order(orderId) });
       const before = qc.getQueryData<GodownOrder>(godownKeys.order(orderId));
       if (before) {
@@ -68,6 +68,7 @@ export function usePatchGodownTaka(orderId: number) {
                 ...t,
                 ...(checked !== undefined ? { checked, checkedAt: checked ? new Date().toISOString() : null } : {}),
                 ...(actualPcs !== undefined ? { actualPcs: actualPcs === t.pcs ? null : actualPcs } : {}),
+                ...(actualMeters !== undefined ? { actualMeters: actualMeters === t.meters ? null : actualMeters } : {}),
               }
             : t,
         );

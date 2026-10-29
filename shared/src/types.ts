@@ -1366,6 +1366,8 @@ export interface GodownTaka {
   pcs: number | null;
   /** Counted pcs; null = same as the expected pcs. */
   actualPcs: number | null;
+  /** Sprint 19: counted metres (meter order only); null = same as `meters`. */
+  actualMeters: number | null;
   stage: TakaStage;
   checked: boolean;
   checkedAt: string | null;
@@ -1396,6 +1398,8 @@ export interface GodownOrder {
   imageUrl: string | null;
   quality: string | null;
   orderedPcs: number;
+  /** Sprint 19: the order's unit — a meter order's godown screen shows metres instead of pcs. */
+  unit: Unit;
   /** Sprint 12: Dhruvil sees the client and the rate (null for roles without canSeeClient / canSeeRate). */
   customer: { id: number; name: string; phone: string | null; address: string | null; gstin: string | null } | null;
   brokerName: string | null;
@@ -1424,7 +1428,7 @@ export interface GodownOrder {
 export interface GodownSplitResult {
   parentId: number;
   orderId: number;
-  parts: { id: number; takaNo: string; pcs: number; meters: number | null; stage: TakaStage }[];
+  parts: { id: number; takaNo: string; pcs: number | null; meters: number | null; stage: TakaStage }[];
 }
 
 /** POST /godown/orders/:orderId/ready-dispatch */
@@ -1565,6 +1569,10 @@ export interface GodownPcsKpis {
   refinishTakas: number;
   /** Open damaged pcs on the order's final / ready-for-dispatch takas. */
   damagedPcs: number;
+  /** Sprint 19: the meter twins — populated instead of the pcs figures above for a meter order. */
+  readyDispatchMeters: number;
+  refinishMeters: number;
+  damagedMeters: number;
 }
 
 /** The state shown on a damaged taka card of the godown Damage tab. */

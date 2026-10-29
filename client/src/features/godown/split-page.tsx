@@ -3,18 +3,23 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import {
+  cleanMeters,
   cleanPcs,
   formatMeters,
   formatPcs,
   MAX_SPLIT_PARTS,
+  movedDamageMetersCheck,
   movedDamagePcsCheck,
   splitDamageLabel,
   splitPickerOptions,
   type SplitDamageOption,
   nextSplitNumber,
   SPLIT_ERROR_TEXT,
+  SPLIT_METER_ERROR_TEXT,
   splitMeters,
+  takaActualMeters,
   takaActualPcs,
+  validateMeterSplit,
   validateSplit,
   type GodownOrder,
   type GodownTaka,
@@ -52,7 +57,16 @@ const inputClass = (invalid: boolean) =>
 function SplitForm({ order, taka }: { order: GodownOrder; taka: GodownTaka }) {
   const navigate = useNavigate();
   const split = useSplitTaka(taka.id);
-  const actual = takaActualPcs(taka) ?? 0;
+  const meterOrder = order.unit === 'meters';
+  const actual = meterOrder ? takaActualMeters(taka) ?? 0 : takaActualPcs(taka) ?? 0;
+  /** The part's typed primary quantity, parsed: a whole pcs number, or (for a meter order) up to 2 decimals. */
+  const qtyOf = (text: string): number | null => {
+    if (meterOrder) {
+      const n = Number(text);
+      return text !== '' && Number.isFinite(n) && n > 0 ? Math.round(n * 100) / 100 : null;
+    }
+    return /^\d+$/.test(text) ? Number(text) : null;
+  };
   const [parts, setParts] = useState<Part[]>(() => [newPart(), newPart()]);
   // Numbers are not typed: part 1 keeps the original number, the others get the next free letters (1101A, 1101B …).
   // `skip` = letter numbers the live check found used elsewhere in the system; they are passed over.
@@ -77,7 +91,10 @@ function SplitForm({ order, taka }: { order: GodownOrder; taka: GodownTaka }) {
   const movedErrors = parts.some((p) =>
     p.moved.some((m) => {
       const o = optionById.get(m.optionId);
-      return !o || !!movedDamagePcsCheck({ originalOpenPcs: o.openPcs, entered: m.pcs, partPcs: /^\d+$/.test(p.pcs) ? Number(p.pcs) : null }).error;
+      if (!o) return true;
+      return meterOrder
+        ? !!movedDamageMetersCheck({ originalOpenMeters: o.openMeters ?? 0, entered: m.pcs, partMeters: qtyOf(p.pcs) }).error
+        : !!movedDamagePcsCheck({ originalOpenPcs: o.openPcs, entered: m.pcs, partPcs: qtyOf(p.pcs) }).error;
     }),
   );
   // The original taka's open damage names: pre-selected in the Damage popup (one) or listed first (several).
@@ -102,16 +119,31 @@ function SplitForm({ order, taka }: { order: GodownOrder; taka: GodownTaka }) {
     const clash = numbers.filter((no, i) => i > 0 && no && used.has(no) && !skip.has(no));
     if (clash.length) setSkip((prev) => new Set([...prev, ...clash]));
   }, [numbers, used, skip]);
-  const check = validateSplit(
-    parts.map((p, i) => ({ takaNo: numbers[i], pcs: /^\d+$/.test(p.pcs) ? Number(p.pcs) : null })),
-    actual,
-    new Set(used.keys()),
-  );
+  interface NormalizedCheck {
+    rows: (string | null)[];
+    total: number;
+    diff: number;
+    ok: boolean;
+  }
+  const check: NormalizedCheck = meterOrder
+    ? validateMeterSplit(
+        parts.map((p, i) => ({ takaNo: numbers[i], meters: qtyOf(p.pcs) })),
+        actual,
+        new Set(used.keys()),
+      )
+    : validateSplit(
+        parts.map((p, i) => ({ takaNo: numbers[i], pcs: qtyOf(p.pcs) })),
+        actual,
+        new Set(used.keys()),
+      );
+  const requiredKey = meterOrder ? 'meters_required' : 'pcs_required';
+  const errText = (e: string) => (meterOrder ? SPLIT_METER_ERROR_TEXT : SPLIT_ERROR_TEXT)[e as never] as string;
   const numberErrors = check.rows;
   const canSave = check.ok && !movedErrors;
+  // The "≈ X m" apportioned-from-pcs hint only applies to a pcs order's split (a meter order's parts carry their own metres).
   const meters = useMemo(
-    () => splitMeters(taka.meters, parts.map((p) => (/^\d+$/.test(p.pcs) ? Number(p.pcs) : 0))),
-    [taka.meters, parts],
+    () => (meterOrder ? [] : splitMeters(taka.meters, parts.map((p) => qtyOf(p.pcs) ?? 0))),
+    [meterOrder, taka.meters, parts], // eslint-disable-line react-hooks/exhaustive-deps
   );
 
   const update = (key: number, patch: Partial<Part>) => setParts((prev) => prev.map((p) => (p.key === key ? { ...p, ...patch } : p)));
@@ -126,10 +158,10 @@ function SplitForm({ order, taka }: { order: GodownOrder; taka: GodownTaka }) {
       {
         parts: parts.map((p, i) => ({
           takaNo: numbers[i],
-          pcs: Number(p.pcs),
+          ...(meterOrder ? { meters: qtyOf(p.pcs)! } : { pcs: qtyOf(p.pcs)! }),
           damages: [
-            ...p.damages.map((e) => ({ ...entryPayload(e), images: [] })),
-            ...p.moved.map((m) => ({ fromTakaDamageId: m.optionId, pcs: m.pcs })),
+            ...p.damages.map((e) => ({ ...entryPayload(e, meterOrder), images: [] })),
+            ...p.moved.map((m) => (meterOrder ? { fromTakaDamageId: m.optionId, meters: m.pcs } : { fromTakaDamageId: m.optionId, pcs: m.pcs })),
           ],
           refinish: p.refinish,
         })),
@@ -158,8 +190,8 @@ function SplitForm({ order, taka }: { order: GodownOrder; taka: GodownTaka }) {
         <p className="text-[13px] font-semibold uppercase tracking-wide text-slate-400">Split taka</p>
         <h1 className="break-all text-5xl font-extrabold leading-none tracking-tight text-slate-900">{taka.takaNo}</h1>
         <p className="mt-2 text-lg font-bold tabular-nums text-slate-700">
-          {formatPcs(actual)}
-          {taka.meters != null && <span className="ml-2 text-base font-semibold text-slate-500">· {formatMeters(taka.meters)}</span>}
+          {meterOrder ? formatMeters(actual) : formatPcs(actual)}
+          {!meterOrder && taka.meters != null && <span className="ml-2 text-base font-semibold text-slate-500">· {formatMeters(taka.meters)}</span>}
         </p>
       </section>
 
@@ -180,8 +212,8 @@ function SplitForm({ order, taka }: { order: GodownOrder; taka: GodownTaka }) {
         {parts.map((p, i) => {
           const takaNo = numbers[i];
           // A number used elsewhere is skipped automatically (next letter), so that is never shown as an error.
-          const numErr = numberErrors[i] !== 'pcs_required' && numberErrors[i] !== 'already_used' ? numberErrors[i] : null;
-          const pcsErr = showErrors && check.rows[i] === 'pcs_required';
+          const numErr = numberErrors[i] !== requiredKey && numberErrors[i] !== 'already_used' ? numberErrors[i] : null;
+          const pcsErr = showErrors && check.rows[i] === requiredKey;
           return (
             <li key={p.key} className="rounded-2xl border border-border bg-white p-3.5 shadow-soft">
               <div className="grid grid-cols-[1fr_6.5rem] gap-3">
@@ -199,15 +231,15 @@ function SplitForm({ order, taka }: { order: GodownOrder; taka: GodownTaka }) {
                 </div>
                 <div>
                   <label htmlFor={`sp-pcs-${p.key}`} className="mb-1 block text-[12px] font-semibold text-slate-500">
-                    Pcs
+                    {meterOrder ? 'Metres' : 'Pcs'}
                   </label>
                   <input
                     id={`sp-pcs-${p.key}`}
                     value={p.pcs}
-                    onChange={(e) => update(p.key, { pcs: cleanPcs(e.target.value) })}
-                    inputMode="numeric"
+                    onChange={(e) => update(p.key, { pcs: meterOrder ? cleanMeters(e.target.value) : cleanPcs(e.target.value) })}
+                    inputMode={meterOrder ? 'decimal' : 'numeric'}
                     autoComplete="off"
-                    placeholder="0"
+                    placeholder={meterOrder ? '0.0' : '0'}
                     aria-invalid={pcsErr || undefined}
                     className={cn(inputClass(pcsErr), 'text-center')}
                   />
@@ -215,12 +247,12 @@ function SplitForm({ order, taka }: { order: GodownOrder; taka: GodownTaka }) {
               </div>
               {numErr && (
                 <p role="alert" className="mt-1.5 text-sm font-semibold text-destructive">
-                  {numErr === 'number_required' ? 'No more numbers are free for this taka' : SPLIT_ERROR_TEXT[numErr]}
+                  {numErr === 'number_required' ? 'No more numbers are free for this taka' : errText(numErr)}
                 </p>
               )}
               {pcsErr && (
                 <p role="alert" className="mt-1.5 text-sm font-semibold text-destructive">
-                  {SPLIT_ERROR_TEXT.pcs_required}
+                  {errText(requiredKey)}
                 </p>
               )}
 
@@ -228,12 +260,18 @@ function SplitForm({ order, taka }: { order: GodownOrder; taka: GodownTaka }) {
                 <ul className="mt-2.5 flex flex-wrap gap-1.5">
                   {p.moved.map((m) => {
                     const o = optionById.get(m.optionId);
-                    const chk = o ? movedDamagePcsCheck({ originalOpenPcs: o.openPcs, entered: m.pcs, partPcs: /^\d+$/.test(p.pcs) ? Number(p.pcs) : null }) : null;
+                    const chk = o
+                      ? meterOrder
+                        ? movedDamageMetersCheck({ originalOpenMeters: o.openMeters ?? 0, entered: m.pcs, partMeters: qtyOf(p.pcs) })
+                        : movedDamagePcsCheck({ originalOpenPcs: o.openPcs, entered: m.pcs, partPcs: qtyOf(p.pcs) })
+                      : null;
                     return (
                       <li key={`m${m.optionId}`} className="flex w-full flex-col gap-1">
                         <span className="inline-flex w-fit max-w-full items-center gap-1 rounded-full bg-red-50 py-0.5 pl-2.5 pr-1 text-[13px] font-semibold text-red-700">
                           <AlertTriangle className="size-3.5 shrink-0" aria-hidden />
-                          <span className="min-w-0 truncate">{o ? `${splitDamageLabel({ ...o, openPcs: m.pcs })} (moved)` : 'Earlier damage'}</span>
+                          <span className="min-w-0 truncate">
+                            {o ? `${splitDamageLabel(meterOrder ? { ...o, openMeters: m.pcs } : { ...o, openPcs: m.pcs })} (moved)` : 'Earlier damage'}
+                          </span>
                           <button type="button" className="rounded-full p-1 hover:bg-red-100" aria-label="Remove damage" onClick={() => update(p.key, { moved: p.moved.filter((x) => x.optionId !== m.optionId) })}>
                             <X className="size-3.5" />
                           </button>
@@ -265,10 +303,10 @@ function SplitForm({ order, taka }: { order: GodownOrder; taka: GodownTaka }) {
               )}
 
               <div className="mt-3 flex items-center gap-2">
-                <Button variant="secondary" size="sm" className="h-11" onClick={() => (splitPickerOptions(damageOptions, taka.id, usedOptionIds).length > 0 ? setPickFor(p.key) : setDamageFor(p.key))} disabled={!/^\d+$/.test(p.pcs) || Number(p.pcs) < 1}>
+                <Button variant="secondary" size="sm" className="h-11" onClick={() => (splitPickerOptions(damageOptions, taka.id, usedOptionIds).length > 0 ? setPickFor(p.key) : setDamageFor(p.key))} disabled={qtyOf(p.pcs) === null}>
                   <AlertTriangle /> Damage
                 </Button>
-                {meters[i] != null && /^\d+$/.test(p.pcs) && Number(p.pcs) > 0 && <span className="text-xs font-medium tabular-nums text-slate-400">≈ {formatMeters(meters[i]!)}</span>}
+                {!meterOrder && meters[i] != null && qtyOf(p.pcs) !== null && <span className="text-xs font-medium tabular-nums text-slate-400">≈ {formatMeters(meters[i]!)}</span>}
                 {i > 1 && (
                   <Button variant="ghost" size="sm" className="ml-auto h-11 text-destructive hover:bg-destructive-soft" onClick={() => setParts((prev) => prev.filter((x) => x.key !== p.key))}>
                     <Trash2 /> Remove
@@ -292,7 +330,7 @@ function SplitForm({ order, taka }: { order: GodownOrder; taka: GodownTaka }) {
         )}
         role="status"
       >
-        Total {check.total} / {actual} pcs
+        Total {check.total} / {actual} {meterOrder ? 'm' : 'pcs'}
         {diff !== 0 && <span className="ml-2 text-sm font-semibold">{diff > 0 ? `${diff} to add` : `${-diff} too many`}</span>}
       </p>
 
@@ -314,12 +352,13 @@ function SplitForm({ order, taka }: { order: GodownOrder; taka: GodownTaka }) {
         partLabel={pickFor !== null ? `Taka ${numbers[parts.findIndex((x) => x.key === pickFor)] || '—'}` : ''}
         partPcs={(() => {
           const pp = parts.find((x) => x.key === pickFor);
-          return pp && /^\d+$/.test(pp.pcs) ? Number(pp.pcs) : null;
+          return pp ? qtyOf(pp.pcs) : null;
         })()}
+        meterOrder={meterOrder}
         options={splitPickerOptions(damageOptions, taka.id, usedOptionIds)}
-        onPickExisting={(o: SplitDamageOption, pcs: number) => {
+        onPickExisting={(o: SplitDamageOption, qty: number) => {
           const key = pickFor;
-          if (key !== null) setParts((prev) => prev.map((x) => (x.key === key ? { ...x, moved: [...x.moved, { optionId: o.id, pcs }] } : x)));
+          if (key !== null) setParts((prev) => prev.map((x) => (x.key === key ? { ...x, moved: [...x.moved, { optionId: o.id, pcs: qty }] } : x)));
         }}
         onPickOther={() => setDamageFor(pickFor)}
       />
@@ -328,11 +367,13 @@ function SplitForm({ order, taka }: { order: GodownOrder; taka: GodownTaka }) {
         onOpenChange={(o) => !o && setDamageFor(null)}
         takaLabel={damagePart ? `Taka ${damagePartNo || '—'}` : ''}
         suggestedNames={suggestedNames}
-        takaPcs={damagePart && /^\d+$/.test(damagePart.pcs) ? Number(damagePart.pcs) : null}
+        takaPcs={damagePart ? qtyOf(damagePart.pcs) : null}
+        meterOrder={meterOrder}
+        takaMeters={damagePart ? qtyOf(damagePart.pcs) : null}
         value={null}
         onConfirm={(v) => {
           const key = damageFor!;
-          setParts((prev) => prev.map((p) => (p.key === key ? { ...p, damages: [...p.damages, { key: nextEntryKey(), foundAt: v.type, choice: v.choice, pcs: v.pcs }] } : p)));
+          setParts((prev) => prev.map((p) => (p.key === key ? { ...p, damages: [...p.damages, { key: nextEntryKey(), foundAt: v.type, choice: v.choice, pcs: v.pcs, meters: v.meters }] } : p)));
         }}
         onRefinish={() => {
           const key = damageFor;
@@ -368,14 +409,16 @@ export default function SplitPage() {
       </div>
     );
   }
-  if (!taka || taka.stage !== 'final' || takaActualPcs(taka) === null || (takaActualPcs(taka) ?? 0) < 2) {
+  const meterOrder = query.data.unit === 'meters';
+  const canSplit = taka && taka.stage === 'final' && (meterOrder ? (takaActualMeters(taka) ?? 0) > 0 : (takaActualPcs(taka) ?? 0) >= 2);
+  if (!canSplit) {
     return (
       <div className="page-container max-w-2xl space-y-3 py-4">
         <button type="button" onClick={() => navigate(`/godown/orders/${orderId}`)} className="inline-flex min-h-11 items-center gap-1.5 text-sm font-medium text-slate-500 hover:text-primary">
           <ArrowLeft className="size-4" /> Order
         </button>
         <div className="rounded-xl border border-border bg-white shadow-soft">
-          <EmptyState icon={SearchX} title="This taka can't be split" description="Only final takas with at least 2 pcs can be split." />
+          <EmptyState icon={SearchX} title="This taka can't be split" description={meterOrder ? 'Only final takas with metres can be split.' : 'Only final takas with at least 2 pcs can be split.'} />
         </div>
       </div>
     );

@@ -571,6 +571,55 @@ export const SPLIT_ERROR_TEXT: Record<SplitRowError, string> = {
   already_used: 'Already used',
 };
 
+/* ------------------------------------------------------------------ */
+/* Sprint 19: splitting a meter order's taka — metres is the primary input */
+/* ------------------------------------------------------------------ */
+
+export interface SplitMeterPartDraft {
+  takaNo: string;
+  /** The metres typed for the part; null while empty. */
+  meters: number | null;
+}
+
+export type SplitMeterRowError = 'meters_required' | 'number_required' | 'number_format' | 'duplicate' | 'already_used';
+
+export interface SplitMeterValidation {
+  rows: (SplitMeterRowError | null)[];
+  total: number;
+  /** actualMeters − total (0 when the parts add up), 2 decimals. */
+  diff: number;
+  ok: boolean;
+}
+
+/**
+ * The meter twin of `validateSplit` — parts must add up to the taka's actual metres (2dp) instead of its pcs; pcs
+ * stays null throughout a meter order's split (no apportioning from metres).
+ */
+export function validateMeterSplit(parts: readonly SplitMeterPartDraft[], actualMeters: number, used?: ReadonlySet<string> | null): SplitMeterValidation {
+  const seen = new Set<string>();
+  const rows = parts.map((p, i): SplitMeterRowError | null => {
+    const no = p.takaNo.trim();
+    if (!no) return 'number_required';
+    if (takaNoError(no) !== null) return 'number_format';
+    if (seen.has(no)) return 'duplicate';
+    seen.add(no);
+    if (i > 0 && used?.has(no)) return 'already_used';
+    if (p.meters === null || p.meters <= 0) return 'meters_required';
+    return null;
+  });
+  const total = Math.round(parts.reduce((s, p) => s + (p.meters ?? 0), 0) * 100) / 100;
+  const diff = Math.round((actualMeters - total) * 100) / 100;
+  return { rows, total, diff, ok: parts.length >= 2 && rows.every((r) => r === null) && diff === 0 };
+}
+
+export const SPLIT_METER_ERROR_TEXT: Record<SplitMeterRowError, string> = {
+  meters_required: 'Enter the metres (more than 0)',
+  number_required: 'Enter the taka number',
+  number_format: 'Use digits, - or / (and a capital letter at the end)',
+  duplicate: 'Typed twice',
+  already_used: 'Already used',
+};
+
 /**
  * Sprint 15: the text sent with a shared damage photo (WhatsApp):
  * "Damage: Mill damage · Hole · 2 pcs | Taka 1101 | Order #26" (+ " (319)" when the jobsheet number is known).

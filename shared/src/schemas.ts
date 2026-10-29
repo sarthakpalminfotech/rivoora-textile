@@ -723,7 +723,7 @@ export const godownListQuerySchema = z.object({
 });
 export type GodownListQuery = z.infer<typeof godownListQuerySchema>;
 
-/** PATCH /godown/takas/:id — tick / untick, and/or the actual pcs counted. */
+/** PATCH /godown/takas/:id — tick / untick, and/or the actual pcs (or, for a meter order, metres) counted. */
 export const godownTakaPatchSchema = z
   .object({
     checked: z.boolean().optional(),
@@ -733,8 +733,15 @@ export const godownTakaPatchSchema = z
       .min(1, 'Pcs must be at least 1')
       .max(TAKA_PCS_MAX, `At most ${TAKA_PCS_MAX} pcs`)
       .optional(),
+    /** Sprint 19: the meter twin of `actualPcs`. */
+    actualMeters: z
+      .number({ invalid_type_error: 'Enter the metres' })
+      .positive('Metres must be more than 0')
+      .max(TAKA_METERS_MAX, `At most ${TAKA_METERS_MAX} m`)
+      .optional()
+      .transform((v) => (v == null ? undefined : Math.round(v * 100) / 100)),
   })
-  .refine((v) => v.checked !== undefined || v.actualPcs !== undefined, { message: 'Nothing to change' });
+  .refine((v) => v.checked !== undefined || v.actualPcs !== undefined || v.actualMeters !== undefined, { message: 'Nothing to change' });
 export type GodownTakaPatchInput = z.input<typeof godownTakaPatchSchema>;
 
 /** POST /godown/takas/:id/refinish */
@@ -744,21 +751,27 @@ export const godownRefinishSchema = z.object({ note: optText(300) });
 export const godownResolveSchema = z.object({ takaDamageId: z.number().int().positive().optional() });
 
 /**
- * Sprint 15: an EARLIER open damage of the order moved onto a part (its pcs are editable). Split is still pcs-only
- * (Sprint 19 Phase 8 work, not done yet) — pcs stays required here even though the shared `damagePcs` became
- * optional for meter orders elsewhere.
+ * Sprint 15: an EARLIER open damage of the order moved onto a part — its pcs (pcs order) or metres (meter order,
+ * Sprint 19) are editable. Exactly one of `pcs` / `meters` is required, matching the order's unit (checked by the
+ * server, not the schema).
  */
-export const splitMovedDamageSchema = z.object({ fromTakaDamageId: z.number().int().positive(), pcs: damagePcs.unwrap() }).strict();
+export const splitMovedDamageSchema = z.object({ fromTakaDamageId: z.number().int().positive(), pcs: damagePcs, meters: damageMeters }).strict();
 export type SplitMovedDamageInput = z.input<typeof splitMovedDamageSchema>;
 
-/** One part of a split: the first part keeps the original number. `damages` = new damages or moved earlier ones. */
+/**
+ * One part of a split: the first part keeps the original number. `damages` = new damages or moved earlier ones.
+ * Sprint 19: `pcs` is the primary input for a pcs order's split, `meters` for a meter order's (the server requires
+ * the one matching the order's unit; the other stays unset).
+ */
 export const splitPartSchema = z.object({
   takaNo,
   pcs: z
-    .number({ required_error: 'Enter the pcs', invalid_type_error: 'Enter the pcs' })
+    .number({ invalid_type_error: 'Enter the pcs' })
     .int('Use a whole number')
     .min(1, 'Pcs must be at least 1')
-    .max(TAKA_PCS_MAX, `At most ${TAKA_PCS_MAX} pcs`),
+    .max(TAKA_PCS_MAX, `At most ${TAKA_PCS_MAX} pcs`)
+    .optional(),
+  meters: takaMeters,
   damages: z.array(z.union([splitMovedDamageSchema, qcNewDamageSchema])).max(MAX_DAMAGES_PER_TAKA).default([]),
   refinish: z.boolean().default(false),
 });

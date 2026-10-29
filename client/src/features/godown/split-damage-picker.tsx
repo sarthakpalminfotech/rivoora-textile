@@ -1,10 +1,13 @@
 import { useEffect, useState } from 'react';
 import { AlertTriangle, ChevronRight, Info, Plus } from 'lucide-react';
 import {
+  cleanMeters,
   DAMAGE_RECORDED_AT_LABEL,
   DAMAGE_TYPE_LABEL,
   formatMarkedDate,
+  formatMeters,
   isDamageType,
+  movedDamageMetersCheck,
   movedDamagePcsCheck,
   splitDamageLabel,
   type SplitDamageOption,
@@ -27,6 +30,7 @@ export function SplitDamagePicker({
   options,
   onPickExisting,
   onPickOther,
+  meterOrder,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -34,8 +38,10 @@ export function SplitDamagePicker({
   partPcs: number | null;
   /** Already ordered and without the damages picked for other parts (shared `splitPickerOptions`). */
   options: SplitDamageOption[];
-  onPickExisting: (option: SplitDamageOption, pcs: number) => void;
+  onPickExisting: (option: SplitDamageOption, qty: number) => void;
   onPickOther: () => void;
+  /** Sprint 19: `partPcs` carries metres instead, and the quantity field is decimal. */
+  meterOrder?: boolean;
 }) {
   const [chosen, setChosen] = useState<SplitDamageOption | null>(null);
   const [pcsText, setPcsText] = useState('');
@@ -47,8 +53,12 @@ export function SplitDamagePicker({
     }
   }, [open]);
 
-  const entered = /^\d+$/.test(pcsText) ? Number(pcsText) : null;
-  const check = chosen ? movedDamagePcsCheck({ originalOpenPcs: chosen.openPcs, entered, partPcs }) : null;
+  const entered = meterOrder ? (Number(pcsText) > 0 ? Math.round(Number(pcsText) * 100) / 100 : null) : /^\d+$/.test(pcsText) ? Number(pcsText) : null;
+  const check = chosen
+    ? meterOrder
+      ? movedDamageMetersCheck({ originalOpenMeters: chosen.openMeters ?? 0, entered, partMeters: partPcs })
+      : movedDamagePcsCheck({ originalOpenPcs: chosen.openPcs, entered, partPcs })
+    : null;
 
   return (
     <ResponsiveModal
@@ -89,7 +99,7 @@ export function SplitDamagePicker({
                 : '—'}
             </Item>
             <Item label="On taka">{chosen.takaNo}</Item>
-            <Item label="Open pcs">{chosen.openPcs}</Item>
+            <Item label={meterOrder ? 'Open metres' : 'Open pcs'}>{meterOrder ? formatMeters(chosen.openMeters ?? 0) : chosen.openPcs}</Item>
           </dl>
           {chosen.images.length > 0 && (
             <ul className="flex flex-wrap gap-2" aria-label="Photos">
@@ -100,12 +110,12 @@ export function SplitDamagePicker({
               ))}
             </ul>
           )}
-          <Field label="Damaged pcs" htmlFor="sd-pcs" required error={check?.error ?? undefined}>
+          <Field label={meterOrder ? 'Damaged metres' : 'Damaged pcs'} htmlFor="sd-pcs" required error={check?.error ?? undefined}>
             <input
               id="sd-pcs"
               value={pcsText}
-              onChange={(e) => setPcsText(e.target.value.replace(/[^\d]/g, ''))}
-              inputMode="numeric"
+              onChange={(e) => setPcsText(meterOrder ? cleanMeters(e.target.value) : e.target.value.replace(/[^\d]/g, ''))}
+              inputMode={meterOrder ? 'decimal' : 'numeric'}
               autoComplete="off"
               className="h-12 w-full rounded-xl border border-input bg-white px-3 text-lg font-bold tabular-nums focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15"
             />
@@ -125,7 +135,8 @@ export function SplitDamagePicker({
                 type="button"
                 onClick={() => {
                   setChosen(o);
-                  setPcsText(String(Math.min(o.openPcs, partPcs ?? o.openPcs)));
+                  const open = meterOrder ? o.openMeters ?? 0 : o.openPcs;
+                  setPcsText(String(Math.min(open, partPcs ?? open)));
                 }}
                 className="flex min-h-14 w-full items-center gap-2 rounded-xl border border-red-200 bg-red-50/60 px-3.5 py-2.5 text-left text-[14px] font-semibold text-red-800 hover:bg-red-50"
               >
