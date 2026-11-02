@@ -25,7 +25,7 @@ import {
   type WarpingInputKind,
   type WarpingJob,
   type WarpingJobInput,
-  type WarpingPendingJob,
+  type WarpingPendingJob, kgText, gramsToKg,
 } from '@rivoora/shared';
 import { ErrorState, LoadMore } from '@/components/list-parts';
 import { Button } from '@/components/ui/button';
@@ -264,7 +264,7 @@ const rowFromInput = (i: WarpingJobInput): InputRow => ({
   lotId: i.kind === 'raw' ? (i.lot?.id ?? 0) : null,
   boxId: i.box?.id ?? null,
   noBoxKey: i.kind === 'no_box' ? (i.warpingQualityId ? `w-${i.warpingQualityId}` : `q-${i.qualityId}`) : null,
-  kg: String(i.qtyG / 1000),
+  kg: kgText(i.qtyG),
 });
 /** The stock bucket an input takes from (rows on the same bucket add up). */
 const bucketOf = (r: InputRow) => (r.kind === 'raw' ? `r|${r.qualityId}|${r.lotId}` : r.kind === 'box' ? `b|${r.boxId}` : `n|${r.noBoxKey}`);
@@ -335,7 +335,7 @@ export function WarpingJobDialog({ open, onOpenChange, job }: { open: boolean; o
   const totalG = rows.reduce((s, r) => s + (parseKgText(r.kg) ?? 0), 0);
 
   const toInput = (r: InputRow): WarpingInputInput => {
-    const qtyKg = parseKgText(r.kg)! / 1000;
+    const qtyKg = gramsToKg(parseKgText(r.kg)!);
     if (r.kind === 'raw') return { kind: 'raw', qualityId: r.qualityId!, lotId: r.lotId || null, qtyKg };
     if (r.kind === 'box') return { kind: 'box', boxId: r.boxId!, qtyKg };
     const [t, id] = r.noBoxKey!.split('-');
@@ -423,7 +423,7 @@ export function WarpingJobDialog({ open, onOpenChange, job }: { open: boolean; o
                       ) : r.kind === 'box' ? (
                         <Select
                           value={r.boxId}
-                          onChange={(id, o) => set(r.key, { boxId: id, kg: r.kg || String(((o as { availableG?: number }).availableG ?? 0) / 1000) })}
+                          onChange={(id, o) => set(r.key, { boxId: id, kg: r.kg || String(gramsToKg((o as { availableG?: number }).availableG ?? 0)) })}
                           options={boxOptions}
                           placeholder={boxOptions.length ? 'Select box' : 'No boxes in Warping'}
                           searchable
@@ -487,10 +487,10 @@ export function WarpingJobDialog({ open, onOpenChange, job }: { open: boolean; o
             <Input id="warp-taar" inputMode="numeric" autoComplete="off" value={taar} onChange={(e) => setTaar(cleanDecimal(e.target.value, 0, 7))} invalid={!!headShow(headErr, 'taar')} className="text-right tabular-nums" />
           </Field>
           <Field label="Panna" htmlFor="warp-panna" required error={headShow(headErr, 'panna')}>
-            <Input id="warp-panna" inputMode="decimal" autoComplete="off" value={panna} onChange={(e) => setPanna(cleanDecimal(e.target.value, 2, 6))} invalid={!!headShow(headErr, 'panna')} className="text-right tabular-nums" />
+            <Input id="warp-panna" inputMode="decimal" autoComplete="off" value={panna} onChange={(e) => setPanna(cleanDecimal(e.target.value, 4, 6))} invalid={!!headShow(headErr, 'panna')} className="text-right tabular-nums" />
           </Field>
           <Field label="Meters" htmlFor="warp-m" required={!fullMeter} error={headShow(headErr, 'meters')} hint={fullMeter ? 'Entered per beam at Mark done' : undefined}>
-            <Input id="warp-m" inputMode="decimal" autoComplete="off" value={fullMeter ? '' : meters} disabled={fullMeter} onChange={(e) => setMeters(cleanDecimal(e.target.value, 2, 8))} invalid={!!headShow(headErr, 'meters')} className="text-right tabular-nums" />
+            <Input id="warp-m" inputMode="decimal" autoComplete="off" value={fullMeter ? '' : meters} disabled={fullMeter} onChange={(e) => setMeters(cleanDecimal(e.target.value, 4, 8))} invalid={!!headShow(headErr, 'meters')} className="text-right tabular-nums" />
           </Field>
           <label className="flex min-h-11 cursor-pointer items-center gap-2.5 self-end rounded-xl border border-input px-3 py-2 md:mb-0">
             <Checkbox checked={fullMeter} onCheckedChange={(c) => setFullMeter(c === true)} aria-label="Full meter" />
@@ -656,8 +656,8 @@ export function MarkDoneDialog({ job, onOpenChange }: { job: WarpingJob | null; 
                   <WarpingQualitySelect value={r.wqId} selectedLabel={r.wqName} onChange={(id, name) => set(r.key, { wqId: id, wqName: name })} invalid={!!err && !r.wqId} />
                 </div>
                 <Input inputMode="numeric" autoComplete="off" placeholder="Taar" value={r.taar} onChange={(e) => set(r.key, { taar: cleanDecimal(e.target.value, 0, 7) })} className="text-right tabular-nums" aria-label={`Beam ${i + 1} taar`} />
-                <Input inputMode="decimal" autoComplete="off" placeholder="Panna" value={r.panna} onChange={(e) => set(r.key, { panna: cleanDecimal(e.target.value, 2, 6) })} className="text-right tabular-nums" aria-label={`Beam ${i + 1} panna`} />
-                <Input inputMode="decimal" autoComplete="off" placeholder="Meters" value={r.meters} onChange={(e) => set(r.key, { meters: cleanDecimal(e.target.value, 2, 8) })} className="text-right tabular-nums" aria-label={`Beam ${i + 1} meters`} />
+                <Input inputMode="decimal" autoComplete="off" placeholder="Panna" value={r.panna} onChange={(e) => set(r.key, { panna: cleanDecimal(e.target.value, 4, 6) })} className="text-right tabular-nums" aria-label={`Beam ${i + 1} panna`} />
+                <Input inputMode="decimal" autoComplete="off" placeholder="Meters" value={r.meters} onChange={(e) => set(r.key, { meters: cleanDecimal(e.target.value, 4, 8) })} className="text-right tabular-nums" aria-label={`Beam ${i + 1} meters`} />
                 <div className="col-span-2 md:col-span-1">
                   <Toggle2 value={r.zone} onChange={(z) => set(r.key, { zone: z })} options={BEAM_ZONE_OPTIONS} invalid={!!err && !r.zone} />
                 </div>

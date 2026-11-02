@@ -100,96 +100,112 @@ const tfoLots = await ok('jemish', 'GET', `/yarn/lots?zone=tfo&qualityId=${q75.i
 const lotAId = tfoLots.find((l) => l.lotNo === lotA)?.id;
 const lotBId = tfoLots.find((l) => l.lotNo === lotB)?.id;
 check(lotAId && lotBId, 'both lots have TFO stock');
-check((await lotAvail('direct', q75.id, lotAId)).availableG === 100_000, 'lot A: unplaced 100 kg went to Direct consumption');
-check((await lotAvail('warping', q75.id, lotAId)).availableG === 100_000, 'lot A: 100 kg in Warping');
+check((await lotAvail('direct', q75.id, lotAId)).availableG === 1_000_000, 'lot A: unplaced 100 kg went to Direct consumption');
+check((await lotAvail('warping', q75.id, lotAId)).availableG === 1_000_000, 'lot A: 100 kg in Warping');
 
-// ---------------------------------------------------------------- TFO: 3 pending programs (reserved)
-const progBase = { rawQualityId: q75.id, outputQualityId: qOut.id, tpm: 600, direction: 'SZ', windingMeter: 12000, denierFilament: '75/36' };
-check((await call('supervisor', 'POST', '/yarn/tfo/pending', { programs: [{ ...progBase, lotId: lotAId, rawKg: 10 }] })).status === 403, 'supervisor cannot create programs (403)');
+// ---------------------------------------------------------------- TFO: 3 pending programs (reserved) — raw kg = rolls × winding kg
+const machine2 = await ok('jemish', 'POST', '/tfo-machines', { machineNo: nextNo + 1, name: `TFO2 s20 ${tag}`, isActive: true });
+const progBase = { rawQualityId: q75.id, tpm: 600, direction: 'SZ', denierFilament: '75/36' };
+const rk = (kg, rolls = 1) => ({ rolls, windingKg: kg / rolls });
+check((await call('supervisor', 'POST', '/yarn/tfo/pending', { programs: [{ ...progBase, lotId: lotAId, ...rk(10) }] })).status === 403, 'supervisor cannot create programs (403)');
 check(
-  (await call('jemish', 'POST', '/yarn/tfo/pending', { programs: [{ ...progBase, lotId: lotAId, rawKg: 200 }, { ...progBase, lotId: lotAId, rawKg: 100.5 }] })).status === 409,
+  (await call('jemish', 'POST', '/yarn/tfo/pending', { programs: [{ ...progBase, lotId: lotAId, ...rk(200, 20) }, { ...progBase, lotId: lotAId, ...rk(100.5) }] })).status === 409,
   'programs reserving more than the lot has → 409 (all or nothing)',
 );
 check((await lotAvail('tfo', q75.id, lotAId)).reservedG === 0, 'the failed batch reserved nothing');
 const created = await ok('jemish', 'POST', '/yarn/tfo/pending', {
   programs: [
-    { ...progBase, lotId: lotAId, rawKg: 120, note: 'p1' },
-    { ...progBase, lotId: lotAId, rawKg: 80, direction: 'S' },
-    { ...progBase, lotId: lotBId, rawKg: 50, direction: 'Z' },
+    { ...progBase, lotId: lotAId, rolls: 12, windingKg: 10, note: 'p1' },
+    { ...progBase, lotId: lotAId, rolls: 8, windingKg: 10, direction: 'S' },
+    { ...progBase, lotId: lotBId, rolls: 5, windingKg: 10, direction: 'Z' },
   ],
 });
-check(created.length === 3 && created[0].direction === 'SZ' && created[0].lot?.lotNo === lotA, '3 pending programs created (S + Z kept)', created[0]);
+check(created.length === 3 && created[0].direction === 'SZ' && created[0].lot?.lotNo === lotA && created[0].rawG === 1_200_000 && created[0].rolls === 12, '3 pending programs created (raw kg = rolls × winding kg, S + Z kept)', created[0]);
+const quarter = await ok('jemish', 'POST', '/yarn/tfo/pending', { programs: [{ ...progBase, lotId: lotBId, rolls: 3, windingKg: 1.2345 }] });
+check(quarter[0].rawG === 37_035, '4-decimal winding kg: 3 × 1.2345 = 3.7035 kg', quarter[0]);
+await ok('jemish', 'POST', `/yarn/tfo/pending/${quarter[0].id}/cancel`);
 let a = await lotAvail('tfo', q75.id, lotAId);
-check(a.reservedG === 200_000 && a.availableG === 100_000, 'lot A in TFO: 200 kg reserved, 100 kg available', a);
-check((await call('jemish', 'POST', '/yarn/transfers', { what: 'raw', from: 'tfo', to: 'direct', qualityId: q75.id, lotId: lotAId, qtyKg: 100.001 })).status === 409, 'reserved stock cannot be transferred out (409)');
+check(a.reservedG === 2_000_000 && a.availableG === 1_000_000, 'lot A in TFO: 200 kg reserved, 100 kg available', a);
+check((await call('jemish', 'POST', '/yarn/transfers', { what: 'raw', from: 'tfo', to: 'direct', qualityId: q75.id, lotId: lotAId, qtyKg: 100.0001 })).status === 409, 'reserved stock cannot be transferred out (409)');
 const board0 = await ok('supervisor', 'GET', '/yarn/tfo/board');
 const rs = board0.rawStock.find((s) => s.quality.id === q75.id);
-check(board0.pending.length >= 3 && rs.reservedG === 250_000 && rs.availableG === rs.rawG - 250_000, 'board lists pending + reserved per quality', rs);
+check(board0.pending.length >= 3 && rs.reservedG === 2_500_000 && rs.availableG === rs.rawG - 2_500_000, 'board lists pending + reserved per quality', rs);
 
 // edit (floor) + cancel
 const p3 = created[2];
-await ok('supervisor', 'PUT', `/yarn/tfo/pending/${p3.id}`, { ...progBase, lotId: lotBId, rawKg: 60, direction: 'Z' });
-check((await lotAvail('tfo', q75.id, lotBId)).reservedG === 60_000, 'supervisor edits a pending program (reservation follows)');
-check((await call('supervisor', 'PUT', `/yarn/tfo/pending/${p3.id}`, { ...progBase, lotId: lotBId, rawKg: 200.5, direction: 'Z' })).status === 409, 'edit beyond the lot → 409');
+await ok('supervisor', 'PUT', `/yarn/tfo/pending/${p3.id}`, { ...progBase, lotId: lotBId, rolls: 6, windingKg: 10, direction: 'Z' });
+check((await lotAvail('tfo', q75.id, lotBId)).reservedG === 600_000, 'supervisor edits a pending program (reservation follows)');
+check((await call('supervisor', 'PUT', `/yarn/tfo/pending/${p3.id}`, { ...progBase, lotId: lotBId, rolls: 1, windingKg: 200.5, direction: 'Z' })).status === 409, 'edit beyond the lot → 409');
 await ok('supervisor', 'POST', `/yarn/tfo/pending/${p3.id}/cancel`);
 check((await lotAvail('tfo', q75.id, lotBId)).reservedG === 0, 'cancel releases the reservation');
-check((await call('supervisor', 'POST', `/yarn/tfo/pending/${p3.id}/start`, { machineId: machine.id, section: 'A' })).status === 409, 'a cancelled program cannot start');
+check((await call('supervisor', 'POST', `/yarn/tfo/pending/${p3.id}/start`, { sections: [{ machineId: machine.id, section: 'A' }] })).status === 409, 'a cancelled program cannot start');
 
-// ---------------------------------------------------------------- start p1 on <machine>A (2A in the spec)
-const run = await ok('yarn', 'POST', `/yarn/tfo/pending/${created[0].id}/start`, { machineId: machine.id, section: 'A' });
-check(run.status === 'running' && run.lot?.id === lotAId && run.direction === 'SZ', `yarn supervisor starts p1 on ${nextNo}A`, run);
+// ---------------------------------------------------------------- start p1 on several sections: <m>A + <m>B + <m2>A
+const run = await ok('yarn', 'POST', `/yarn/tfo/pending/${created[0].id}/start`, {
+  sections: [
+    { machineId: machine.id, section: 'A' },
+    { machineId: machine.id, section: 'B' },
+    { machineId: machine2.id, section: 'A' },
+  ],
+});
+check(run.status === 'running' && run.lot?.id === lotAId && run.sections.length === 3, `yarn supervisor starts p1 on ${nextNo}A, ${nextNo}B, ${nextNo + 1}A`, run.sections);
 a = await lotAvail('tfo', q75.id, lotAId);
-check(a.reservedG === 80_000 && a.availableG === 100_000, 'start: the reservation became an issue (available unchanged)', a);
-check((await call('supervisor', 'POST', `/yarn/tfo/pending/${created[1].id}/start`, { machineId: machine.id, section: 'A' })).status === 409, 'second program on a busy section → 409');
+check(a.reservedG === 800_000 && a.availableG === 1_000_000, 'start: the reservation became an issue (available unchanged)', a);
+check((await call('supervisor', 'POST', `/yarn/tfo/pending/${created[1].id}/start`, { sections: [{ machineId: machine2.id, section: 'A' }] })).status === 409, 'a busy section (one of the program\'s) → 409');
+const boardRun = await ok('jemish', 'GET', '/yarn/tfo/board');
+const onM2 = boardRun.machines.find((m) => m.id === machine2.id);
+check(onM2.sections[0].program?.id === run.id && onM2.sections[1].program === null, 'board: every section of the program shows it');
 
-// ---------------------------------------------------------------- stop with 3 boxes + a new warping quality
-const wqNew = await ok('supervisor', 'POST', '/warping-qualities', { name: `WQ new s20 ${tag}` }).catch(() => null);
-const stopQ = wqNew ?? wq;
-const bx = (n) => `BX${n}-${tag}`;
-check((await ok('jemish', 'GET', `/yarn/boxes/check?boxNo=${bx(1)}`)).available, 'box no free before');
+// ---------------------------------------------------------------- stop: 3 boxes (S, Z, S), roll weight, auto numbers + auto quality, all in TFO
 check(
-  (await call('supervisor', 'POST', `/yarn/tfo/programs/${run.id}/stop`, {
-    warpingQualityId: stopQ.id,
-    boxes: [{ boxNo: bx(1), rolls: 10, grossKg: 40, netKg: 41, avgKg: 4, zone: 'tfo' }],
-  })).status === 400,
-  'net > gross → 400',
+  (await call('supervisor', 'POST', `/yarn/tfo/programs/${run.id}/stop`, { rollWeightKg: 0.25, boxes: [{ rolls: 12, grossKg: 3, direction: 'S' }] })).status === 400,
+  'gross ≤ roll weight × rolls → 400',
 );
 check(
-  (await call('supervisor', 'POST', `/yarn/tfo/programs/${run.id}/stop`, {
-    warpingQualityId: stopQ.id,
-    boxes: [
-      { boxNo: bx(1), rolls: 10, grossKg: 40, netKg: 38, avgKg: 3.8, zone: 'tfo' },
-      { boxNo: bx(1).toLowerCase(), rolls: 10, grossKg: 40, netKg: 38, avgKg: 3.8, zone: 'tfo' },
-    ],
-  })).status === 400,
-  'the same box no twice on one stop → 400',
+  (await call('supervisor', 'POST', `/yarn/tfo/programs/${run.id}/stop`, { rollWeightKg: 0.25, boxes: [{ rolls: 12, grossKg: 41.5 }] })).status === 400,
+  'S + Z program: each box needs S or Z → 400',
 );
 const stopped = await ok('supervisor', 'POST', `/yarn/tfo/programs/${run.id}/stop`, {
-  warpingQualityId: stopQ.id,
+  rollWeightKg: 0.25,
   twistedMeters: 50000,
   returnedRawKg: 2.5,
   note: 'done',
   boxes: [
-    { boxNo: bx(1), rolls: 12, grossKg: 40, netKg: 38.5, avgKg: 3.2, zone: 'warping' },
-    { boxNo: bx(2), rolls: 12, grossKg: 40, netKg: 37.25, avgKg: 3.1, zone: 'direct' },
-    { boxNo: bx(3), rolls: 10, grossKg: 42, netKg: 40, avgKg: 4, zone: 'tfo' },
+    { rolls: 12, grossKg: 41.5, avgKg: 3.2, direction: 'S' },
+    { rolls: 12, grossKg: 40.25, direction: 'Z' },
+    { rolls: 10, grossKg: 42.5, direction: 'S' },
   ],
 });
-check(stopped.status === 'completed' && stopped.twistedG === 115_750 && stopped.boxes.length === 3 && stopped.warpingQuality?.id === stopQ.id, 'stop → completed, output = total net', stopped);
-check(!(await ok('jemish', 'GET', `/yarn/boxes/check?boxNo=${bx(1).toLowerCase()}`)).available, 'box no taken after (any case)');
+check(stopped.status === 'completed' && stopped.twistedG === 1_157_500 && stopped.boxes.length === 3 && stopped.rollWeightG === 2_500, 'stop → completed, output = total net (gross − roll weight × rolls)', stopped);
+const nameS = `75/36 ${q75.name}-600-S`;
+const nameZ = `75/36 ${q75.name}-600-Z`;
+check(stopped.boxes[0].warpingQuality.name === nameS && stopped.boxes[1].warpingQuality.name === nameZ && stopped.boxes[2].warpingQuality.id === stopped.boxes[0].warpingQuality.id, 'output quality auto-named per direction; same quality combined', stopped.boxes.map((b) => b.warpingQuality.name));
+check(stopped.boxes.every((b) => /^\d+$/.test(b.boxNo) && b.currentZone === 'tfo') && new Set(stopped.boxes.map((b) => b.boxNo)).size === 3, 'box numbers are given by the system; every box stays in TFO', stopped.boxes.map((b) => b.boxNo));
+check(stopped.boxes[0].avgG === 32_000 && stopped.boxes[1].avgG === null, 'avg kg optional');
+const stopQ = stopped.boxes[0].warpingQuality;
+const bx = (n) => stopped.boxes[n - 1].boxNo;
+const tfoBox = async (n) => (await ok('jemish', 'GET', `/yarn/boxes?zone=tfo&search=${encodeURIComponent(bx(n))}`)).find((b) => b.boxNo === bx(n));
+const t1 = await tfoBox(1);
+const t2 = await tfoBox(2);
+const t3 = await tfoBox(3);
+check(t1?.remainingG === 385_000 && t2?.remainingG === 372_500 && t3?.remainingG === 400_000 && t1?.lot?.id === lotAId, 'boxes are in TFO with their net wt and the lot', { t1, t2, t3 });
+a = await lotAvail('tfo', q75.id, lotAId);
+check(a.availableG === 1_025_000, 'raw returned (2.5 kg) is back on lot A in TFO', a);
+const reuse = await call('supervisor', 'POST', `/yarn/tfo/pending/${created[1].id}/start`, { sections: [{ machineId: machine2.id, section: 'A' }, { machineId: machine.id, section: 'A' }] });
+check(reuse.status === 201, 'every section is idle again after stop');
+const tfoZone = await ok('jemish', 'GET', '/yarn/zones/tfo');
+const zS = tfoZone.warpingQualities.find((w) => w.quality.id === stopQ.id);
+check(zS?.boxes === 2 && zS.twistedG >= 785_000 && !tfoZone.qualities.some((q) => /system/.test(q.quality.name)), 'TFO stock: one quality, two boxes (combined)', zS);
+// move the boxes on by hand (Transfer), as the floor does later
+await ok('yarn', 'POST', '/yarn/transfers', { what: 'twisted', from: 'tfo', to: 'warping', boxIds: [t1.id] });
+await ok('yarn', 'POST', '/yarn/transfers', { what: 'twisted', from: 'tfo', to: 'direct', boxIds: [t2.id] });
 const b1 = await boxIn('warping', bx(1));
 const b2 = await boxIn('direct', bx(2));
-const b3 = await boxIn('tfo', bx(3));
-check(b1?.remainingG === 38_500 && b2?.remainingG === 37_250 && b3?.remainingG === 40_000, 'boxes are in their zones with their net wt', { b1, b2, b3 });
-check(b1?.lot?.id === lotAId && b1?.warpingQuality.id === stopQ.id, 'box carries the lot and the stop quality');
-a = await lotAvail('tfo', q75.id, lotAId);
-check(a.availableG === 102_500, 'raw returned (2.5 kg) is back on lot A in TFO', a);
-const reuse = await call('supervisor', 'POST', `/yarn/tfo/pending/${created[1].id}/start`, { machineId: machine.id, section: 'A' });
-check(reuse.status === 201, 'section is idle again after stop');
-const tfoZone = await ok('jemish', 'GET', '/yarn/zones/tfo');
-check(tfoZone.warpingQualities.some((w) => w.quality.id === stopQ.id && w.boxes >= 1) && !tfoZone.qualities.some((q) => /system/.test(q.quality.name)), 'TFO stock lists twisted by warping quality (no system row)');
+check(b1?.remainingG === 385_000 && b2?.remainingG === 372_500, 'boxes transferred out of TFO later');
 const moves = (await ok('jemish', 'GET', `/yarn/moves?search=${encodeURIComponent(bx(1))}&limit=50`)).items;
 check(moves.some((m) => m.kind === 'tfo_output' && m.box?.boxNo === bx(1)) && moves.some((m) => m.kind === 'transfer_in' && m.zone === 'warping'), 'movements: box output + transfer to Warping', moves.map((m) => m.kind));
+const stopMove = moves.find((m) => m.kind === 'tfo_output');
+check(/Machine .*A, .*B, .*A/.test(stopMove?.context ?? ''), 'movement context lists every section', stopMove?.context);
 
 // ---------------------------------------------------------------- warping: pending (reserved) → start → done with beams
 const box1 = await boxIn('warping', bx(1));
@@ -206,8 +222,8 @@ const job1 = await ok('jemish', 'POST', '/yarn/warping/pending', {
 });
 check(job1.fullMeter && job1.meters === null && job1.inputs.length === 2 && job1.inputs[1].box?.boxNo === bx(1), 'pending job: raw lot + whole box, Full meter', job1);
 let w = await lotAvail('warping', q75.id, lotAId);
-check(w.reservedG === 60_000 && w.availableG === 40_000, 'lot A in Warping: 60 kg reserved, 40 kg free', w);
-check((await boxIn('warping', bx(1))).reservedG === 38_500, 'the box is reserved');
+check(w.reservedG === 600_000 && w.availableG === 400_000, 'lot A in Warping: 60 kg reserved, 40 kg free', w);
+check((await boxIn('warping', bx(1))).reservedG === 385_000, 'the box is reserved');
 check((await call('jemish', 'POST', '/yarn/transfers', { what: 'twisted', from: 'warping', to: 'direct', boxIds: [box1.id] })).status === 409, 'a reserved box cannot be transferred (409)');
 check((await call('jemish', 'POST', '/yarn/warping/pending', { ...jobBase, inputs: [{ kind: 'raw', qualityId: q75.id, lotId: lotAId, qtyKg: 41 }] })).status === 409, 'a second job beyond what is free → 409');
 await ok('supervisor', 'PUT', `/yarn/warping/pending/${job1.id}`, {
@@ -218,18 +234,18 @@ await ok('supervisor', 'PUT', `/yarn/warping/pending/${job1.id}`, {
     { kind: 'box', boxId: box1.id, qtyKg: 38.5 },
   ],
 });
-check((await lotAvail('warping', q75.id, lotAId)).reservedG === 55_000, 'supervisor edits the pending job (reservation follows)');
+check((await lotAvail('warping', q75.id, lotAId)).reservedG === 550_000, 'supervisor edits the pending job (reservation follows)');
 const job2 = await ok('jemish', 'POST', '/yarn/warping/pending', { taar: 100, panna: 10, meters: 1200, inputs: [{ kind: 'raw', qualityId: q75.id, lotId: lotAId, qtyKg: 10 }] });
 check(job2.meters === 1200 && !job2.fullMeter, 'job with meters');
 await ok('supervisor', 'POST', `/yarn/warping/pending/${job2.id}/cancel`);
-check((await lotAvail('warping', q75.id, lotAId)).reservedG === 55_000, 'cancel releases the reservation');
+check((await lotAvail('warping', q75.id, lotAId)).reservedG === 550_000, 'cancel releases the reservation');
 const pend = await ok('supervisor', 'GET', '/yarn/warping/pending');
 check(pend.some((j) => j.id === job1.id) && !pend.some((j) => j.id === job2.id), 'pending list: job 1, not the cancelled one');
 
 const started = await ok('yarn', 'POST', `/yarn/warping/pending/${job1.id}/start`);
 check(started.status === 'in_process' && started.fullMeter && started.taar === 4800 && started.inputs.length === 2, 'supervisor starts the job → In process (WJ-n)', started);
 w = await lotAvail('warping', q75.id, lotAId);
-check(w.reservedG === 0 && w.availableG === 45_000, 'start: the inputs left Warping stock', w);
+check(w.reservedG === 0 && w.availableG === 450_000, 'start: the inputs left Warping stock', w);
 check(!(await boxIn('warping', bx(1))) && (await ok('jemish', 'GET', `/yarn/boxes?status=used&search=${encodeURIComponent(bx(1))}`)).some((b) => b.boxNo === bx(1)), 'the whole box is now Used');
 check((await call('supervisor', 'POST', `/yarn/warping/pending/${job1.id}/start`)).status === 409, 'a started job cannot start again');
 
@@ -265,20 +281,20 @@ check((await call('yarn', 'POST', '/yarn/adjustments/add', { zone: 'direct', ite
 check((await call('supervisor', 'POST', '/yarn/adjustments/remove', { what: 'raw', zone: 'direct', qualityId: q75.id, qtyKg: 1, remark: 'x' })).status === 403, 'production supervisor cannot remove stock manually (403)');
 const noLotBefore = (await lotAvail('direct', q75.id, null)).availableG;
 await ok('jemish', 'POST', '/yarn/adjustments/add', { zone: 'direct', item: 'raw', qualityId: q75.id, qtyKg: 12.5, remark: 'found in store' });
-check((await lotAvail('direct', q75.id, null)).availableG === noLotBefore + 12_500, 'manual add raw → No lot stock');
+check((await lotAvail('direct', q75.id, null)).availableG === noLotBefore + 125_000, 'manual add raw → No lot stock');
 await ok('gaurang', 'POST', '/yarn/adjustments/add', { zone: 'tfo', item: 'twisted', warpingQualityId: stopQ.id, qtyKg: 7 });
 const nb = (await ok('jemish', 'GET', '/yarn/no-box?zone=tfo')).find((n) => n.warpingQualityId === stopQ.id);
-check(nb?.availableG === 7_000, 'manual add twisted → No box stock under the warping quality', nb);
+check(nb?.availableG === 70_000, 'manual add twisted → No box stock under the warping quality', nb);
 check((await call('jemish', 'POST', '/yarn/adjustments/add', { zone: 'tfo', item: 'twisted', qualityId: q75.id, qtyKg: 1 })).status === 400, 'twisted add needs a warping quality');
 await ok('jemish', 'POST', '/yarn/transfers', { what: 'twisted', from: 'tfo', to: 'warping', noBox: { warpingQualityId: stopQ.id, qtyKg: 3 } });
-check((await ok('jemish', 'GET', '/yarn/no-box?zone=warping')).find((n) => n.warpingQualityId === stopQ.id)?.availableG === 3_000, 'No box (warping quality) stock is transferable');
+check((await ok('jemish', 'GET', '/yarn/no-box?zone=warping')).find((n) => n.warpingQualityId === stopQ.id)?.availableG === 30_000, 'No box (warping quality) stock is transferable');
 check((await call('jemish', 'POST', '/yarn/adjustments/remove', { what: 'raw', zone: 'direct', qualityId: q75.id, lotId: null, qtyKg: 1 })).status === 400, 'remove needs a remark (400)');
 check((await call('jemish', 'POST', '/yarn/adjustments/remove', { what: 'raw', zone: 'direct', qualityId: q75.id, lotId: null, qtyKg: 999999, remark: 'x' })).status === 409, 'remove more than stock → 409 (no negative stock)');
 await ok('jemish', 'POST', '/yarn/adjustments/remove', { what: 'raw', zone: 'direct', qualityId: q75.id, lotId: null, qtyKg: 2.5, remark: 'wet, thrown away' });
-check((await lotAvail('direct', q75.id, null)).availableG === noLotBefore + 10_000, 'manual remove raw (No lot)');
+check((await lotAvail('direct', q75.id, null)).availableG === noLotBefore + 100_000, 'manual remove raw (No lot)');
 const b2now = await boxIn('direct', bx(2));
 await ok('jemish', 'POST', '/yarn/adjustments/remove', { what: 'twisted', zone: 'direct', boxes: [{ boxId: b2now.id, qtyKg: 0.25 }], remark: 'sample' });
-check((await boxIn('direct', bx(2))).remainingG === b2now.remainingG - 250, 'manual remove part of a box');
+check((await boxIn('direct', bx(2))).remainingG === b2now.remainingG - 2_500, 'manual remove part of a box');
 await ok('jemish', 'POST', '/yarn/adjustments/remove', { what: 'twisted', zone: 'warping', noBox: { warpingQualityId: stopQ.id, qtyKg: 3 }, remark: 'count' });
 const beamToRemove = (await ok('jemish', 'GET', '/yarn/beams?zone=warping')).find((b) => b.beamCode === code(2));
 await ok('jemish', 'POST', '/yarn/adjustments/remove', { what: 'beams', zone: 'warping', beamIds: [beamToRemove.id], remark: 'damaged beam' });
@@ -297,7 +313,7 @@ await ok('jemish', 'POST', '/yarn/adjustments/add', { zone: 'direct', item: 'raw
 await ok('jemish', 'POST', '/yarn/withdrawals', { what: 'raw', zone: 'direct', qualityId: q75.id, lotId: null, qtyKg: 1 });
 check(true, 'No lot raw stock can be withdrawn');
 
-globalThis.s20 = { party, q75, qOut, wq, stopQ, machine, lotAId, lotBId, b1, b2, b3, bx };
+globalThis.s20 = { party, q75, qOut, wq, stopQ, machine, lotAId, lotBId, b1, b2, bx };
 
 console.log(failed ? `\n${failed} check(s) FAILED` : '\nall checks passed');
 process.exit(failed ? 1 : 0);

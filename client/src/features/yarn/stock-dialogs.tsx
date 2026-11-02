@@ -13,7 +13,7 @@ import {
   type Beam,
   type YarnBox,
   type YarnStockWhat,
-  type YarnZone,
+  type YarnZone, kgText, gramsToKg,
 } from '@rivoora/shared';
 import { Field } from '@/components/ui/field';
 import { Textarea } from '@/components/ui/input';
@@ -121,7 +121,7 @@ function BoxChecklist({
               {on && partial && (
                 <div className="mt-2 ml-9 flex items-center gap-2">
                   <KgInput value={boxKg?.[b.id] ?? ''} onValueChange={(v) => onKgChange?.(b.id, v)} invalid={!!kgErr} className="max-w-36" aria-label={`Kg from ${b.boxNo}`} />
-                  <button type="button" className="text-xs font-semibold text-primary hover:underline" onClick={() => onKgChange?.(b.id, String(free / 1000))}>
+                  <button type="button" className="text-xs font-semibold text-primary hover:underline" onClick={() => onKgChange?.(b.id, kgText(free))}>
                     Use all
                   </button>
                   {kgErr && <span className="text-xs font-medium text-destructive">{kgErr}</span>}
@@ -217,7 +217,7 @@ export function useStockPick(zone: YarnZone, open: boolean) {
   /** The "No box" part of a request body. */
   const noBoxBody = () => {
     const [t, id] = (noBoxKey ?? '').split('-');
-    return t === 'w' ? { warpingQualityId: Number(id), qtyKg: grams! / 1000 } : { qualityId: Number(id), qtyKg: grams! / 1000 };
+    return t === 'w' ? { warpingQualityId: Number(id), qtyKg: gramsToKg(grams!) } : { qualityId: Number(id), qtyKg: gramsToKg(grams!) };
   };
 
   const boxes = boxesQuery.data ?? [];
@@ -339,7 +339,7 @@ export function StockFields({
               error={(tried && pick.noBoxKey && pick.yarnError ? pick.yarnError : undefined) ?? (serverErr?.field === 'qtyKg' ? serverErr.message : undefined)}
               hint={
                 pick.noBoxKey ? (
-                  <button type="button" className="font-semibold text-primary hover:underline" onClick={() => pick.setKg(String(pick.available / 1000))}>
+                  <button type="button" className="font-semibold text-primary hover:underline" onClick={() => pick.setKg(kgText(pick.available))}>
                     Use all {formatKg(pick.available)}
                   </button>
                 ) : undefined
@@ -385,7 +385,7 @@ export function StockFields({
         error={(tried && pick.picked && pick.yarnError ? pick.yarnError : undefined) ?? (serverErr?.field === 'qtyKg' ? serverErr.message : undefined)}
         hint={
           pick.picked ? (
-            <button type="button" className="font-semibold text-primary hover:underline" onClick={() => pick.setKg(String(pick.available / 1000))}>
+            <button type="button" className="font-semibold text-primary hover:underline" onClick={() => pick.setKg(kgText(pick.available))}>
               Use all {formatKg(pick.available)}
             </button>
           ) : undefined
@@ -434,7 +434,7 @@ export function TransferDialog({ open, onOpenChange, from }: { open: boolean; on
               noBox: pick.twistedMode === 'no_box' ? pick.noBoxBody() : null,
               note: pick.note.trim() || null,
             }
-          : { what: 'raw' as const, from, to: to!, qualityId: pick.qualityId!, lotId: pick.lotId || null, qtyKg: pick.grams! / 1000, note: pick.note.trim() || null };
+          : { what: 'raw' as const, from, to: to!, qualityId: pick.qualityId!, lotId: pick.lotId || null, qtyKg: gramsToKg(pick.grams!), note: pick.note.trim() || null };
     transfer.mutate(body, {
       onSuccess: () => {
         const moved =
@@ -520,11 +520,11 @@ export function WithdrawDialog({ open, onOpenChange }: { open: boolean; onOpenCh
           ? {
               what: 'twisted' as const,
               zone: 'direct' as const,
-              boxes: pick.twistedMode === 'boxes' ? pick.boxIds.map((id) => ({ boxId: id, qtyKg: parseKgText(pick.boxKg[id] ?? '')! / 1000 })) : [],
+              boxes: pick.twistedMode === 'boxes' ? pick.boxIds.map((id) => ({ boxId: id, qtyKg: gramsToKg(parseKgText(pick.boxKg[id] ?? '')!) })) : [],
               noBox: pick.twistedMode === 'no_box' ? pick.noBoxBody() : null,
               note: pick.note.trim() || null,
             }
-          : { what: 'raw' as const, zone: 'direct' as const, qualityId: pick.qualityId!, lotId: pick.lotId || null, qtyKg: pick.grams! / 1000, note: pick.note.trim() || null };
+          : { what: 'raw' as const, zone: 'direct' as const, qualityId: pick.qualityId!, lotId: pick.lotId || null, qtyKg: gramsToKg(pick.grams!), note: pick.note.trim() || null };
     withdraw.mutate(body, {
       onSuccess: () => {
         const label =

@@ -312,16 +312,6 @@ export const useCancelPendingProgram = () => useYarnMutation((id: number) => api
 export const useStartPendingProgram = () =>
   useYarnMutation(({ id, data }: { id: number; data: TfoPendingStartInput }) => api.post<TfoProgram>(`/yarn/tfo/pending/${id}/start`, data), { silentFieldErrors: true });
 
-/** Sprint 20 — live "box no. is free" check on the Stop screen. */
-export function useCheckBoxNo(boxNo: string, enabled = true) {
-  return useQuery({
-    queryKey: ['yarn', 'box-no-check', boxNo.trim().toLowerCase()],
-    queryFn: ({ signal }) => api.get<{ available: boolean }>('/yarn/boxes/check', { boxNo: boxNo.trim() }, signal),
-    enabled: enabled && boxNo.trim().length > 0,
-    staleTime: 5_000,
-  });
-}
-
 export const useStopProgram = (id: number) =>
   useYarnMutation((data: TfoProgramStopInput) => api.post<TfoProgram>(`/yarn/tfo/programs/${id}/stop`, data), { silentFieldErrors: true });
 

@@ -1522,6 +1522,11 @@ export const tfoPrograms = sqliteTable(
     lotId: integer('lot_id').references(() => yarnLots.id),
     /** Sprint 20: the pending program this one was started from (null for programs started the old direct way). */
     pendingProgramId: integer('pending_program_id').references((): AnySQLiteColumn => tfoPendingPrograms.id),
+    /** Sprint 20b: rolls × winding kg = raw kg (null on older programs). `winding_g` is in yarn units (0.1 g). */
+    rolls: integer('rolls'),
+    windingG: integer('winding_g'),
+    /** Sprint 20b: the common roll weight entered at stop (net = gross − roll weight × rolls). */
+    rollWeightG: integer('roll_weight_g'),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
@@ -1552,6 +1557,9 @@ export const tfoPendingPrograms = sqliteTable(
     note: text('note'),
     status: text('status').$type<YarnPendingStatus>().notNull().default('pending'),
     startedProgramId: integer('started_program_id').references(() => tfoPrograms.id),
+    /** Sprint 20b: rolls × winding kg = raw kg. */
+    rolls: integer('rolls'),
+    windingG: integer('winding_g'),
     cancelledAt: text('cancelled_at'),
     cancelledByUserId: integer('cancelled_by_user_id'),
     createdByUserId: integer('created_by_user_id'),
@@ -1561,5 +1569,29 @@ export const tfoPendingPrograms = sqliteTable(
   (t) => [
     index('tfo_pending_programs_status_idx').on(t.status),
     index('tfo_pending_programs_lot_idx').on(t.lotId, t.rawQualityId),
+  ],
+);
+
+/**
+ * Sprint 20b — the machine sections a TFO program runs on (one program may run on several sections, of any machines).
+ * `tfo_programs.machine_id/section` keep the FIRST section. One running program per section: partial unique index.
+ */
+export const tfoProgramSections = sqliteTable(
+  'tfo_program_sections',
+  {
+    id: id(),
+    programId: integer('program_id')
+      .notNull()
+      .references(() => tfoPrograms.id),
+    machineId: integer('machine_id')
+      .notNull()
+      .references(() => tfoMachines.id),
+    section: text('section').$type<TfoSection>().notNull(),
+    isRunning: integer('is_running', { mode: 'boolean' }).notNull().default(true),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex('tfo_program_sections_running_unique').on(t.machineId, t.section).where(sql`${t.isRunning} = 1`),
+    index('tfo_program_sections_program_idx').on(t.programId),
   ],
 );

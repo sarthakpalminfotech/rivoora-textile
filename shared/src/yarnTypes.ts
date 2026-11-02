@@ -314,12 +314,18 @@ export interface YarnZoneData {
 
 export interface TfoProgram {
   id: number;
+  /** The first section (older programs: their only one) — use `sections` for all of them. */
   machineId: number;
   machineNo: number;
   section: TfoSection;
+  /** Sprint 20b: every section the program runs / ran on (`programSectionsLabel` → "3A, 3B, 5A"). */
+  sections: { machineId: number; machineNo: number; section: TfoSection }[];
   rawQuality: { id: number; name: string };
   rawG: number;
-  outputQuality: { id: number; name: string };
+  /** Sprint 20b: rolls × winding kg = raw kg (null on older programs). */
+  rolls: number | null;
+  windingG: number | null;
+  /** Older programs only: the winding meter they were created with. */
   windingMeter: number | null;
   denierFilament: string | null;
   tpm: number;
@@ -333,23 +339,27 @@ export interface TfoProgram {
   twistedG: number | null;
   twistedMeters: number | null;
   returnedRawG: number | null;
+  /** Sprint 20b: the roll weight entered at stop. */
+  rollWeightG: number | null;
   stopNote: string | null;
   /** Sprint 20: the raw lot issued (null = "No lot"). */
   lot: { id: number; lotNo: string; partyName: string } | null;
-  /** Sprint 20: the stop quality (warping quality) of the boxes; null on older programs / while running. */
-  warpingQuality: { id: number; name: string } | null;
-  /** Sprint 20: boxes recorded at stop (empty for older programs). */
+  /** Sprint 20: the output qualities of the boxes (one per direction for S + Z). */
+  warpingQualities: { id: number; name: string }[];
+  /** Sprint 20: boxes recorded at stop (empty for older programs / while running). */
   boxes: TfoProgramBox[];
 }
 
-/** Sprint 20 — one box recorded at a program's stop (`zone` = where it went then; `currentZone` = where it is now). */
+/** Sprint 20 — one box recorded at a program's stop (`currentZone` = where it is now). */
 export interface TfoProgramBox {
   id: number;
   boxNo: string;
   rolls: number;
   grossG: number;
   netG: number;
-  avgG: number;
+  /** null when not entered. */
+  avgG: number | null;
+  warpingQuality: { id: number; name: string };
   currentZone: YarnZone;
 }
 
@@ -359,8 +369,9 @@ export interface TfoPendingProgram {
   rawQuality: { id: number; name: string };
   lot: { id: number; lotNo: string; partyName: string } | null;
   rawG: number;
-  outputQuality: { id: number; name: string };
-  windingMeter: number | null;
+  /** Sprint 20b: rolls × winding kg = raw kg (null on programs created before). */
+  rolls: number | null;
+  windingG: number | null;
   denierFilament: string | null;
   tpm: number;
   direction: TwistDirection;

@@ -2,7 +2,7 @@ import { Plus, Trash2 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
-import { amountPaise, formatKg, MAX_PO_LINES, parseKgText, ratePaise } from '@rivoora/shared';
+import { amountPaise, formatKg, MAX_PO_LINES, parseKgText, ratePaise, kgText, gramsToKg } from '@rivoora/shared';
 import { usePageTitle } from '@/components/layout/page-title';
 import { ErrorState } from '@/components/list-parts';
 import { Button } from '@/components/ui/button';
@@ -87,7 +87,7 @@ export default function YarnPoFormPage() {
         key: ++lineKey,
         qualityId: l.quality.id,
         qualityName: l.quality.name,
-        qty: String(l.qtyG / 1000),
+        qty: kgText(l.qtyG),
         rate: l.ratePaise === null ? '' : String(l.ratePaise / 100),
       })),
     );
@@ -137,7 +137,7 @@ export default function YarnPoFormPage() {
       poDate,
       partyId: partyId!,
       remark: remark.trim() || null,
-      lines: lines.map((l) => ({ qualityId: l.qualityId!, qtyKg: parseKgText(l.qty)! / 1000, rate: Number(l.rate) })),
+      lines: lines.map((l) => ({ qualityId: l.qualityId!, qtyKg: gramsToKg(parseKgText(l.qty)!), rate: Number(l.rate) })),
     };
     if (isEdit) update.mutate(body, { onSuccess: (r) => (toast.success(`PO ${r.poNo} saved`), navigate(`/yarn-po/${r.id}`)), onError });
     else create.mutate(body, { onSuccess: (r) => (toast.success(`PO ${r.poNo} created`), navigate(`/yarn-po/${r.id}`, { replace: true })), onError });

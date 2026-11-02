@@ -227,8 +227,8 @@ export async function deleteYarnQuality(id: number): Promise<void> {
 
 /** Sections with a running program, per machine (one aggregate query). */
 const runningSectionsSql = sql<string | null>`(
-  SELECT group_concat(p.section) FROM tfo_programs p
-  WHERE p.machine_id = "tfo_machines"."id" AND p.status = 'running'
+  SELECT group_concat(ps.section) FROM tfo_program_sections ps
+  WHERE ps.machine_id = "tfo_machines"."id" AND ps.is_running = 1
 )`;
 
 const machineColumns = {

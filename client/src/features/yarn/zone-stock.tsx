@@ -28,6 +28,14 @@ export function ZoneStockView({ data }: { data: YarnZoneData }) {
     byQuality.set(r.quality.id, q);
   }
   const qualities = [...byQuality.entries()];
+  // Sprint 20b: boxes of the same (warping) quality are listed under that quality.
+  const boxGroups: { id: number; name: string; boxes: YarnZoneData['boxes'] }[] = [];
+  for (const b of data.boxes) {
+    const g = boxGroups.find((x) => x.id === b.warpingQuality.id);
+    if (g) g.boxes.push(b);
+    else boxGroups.push({ id: b.warpingQuality.id, name: b.warpingQuality.name, boxes: [b] });
+  }
+  boxGroups.sort((x, y) => x.name.localeCompare(y.name));
   const empty = !qualities.length && !data.boxes.length && !data.noBox.length;
   if (empty) return <EmptyState icon={Spool} title="No yarn in this zone" description="Receive a challan here, or transfer yarn in from another zone." className="py-10" />;
 
@@ -70,27 +78,38 @@ export function ZoneStockView({ data }: { data: YarnZoneData }) {
       )}
 
       {data.boxes.length > 0 && (
-        <Block title="Twisted yarn — boxes" count={data.boxes.length}>
-          <ul className="grid grid-cols-[minmax(0,1fr)] gap-2.5 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
-            {data.boxes.map((b) => (
-              <li key={b.id} className="flex items-start gap-3 rounded-xl border border-border bg-white px-3 py-2.5">
-                <span className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-500">
-                  <Package2 className="size-5" aria-hidden />
-                </span>
-                <div className="min-w-0 flex-1">
-                  <p className="flex items-baseline gap-2">
-                    <span className="truncate font-bold tabular-nums text-slate-900">{b.boxNo}</span>
-                    <Kg g={b.remainingG} className="ml-auto font-semibold text-slate-900" />
-                  </p>
-                  <p className="truncate text-sm text-slate-700">{b.warpingQuality.name}</p>
-                  <p className="truncate text-xs text-slate-500">
-                    {b.rolls} rolls · net {formatKg(b.netG)} · {b.lot ? `lot ${b.lot.lotNo}` : NO_LOT_LABEL}
-                    {b.reservedG > 0 ? ` · reserved ${formatKg(b.reservedG)}` : ''}
-                  </p>
+        <Block title="Twisted yarn — boxes by quality" count={data.boxes.length}>
+          <div className="grid grid-cols-[minmax(0,1fr)] gap-3 md:grid-cols-[repeat(2,minmax(0,1fr))] xl:grid-cols-[repeat(3,minmax(0,1fr))]">
+            {boxGroups.map((g) => (
+              <div key={g.id} className="min-w-0 rounded-xl border border-border bg-white">
+                <div className="flex items-baseline gap-2 border-b border-border px-3 py-2.5">
+                  <p className="min-w-0 flex-1 truncate font-semibold text-slate-900">{g.name}</p>
+                  <span className="shrink-0 text-xs text-slate-500">
+                    {g.boxes.length} box{g.boxes.length === 1 ? '' : 'es'}
+                  </span>
+                  <Kg g={g.boxes.reduce((s, b) => s + b.remainingG, 0)} className="font-bold text-slate-900" />
                 </div>
-              </li>
+                <ul className="divide-y divide-border">
+                  {g.boxes.map((b) => (
+                    <li key={b.id} className="flex items-baseline gap-2 px-3 py-2 text-sm">
+                      <Package2 className="size-4 shrink-0 self-center text-slate-400" aria-hidden />
+                      <span className="min-w-0 flex-1 truncate">
+                        <span className="font-semibold tabular-nums text-slate-800">Box {b.boxNo}</span>
+                        <span className="text-slate-500">
+                          {' '}
+                          · {b.rolls} rolls · {b.lot ? `lot ${b.lot.lotNo}` : NO_LOT_LABEL}
+                        </span>
+                      </span>
+                      <span className="text-right">
+                        <Kg g={b.remainingG} className="font-semibold text-slate-800" />
+                        {b.reservedG > 0 && <span className="block text-xs font-medium text-amber-700">reserved {formatKg(b.reservedG)}</span>}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
             ))}
-          </ul>
+          </div>
         </Block>
       )}
 

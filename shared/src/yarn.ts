@@ -182,52 +182,62 @@ export type YarnRefType = (typeof YARN_REF_TYPES)[number];
 /* kg / grams / money                                                   */
 /* ------------------------------------------------------------------ */
 
-export const KG_DECIMALS = 3;
+/**
+ * Sprint 20b: yarn kg have up to 4 decimals. Every yarn quantity is stored and summed as an INTEGER number of
+ * TENTHS OF A GRAM (1 kg = 10,000 units). The `*_g` columns / `*G` DTO fields and the `kgToGrams` / `gramsToKg`
+ * helpers keep their names but mean these units (migration 0020 multiplied the older gram values by 10).
+ */
+export const KG_DECIMALS = 4;
+export const UNITS_PER_KG = 10_000;
 /** The most kg on one line / one move (a sanity cap, not a business rule). */
 export const MAX_KG = 1_000_000;
-export const MAX_GRAMS = MAX_KG * 1000;
+export const MAX_GRAMS = MAX_KG * UNITS_PER_KG;
 
-/** kg (≤ 3 decimals) → integer grams. Rounds half away from zero at the 4th decimal so 1.0005 never sneaks in. */
+/** kg (≤ 4 decimals) → integer units (0.1 g). Rounds half away from zero at the 5th decimal. */
 export function kgToGrams(kg: number): number {
   if (!Number.isFinite(kg)) return NaN;
-  const g = Math.round(Math.abs(kg) * 1000 + 1e-7);
+  const g = Math.round(Math.abs(kg) * UNITS_PER_KG + 1e-7);
   return kg < 0 ? -g : g;
 }
 
-export const gramsToKg = (g: number): number => g / 1000;
+/** units (0.1 g) → kg. */
+export const gramsToKg = (g: number): number => g / UNITS_PER_KG;
 
-/** A kg value has at most 3 decimals (the zod schemas use this). */
-export const hasKgPrecision = (kg: number) => Number.isFinite(kg) && Math.abs(kg * 1000 - Math.round(kg * 1000)) < 1e-6;
+/** A kg value has at most 4 decimals (the zod schemas use this). */
+export const hasKgPrecision = (kg: number) => Number.isFinite(kg) && Math.abs(kg * UNITS_PER_KG - Math.round(kg * UNITS_PER_KG)) < 1e-5;
 
-/** Typed text → grams, or null when it is not a non-negative number with ≤ 3 decimals ("12", "12.5", ".250"). */
+/** Typed text → units, or null when it is not a non-negative number with ≤ 4 decimals ("12", "12.5", ".2505"). */
 export function parseKgText(text: string): number | null {
   const s = text.trim();
-  const m = /^(\d{0,7})(?:\.(\d{0,3}))?$/.exec(s);
+  const m = /^(\d{0,7})(?:\.(\d{0,4}))?$/.exec(s);
   if (!m || (!m[1] && !m[2]) || s === '.') return null;
-  return Number(m[1] || '0') * 1000 + Number((m[2] ?? '').padEnd(3, '0') || '0');
+  return Number(m[1] || '0') * UNITS_PER_KG + Number((m[2] ?? '').padEnd(KG_DECIMALS, '0') || '0');
 }
 
-/** Keeps a kg input clean while typing: digits and one dot, at most 3 decimals. */
+/** Keeps a kg input clean while typing: digits and one dot, at most 4 decimals. */
 export function cleanKgText(text: string): string {
   const s = text.replace(/,/g, '.').replace(/[^\d.]/g, '');
   const i = s.indexOf('.');
   if (i < 0) return s.slice(0, 7);
-  return `${s.slice(0, Math.min(i, 7))}.${s.slice(i + 1).replace(/\./g, '').slice(0, 3)}`;
+  return `${s.slice(0, Math.min(i, 7))}.${s.slice(i + 1).replace(/\./g, '').slice(0, KG_DECIMALS)}`;
 }
 
-const kgFormat = new Intl.NumberFormat('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 3 });
-/** grams → "1,234.5" (no unit). */
+/** units → the text a kg input shows ("12.5"). */
+export const kgText = (g: number) => String(gramsToKg(g));
+
+const kgFormat = new Intl.NumberFormat('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: KG_DECIMALS });
+/** units → "1,234.5" (no unit). */
 export const formatKgNumber = (g: number) => kgFormat.format(gramsToKg(g));
-/** grams → "1,234.5 kg" */
+/** units → "1,234.5 kg" */
 export const formatKg = (g: number) => `${formatKgNumber(g)} kg`;
 
 /** ₹/kg (≤ 2 decimals) → integer paise. */
 export function ratePaise(rate: number): number {
   return Math.round(rate * 100 + (rate >= 0 ? 1e-7 : -1e-7));
 }
-/** The amount of a line in paise: grams × paise-per-kg / 1000, rounded to the paisa. */
+/** The amount of a line in paise: units × paise-per-kg / 10,000, rounded to the paisa. */
 export function amountPaise(grams: number, ratePaisePerKg: number): number {
-  return Math.round((grams * ratePaisePerKg) / 1000);
+  return Math.round((grams * ratePaisePerKg) / UNITS_PER_KG);
 }
 export const paiseToRupees = (p: number) => p / 100;
 
@@ -428,67 +438,79 @@ export function availableText(availableG: number, reservedG: number): string {
   return reservedG > 0 ? `${formatKg(availableG)} available · reserved ${formatKg(reservedG)}` : `${formatKg(availableG)} available`;
 }
 
-/** Where a box goes when its program stops: stays in TFO (default), or straight to Warping / Direct consumption. */
-export const BOX_DESTINATIONS = ['tfo', 'warping', 'direct'] as const;
-export type BoxDestination = (typeof BOX_DESTINATIONS)[number];
-export const BOX_DESTINATION_LABEL: Record<BoxDestination, string> = { tfo: 'Stay in TFO', warping: 'Warping', direct: 'Direct consumption' };
-
-export interface StopBoxLike {
-  boxNo: string;
-  rolls: number;
-  grossG: number;
-  netG: number;
-  avgG: number;
-  zone: BoxDestination;
-}
-
-export type StopBoxError = 'box_no' | 'box_no_repeat' | 'rolls' | 'gross' | 'net' | 'net_over_gross' | 'avg';
-export const STOP_BOX_ERROR_TEXT: Record<StopBoxError, string> = {
-  box_no: 'Enter the box no.',
-  box_no_repeat: 'This box no. is already on this stop',
-  rolls: 'Rolls is a whole number of at least 1',
-  gross: 'Enter the gross wt',
-  net: 'Enter the net wt',
-  net_over_gross: 'Net wt can’t be more than gross wt',
-  avg: 'Enter the avg kg',
-};
+/** Sprint 20b: box numbers are given by the system — counter `yarn_box_no`, starting at 1 (numbers in use are skipped). */
+export const BOX_NO_COUNTER = 'yarn_box_no';
+/** The most sections one program can run on. */
+export const MAX_PROGRAM_SECTIONS = 40;
 
 /** Box numbers compare without case and outer spaces ("b-12" = "B-12 "). */
 export const boxNoKey = (no: string) => no.trim().toLowerCase();
 
-/** One box at Stop (`others` = the numbers of the boxes before it on the same stop). */
-export function validateStopBox(b: StopBoxLike, others: readonly string[] = []): StopBoxError | null {
-  const no = b.boxNo.trim();
-  if (!no || no.length > BOX_NO_MAX_LENGTH) return 'box_no';
-  if (others.some((o) => boxNoKey(o) === boxNoKey(no))) return 'box_no_repeat';
+/** Sprint 20b: raw kg of a program = rolls × winding kg (units). */
+export const rawFromRolls = (rolls: number, windingG: number) => (Number.isInteger(rolls) && rolls > 0 && windingG > 0 ? rolls * windingG : 0);
+
+/** Sprint 20b: a box's net = gross − roll weight × rolls (units). */
+export const boxNetG = (grossG: number, rollWeightG: number, rolls: number) => grossG - rollWeightG * rolls;
+
+/** "600" / "612.5" — TPM without trailing zeros. */
+const tpmText = (tpm: number) => String(Number(tpm.toFixed(4)));
+
+/**
+ * Sprint 20b: the output (warping) quality of a box is named from the program: "denier/filament RawQuality-TPM-Dir",
+ * e.g. "75/36 Poly 75D-600-S" (without denier / filament: "Poly 75D-600-S"). Found case-insensitively in the Warping
+ * qualities master, or created there.
+ */
+export function tfoOutputQualityName(p: { denierFilament: string | null; rawQualityName: string; tpm: number; direction: 'S' | 'Z' }): string {
+  const tail = `${p.rawQualityName.trim()}-${tpmText(p.tpm)}-${p.direction}`;
+  const df = p.denierFilament?.trim();
+  return df ? `${df} ${tail}` : tail;
+}
+
+export interface StopBoxLike {
+  rolls: number;
+  grossG: number;
+  /** null / 0 = not entered (optional). */
+  avgG?: number | null;
+}
+
+export type StopBoxError = 'rolls' | 'gross' | 'net' | 'direction';
+export const STOP_BOX_ERROR_TEXT: Record<StopBoxError, string> = {
+  rolls: 'Rolls is a whole number of at least 1',
+  gross: 'Enter the gross kg',
+  net: 'Gross kg must be more than roll weight × rolls',
+  direction: 'Pick S or Z',
+};
+
+/** One box at Stop, given the stop's common roll weight. */
+export function validateStopBox(b: StopBoxLike & { direction?: string | null }, rollWeightG: number, needsDirection = false): StopBoxError | null {
   if (!Number.isInteger(b.rolls) || b.rolls < 1) return 'rolls';
   if (!(b.grossG > 0)) return 'gross';
-  if (!(b.netG > 0)) return 'net';
-  if (b.netG > b.grossG) return 'net_over_gross';
-  if (!(b.avgG > 0)) return 'avg';
+  if (!(boxNetG(b.grossG, rollWeightG, b.rolls) > 0)) return 'net';
+  if (needsDirection && b.direction !== 'S' && b.direction !== 'Z') return 'direction';
   return null;
 }
 
-/** Live totals of the Stop screen: boxes, rolls, gross, net (= the TFO output) and how many stay in TFO. */
-export function stopTotals(boxes: readonly Pick<StopBoxLike, 'rolls' | 'grossG' | 'netG' | 'zone'>[]) {
+/** Live totals of the Stop screen: boxes, rolls, gross, net (= the TFO output). */
+export function stopTotals(boxes: readonly Pick<StopBoxLike, 'rolls' | 'grossG'>[], rollWeightG: number) {
   let rolls = 0;
   let grossG = 0;
   let netG = 0;
-  let stayInTfo = 0;
   for (const b of boxes) {
-    rolls += Number.isFinite(b.rolls) ? b.rolls : 0;
-    grossG += Number.isFinite(b.grossG) ? b.grossG : 0;
-    netG += Number.isFinite(b.netG) ? b.netG : 0;
-    if (b.zone === 'tfo') stayInTfo += 1;
+    const r = Number.isFinite(b.rolls) ? b.rolls : 0;
+    const g = Number.isFinite(b.grossG) ? b.grossG : 0;
+    rolls += r;
+    grossG += g;
+    netG += Math.max(0, boxNetG(g, rollWeightG, r));
   }
-  return { boxes: boxes.length, rolls, grossG, netG, stayInTfo };
+  return { boxes: boxes.length, rolls, grossG, netG };
 }
 
-/** "2 boxes stay in TFO — move them later with Transfer." (null when none stay). */
-export function boxesStayText(n: number): string | null {
-  if (n <= 0) return null;
-  return `${n} ${n === 1 ? 'box stays' : 'boxes stay'} in TFO — move ${n === 1 ? 'it' : 'them'} later with Transfer.`;
-}
+/** "3A, 3B, 5A" — the sections a program runs on. */
+export const programSectionsLabel = (sections: readonly { machineNo: number; section: TfoSection }[]) =>
+  [...sections]
+    .sort((a, b) => a.machineNo - b.machineNo || a.section.localeCompare(b.section))
+    .map((s) => tfoSectionLabel(s.machineNo, s.section))
+    .join(', ');
 
 /** Sections running out of all sections of the active machines: "3 of 10 running". */
 export const runningSectionsText = (running: number, machines: number) => `${running} of ${machines * TFO_SECTIONS.length} running`;

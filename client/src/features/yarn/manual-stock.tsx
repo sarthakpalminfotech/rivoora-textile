@@ -6,7 +6,7 @@ import {
   YARN_ZONE_CONFIG,
   type YarnManualAddInput,
   type YarnManualRemoveInput,
-  type YarnZone,
+  type YarnZone, gramsToKg,
 } from '@rivoora/shared';
 import { Field } from '@/components/ui/field';
 import { Textarea } from '@/components/ui/input';
@@ -91,7 +91,7 @@ export function ManualStockDialog({ open, onOpenChange, zone: initialZone }: { o
     setServerErr(null);
     if (mode === 'add') {
       if (Object.values(addErrors).some(Boolean)) return;
-      const body: YarnManualAddInput = { zone: zone!, item, qualityId: item === 'raw' ? qualityId : null, warpingQualityId: item === 'twisted' ? wq!.id : null, qtyKg: grams! / 1000, remark: remark.trim() || null };
+      const body: YarnManualAddInput = { zone: zone!, item, qualityId: item === 'raw' ? qualityId : null, warpingQualityId: item === 'twisted' ? wq!.id : null, qtyKg: gramsToKg(grams!), remark: remark.trim() || null };
       add.mutate(body, {
         onSuccess: () => {
           toast.success(`${formatKg(grams!)} added to ${YARN_ZONE_CONFIG[zone!].label}`);
@@ -110,11 +110,11 @@ export function ManualStockDialog({ open, onOpenChange, zone: initialZone }: { o
           ? {
               what: 'twisted',
               zone: zone!,
-              boxes: pick.twistedMode === 'boxes' ? pick.boxIds.map((id) => ({ boxId: id, qtyKg: parseKgText(pick.boxKg[id] ?? '')! / 1000 })) : [],
+              boxes: pick.twistedMode === 'boxes' ? pick.boxIds.map((id) => ({ boxId: id, qtyKg: gramsToKg(parseKgText(pick.boxKg[id] ?? '')!) })) : [],
               noBox: pick.twistedMode === 'no_box' ? pick.noBoxBody() : null,
               remark: r,
             }
-          : { what: 'raw', zone: zone!, qualityId: pick.qualityId!, lotId: pick.lotId || null, qtyKg: pick.grams! / 1000, remark: r };
+          : { what: 'raw', zone: zone!, qualityId: pick.qualityId!, lotId: pick.lotId || null, qtyKg: gramsToKg(pick.grams!), remark: r };
     remove.mutate(body, {
       onSuccess: () => {
         toast.success(`Removed from ${YARN_ZONE_CONFIG[zone!].label}`);

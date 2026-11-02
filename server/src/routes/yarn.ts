@@ -1,7 +1,6 @@
 import { Router } from 'express';
 import {
   beamsQuerySchema,
-  checkBoxNoQuerySchema,
   checkBeamCodeQuerySchema,
   checkLotNoQuerySchema,
   noBoxQuerySchema,
@@ -15,7 +14,7 @@ import {
 import { notFound } from '../lib/errors';
 import { ah, parseId } from '../lib/http';
 import { requirePermission } from '../middleware/role';
-import { checkBoxNo, checkLotNo, createTransfer, listNoBoxStock, manualAdd, manualRemove, createWithdrawal, listBeams, listBoxStock, listLotStock, listMoves, yarnSummary, yarnZone } from '../services/yarn-stock';
+import { checkLotNo, createTransfer, listNoBoxStock, manualAdd, manualRemove, createWithdrawal, listBeams, listBoxStock, listLotStock, listMoves, yarnSummary, yarnZone } from '../services/yarn-stock';
 import {
   cancelPendingProgram,
   createPendingPrograms,
@@ -105,15 +104,6 @@ yarnRouter.get(
   ah(async (req, res) => {
     res.set('Cache-Control', 'no-store');
     res.json(await listBoxStock(yarnBoxesQuerySchema.parse(req.query)));
-  }),
-);
-
-/** Sprint 20 — the live "box no. is free" check, used on the Stop screen. */
-yarnRouter.get(
-  '/boxes/check',
-  ah(async (req, res) => {
-    res.set('Cache-Control', 'no-store');
-    res.json(await checkBoxNo(checkBoxNoQuerySchema.parse(req.query).boxNo));
   }),
 );
 

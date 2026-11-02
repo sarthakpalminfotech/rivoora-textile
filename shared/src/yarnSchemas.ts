@@ -4,9 +4,7 @@ import {
   beamCodeKey,
   BEAM_ZONES,
   BEAM_STATUSES,
-  BOX_DESTINATIONS,
-  BOX_NO_MAX_LENGTH,
-  boxNoKey,
+
   BOX_STATUSES,
   hasKgPrecision,
   isMoveFilter,
@@ -15,6 +13,7 @@ import {
   MAX_BOXES_PER_STOP,
   MAX_KG,
   MAX_PENDING_PROGRAMS,
+  MAX_PROGRAM_SECTIONS,
   MAX_PO_LINES,
   MAX_WARPING_INPUTS,
   TFO_SECTIONS,
@@ -39,13 +38,13 @@ const isoDate = (msg = 'Pick a date') => z.string({ required_error: msg }).regex
 
 const id = (msg: string) => z.number({ required_error: msg, invalid_type_error: msg }).int(msg).positive(msg);
 
-/** kg > 0 (or ≥ 0), at most 3 decimals. */
+/** kg > 0 (or ≥ 0), at most 4 decimals. */
 const kg = (msg: string, { allowZero = false } = {}) =>
   z
     .number({ required_error: msg, invalid_type_error: msg })
     .refine((v) => (allowZero ? v >= 0 : v > 0), allowZero ? 'Cannot be negative' : 'Must be more than 0 kg')
     .refine((v) => v <= MAX_KG, `At most ${MAX_KG.toLocaleString('en-IN')} kg`)
-    .refine(hasKgPrecision, 'Use at most 3 decimals');
+    .refine(hasKgPrecision, 'Use at most 4 decimals');
 
 const optNumber = (max: number, msg = 'Enter a number') =>
   z
@@ -365,15 +364,15 @@ export const beamsQuerySchema = z.object({
 /* ---------- TFO ---------- */
 
 /**
- * Sprint 20 — a pending program (no machine yet): raw quality + LOT (null = "No lot") + kg are reserved in TFO raw
- * stock until someone starts it on a section.
+ * Sprint 20 → 20b — a pending program (no machine yet): raw quality + LOT (null = "No lot") + rolls × winding kg (= raw
+ * kg, worked out by the server) are reserved in TFO raw stock until someone starts it. No output quality any more —
+ * the boxes' quality is named at stop (`tfoOutputQualityName`).
  */
 export const tfoPendingProgramInputSchema = z.object({
   rawQualityId: id('Select the raw yarn quality'),
   lotId: lotIdField,
-  rawKg: kg('Enter the raw yarn kg'),
-  outputQualityId: id('Select the output quality'),
-  windingMeter: optNumber(10_000_000),
+  rolls: z.number({ required_error: 'Enter the rolls', invalid_type_error: 'Enter the rolls' }).int('Use a whole number').min(1, 'At least 1').max(1_000_000),
+  windingKg: kg('Enter the winding kg'),
   denierFilament: optText(40),
   tpm: z
     .number({ required_error: 'Enter the TPM', invalid_type_error: 'Enter the TPM' })
@@ -393,49 +392,57 @@ export const tfoPendingProgramsCreateSchema = z.object({
 });
 export type TfoPendingProgramsCreateInput = z.input<typeof tfoPendingProgramsCreateSchema>;
 
-/** POST /yarn/tfo/pending/:id/start — the idle section it runs on. */
-export const tfoPendingStartSchema = z.object({
-  machineId: id('Pick the machine'),
-  section: z.enum(TFO_SECTIONS, { errorMap: () => ({ message: 'Pick the section' }) }),
-});
+/** POST /yarn/tfo/pending/:id/start — Sprint 20b: one or more idle sections (any machines, both sections of one machine allowed). */
+export const tfoPendingStartSchema = z
+  .object({
+    sections: z
+      .array(z.object({ machineId: id('Pick the machine'), section: z.enum(TFO_SECTIONS, { errorMap: () => ({ message: 'Pick the section' }) }) }), {
+        required_error: 'Pick at least one machine section',
+      })
+      .min(1, 'Pick at least one machine section')
+      .max(MAX_PROGRAM_SECTIONS, `At most ${MAX_PROGRAM_SECTIONS} sections`),
+  })
+  .superRefine((v, ctx) => {
+    const seen = new Set<string>();
+    v.sections.forEach((s, i) => {
+      const k = `${s.machineId}|${s.section}`;
+      if (seen.has(k)) ctx.addIssue({ code: 'custom', path: ['sections', i], message: 'This section is picked twice' });
+      seen.add(k);
+    });
+  });
 export type TfoPendingStartInput = z.input<typeof tfoPendingStartSchema>;
 
 const stopBoxInput = z.object({
-  boxNo: z.string({ required_error: 'Enter the box no.' }).trim().min(1, 'Enter the box no.').max(BOX_NO_MAX_LENGTH, `At most ${BOX_NO_MAX_LENGTH} characters`),
   rolls: z.number({ required_error: 'Enter the rolls', invalid_type_error: 'Enter the rolls' }).int('Use a whole number').min(1, 'At least 1').max(100_000),
-  grossKg: kg('Enter the gross wt'),
-  netKg: kg('Enter the net wt'),
-  avgKg: kg('Enter the avg kg'),
-  zone: z.enum(BOX_DESTINATIONS, { errorMap: () => ({ message: 'Pick where the box goes' }) }).default('tfo'),
+  grossKg: kg('Enter the gross kg'),
+  /** Optional. */
+  avgKg: kg('Enter the avg kg').nullish().transform((v) => v ?? null),
+  /** Only for S + Z programs: which twist this box is (S or Z). */
+  direction: z.enum(['S', 'Z']).nullish().transform((v) => v ?? null),
 });
 export type TfoStopBoxInput = z.input<typeof stopBoxInput>;
 
 /**
- * Sprint 20 — Stop: the twisted output is recorded as BOXES under one warping quality (TFO output = total net wt);
- * raw returned goes back to TFO raw stock with the program's lot.
+ * Sprint 20 → 20b — Stop: boxes (numbered by the system) with rolls + gross kg; net = gross − roll weight × rolls
+ * (one roll weight for the stop). TFO output = total net; every box stays in TFO. Raw returned goes back to TFO raw stock
+ * with the program's lot.
  */
 export const tfoProgramStopSchema = z
   .object({
-    warpingQualityId: id('Select the stop quality'),
+    rollWeightKg: kg('Enter the roll weight', { allowZero: true }),
     boxes: z.array(stopBoxInput).max(MAX_BOXES_PER_STOP, `At most ${MAX_BOXES_PER_STOP} boxes`).default([]),
     twistedMeters: optNumber(100_000_000),
     returnedRawKg: kg('Enter the raw yarn returned', { allowZero: true }).nullish().transform((v) => v ?? 0),
     note: optText(1000),
   })
   .superRefine((v, ctx) => {
-    const seen = new Set<string>();
     v.boxes.forEach((b, i) => {
-      const k = boxNoKey(b.boxNo);
-      if (seen.has(k)) ctx.addIssue({ code: 'custom', path: ['boxes', i, 'boxNo'], message: 'This box no. is already on this stop' });
-      seen.add(k);
-      if (b.netKg > b.grossKg + 1e-9) ctx.addIssue({ code: 'custom', path: ['boxes', i, 'netKg'], message: 'Net wt can’t be more than gross wt' });
+      if (!(b.grossKg - v.rollWeightKg * b.rolls > 1e-9)) ctx.addIssue({ code: 'custom', path: ['boxes', i, 'grossKg'], message: 'Gross kg must be more than roll weight × rolls' });
     });
     if (!v.boxes.length && !(v.returnedRawKg > 0)) ctx.addIssue({ code: 'custom', path: ['boxes'], message: 'Add at least one box' });
   });
 export type TfoProgramStopInput = z.input<typeof tfoProgramStopSchema>;
 
-/** GET /yarn/boxes/check — the live "box no. is free" check (box numbers are unique across all boxes). */
-export const checkBoxNoQuerySchema = z.object({ boxNo: z.string().trim().min(1).max(BOX_NO_MAX_LENGTH) });
 
 export const tfoProgramsQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),

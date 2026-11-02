@@ -8,7 +8,7 @@ import {
   type BeamMoveKind,
   kgToGrams,
   kindsForFilters,
-  tfoSectionLabel,
+  programSectionsLabel,
   TRANSFER_ERROR_TEXT,
   validateTransfer,
   warpingJobLabel,
@@ -40,7 +40,7 @@ import {
   beams,
   tfoMachines,
   tfoPendingPrograms,
-  tfoPrograms,
+  tfoProgramSections,
   users,
   warpingJobs,
   warpingPendingJobInputs,
@@ -98,7 +98,7 @@ async function zoneStocks(tx: DbOrTx): Promise<YarnZoneStock[]> {
 export async function yarnSummary(): Promise<YarnSummary> {
   const [zones, [tfo], [machines], [jobs], [tfoPending], [jobsPending], recent] = await Promise.all([
     zoneStocks(db),
-    db.select({ n: sql<number>`COUNT(*)` }).from(tfoPrograms).where(eq(tfoPrograms.status, 'running')),
+    db.select({ n: sql<number>`COUNT(*)` }).from(tfoProgramSections).where(eq(tfoProgramSections.isRunning, true)),
     db.select({ n: sql<number>`COUNT(*)` }).from(tfoMachines).where(and(eq(tfoMachines.isDeleted, false), eq(tfoMachines.isActive, true))),
     db.select({ n: sql<number>`COUNT(*)` }).from(warpingJobs).where(eq(warpingJobs.status, 'in_process')),
     db.select({ n: sql<number>`COUNT(*)` }).from(tfoPendingPrograms).where(eq(tfoPendingPrograms.status, 'pending')),
@@ -235,16 +235,6 @@ export async function yarnZone(zone: YarnZone): Promise<YarnZoneData> {
 /* ------------------------------------------------------------------ */
 /* Sprint 20: lots + boxes                                              */
 /* ------------------------------------------------------------------ */
-
-/** GET /yarn/boxes/check — the live "box no. is free" check (unique across ALL boxes, any case). */
-export async function checkBoxNo(boxNo: string): Promise<{ available: boolean }> {
-  const [row] = await db
-    .select({ id: yarnBoxes.id })
-    .from(yarnBoxes)
-    .where(sql`lower(${yarnBoxes.boxNo}) = lower(${boxNo.trim()})`)
-    .limit(1);
-  return { available: !row };
-}
 
 /** GET /yarn/lots/check — the live "lot no. is free for this party" check (lots are never edited or deleted). */
 export async function checkLotNo(partyId: number, lotNo: string): Promise<{ available: boolean }> {
@@ -613,10 +603,10 @@ async function decorateMoves(rows: MoveRow[]): Promise<YarnMove[]> {
       : [],
     idsOf('program').length
       ? db
-          .select({ id: tfoPrograms.id, section: tfoPrograms.section, machineNo: tfoMachines.machineNo })
-          .from(tfoPrograms)
-          .innerJoin(tfoMachines, eq(tfoMachines.id, tfoPrograms.machineId))
-          .where(inArray(tfoPrograms.id, idsOf('program')))
+          .select({ id: tfoProgramSections.programId, section: tfoProgramSections.section, machineNo: tfoMachines.machineNo })
+          .from(tfoProgramSections)
+          .innerJoin(tfoMachines, eq(tfoMachines.id, tfoProgramSections.machineId))
+          .where(inArray(tfoProgramSections.programId, idsOf('program')))
       : [],
     idsOf('job').length ? db.select({ id: warpingJobs.id, jobNo: warpingJobs.jobNo }).from(warpingJobs).where(inArray(warpingJobs.id, idsOf('job'))) : [],
     wqIds.length ? db.select({ id: warpingQualities.id, name: warpingQualities.name }).from(warpingQualities).where(inArray(warpingQualities.id, wqIds)) : [],
@@ -639,8 +629,8 @@ async function decorateMoves(rows: MoveRow[]): Promise<YarnMove[]> {
         return r.kind === 'transfer_in' ? `From ${YARN_ZONE_CONFIG[x.from].label}` : `To ${YARN_ZONE_CONFIG[x.to].label}`;
       }
       case 'program': {
-        const x = programs.find((v) => v.id === id);
-        return x ? `Machine ${tfoSectionLabel(x.machineNo, x.section as TfoSection)}` : null;
+        const own = programs.filter((v) => v.id === id);
+        return own.length ? `Machine ${programSectionsLabel(own.map((v) => ({ machineNo: v.machineNo, section: v.section as TfoSection })))}` : null;
       }
       case 'job': {
         const x = jobs.find((v) => v.id === id);

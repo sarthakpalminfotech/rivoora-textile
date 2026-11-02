@@ -8,6 +8,8 @@ import {
   MAX_PENDING_PROGRAMS,
   NO_LOT_LABEL,
   parseKgText,
+  programSectionsLabel,
+  rawFromRolls,
   runningSectionsText,
   TAKE_ERROR_TEXT,
   TFO_SECTION_LABEL,
@@ -21,7 +23,7 @@ import {
   type TfoPendingProgramInput,
   type TfoProgram,
   type TfoSection,
-  type TwistDirection,
+  type TwistDirection, kgText, gramsToKg,
 } from '@rivoora/shared';
 import { ErrorState } from '@/components/list-parts';
 import { Button } from '@/components/ui/button';
@@ -64,85 +66,73 @@ interface ProgramRow {
   lotId: number | null;
   /** What the picked lot has free (from the lot picker). */
   lotAvailableG: number;
-  rawKg: string;
-  outputQualityId: number | null;
-  outputName?: string;
-  outputTouched: boolean;
+  rolls: string;
+  /** Winding kg (per roll). */
+  winding: string;
   tpm: string;
   direction: TwistDirection | null;
-  winding: string;
   denier: string;
   note: string;
 }
 let rowKey = 0;
-const emptyRow = (): ProgramRow => ({
-  key: ++rowKey,
-  rawQualityId: null,
-  lotId: null,
-  lotAvailableG: 0,
-  rawKg: '',
-  outputQualityId: null,
-  outputTouched: false,
-  tpm: '',
-  direction: null,
-  winding: '',
-  denier: '',
-  note: '',
-});
-/** "Add another": a new row with the previous row's quality / settings (not its lot / kg / note). */
-const copyRow = (r: ProgramRow): ProgramRow => ({ ...emptyRow(), rawQualityId: r.rawQualityId, outputQualityId: r.outputQualityId, outputName: r.outputName, outputTouched: r.outputTouched, tpm: r.tpm, direction: r.direction, winding: r.winding, denier: r.denier });
+const emptyRow = (): ProgramRow => ({ key: ++rowKey, rawQualityId: null, lotId: null, lotAvailableG: 0, rolls: '', winding: '', tpm: '', direction: null, denier: '', note: '' });
+/** "Add another": a new row with the previous row's quality / settings (not its lot / rolls / note). */
+const copyRow = (r: ProgramRow): ProgramRow => ({ ...emptyRow(), rawQualityId: r.rawQualityId, winding: r.winding, tpm: r.tpm, direction: r.direction, denier: r.denier });
 const rowFromPending = (p: TfoPendingProgram): ProgramRow => ({
   key: ++rowKey,
   rawQualityId: p.rawQuality.id,
   lotId: p.lot?.id ?? 0,
   lotAvailableG: 0,
-  rawKg: String(p.rawG / 1000),
-  outputQualityId: p.outputQuality.id,
-  outputName: p.outputQuality.name,
-  outputTouched: true,
+  // Programs created before Sprint 20b have no rolls / winding kg: start them as 1 roll of the raw kg.
+  rolls: String(p.rolls ?? 1),
+  winding: kgText(p.windingG ?? p.rawG),
   tpm: String(p.tpm),
   direction: p.direction,
-  winding: p.windingMeter != null ? String(p.windingMeter) : '',
   denier: p.denierFilament ?? '',
   note: p.note ?? '',
 });
+/** Raw kg of a row = rolls × winding kg (units); 0 while either is missing. */
+const rowRawG = (r: ProgramRow) => rawFromRolls(Number(r.rolls), parseKgText(r.winding) ?? 0);
 const toInput = (r: ProgramRow): TfoPendingProgramInput => ({
   rawQualityId: r.rawQualityId!,
   lotId: r.lotId ? r.lotId : null,
-  rawKg: parseKgText(r.rawKg)! / 1000,
-  outputQualityId: r.outputQualityId!,
-  windingMeter: numOrNull(r.winding),
+  rolls: Number(r.rolls),
+  windingKg: gramsToKg(parseKgText(r.winding)!),
   denierFilament: r.denier.trim() || null,
   tpm: Number(r.tpm),
   direction: r.direction!,
   note: r.note.trim() || null,
 });
 
-type RowErrors = Partial<Record<'raw' | 'lot' | 'rawKg' | 'output' | 'tpm' | 'direction', string>>;
+type RowErrors = Partial<Record<'raw' | 'lot' | 'rolls' | 'winding' | 'rawKg' | 'tpm' | 'direction', string>>;
 
-/** Row errors; kg of rows on the same lot add up against what that lot has free. */
+/** Row errors; raw kg (rolls × winding kg) of rows on the same lot add up against what that lot has free. */
 function rowErrors(rows: ProgramRow[]): RowErrors[] {
   const used = new Map<string, number>();
   return rows.map((r) => {
     const e: RowErrors = {};
     if (!r.rawQualityId) e.raw = 'Select the raw yarn quality';
     if (r.lotId === null) e.lot = 'Pick the lot (or No lot)';
-    const g = parseKgText(r.rawKg);
-    if (g === null || g <= 0) e.rawKg = 'Enter the raw yarn kg';
-    else if (r.rawQualityId && r.lotId !== null) {
+    if (!(Number.isInteger(Number(r.rolls)) && Number(r.rolls) >= 1)) e.rolls = 'Enter the rolls';
+    if (!((parseKgText(r.winding) ?? 0) > 0)) e.winding = 'Enter the winding kg';
+    const g = rowRawG(r);
+    if (g > 0 && r.rawQualityId && r.lotId !== null) {
       const k = `${r.rawQualityId}|${r.lotId}`;
       const total = (used.get(k) ?? 0) + g;
       used.set(k, total);
       const err = checkTake(r.lotAvailableG, total);
       if (err) e.rawKg = err === 'not_enough' ? `Only ${formatKg(r.lotAvailableG)} free on this lot` : TAKE_ERROR_TEXT[err];
     }
-    if (!r.outputQualityId) e.output = 'Select the output quality';
     if (!(numOrNull(r.tpm) && numOrNull(r.tpm)! > 0)) e.tpm = 'Enter the TPM';
     if (!r.direction) e.direction = 'Pick S, Z or S + Z';
     return e;
   });
 }
 
+/**
+ * One program's fields, in the order they are filled: raw quality · lot · rolls · winding kg → raw kg (calculated) ·
+ * TPM · direction · denier / filament · note. 2 columns on phones, 3 from 768px.
+ */
 function ProgramFields({
   row,
   set,
@@ -158,33 +148,43 @@ function ProgramFields({
   own?: { lotId: number | null; g: number }[];
   idPrefix: string;
 }) {
+  const rawG = rowRawG(row);
   return (
     <div className="grid grid-cols-2 gap-x-3 gap-y-4 md:grid-cols-3 md:gap-x-4">
       <Field label="Raw quality" required error={errors?.raw} className="col-span-2 md:col-span-1">
         <QualitySelect
           value={row.rawQualityId}
-          onChange={(id) => {
-            const name = stock.find((s) => s.id === id)?.name;
-            set({ rawQualityId: id, lotId: null, lotAvailableG: 0, ...(row.outputTouched ? {} : { outputQualityId: id, outputName: name }) });
-          }}
+          onChange={(id) => set({ rawQualityId: id, lotId: null, lotAvailableG: 0 })}
           only={stock}
           invalid={!!errors?.raw}
           placeholder={stock.length ? 'Select quality' : 'No raw yarn in TFO'}
         />
       </Field>
-      <Field label="Lot" required error={errors?.lot}>
+      <Field label="Lot" required error={errors?.lot} className="col-span-2 md:col-span-1">
         <LotSelect zone="tfo" qualityId={row.rawQualityId} value={row.lotId ?? -1} onChange={(lotId, availableG) => set({ lotId, lotAvailableG: availableG })} invalid={!!errors?.lot} own={own} />
       </Field>
-      <Field label="Raw kg" required error={errors?.rawKg} hint={row.lotId !== null ? `${formatKg(row.lotAvailableG)} free` : undefined}>
-        <KgInput value={row.rawKg} onValueChange={(v) => set({ rawKg: v })} invalid={!!errors?.rawKg} aria-label="Raw kg" />
-      </Field>
-      <Field label="Output quality" required error={errors?.output} className="col-span-2 md:col-span-1">
-        <QualitySelect
-          value={row.outputQualityId}
-          selectedLabel={row.outputName}
-          onChange={(id, q) => set({ outputTouched: true, outputQualityId: id, outputName: q?.name })}
-          invalid={!!errors?.output}
+      <Field label="Rolls" htmlFor={`${idPrefix}-rolls`} required error={errors?.rolls}>
+        <Input
+          id={`${idPrefix}-rolls`}
+          inputMode="numeric"
+          autoComplete="off"
+          value={row.rolls}
+          onChange={(e) => set({ rolls: cleanDecimal(e.target.value, 0, 7) })}
+          invalid={!!errors?.rolls}
+          className="text-right tabular-nums"
         />
+      </Field>
+      <Field label="Winding kg" required error={errors?.winding}>
+        <KgInput value={row.winding} onValueChange={(v) => set({ winding: v })} invalid={!!errors?.winding} aria-label="Winding kg" />
+      </Field>
+      <Field label="Raw kg" error={errors?.rawKg} hint={row.lotId !== null ? `Rolls × winding kg · ${formatKg(row.lotAvailableG)} free` : 'Rolls × winding kg'} className="col-span-2 md:col-span-1">
+        <div
+          className={cn('flex h-11 items-center justify-end rounded-[10px] border bg-slate-50 px-3 text-right font-semibold tabular-nums', errors?.rawKg ? 'border-destructive text-destructive' : 'border-input text-slate-900')}
+          aria-live="polite"
+          aria-label="Raw kg (calculated)"
+        >
+          {rawG > 0 ? formatKg(rawG) : <span className="font-normal text-slate-400">—</span>}
+        </div>
       </Field>
       <Field label="TPM" htmlFor={`${idPrefix}-tpm`} required error={errors?.tpm}>
         <Input
@@ -192,7 +192,7 @@ function ProgramFields({
           inputMode="decimal"
           autoComplete="off"
           value={row.tpm}
-          onChange={(e) => set({ tpm: cleanDecimal(e.target.value, 1, 6) })}
+          onChange={(e) => set({ tpm: cleanDecimal(e.target.value, 4, 6) })}
           invalid={!!errors?.tpm}
           className="text-right tabular-nums"
         />
@@ -200,13 +200,10 @@ function ProgramFields({
       <Field label="Direction" required error={errors?.direction}>
         <Toggle2 value={row.direction} onChange={(d) => set({ direction: d })} options={DIRECTION_OPTIONS} invalid={!!errors?.direction} />
       </Field>
-      <Field label="Winding meter" htmlFor={`${idPrefix}-wind`}>
-        <Input id={`${idPrefix}-wind`} inputMode="decimal" autoComplete="off" value={row.winding} onChange={(e) => set({ winding: cleanDecimal(e.target.value, 1, 8) })} className="text-right tabular-nums" />
-      </Field>
       <Field label="Denier / Filament" htmlFor={`${idPrefix}-den`}>
         <Input id={`${idPrefix}-den`} autoComplete="off" maxLength={40} value={row.denier} onChange={(e) => set({ denier: e.target.value })} placeholder="e.g. 75/36" />
       </Field>
-      <Field label="Note" htmlFor={`${idPrefix}-note`} className="col-span-2 md:col-span-1">
+      <Field label="Note" htmlFor={`${idPrefix}-note`} className="col-span-2 md:col-span-3">
         <Input id={`${idPrefix}-note`} autoComplete="off" maxLength={1000} value={row.note} onChange={(e) => set({ note: e.target.value })} />
       </Field>
     </div>
@@ -239,7 +236,7 @@ export function CreateProgramsDialog({ open, onOpenChange }: { open: boolean; on
   const stock = rawStockOf(board.data);
   const errors = rowErrors(rows);
   const set = (key: number, patch: Partial<ProgramRow>) => setRows((rs) => rs.map((r) => (r.key === key ? { ...r, ...patch } : r)));
-  const totalG = rows.reduce((s, r) => s + (parseKgText(r.rawKg) ?? 0), 0);
+  const totalG = rows.reduce((s, r) => s + rowRawG(r), 0);
 
   const submit = () => {
     setTried(true);
@@ -265,7 +262,7 @@ export function CreateProgramsDialog({ open, onOpenChange }: { open: boolean; on
       title="New TFO programs"
       description="Each program reserves its raw kg on the lot until someone starts it on a machine."
       busy={create.isPending}
-      dirty={rows.some((r) => r.rawKg || r.tpm)}
+      dirty={rows.some((r) => r.rolls || r.tpm)}
       footer={
         <div className="flex w-full flex-wrap items-center gap-2">
           <p className="mr-auto text-sm text-slate-600">
@@ -381,7 +378,7 @@ function SectionTile({ machine, section, program, selected, onPick }: { machine:
   return (
     <button
       type="button"
-      role="radio"
+      role="checkbox"
       aria-checked={selected}
       disabled={!!program}
       onClick={onPick}
@@ -398,21 +395,28 @@ function SectionTile({ machine, section, program, selected, onPick }: { machine:
   );
 }
 
-/** Start a pending program: tap an idle section (machines as cards, A on top, B below). */
+/**
+ * Start a pending program: tap one or more idle sections — any machines, both sections of one machine too (machines as
+ * cards, A on top, B below). The program runs on all of them and is stopped once.
+ */
 function StartProgramDialog({ program, onOpenChange }: { program: TfoPendingProgram | null; onOpenChange: (o: boolean) => void }) {
   const board = useTfoBoard();
   const start = useStartPendingProgram();
-  const [slot, setSlot] = useState<{ machineId: number; section: TfoSection } | null>(null);
-  useEffect(() => setSlot(null), [program]);
+  const [picked, setPicked] = useState<{ machineId: number; section: TfoSection }[]>([]);
+  useEffect(() => setPicked([]), [program]);
   if (!program) return null;
   const machines = board.data?.machines ?? [];
+  const isPicked = (machineId: number, section: TfoSection) => picked.some((x) => x.machineId === machineId && x.section === section);
+  const toggle = (machineId: number, section: TfoSection) =>
+    setPicked((xs) => (isPicked(machineId, section) ? xs.filter((x) => !(x.machineId === machineId && x.section === section)) : [...xs, { machineId, section }]));
+  const pickedLabel = programSectionsLabel(picked.map((x) => ({ machineNo: machines.find((m) => m.id === x.machineId)?.machineNo ?? 0, section: x.section })));
   const submit = () => {
-    if (!slot) return;
+    if (!picked.length) return;
     start.mutate(
-      { id: program.id, data: slot },
+      { id: program.id, data: { sections: picked } },
       {
         onSuccess: (p) => {
-          toast.success(`Program started on ${tfoSectionLabel(p.machineNo, p.section)} · ${formatKg(p.rawG)} issued`);
+          toast.success(`Program started on ${programSectionsLabel(p.sections)} · ${formatKg(p.rawG)} issued`);
           onOpenChange(false);
         },
         onError: (err) => toast.error(errorMessage(err)),
@@ -427,7 +431,7 @@ function StartProgramDialog({ program, onOpenChange }: { program: TfoPendingProg
       title="Start program"
       description={`${program.rawQuality.name} · ${lotText(program.lot)} · ${formatKg(program.rawG)} · TPM ${program.tpm} · ${TWIST_DIRECTION_LABEL[program.direction]}`}
       busy={start.isPending}
-      footer={<DialogButtons onCancel={() => onOpenChange(false)} busy={start.isPending} label={slot ? `Start on ${tfoSectionLabel(machines.find((m) => m.id === slot.machineId)?.machineNo ?? 0, slot.section)}` : 'Pick a section'} disabled={!slot} form="tfo-start-form" />}
+      footer={<DialogButtons onCancel={() => onOpenChange(false)} busy={start.isPending} label={picked.length ? `Start on ${pickedLabel}` : 'Pick sections'} disabled={!picked.length} form="tfo-start-form" />}
     >
       <form
         id="tfo-start-form"
@@ -437,19 +441,19 @@ function StartProgramDialog({ program, onOpenChange }: { program: TfoPendingProg
           submit();
         }}
       >
-        <p className="mb-3 text-sm text-slate-600">The raw kg leave TFO stock when the program starts.</p>
+        <p className="mb-3 text-sm text-slate-600">Tap one or more idle sections (any machines). The raw kg leave TFO stock when the program starts.</p>
         {board.isPending ? (
           <Skeleton className="h-40 w-full rounded-2xl" />
         ) : machines.length === 0 ? (
           <EmptyState icon={RotateCw} title="No active TFO machines" className="py-8" />
         ) : (
-          <div role="radiogroup" aria-label="Machine section" className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
+          <div role="group" aria-label="Machine sections" className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
             {machines.map((m) => (
               <div key={m.id} className="overflow-hidden rounded-xl border border-border">
                 <p className="truncate border-b border-border bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-500">Machine {m.machineNo}{m.name ? ` · ${m.name}` : ''}</p>
                 <div className="divide-y divide-border">
                   {m.sections.map((s) => (
-                    <SectionTile key={s.section} machine={m} section={s.section} program={s.program} selected={slot?.machineId === m.id && slot.section === s.section} onPick={() => setSlot({ machineId: m.id, section: s.section })} />
+                    <SectionTile key={s.section} machine={m} section={s.section} program={s.program} selected={isPicked(m.id, s.section)} onPick={() => toggle(m.id, s.section)} />
                   ))}
                 </div>
               </div>
@@ -473,7 +477,7 @@ function PickPendingDialog({ target, onOpenChange, onCreate }: { target: { machi
   const submit = () => {
     if (!picked) return;
     start.mutate(
-      { id: picked, data: { machineId: target.machine.id, section: target.section } },
+      { id: picked, data: { sections: [{ machineId: target.machine.id, section: target.section }] } },
       {
         onSuccess: () => {
           toast.success(`Program started on ${label}`);
@@ -525,7 +529,7 @@ function PickPendingDialog({ target, onOpenChange, onCreate }: { target: { machi
                     <Kg g={p.rawG} className="ml-auto font-bold" />
                   </p>
                   <p className="truncate text-sm text-slate-600">
-                    {lotText(p.lot)} · TPM {p.tpm} · {TWIST_DIRECTION_LABEL[p.direction]} → {p.outputQuality.name}
+                    {lotText(p.lot)} · TPM {p.tpm} · {TWIST_DIRECTION_LABEL[p.direction]}
                   </p>
                 </button>
               </li>
@@ -544,15 +548,17 @@ function PickPendingDialog({ target, onOpenChange, onCreate }: { target: { machi
 function RunningRow({ p, now, onStop }: { p: TfoProgram; now: number; onStop: () => void }) {
   return (
     <li className="grid grid-cols-[3.75rem_minmax(0,1fr)] items-center gap-x-3 gap-y-2 rounded-xl border border-border bg-white p-3 md:grid-cols-[4.5rem_minmax(0,1fr)_9.5rem_auto]">
-      <span className="flex h-12 items-center justify-center rounded-lg text-xl font-extrabold tabular-nums" style={{ backgroundColor: ACCENT.soft, color: ACCENT.text }}>
-        {tfoSectionLabel(p.machineNo, p.section)}
+      <span
+        className="flex min-h-12 items-center justify-center rounded-lg px-1 text-center font-extrabold leading-tight tabular-nums"
+        style={{ backgroundColor: ACCENT.soft, color: ACCENT.text, fontSize: p.sections.length > 2 ? '0.8rem' : p.sections.length > 1 ? '0.95rem' : '1.25rem' }}
+      >
+        {programSectionsLabel(p.sections)}
       </span>
       <div className="min-w-0">
-        <p className="truncate font-semibold text-slate-900">
-          {p.rawQuality.name} <span className="font-normal text-slate-400">→</span> {p.outputQuality.name}
-        </p>
+        <p className="truncate font-semibold text-slate-900">{p.rawQuality.name}</p>
         <p className="truncate text-sm text-slate-600">
           {lotText(p.lot)} · TPM {p.tpm} · {TWIST_DIRECTION_LABEL[p.direction]}
+          {p.rolls && p.windingG ? ` · ${p.rolls} rolls × ${formatKg(p.windingG)}` : ''}
         </p>
       </div>
       <p className="col-start-2 min-w-0 text-sm text-slate-600 md:col-start-auto">
@@ -572,11 +578,10 @@ function PendingRow({ p, onStart, onEdit, onCancel }: { p: TfoPendingProgram; on
   return (
     <li className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2 rounded-xl border border-border bg-white p-3 md:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_auto]">
       <div className="min-w-0">
-        <p className="truncate font-semibold text-slate-900">
-          {p.rawQuality.name} <span className="font-normal text-slate-400">→</span> {p.outputQuality.name}
-        </p>
+        <p className="truncate font-semibold text-slate-900">{p.rawQuality.name}</p>
         <p className="truncate text-sm text-slate-600">
           {lotText(p.lot)} · TPM {p.tpm} · {TWIST_DIRECTION_LABEL[p.direction]}
+          {p.rolls && p.windingG ? ` · ${p.rolls} rolls × ${formatKg(p.windingG)}` : ''}
           {p.note ? ` · ${p.note}` : ''}
         </p>
       </div>

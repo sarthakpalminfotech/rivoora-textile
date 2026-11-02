@@ -2,7 +2,7 @@ import { AlertTriangle, CheckCircle2, Loader2, Plus, Trash2, XCircle } from 'luc
 import { useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
-import { formatKg, overReceiptText, parseKgText, YARN_ZONES, type YarnZone } from '@rivoora/shared';
+import { formatKg, overReceiptText, parseKgText, YARN_ZONES, type YarnZone, gramsToKg } from '@rivoora/shared';
 import { usePageTitle } from '@/components/layout/page-title';
 import { ErrorState } from '@/components/list-parts';
 import { Button } from '@/components/ui/button';
@@ -146,9 +146,9 @@ export default function YarnReceivePage() {
         lots: lots.map((l) => ({
           poLineId: l.poLineId!,
           lotNo: l.lotNo.trim(),
-          qtyKg: parseKgText(l.kg)! / 1000,
+          qtyKg: gramsToKg(parseKgText(l.kg)!),
           boxes: l.boxes ? Number(l.boxes) : null,
-          allocations: l.allocations.filter((a) => a.zone && (parseKgText(a.kg) ?? 0) > 0).map((a) => ({ zone: a.zone!, qtyKg: parseKgText(a.kg)! / 1000 })),
+          allocations: l.allocations.filter((a) => a.zone && (parseKgText(a.kg) ?? 0) > 0).map((a) => ({ zone: a.zone!, qtyKg: gramsToKg(parseKgText(a.kg)!) })),
         })),
       },
       {

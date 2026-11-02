@@ -3,19 +3,30 @@ import {
   kindsForFilters,
   MOVE_KIND_LABEL,
   MOVE_KIND_SIGN,
+  amountPaise,
   availableAfterReserved,
+  boxNetG,
+  cleanKgText,
+  formatKg,
+  gramsToKg,
+  hasKgPrecision,
+  kgToGrams,
+  parseKgText,
   prefillBeamQuality,
+  programSectionsLabel,
+  rawFromRolls,
+  tfoOutputQualityName,
+  UNITS_PER_KG,
   validateBeam,
   validateWarpingJob,
   availableText,
-  boxesStayText,
   boxNoKey,
   stopTotals,
   validateStopBox,
 } from './yarn';
 import { switchableRoles } from './auth';
 import { can, ROLES } from './roles';
-import { tfoPendingProgramsCreateSchema, tfoProgramStopSchema, warpingJobDoneSchema, warpingPendingJobSchema, yarnManualAddSchema, yarnManualRemoveSchema } from './yarnSchemas';
+import { tfoPendingProgramsCreateSchema, tfoPendingStartSchema, tfoProgramStopSchema, warpingJobDoneSchema, warpingPendingJobSchema, yarnManualAddSchema, yarnManualRemoveSchema } from './yarnSchemas';
 
 /** Sprint 20 — lots, boxes, pending programs / jobs (pure rules). */
 
@@ -25,13 +36,13 @@ describe('reservations', () => {
     expect(availableAfterReserved(100_000, 150_000)).toBe(0);
   });
   it('picker text shows the reserved part only when there is one', () => {
-    expect(availableText(100_000, 0)).toBe('100 kg available');
-    expect(availableText(100_000, 200_000)).toBe('100 kg available · reserved 200 kg');
+    expect(availableText(1_000_000, 0)).toBe('100 kg available');
+    expect(availableText(1_000_000, 2_000_000)).toBe('100 kg available · reserved 200 kg');
   });
 });
 
 describe('pending programs', () => {
-  const base = { rawQualityId: 1, rawKg: 10, outputQualityId: 2, tpm: 600, direction: 'SZ' as const };
+  const base = { rawQualityId: 1, rolls: 10, windingKg: 1, tpm: 600, direction: 'SZ' as const };
   it('accepts S + Z and "No lot" (null / missing lot)', () => {
     const r = tfoPendingProgramsCreateSchema.parse({ programs: [base, { ...base, lotId: null }, { ...base, lotId: 5, direction: 'S' }] });
     expect(r.programs.map((p) => p.lotId ?? null)).toEqual([null, null, 5]);
@@ -42,37 +53,69 @@ describe('pending programs', () => {
   });
 });
 
-describe('stop with boxes', () => {
-  const box = { boxNo: 'B1', rolls: 10, grossG: 40_000, netG: 38_000, avgG: 3_800, zone: 'tfo' as const };
-  it('validates one box', () => {
-    expect(validateStopBox(box)).toBeNull();
-    expect(validateStopBox({ ...box, boxNo: ' ' })).toBe('box_no');
-    expect(validateStopBox({ ...box, rolls: 0 })).toBe('rolls');
-    expect(validateStopBox({ ...box, netG: 41_000 })).toBe('net_over_gross');
-    expect(validateStopBox({ ...box, avgG: 0 })).toBe('avg');
-    expect(validateStopBox(box, ['b1 '])).toBe('box_no_repeat');
+describe('Sprint 20b: TFO rolls, sections, boxes, output quality', () => {
+  const kg = (n: number) => n * UNITS_PER_KG;
+  it('raw kg = rolls × winding kg', () => {
+    expect(rawFromRolls(12, kg(4.2505))).toBe(kg(51.006));
+    expect(rawFromRolls(0, kg(4))).toBe(0);
+    expect(rawFromRolls(1.5, kg(4))).toBe(0);
+  });
+  it('net = gross − roll weight × rolls; a box needs net > 0', () => {
+    expect(boxNetG(kg(40), kg(0.25), 12)).toBe(kg(37));
+    const box = { rolls: 12, grossG: kg(40) };
+    expect(validateStopBox(box, kg(0.25))).toBeNull();
+    expect(validateStopBox({ ...box, rolls: 0 }, kg(0.25))).toBe('rolls');
+    expect(validateStopBox({ ...box, grossG: 0 }, kg(0.25))).toBe('gross');
+    expect(validateStopBox({ ...box, grossG: kg(3) }, kg(0.25))).toBe('net');
+    expect(validateStopBox(box, kg(0.25), true)).toBe('direction');
+    expect(validateStopBox({ ...box, direction: 'Z' }, kg(0.25), true)).toBeNull();
     expect(boxNoKey(' B-12 ')).toBe(boxNoKey('b-12'));
   });
-  it('totals: boxes, rolls, gross, net (= the TFO output) and how many stay in TFO', () => {
-    const t = stopTotals([
-      { ...box, zone: 'warping' },
-      { ...box, rolls: 12, netG: 37_250, zone: 'direct' },
-      { ...box, grossG: 42_000, netG: 40_000, zone: 'tfo' },
-    ]);
-    expect(t).toEqual({ boxes: 3, rolls: 32, grossG: 122_000, netG: 115_250, stayInTfo: 1 });
+  it('stop totals: boxes, rolls, gross, net (= the TFO output)', () => {
+    const t = stopTotals(
+      [
+        { rolls: 12, grossG: kg(40) },
+        { rolls: 10, grossG: kg(38.5) },
+      ],
+      kg(0.25),
+    );
+    expect(t).toEqual({ boxes: 2, rolls: 22, grossG: kg(78.5), netG: kg(73) });
   });
-  it('"stay in TFO" note', () => {
-    expect(boxesStayText(0)).toBeNull();
-    expect(boxesStayText(1)).toBe('1 box stays in TFO — move it later with Transfer.');
-    expect(boxesStayText(3)).toBe('3 boxes stay in TFO — move them later with Transfer.');
+  it('output quality name: "denier/filament RawQuality-TPM-Dir"', () => {
+    expect(tfoOutputQualityName({ denierFilament: '75/36', rawQualityName: 'Poly 75D', tpm: 600, direction: 'S' })).toBe('75/36 Poly 75D-600-S');
+    expect(tfoOutputQualityName({ denierFilament: null, rawQualityName: 'Poly 75D', tpm: 612.5, direction: 'Z' })).toBe('Poly 75D-612.5-Z');
   });
-  it('the stop schema rejects repeated box numbers and net > gross; boxes default to Stay in TFO', () => {
-    const ok = tfoProgramStopSchema.parse({ warpingQualityId: 1, boxes: [{ boxNo: 'X1', rolls: 1, grossKg: 2, netKg: 1.5, avgKg: 1.5 }] });
-    expect(ok.boxes[0].zone).toBe('tfo');
-    expect(tfoProgramStopSchema.safeParse({ warpingQualityId: 1, boxes: [{ boxNo: 'X1', rolls: 1, grossKg: 2, netKg: 1, avgKg: 1 }, { boxNo: 'x1', rolls: 1, grossKg: 2, netKg: 1, avgKg: 1 }] }).success).toBe(false);
-    expect(tfoProgramStopSchema.safeParse({ warpingQualityId: 1, boxes: [{ boxNo: 'X1', rolls: 1, grossKg: 2, netKg: 3, avgKg: 1 }] }).success).toBe(false);
-    expect(tfoProgramStopSchema.safeParse({ warpingQualityId: 1, boxes: [] }).success).toBe(false);
-    expect(tfoProgramStopSchema.safeParse({ warpingQualityId: 1, boxes: [], returnedRawKg: 5 }).success).toBe(true);
+  it('sections label', () => {
+    expect(programSectionsLabel([{ machineNo: 5, section: 'A' }, { machineNo: 3, section: 'B' }, { machineNo: 3, section: 'A' }])).toBe('3A, 3B, 5A');
+  });
+  it('schemas: start takes several sections (not twice the same); stop boxes have no number / zone, avg optional', () => {
+    expect(tfoPendingStartSchema.safeParse({ sections: [{ machineId: 1, section: 'A' }, { machineId: 1, section: 'B' }, { machineId: 2, section: 'A' }] }).success).toBe(true);
+    expect(tfoPendingStartSchema.safeParse({ sections: [{ machineId: 1, section: 'A' }, { machineId: 1, section: 'A' }] }).success).toBe(false);
+    expect(tfoPendingStartSchema.safeParse({ sections: [] }).success).toBe(false);
+    const ok = tfoProgramStopSchema.parse({ rollWeightKg: 0.25, boxes: [{ rolls: 12, grossKg: 40.1234 }] });
+    expect(ok.boxes[0].avgKg).toBeNull();
+    expect(tfoProgramStopSchema.safeParse({ rollWeightKg: 1, boxes: [{ rolls: 12, grossKg: 10 }] }).success).toBe(false);
+    expect(tfoProgramStopSchema.safeParse({ rollWeightKg: 0.25, boxes: [] }).success).toBe(false);
+    expect(tfoProgramStopSchema.safeParse({ rollWeightKg: 0.25, boxes: [], returnedRawKg: 5 }).success).toBe(true);
+    expect(tfoPendingProgramsCreateSchema.safeParse({ programs: [{ rawQualityId: 1, rolls: 12, windingKg: 4.2505, tpm: 600, direction: 'S' }] }).success).toBe(true);
+  });
+});
+
+describe('Sprint 20b: 4 decimals of kg', () => {
+  it('kg ↔ units (1 kg = 10,000)', () => {
+    expect(kgToGrams(1.2345)).toBe(12_345);
+    expect(gramsToKg(12_345)).toBe(1.2345);
+    expect(parseKgText('12.5')).toBe(125_000);
+    expect(parseKgText('.2505')).toBe(2_505);
+    expect(parseKgText('1.23456')).toBeNull();
+    expect(cleanKgText('1.234567')).toBe('1.2345');
+    expect(formatKg(12_345)).toBe('1.2345 kg');
+    expect(hasKgPrecision(1.2345)).toBe(true);
+    expect(hasKgPrecision(1.23456)).toBe(false);
+  });
+  it('amount = units × paise per kg ÷ 10,000', () => {
+    expect(amountPaise(kgToGrams(100), 25_000)).toBe(2_500_000);
+    expect(amountPaise(kgToGrams(0.0001), 25_000)).toBe(3);
   });
 });
 
