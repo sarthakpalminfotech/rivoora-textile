@@ -291,6 +291,23 @@ export interface Beam {
   createdAt: string;
   consumedAt: string | null;
   consumedNote: string | null;
+  /** Sprint 20c: the beam's own remark (typed at Mark done), else its warping job's done note. */
+  remark: string | null;
+}
+
+/** Sprint 20c: the TFO program a box came from — the stock screen groups boxes by it. */
+export interface YarnBoxProgram {
+  id: number;
+  /** "3A, 3B, 5A" */
+  sectionsLabel: string;
+  rawQuality: string;
+  lot: string | null;
+  denierFilament: string | null;
+  tpm: number;
+  direction: TwistDirection;
+  rolls: number | null;
+  startedAt: string;
+  stoppedAt: string | null;
 }
 
 export interface YarnZoneData {
@@ -308,6 +325,8 @@ export interface YarnZoneData {
   boxes: YarnBox[];
   /** Sprint 20: "No box" twisted stock here. */
   noBox: NoBoxStock[];
+  /** Sprint 20c: the programs of `boxes` (newest first). */
+  programs: YarnBoxProgram[];
 }
 
 /* ---------- TFO ---------- */

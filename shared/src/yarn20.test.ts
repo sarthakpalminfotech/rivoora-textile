@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
+  checkStartRolls,
+  withdrawWholeBoxes,
   kindsForFilters,
   MOVE_KIND_LABEL,
   MOVE_KIND_SIGN,
@@ -26,7 +28,7 @@ import {
 } from './yarn';
 import { switchableRoles } from './auth';
 import { can, ROLES } from './roles';
-import { tfoPendingProgramsCreateSchema, tfoPendingStartSchema, tfoProgramStopSchema, warpingJobDoneSchema, warpingPendingJobSchema, yarnManualAddSchema, yarnManualRemoveSchema } from './yarnSchemas';
+import { tfoPendingProgramsCreateSchema, tfoPendingStartSchema, tfoProgramStopSchema, warpingJobDoneSchema, warpingPendingJobSchema, yarnManualAddSchema, yarnManualRemoveSchema, yarnWithdrawSchema } from './yarnSchemas';
 
 /** Sprint 20 — lots, boxes, pending programs / jobs (pure rules). */
 
@@ -148,12 +150,12 @@ describe('warping: pending jobs and beams', () => {
     expect(prefillBeamQuality([{ warpingQualityId: 7 }, { warpingQualityId: 8 }])).toBeNull();
     expect(prefillBeamQuality([{ warpingQualityId: null }])).toBeNull();
   });
-  it('beam codes are unique (any case) on a job', () => {
-    const b = { beamCode: 'B-1', taar: 1, panna: 1, meters: 1, warpingQualityId: 1, zone: 'direct' };
-    expect(validateBeam(b, ['b-1'])).toBe('code_repeat');
-    expect(validateBeam({ ...b, beamCode: ' ' })).toBe('code');
-    expect(warpingJobDoneSchema.safeParse({ beams: [b, { ...b, beamCode: 'b-1 ' }] }).success).toBe(false);
-    expect(warpingJobDoneSchema.safeParse({ beams: [b, { ...b, beamCode: 'B-2' }] }).success).toBe(true);
+  it('Sprint 20c: Mark done takes no beam no. / zone (auto numbers, kept in Warping) and an optional remark', () => {
+    const b = { taar: 1, panna: 1, meters: 1, warpingQualityId: 1 };
+    expect(validateBeam(b)).toBeNull();
+    const parsed = warpingJobDoneSchema.parse({ beams: [{ ...b, beamCode: 'X', zone: 'direct', remark: '  knot at 200 m ' }, b] });
+    expect(parsed.beams[0]).toEqual({ ...b, remark: 'knot at 200 m' });
+    expect(parsed.beams[1].remark).toBeNull();
   });
 });
 
@@ -205,5 +207,28 @@ describe('manual add / remove', () => {
   it('only the owners may adjust', () => {
     expect(can('jemish', 'canAdjustYarnStock') && can('gaurang', 'canAdjustYarnStock')).toBe(true);
     expect(can('yarn_supervisor', 'canAdjustYarnStock') || can('supervisor', 'canAdjustYarnStock')).toBe(false);
+  });
+});
+
+describe('Sprint 20c', () => {
+  it('part of a pending program can start (whole rolls, not more than it has; older programs without rolls start whole)', () => {
+    expect(checkStartRolls(10, null)).toBeNull();
+    expect(checkStartRolls(10, 4)).toBeNull();
+    expect(checkStartRolls(10, 10)).toBeNull();
+    expect(checkStartRolls(10, 11)).toBe('too_many');
+    expect(checkStartRolls(10, 0)).toBe('whole');
+    expect(checkStartRolls(10, 2.5)).toBe('whole');
+    expect(checkStartRolls(null, 3)).toBe('no_rolls');
+    expect(tfoPendingStartSchema.parse({ sections: [{ machineId: 1, section: 'A' }] }).rolls).toBeNull();
+    expect(tfoPendingStartSchema.parse({ sections: [{ machineId: 1, section: 'A' }], rolls: 4 }).rolls).toBe(4);
+  });
+  it('withdraw works in TFO (raw + whole boxes) but beams only in Direct consumption', () => {
+    expect(withdrawWholeBoxes('tfo')).toBe(true);
+    expect(withdrawWholeBoxes('direct')).toBe(false);
+    const box = yarnWithdrawSchema.parse({ what: 'twisted', zone: 'tfo', boxes: [{ boxId: 3 }] });
+    expect(box.what === 'twisted' && box.boxes[0].qtyKg).toBeNull();
+    expect(yarnWithdrawSchema.safeParse({ what: 'raw', zone: 'tfo', qualityId: 1, lotId: null, qtyKg: 2 }).success).toBe(true);
+    expect(yarnWithdrawSchema.safeParse({ what: 'raw', zone: 'warping', qualityId: 1, lotId: null, qtyKg: 2 }).success).toBe(false);
+    expect(yarnWithdrawSchema.safeParse({ what: 'beams', zone: 'tfo', beamIds: [1] }).success).toBe(false);
   });
 });

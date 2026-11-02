@@ -1,7 +1,6 @@
 import { Router } from 'express';
 import {
   beamsQuerySchema,
-  checkBeamCodeQuerySchema,
   checkLotNoQuerySchema,
   noBoxQuerySchema,
   isYarnZone,
@@ -28,7 +27,6 @@ import {
 } from '../services/yarn-tfo';
 import {
   cancelPendingJob,
-  checkBeamCode,
   createPendingJob,
   finishWarpingJob,
   getWarpingJob,
@@ -113,15 +111,6 @@ yarnRouter.get(
   ah(async (req, res) => {
     res.set('Cache-Control', 'no-store');
     res.json(await listNoBoxStock(noBoxQuerySchema.parse(req.query).zone));
-  }),
-);
-
-/** Sprint 20 — the live "beam no. is free" check, used on Mark done. */
-yarnRouter.get(
-  '/beams/check',
-  ah(async (req, res) => {
-    res.set('Cache-Control', 'no-store');
-    res.json(await checkBeamCode(checkBeamCodeQuerySchema.parse(req.query).code));
   }),
 );
 

@@ -1,9 +1,9 @@
-import { Ban, CheckCircle2, Loader2, Pencil, Play, Plus, Trash2, Waves, XCircle } from 'lucide-react';
+import { Ban, CheckCircle2, Pencil, Play, Plus, Trash2, Waves } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import {
   availableText,
-  BEAM_CODE_MAX_LENGTH,
+  BEAM_REMARK_MAX_LENGTH,
   BEAM_INPUT_ERROR_TEXT,
   checkTake,
   formatKg,
@@ -20,7 +20,6 @@ import {
   warpingInputsSummary,
   warpingJobLabel,
   YARN_ZONE_CONFIG,
-  type BeamZone,
   type WarpingInputInput,
   type WarpingInputKind,
   type WarpingJob,
@@ -36,14 +35,12 @@ import { Field } from '@/components/ui/field';
 import { Input, Textarea } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
-import { useDebounce } from '@/hooks/useDebounce';
 import { ApiError, errorMessage } from '@/lib/api';
 import { formatDateTime } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import {
   useBoxStock,
   useCancelPendingJob,
-  useCheckBeamCode,
   useCreatePendingJob,
   useFinishWarping,
   useNoBoxStock,
@@ -512,77 +509,52 @@ export function WarpingJobDialog({ open, onOpenChange, job }: { open: boolean; o
 
 interface BeamRow {
   key: number;
-  code: string;
   wqId: number | null;
   wqName?: string;
   taar: string;
   panna: string;
   meters: string;
-  zone: BeamZone | null;
+  remark: string;
 }
 const newBeam = (job: WarpingJob | null, prev?: BeamRow): BeamRow => {
   const wq = prefillBeamQuality(job?.inputs ?? []);
   const wqName = wq ? job?.inputs.find((i) => i.warpingQualityId === wq)?.quality.name : undefined;
   return {
     key: ++rowKey,
-    code: '',
     wqId: prev?.wqId ?? wq,
     wqName: prev ? prev.wqName : wqName,
     taar: prev?.taar ?? (job?.taar != null ? String(job.taar) : ''),
     panna: prev?.panna ?? (job?.panna != null ? String(job.panna) : ''),
     meters: job && !job.fullMeter && job.meters != null ? String(job.meters) : '',
-    zone: prev?.zone ?? null,
+    remark: '',
   };
 };
 
-const BEAM_ZONE_OPTIONS = [
-  { value: 'direct' as const, label: 'Direct' },
-  { value: 'warping' as const, label: 'Warping' },
-];
-
-function BeamCodeStatus({ code, onTaken }: { code: string; onTaken: (t: boolean) => void }) {
-  const debounced = useDebounce(code.trim(), 300);
-  const check = useCheckBeamCode(debounced, debounced.length > 0);
-  const taken = debounced === code.trim() && check.data?.available === false;
-  useEffect(() => onTaken(taken), [taken, onTaken]);
-  if (!code.trim()) return null;
-  if (check.isFetching || debounced !== code.trim()) return <Loader2 className="size-4 animate-spin text-slate-400" aria-label="Checking" />;
-  if (check.data?.available === false) return <XCircle className="size-4 text-rose-600" aria-label="Beam no. already used" />;
-  if (check.data?.available) return <CheckCircle2 className="size-4 text-emerald-600" aria-label="Beam no. is free" />;
-  return null;
-}
-
 /**
- * Mark done (wide dialog): one or more beams — Beam no. · Warping quality · Taar · Panna · Meters · Keep in — one
- * table row each from 768px, cards on phones. Taar / panna / meters come from the job (meters empty with Full meter).
+ * Mark done (wide dialog): one or more beams — Warping quality · Taar · Panna · Meters · Remark — one table row each
+ * from 768px, cards on phones. Sprint 20c: beam numbers are given by the system and every beam stays in Warping
+ * (move it later with Transfer). Taar / panna / meters come from the job (meters empty with Full meter).
  */
 export function MarkDoneDialog({ job, onOpenChange }: { job: WarpingJob | null; onOpenChange: (o: boolean) => void }) {
   const open = !!job;
   const finish = useFinishWarping(job?.id ?? 0);
   const [rows, setRows] = useState<BeamRow[]>(() => [newBeam(null)]);
-  const [taken, setTaken] = useState<Record<number, boolean>>({});
   const [note, setNote] = useState('');
   const [tried, setTried] = useState(false);
   const [serverErr, setServerErr] = useState<{ field: string; message: string } | null>(null);
   useEffect(() => {
     if (open) {
       setRows([newBeam(job)]);
-      setTaken({});
       setNote('');
       setTried(false);
       setServerErr(null);
     }
   }, [open, job]);
 
-  const parsed = rows.map((r) => ({ beamCode: r.code, taar: Number(r.taar), panna: numOrNull(r.panna) ?? 0, meters: numOrNull(r.meters) ?? 0, warpingQualityId: r.wqId ?? 0, zone: r.zone ?? '' }));
-  const errs = parsed.map((b, i) => {
-    const e = validateBeam(
-      b,
-      parsed.slice(0, i).map((x) => x.beamCode),
-    );
-    if (e) return BEAM_INPUT_ERROR_TEXT[e];
-    if (taken[rows[i].key]) return 'This beam no. is already used';
-    return null;
+  const parsed = rows.map((r) => ({ taar: Number(r.taar), panna: numOrNull(r.panna) ?? 0, meters: numOrNull(r.meters) ?? 0, warpingQualityId: r.wqId ?? 0, remark: r.remark.trim() || null }));
+  const errs = parsed.map((b) => {
+    const e = validateBeam(b);
+    return e ? BEAM_INPUT_ERROR_TEXT[e] : null;
   });
   const set = (key: number, patch: Partial<BeamRow>) => setRows((rs) => rs.map((r) => (r.key === key ? { ...r, ...patch } : r)));
   const submit = () => {
@@ -590,10 +562,10 @@ export function MarkDoneDialog({ job, onOpenChange }: { job: WarpingJob | null; 
     setServerErr(null);
     if (errs.some(Boolean)) return;
     finish.mutate(
-      { beams: parsed.map((b) => ({ ...b, beamCode: b.beamCode.trim(), zone: b.zone as BeamZone })), note: note.trim() || null },
+      { beams: parsed, note: note.trim() || null },
       {
         onSuccess: (res) => {
-          toast.success(`${job ? warpingJobLabel(job.jobNo) : 'Job'} done · ${res.beams.map((b) => b.beamCode).join(', ')}`);
+          toast.success(`${job ? warpingJobLabel(job.jobNo) : 'Job'} done · beam${res.beams.length === 1 ? '' : 's'} ${res.beams.map((b) => b.beamCode).join(', ')} in Warping`);
           onOpenChange(false);
         },
         onError: (err) => {
@@ -603,7 +575,7 @@ export function MarkDoneDialog({ job, onOpenChange }: { job: WarpingJob | null; 
       },
     );
   };
-  const GRID = 'md:grid-cols-[minmax(0,1fr)_minmax(0,1.7fr)_4.75rem_4.75rem_6.25rem_8.5rem_2.5rem]';
+  const GRID = 'md:grid-cols-[minmax(0,1.6fr)_4.75rem_4.75rem_6.25rem_minmax(0,1.2fr)_2.5rem]';
 
   return (
     <YarnDialog
@@ -611,9 +583,9 @@ export function MarkDoneDialog({ job, onOpenChange }: { job: WarpingJob | null; 
       onOpenChange={onOpenChange}
       layout="wide"
       title={job ? `Mark done · ${warpingJobLabel(job.jobNo)}` : 'Mark done'}
-      description={job ? `${warpingInputsSummary(job.inputs)}${sizeText(job) ? ` · ${sizeText(job)}` : ''} · the date is set automatically.` : undefined}
+      description={job ? `${warpingInputsSummary(job.inputs)}${sizeText(job) ? ` · ${sizeText(job)}` : ''} · beam no. and date are set automatically; beams stay in Warping.` : undefined}
       busy={finish.isPending}
-      dirty={rows.some((r) => r.code || r.meters)}
+      dirty={rows.some((r) => r.meters || r.remark)}
       footer={<DialogButtons onCancel={() => onOpenChange(false)} busy={finish.isPending} label={`Done · ${rows.length} beam${rows.length === 1 ? '' : 's'}`} form="warp-done-form" />}
     >
       <form
@@ -628,12 +600,11 @@ export function MarkDoneDialog({ job, onOpenChange }: { job: WarpingJob | null; 
         {serverErr && <p className="rounded-xl bg-rose-50 px-3 py-2 text-sm font-medium text-rose-700">{serverErr.message}</p>}
         {job?.fullMeter && <p className="rounded-xl bg-amber-50 px-3 py-2 text-sm font-medium text-amber-900">Full meter job — enter the meters of each beam.</p>}
         <div className={cn('hidden gap-x-2 border-b border-border pb-2 text-xs font-semibold uppercase tracking-wide text-slate-500 md:grid', GRID)}>
-          <span>Beam no. *</span>
           <span>Warping quality *</span>
           <span className="text-right">Taar *</span>
           <span className="text-right">Panna *</span>
           <span className="text-right">Meters *</span>
-          <span>Keep in *</span>
+          <span>Remark</span>
           <span />
         </div>
         <ol className="space-y-3 md:-mt-4 md:space-y-0">
@@ -641,30 +612,20 @@ export function MarkDoneDialog({ job, onOpenChange }: { job: WarpingJob | null; 
             const err = tried ? errs[i] : null;
             return (
               <li key={r.key} className={cn('grid grid-cols-3 gap-3 rounded-xl border border-border p-3 md:items-start md:gap-2 md:rounded-none md:border-0 md:border-b md:px-0 md:py-2.5', GRID)}>
-                <div className="col-span-3 md:col-span-1">
-                  <Input
-                    value={r.code}
-                    maxLength={BEAM_CODE_MAX_LENGTH}
-                    autoComplete="off"
-                    placeholder="Beam no."
-                    onChange={(e) => set(r.key, { code: e.target.value })}
-                    suffix={<BeamCodeStatus code={r.code} onTaken={(t) => setTaken((m) => (m[r.key] === t ? m : { ...m, [r.key]: t }))} />}
-                    aria-label={`Beam ${i + 1} no.`}
-                  />
-                </div>
+                <p className="col-span-3 text-xs font-bold uppercase tracking-wide text-slate-500 md:hidden">Beam {i + 1}</p>
                 <div className="col-span-3 min-w-0 md:col-span-1">
                   <WarpingQualitySelect value={r.wqId} selectedLabel={r.wqName} onChange={(id, name) => set(r.key, { wqId: id, wqName: name })} invalid={!!err && !r.wqId} />
                 </div>
                 <Input inputMode="numeric" autoComplete="off" placeholder="Taar" value={r.taar} onChange={(e) => set(r.key, { taar: cleanDecimal(e.target.value, 0, 7) })} className="text-right tabular-nums" aria-label={`Beam ${i + 1} taar`} />
                 <Input inputMode="decimal" autoComplete="off" placeholder="Panna" value={r.panna} onChange={(e) => set(r.key, { panna: cleanDecimal(e.target.value, 4, 6) })} className="text-right tabular-nums" aria-label={`Beam ${i + 1} panna`} />
                 <Input inputMode="decimal" autoComplete="off" placeholder="Meters" value={r.meters} onChange={(e) => set(r.key, { meters: cleanDecimal(e.target.value, 4, 8) })} className="text-right tabular-nums" aria-label={`Beam ${i + 1} meters`} />
-                <div className="col-span-2 md:col-span-1">
-                  <Toggle2 value={r.zone} onChange={(z) => set(r.key, { zone: z })} options={BEAM_ZONE_OPTIONS} invalid={!!err && !r.zone} />
+                <div className="col-span-2 min-w-0 md:col-span-1">
+                  <Input autoComplete="off" placeholder="Remark" maxLength={BEAM_REMARK_MAX_LENGTH} value={r.remark} onChange={(e) => set(r.key, { remark: e.target.value })} aria-label={`Beam ${i + 1} remark`} />
                 </div>
                 <Button variant="ghost" size="icon" className="justify-self-end text-slate-400 hover:text-destructive" disabled={rows.length === 1} onClick={() => setRows((rs) => rs.filter((x) => x.key !== r.key))} aria-label={`Remove beam ${i + 1}`}>
                   <Trash2 />
                 </Button>
-                {err && <p className="col-span-3 text-[13px] font-medium text-destructive md:col-span-7">{err}</p>}
+                {err && <p className="col-span-3 text-[13px] font-medium text-destructive md:col-span-6">{err}</p>}
               </li>
             );
           })}

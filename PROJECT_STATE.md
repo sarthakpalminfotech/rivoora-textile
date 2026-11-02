@@ -1139,3 +1139,10 @@ TFO create: rolls × winding kg = raw kg, no output quality; start on several ma
 
 - Verified: typecheck, `npm test` 421 passing, build OK; `check-sprint20` (with multi-section start, S/Z boxes, auto numbers / qualities, 4-decimal raw kg) and the updated `check-sprint17`, plus check-auth / -13 / -15 / -16 / -18 / -19, pass on a local file DB; migration 0020 tried on a copy with real-shaped yarn data (every balance exactly ×10, running programs kept their sections) and on a pre-0019 database (both checks pass); browser click-through at 1024px of create → start on 3 sections → stop with S / Z boxes; screenshots at 360 / 768 / 1024 (no overflow).
 - **Turso**: migration 0020 multiplies every yarn quantity by 10 — run it together with the deploy (a write by the old code after the migration, or by the new code before it, would be off by 10×).
+
+### Sprint 20c (client feedback, done) — current as of 2026-11-02
+
+Yarn stock screen `/yarn/:zone/stock` (search + type / quality filters; TFO boxes grouped by program, collapsible, with a By quality toggle; Yarn | Beams toggle in zones with beams; beams show their remark after the meters), part start of a pending TFO program (rolls to start now), Withdraw in TFO (raw yarn, whole boxes), auto beam numbers from 1 (skipping used ones), every new beam kept in Warping. Details in CLAUDE.md "Sprint 20c".
+
+- Verified: typecheck, `npm test` 423 passing; `check-sprint20` (100 checks, now incl. part start, TFO withdraw, auto beam numbers + remark) and `check-sprint17` pass on a local file DB; screenshots at 390 / 1280 of the stock screens, zone screens, Start and Withdraw dialogs (no overflow).
+- **Turso**: migration `0021_sprint20c_beam_remark.sql` — one nullable column `beams.remark` (additive; safe before or after the deploy).

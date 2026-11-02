@@ -243,7 +243,7 @@ describe('beams', () => {
     expect(out.map((b) => validateBeam(b))).toEqual([null, null]);
     expect(beamsByZone(out)).toEqual({ direct: 1, warping: 1 });
     expect(validateBeam({ ...out[0], taar: 10.5 })).toBe('taar');
-    expect(validateBeam({ ...out[0], zone: 'tfo' })).toBe('zone');
+    expect(validateBeam({ ...out[0], warpingQualityId: 0 })).toBe('quality');
     expect(validateBeam({ ...out[0], meters: 0 })).toBe('meters');
   });
 });

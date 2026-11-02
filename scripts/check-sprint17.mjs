@@ -270,16 +270,19 @@ check(job.status === 'in_process' && job.inputs.length === 3 && job.totalG === 8
 const inProcess = await ok('jemish', 'GET', '/yarn/warping/jobs?status=in_process');
 check(inProcess.items.some((j) => j.id === job.id), 'in-process list has the job');
 await reconcile('warping issue');
-const beam = (n, zone) => ({ beamCode: `B${n}-${tag}`, warpingQualityId: wqTw.id, taar: 4800, panna: 52, meters: 1200, zone });
-const done = await ok('yarn', 'POST', `/yarn/warping/jobs/${job.id}/done`, { beams: [beam(1, 'direct'), { ...beam(2, 'warping'), panna: 52.5, meters: 1150.5 }] });
-expectedBeams = { direct: expectedBeams.direct + 1, warping: expectedBeams.warping + 1 };
-check(done.beams.length === 2 && done.beams[0].beamCode === `B1-${tag}`, 'two beams with typed numbers');
-check((await call('jemish', 'POST', `/yarn/warping/jobs/${job.id}/done`, { beams: [beam(3, 'direct')] })).status === 409, 'a done job cannot be done again');
-await reconcile('warping done → 1 beam Direct, 1 beam Warping');
+const beam = () => ({ warpingQualityId: wqTw.id, taar: 4800, panna: 52, meters: 1200 });
+const done = await ok('yarn', 'POST', `/yarn/warping/jobs/${job.id}/done`, { beams: [beam(), { ...beam(), panna: 52.5, meters: 1150.5 }] });
+expectedBeams = { ...expectedBeams, warping: expectedBeams.warping + 2 };
+check(done.beams.length === 2 && done.beams.every((b) => /^\d+$/.test(b.beamCode) && b.zone === 'warping'), 'two beams with system numbers, kept in Warping');
+check((await call('jemish', 'POST', `/yarn/warping/jobs/${job.id}/done`, { beams: [beam()] })).status === 409, 'a done job cannot be done again');
+await reconcile('warping done → 2 beams in Warping');
+await ok('yarn', 'POST', '/yarn/transfers', { what: 'beams', from: 'warping', to: 'direct', beamIds: [done.beams[0].id] });
+expectedBeams = { direct: expectedBeams.direct + 1, warping: expectedBeams.warping - 1 };
+await reconcile('one beam moved to Direct consumption by Transfer');
 
 // ---------------------------------------------------------------- beams: transfer rule + consume
-const directBeam = done.beams.find((b) => b.zone === 'direct');
-const warpBeam = done.beams.find((b) => b.zone === 'warping');
+const directBeam = done.beams[0];
+const warpBeam = done.beams[1];
 check((await call('jemish', 'POST', '/yarn/transfers', { what: 'beams', from: 'warping', to: 'tfo', beamIds: [warpBeam.id] })).status === 400, 'beams cannot go to TFO');
 check((await call('jemish', 'POST', '/yarn/transfers', { what: 'beams', from: 'direct', to: 'warping', beamIds: [warpBeam.id] })).status === 409, 'a beam not in the From zone → 409');
 check((await call('jemish', 'POST', '/yarn/withdrawals', { what: 'beams', zone: 'direct', beamIds: [warpBeam.id] })).status === 409, 'cannot consume a beam that is in Warping from Direct consumption');
@@ -296,7 +299,7 @@ await reconcile('beam Warping → Direct consumption');
 
 // ---------------------------------------------------------------- withdraw yarn (Direct consumption) + no negative
 check((await call('jemish', 'POST', '/yarn/withdrawals', { what: 'raw', zone: 'direct', qualityId: q75.id, lotId: lot1, qtyKg: 5.0001 })).status === 409, 'withdraw more than available → 409');
-check((await call('jemish', 'POST', '/yarn/withdrawals', { what: 'raw', zone: 'tfo', qualityId: q75.id, lotId: lot1, qtyKg: 1 })).status === 400, 'withdraw is Direct consumption only');
+check((await call('jemish', 'POST', '/yarn/withdrawals', { what: 'raw', zone: 'warping', qualityId: q75.id, lotId: lot1, qtyKg: 1 })).status === 400, 'withdraw is Direct consumption / TFO only');
 await ok('yarn', 'POST', '/yarn/withdrawals', { what: 'raw', zone: 'direct', qualityId: q75.id, lotId: lot1, qtyKg: 5 });
 add('direct', 'raw', q75.id, -50_000);
 await reconcile('withdraw the last 5 kg 75D from Direct consumption');

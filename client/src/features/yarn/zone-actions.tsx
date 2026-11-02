@@ -7,6 +7,9 @@ import { WarpingJobDialog } from './warping';
 /** The two buttons of every zone: Transfer, and Withdraw / New programs / Start warping. */
 export type ZoneAction = { kind: 'transfer' | 'withdraw' | 'program' | 'warping'; zone: YarnZone };
 
+/** Sprint 20c: TFO has a Withdraw button besides New programs (raw yarn, whole boxes). */
+export const zoneHasExtraWithdraw = (zone: YarnZone) => zone === 'tfo';
+
 /** The zone's second action. Sprint 20: new TFO programs / warping jobs are created by the owners only (`canPlanYarn`). */
 export function zoneMainAction(zone: YarnZone, can: (p: keyof RolePermissions) => boolean): ZoneAction['kind'] | null {
   if (zone === 'direct') return 'withdraw';
@@ -22,7 +25,7 @@ export function ZoneActionDialogs({ action, onClose }: { action: ZoneAction | nu
   return (
     <>
       <TransferDialog open={action?.kind === 'transfer'} onOpenChange={(o) => !o && onClose()} from={lastZone.current} />
-      <WithdrawDialog open={action?.kind === 'withdraw'} onOpenChange={(o) => !o && onClose()} />
+      <WithdrawDialog open={action?.kind === 'withdraw'} onOpenChange={(o) => !o && onClose()} zone={lastZone.current === 'tfo' ? 'tfo' : 'direct'} />
       <CreateProgramsDialog open={action?.kind === 'program'} onOpenChange={(o) => !o && onClose()} />
       <WarpingJobDialog open={action?.kind === 'warping'} onOpenChange={(o) => !o && onClose()} />
     </>

@@ -1454,6 +1454,8 @@ export const beams = sqliteTable(
      */
     beamCode: text('beam_code'),
     warpingQualityId: integer('warping_quality_id').references(() => warpingQualities.id),
+    /** Sprint 20c: the beam's remark, typed at Mark done (optional). */
+    remark: text('remark'),
   },
   (t) => [
     uniqueIndex('beams_beam_no_unique').on(t.beamNo),

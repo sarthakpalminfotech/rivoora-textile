@@ -11,6 +11,7 @@ import {
   programSectionsLabel,
   TRANSFER_ERROR_TEXT,
   validateTransfer,
+  withdrawWholeBoxes,
   warpingJobLabel,
   YARN_ZONE_CONFIG,
   YARN_ZONES,
@@ -24,6 +25,7 @@ import {
   type RoleKey,
   type TfoSection,
   type YarnBox,
+  type YarnBoxProgram,
   type YarnItem,
   type YarnLotStock,
   type YarnMove,
@@ -41,6 +43,7 @@ import {
   tfoMachines,
   tfoPendingPrograms,
   tfoProgramSections,
+  tfoPrograms,
   users,
   warpingJobs,
   warpingPendingJobInputs,
@@ -136,6 +139,7 @@ const beamColumns = {
   createdAt: beams.createdAt,
   consumedAt: beams.consumedAt,
   consumedNote: beams.consumedNote,
+  remark: sql<string | null>`COALESCE(${beams.remark}, ${warpingJobs.doneNote})`,
 };
 
 type BeamRow = Omit<Beam, 'quality' | 'warpingQuality'> & { qualityId: number; qualityName: string; warpingQualityId: number | null; warpingQualityName: string | null };
@@ -156,6 +160,40 @@ export async function listBeams(q: { zone?: BeamZone; status?: Beam['status'] })
     .orderBy(desc(beams.id))
     .limit(500);
   return rows.map(toBeam);
+}
+
+/** Sprint 20c: the TFO programs these boxes came from (the stock screen groups boxes by program), newest first. */
+async function boxPrograms(programIds: number[]): Promise<YarnBoxProgram[]> {
+  const ids = [...new Set(programIds)];
+  if (!ids.length) return [];
+  const [rows, sections] = await Promise.all([
+    db
+      .select({
+        id: tfoPrograms.id,
+        rawQuality: yarnQualities.name,
+        lot: yarnLots.lotNo,
+        denierFilament: tfoPrograms.denierFilament,
+        tpm: tfoPrograms.tpm,
+        direction: tfoPrograms.direction,
+        rolls: tfoPrograms.rolls,
+        startedAt: tfoPrograms.startedAt,
+        stoppedAt: tfoPrograms.stoppedAt,
+      })
+      .from(tfoPrograms)
+      .innerJoin(yarnQualities, eq(yarnQualities.id, tfoPrograms.rawQualityId))
+      .leftJoin(yarnLots, eq(yarnLots.id, tfoPrograms.lotId))
+      .where(inArray(tfoPrograms.id, ids))
+      .orderBy(desc(tfoPrograms.id)),
+    db
+      .select({ programId: tfoProgramSections.programId, machineNo: tfoMachines.machineNo, section: tfoProgramSections.section })
+      .from(tfoProgramSections)
+      .innerJoin(tfoMachines, eq(tfoMachines.id, tfoProgramSections.machineId))
+      .where(inArray(tfoProgramSections.programId, ids)),
+  ]);
+  return rows.map((r) => ({
+    ...r,
+    sectionsLabel: programSectionsLabel(sections.filter((x) => x.programId === r.id).map((x) => ({ machineNo: x.machineNo, section: x.section as TfoSection }))),
+  }));
 }
 
 export async function yarnZone(zone: YarnZone): Promise<YarnZoneData> {
@@ -221,6 +259,7 @@ export async function yarnZone(zone: YarnZone): Promise<YarnZoneData> {
       .sort((a, b) => a.quality.name.localeCompare(b.quality.name) || (a.lot ? 1 : 0) - (b.lot ? 1 : 0) || (a.lot?.lotNo ?? '').localeCompare(b.lot?.lotNo ?? '', undefined, { numeric: true })),
     boxes,
     noBox,
+    programs: await boxPrograms(boxes.map((b) => b.programId)),
     stock: stocks.find((s) => s.zone === zone)!,
     qualities: qualities
       .map((q) => ({ quality: { id: q.id, name: q.name, denier: q.denier, filament: q.filament }, rawG: Number(q.rawG), twistedG: Number(q.twistedG) }))
@@ -785,8 +824,9 @@ export async function createTransfer(role: RoleKey, input: unknown): Promise<{ t
 /* ------------------------------------------------------------------ */
 
 /**
- * POST /yarn/withdrawals — Direct consumption only: yarn used (ledger `withdraw`, balance checked) or beams consumed
- * (status Consumed with date / by / note, a `consumed` beam move). No loom link.
+ * POST /yarn/withdrawals — Direct consumption: yarn used (ledger `withdraw`, balance checked) or beams consumed
+ * (status Consumed with date / by / note, a `consumed` beam move; no loom link). Sprint 20c: TFO too — raw yarn
+ * (pending programs' reservations respected) and WHOLE boxes.
  */
 export async function createWithdrawal(role: RoleKey, input: unknown): Promise<{ withdrawalId: number }> {
   const data = yarnWithdrawSchema.parse(input);
@@ -838,7 +878,9 @@ export async function createWithdrawal(role: RoleKey, input: unknown): Promise<{
       const toMarkUsed: number[] = [];
       for (const b of data.boxes) {
         const box = byId.get(b.boxId)!;
-        const qtyG = kgToGrams(b.qtyKg);
+        // Sprint 20c: null kg = the whole box; in TFO a box always goes whole.
+        const qtyG = b.qtyKg === null || withdrawWholeBoxes(data.zone) ? box.remainingG : kgToGrams(b.qtyKg);
+        if (qtyG <= 0) throw conflict(`Box ${box.boxNo} is empty — refresh and try again.`, 'boxes');
         await takeStock(tx, {
           zone: data.zone,
           item: 'twisted',
@@ -939,7 +981,9 @@ export async function manualRemove(role: RoleKey, input: unknown): Promise<{ adj
       const toMarkUsed: number[] = [];
       for (const b of data.boxes) {
         const box = byId.get(b.boxId)!;
-        const qtyG = kgToGrams(b.qtyKg);
+        // Sprint 20c: null kg = the whole box; in TFO a box always goes whole.
+        const qtyG = b.qtyKg === null || withdrawWholeBoxes(data.zone) ? box.remainingG : kgToGrams(b.qtyKg);
+        if (qtyG <= 0) throw conflict(`Box ${box.boxNo} is empty — refresh and try again.`, 'boxes');
         await takeStock(tx, { ...common, item: 'twisted', qualityId: sysQ, boxId: box.id, warpingQualityId: box.warpingQuality.id, qtyG, qualityName: `box ${box.boxNo}`, field: 'boxes' });
         if (box.remainingG - qtyG <= 0) toMarkUsed.push(box.id);
       }

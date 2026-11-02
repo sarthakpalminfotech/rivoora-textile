@@ -1,14 +1,11 @@
-import { ArrowLeftRight, Cylinder, LayoutGrid, Plus, SlidersHorizontal } from 'lucide-react';
+import { ArrowLeftRight, Boxes, ChevronRight, LayoutGrid, PackageMinus, Plus, SlidersHorizontal } from 'lucide-react';
 import { useState } from 'react';
-import { Navigate, useParams, useSearchParams } from 'react-router-dom';
-import { isYarnZone, YARN_ZONE_CONFIG, type Beam, type YarnZone } from '@rivoora/shared';
+import { Link, Navigate, useParams, useSearchParams } from 'react-router-dom';
+import { isYarnZone, YARN_ZONE_CONFIG, type YarnZone, type YarnZoneData } from '@rivoora/shared';
 import { usePageTitle } from '@/components/layout/page-title';
 import { ErrorState } from '@/components/list-parts';
 import { Button } from '@/components/ui/button';
-import { EmptyState } from '@/components/ui/empty-state';
-import { Skeleton } from '@/components/ui/skeleton';
 import { useRole } from '@/hooks/useRole';
-import { formatDate } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { useYarnSummary, useYarnZone } from './api';
 import { ManualStockDialog } from './manual-stock';
@@ -16,80 +13,63 @@ import { MovementsSection } from './movements';
 import { BackLink, Kg, ZONE_ICON } from './parts';
 import { MachineViewDialog, TfoProgramsSection } from './tfo-board';
 import { WarpingJobsSection } from './warping';
-import { ZoneActionDialogs, zoneMainAction, type ZoneAction } from './zone-actions';
-import { ZoneStockView } from './zone-stock';
+import { ZoneActionDialogs, zoneHasExtraWithdraw, zoneMainAction, type ZoneAction } from './zone-actions';
 
-function BeamsList({ beams }: { beams: Beam[] }) {
-  if (!beams.length) return <EmptyState icon={Cylinder} title="No beams here" description="Beams come from finished warping jobs." className="py-8" />;
-  return (
-    <>
-      <div className="hidden md:block">
-        <table className="w-full table-fixed text-sm">
-          <thead className="border-b border-border text-xs font-semibold uppercase tracking-wide text-slate-500">
-            <tr>
-              <th className="w-[16%] py-2 text-left">Beam</th>
-              <th className="py-2 text-left">Quality</th>
-              <th className="w-[11%] py-2 text-right">Taar</th>
-              <th className="w-[11%] py-2 text-right">Panna</th>
-              <th className="w-[14%] py-2 text-right">Meters</th>
-              <th className="w-[19%] py-2 pl-3 text-left">Made on</th>
-            </tr>
-          </thead>
-          <tbody>
-            {beams.map((b) => (
-              <tr key={b.id} className="border-b border-border last:border-0">
-                <td className="py-2.5 font-bold tabular-nums text-slate-900">{b.beamCode}</td>
-                <td className="truncate py-2.5 font-medium text-slate-800">{b.quality.name}</td>
-                <td className="py-2.5 text-right tabular-nums">{b.taar}</td>
-                <td className="py-2.5 text-right tabular-nums">{b.panna}</td>
-                <td className="py-2.5 text-right tabular-nums">{b.meters.toLocaleString('en-IN')}</td>
-                <td className="py-2.5 pl-3 text-slate-500">
-                  {formatDate(b.createdAt)}
-                  {b.warpingJobNo ? <span className="ml-1 text-xs text-slate-400">WJ-{b.warpingJobNo}</span> : null}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      <ul className="divide-y divide-border md:hidden">
-        {beams.map((b) => (
-          <li key={b.id} className="py-2.5">
-            <p className="flex items-baseline gap-2">
-              <span className="font-bold tabular-nums text-slate-900">{b.beamCode}</span>
-              <span className="truncate text-sm font-medium text-slate-700">{b.quality.name}</span>
-            </p>
-            <p className="text-xs text-slate-500">
-              Taar {b.taar} · Panna {b.panna} · {b.meters.toLocaleString('en-IN')} m · {formatDate(b.createdAt)}
-            </p>
-          </li>
-        ))}
-      </ul>
-    </>
-  );
-}
+type ZoneTab = 'running' | 'pending' | 'in_process' | 'done';
 
-type ZoneTab = 'running' | 'pending' | 'in_process' | 'done' | 'stock' | 'beams';
-
-/** The tabs of each zone screen (§9): TFO Running | Pending | Stock · Warping In process | Pending | Stock | Beams | Done · Direct Stock | Beams. */
+/**
+ * The tabs of each zone screen: TFO Running | Pending · Warping In process | Pending | Done · Direct none. Sprint 20c:
+ * Stock (and Beams) moved to their own screen, `/yarn/:zone/stock`, opened from the Stock card.
+ */
 const ZONE_TABS: Record<YarnZone, { key: ZoneTab; label: string }[]> = {
   tfo: [
     { key: 'running', label: 'Running' },
     { key: 'pending', label: 'Pending' },
-    { key: 'stock', label: 'Stock' },
   ],
   warping: [
     { key: 'in_process', label: 'In process' },
     { key: 'pending', label: 'Pending' },
-    { key: 'stock', label: 'Stock' },
-    { key: 'beams', label: 'Beams' },
     { key: 'done', label: 'Done' },
   ],
-  direct: [
-    { key: 'stock', label: 'Stock' },
-    { key: 'beams', label: 'Beams' },
-  ],
+  direct: [],
 };
+
+/** Sprint 20c — the zone's stock at a glance; the whole card opens the stock screen. */
+function StockCard({ zone, data }: { zone: YarnZone; data: YarnZoneData | undefined }) {
+  const c = YARN_ZONE_CONFIG[zone];
+  const Item = ({ label, children }: { label: string; children: React.ReactNode }) => (
+    <div className="min-w-0">
+      <p className="truncate text-xs font-semibold uppercase tracking-wide text-slate-400">{label}</p>
+      <p className="truncate text-lg font-bold tabular-nums text-slate-900">{children}</p>
+    </div>
+  );
+  return (
+    <Link
+      to={`/yarn/${zone}/stock`}
+      className="group block rounded-2xl border border-border bg-white p-4 shadow-soft transition-colors hover:bg-slate-50/70 md:p-5"
+      aria-label={`Open ${c.label} stock`}
+    >
+      <div className="flex items-center gap-3">
+        <span className="flex size-11 shrink-0 items-center justify-center rounded-xl" style={{ backgroundColor: c.accent.soft, color: c.accent.solid }}>
+          <Boxes className="size-6" aria-hidden />
+        </span>
+        <div className="min-w-0 flex-1">
+          <h2 className="text-[15px] font-bold text-slate-900">Stock</h2>
+          <p className="truncate text-sm text-slate-500">{c.hasBeams ? 'Yarn, boxes and beams — search and filter' : 'Raw yarn and boxes by program — search and filter'}</p>
+        </div>
+        <span className="inline-flex shrink-0 items-center gap-1 text-sm font-semibold" style={{ color: c.accent.text }}>
+          <span className="hidden sm:inline">Open stock</span> <ChevronRight className="size-5 transition-transform group-hover:translate-x-0.5" aria-hidden />
+        </span>
+      </div>
+      <div className={cn('mt-3 grid grid-cols-2 gap-x-4 gap-y-3 border-t border-border pt-3', c.hasBeams ? 'sm:grid-cols-4' : 'sm:grid-cols-3')}>
+        <Item label="Raw yarn">{data ? <Kg g={data.stock.rawG} /> : '—'}</Item>
+        <Item label="Twisted yarn">{data ? <Kg g={data.stock.twistedG} /> : '—'}</Item>
+        <Item label="Boxes">{data ? data.stock.boxes : '—'}</Item>
+        {c.hasBeams && <Item label="Beams">{data ? data.stock.beams : '—'}</Item>}
+      </div>
+    </Link>
+  );
+}
 
 function Figure({ label, children, className }: { label: string; children: React.ReactNode; className?: string }) {
   return (
@@ -110,7 +90,7 @@ export default function YarnZonePage() {
   const zone: YarnZone | null = isYarnZone(param) ? param : null;
   const c = zone ? YARN_ZONE_CONFIG[zone] : null;
   usePageTitle(c ? c.label : 'Yarn inventory');
-  const { data, isPending, isError, error, refetch } = useYarnZone(zone ?? 'direct', !!zone);
+  const { data, isError, error, refetch } = useYarnZone(zone ?? 'direct', !!zone);
   const summary = useYarnSummary();
   const [params, setParams] = useSearchParams();
   const [action, setAction] = useState<ZoneAction | null>(null);
@@ -118,13 +98,16 @@ export default function YarnZonePage() {
   const [manual, setManual] = useState(false);
   const [machineView, setMachineView] = useState(false);
   if (!zone || !c) return <Navigate to="/yarn" replace />;
+  // Old links to the Stock / Beams tabs open the stock screen.
+  const oldTab = params.get('tab');
+  if (oldTab === 'stock' || oldTab === 'beams') return <Navigate to={`/yarn/${zone}/stock${oldTab === 'beams' && c.hasBeams ? '?view=beams' : ''}`} replace />;
   const tabs = ZONE_TABS[zone];
-  const tab = (tabs.find((t) => t.key === params.get('tab'))?.key ?? tabs[0].key) as ZoneTab;
+  const tab = (tabs.find((t) => t.key === params.get('tab'))?.key ?? tabs[0]?.key) as ZoneTab | undefined;
   const setTab = (t: ZoneTab) =>
     setParams(
       (p) => {
         const n = new URLSearchParams(p);
-        if (t === tabs[0].key) n.delete('tab');
+        if (t === tabs[0]?.key) n.delete('tab');
         else n.set('tab', t);
         return n;
       },
@@ -137,8 +120,6 @@ export default function YarnZonePage() {
     running: zone === 'tfo' ? sum?.tfo.runningSections : undefined,
     pending: zone === 'tfo' ? sum?.tfo.pending : zone === 'warping' ? sum?.warping.pending : undefined,
     in_process: sum?.warping.inProcess,
-    beams: data?.stock.beams,
-    stock: undefined,
   };
 
   return (
@@ -157,6 +138,11 @@ export default function YarnZonePage() {
             <Button variant="secondary" className="bg-white" onClick={() => setAction({ kind: 'transfer', zone })}>
               <ArrowLeftRight /> Transfer
             </Button>
+            {zoneHasExtraWithdraw(zone) && (
+              <Button variant="secondary" className="bg-white" onClick={() => setAction({ kind: 'withdraw', zone })}>
+                <PackageMinus /> Withdraw
+              </Button>
+            )}
             {zone === 'tfo' && (
               <Button variant="secondary" className="bg-white" onClick={() => setMachineView(true)}>
                 <LayoutGrid /> Machine view
@@ -202,40 +188,37 @@ export default function YarnZonePage() {
         </div>
       </section>
 
-      <section className="rounded-2xl border border-border bg-white p-4 shadow-soft md:p-5">
-        <div role="tablist" aria-label={`${c.label} sections`} className="-mx-1 mb-4 flex flex-wrap gap-2 px-1">
-          {tabs.map((t) => (
-            <button
-              key={t.key}
-              type="button"
-              role="tab"
-              aria-selected={tab === t.key}
-              onClick={() => setTab(t.key)}
-              className={cn(
-                'min-h-11 rounded-full border px-4 text-sm font-semibold transition-colors',
-                tab === t.key ? 'border-transparent text-white' : 'border-input bg-white text-slate-700 hover:bg-muted',
-              )}
-              style={tab === t.key ? { backgroundColor: c.accent.solid } : undefined}
-            >
-              {t.label}
-              {counts[t.key] !== undefined && <span className={cn('ml-1.5 tabular-nums', tab === t.key ? 'text-white/80' : 'text-slate-400')}>{counts[t.key]}</span>}
-            </button>
-          ))}
-        </div>
-        {zone === 'tfo' && (tab === 'running' || tab === 'pending') ? (
-          <TfoProgramsSection tab={tab} />
-        ) : zone === 'warping' && (tab === 'in_process' || tab === 'pending' || tab === 'done') ? (
-          <WarpingJobsSection tab={tab} onTab={setTab} />
-        ) : isPending ? (
-          <Skeleton className="h-40 w-full rounded-2xl" />
-        ) : isError || !data ? (
-          <ErrorState error={error} onRetry={() => void refetch()} />
-        ) : tab === 'beams' ? (
-          <BeamsList beams={data.beams} />
-        ) : (
-          <ZoneStockView data={data} />
-        )}
-      </section>
+      <StockCard zone={zone} data={data} />
+      {isError && <ErrorState error={error} onRetry={() => void refetch()} />}
+
+      {tab && (
+        <section className="rounded-2xl border border-border bg-white p-4 shadow-soft md:p-5">
+          <div role="tablist" aria-label={`${c.label} sections`} className="-mx-1 mb-4 flex flex-wrap gap-2 px-1">
+            {tabs.map((t) => (
+              <button
+                key={t.key}
+                type="button"
+                role="tab"
+                aria-selected={tab === t.key}
+                onClick={() => setTab(t.key)}
+                className={cn(
+                  'min-h-11 rounded-full border px-4 text-sm font-semibold transition-colors',
+                  tab === t.key ? 'border-transparent text-white' : 'border-input bg-white text-slate-700 hover:bg-muted',
+                )}
+                style={tab === t.key ? { backgroundColor: c.accent.solid } : undefined}
+              >
+                {t.label}
+                {counts[t.key] !== undefined && <span className={cn('ml-1.5 tabular-nums', tab === t.key ? 'text-white/80' : 'text-slate-400')}>{counts[t.key]}</span>}
+              </button>
+            ))}
+          </div>
+          {zone === 'tfo' && (tab === 'running' || tab === 'pending') ? (
+            <TfoProgramsSection tab={tab} />
+          ) : zone === 'warping' && (tab === 'in_process' || tab === 'pending' || tab === 'done') ? (
+            <WarpingJobsSection tab={tab} onTab={setTab} />
+          ) : null}
+        </section>
+      )}
 
       <MovementsSection zone={zone} />
       <ZoneActionDialogs action={action} onClose={() => setAction(null)} />

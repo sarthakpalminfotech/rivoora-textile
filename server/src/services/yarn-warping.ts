@@ -1,5 +1,6 @@
 import { and, asc, count, desc, eq, inArray, sql } from 'drizzle-orm';
 import {
+  BEAM_CODE_COUNTER,
   BEAM_COUNTER,
   formatKg,
   kgToGrams,
@@ -20,6 +21,7 @@ import {
 } from '@rivoora/shared';
 import { db, type DbOrTx, type Tx } from '../db/client';
 import {
+  counters,
   beamMoves,
   beams,
   warpingJobInputs,
@@ -40,8 +42,9 @@ import { actor, allocateNumbers, balanceG, nowIso, reservedG, systemQualityId, t
  *   twisted yarn — plus taar, panna and meters OR "Full meter". The inputs are RESERVED while pending (`reservedG`).
  *   Edit / cancel while pending (the floor too).
  * - Start (WJ-n): the inputs leave Warping stock now (`warping_issue`); a box at 0 becomes Used.
- * - Mark done: one or more beams — typed beam no. (unique across all beams; old beams keep "BM-<n>"), warping quality,
- *   taar, panna, meters (pre-filled from the job; required per beam with Full meter), kept in Direct or Warping.
+ * - Mark done: one or more beams — warping quality, taar, panna, meters (pre-filled from the job; required per beam
+ *   with Full meter), optional remark. Sprint 20c: the beam no. is given by the system ("1", "2", … skipping numbers
+ *   already used; old beams keep "BM-<n>" / typed codes) and every beam stays in Warping (moved later by Transfer).
  */
 
 /* ------------------------------------------------------------------ */
@@ -438,17 +441,28 @@ export async function startPendingJob(role: RoleKey, id: number): Promise<Warpin
 
 const isBeamCodeUnique = (err: unknown) => /beams_beam_code_unique|beams\.beam_code/i.test(String((err as Error)?.message ?? err));
 
-/** GET /yarn/beams/check — the live "beam no. is free" check (any case; old beams count as "BM-<n>"). */
-export async function checkBeamCode(code: string): Promise<{ available: boolean }> {
-  const [row] = await db
-    .select({ id: beams.id })
-    .from(beams)
-    .where(sql`lower(COALESCE(${beams.beamCode}, 'BM-' || ${beams.beamNo})) = lower(${code.trim()})`)
-    .limit(1);
-  return { available: !row };
+/** The next `n` free beam numbers ("1", "2", …): counter `yarn_beam_code_no`, skipping codes any beam already has. */
+async function allocateBeamCodes(tx: Tx, n: number): Promise<string[]> {
+  const out: string[] = [];
+  for (let guard = 0; out.length < n && guard < n + 10_000; guard++) {
+    const [row] = await tx
+      .insert(counters)
+      .values({ name: BEAM_CODE_COUNTER, value: 1 })
+      .onConflictDoUpdate({ target: counters.name, set: { value: sql`${counters.value} + 1` } })
+      .returning({ value: counters.value });
+    const code = String(row.value);
+    const [taken] = await tx
+      .select({ id: beams.id })
+      .from(beams)
+      .where(sql`lower(COALESCE(${beams.beamCode}, 'BM-' || ${beams.beamNo})) = ${code}`)
+      .limit(1);
+    if (!taken) out.push(code);
+  }
+  if (out.length < n) throw new Error('Could not allocate beam numbers');
+  return out;
 }
 
-/** POST /yarn/warping/jobs/:id/done — creates the beams in their chosen zones; the job is Done. */
+/** POST /yarn/warping/jobs/:id/done — creates the beams (auto numbers, kept in Warping); the job is Done. */
 export async function finishWarpingJob(role: RoleKey, id: number, input: unknown): Promise<WarpingDoneResult> {
   const data = warpingJobDoneSchema.parse(input);
   try {
@@ -460,18 +474,6 @@ export async function finishWarpingJob(role: RoleKey, id: number, input: unknown
       const wqs = await tx.select({ id: warpingQualities.id }).from(warpingQualities).where(and(inArray(warpingQualities.id, wqIds), eq(warpingQualities.isDeleted, false)));
       const missing = data.beams.findIndex((b) => !wqs.some((w) => w.id === b.warpingQualityId));
       if (missing >= 0) throw badRequest('That warping quality no longer exists — pick another', `beams.${missing}.warpingQualityId`);
-      const codes = data.beams.map((b) => b.beamCode.trim());
-      const taken = await tx
-        .select({ code: sql<string>`COALESCE(${beams.beamCode}, 'BM-' || ${beams.beamNo})` })
-        .from(beams)
-        .where(sql`lower(COALESCE(${beams.beamCode}, 'BM-' || ${beams.beamNo})) IN (${sql.join(
-          codes.map((c) => sql`${c.toLowerCase()}`),
-          sql`, `,
-        )})`);
-      if (taken.length) {
-        const i = codes.findIndex((c) => taken.some((t) => t.code.toLowerCase() === c.toLowerCase()));
-        throw conflict(`Beam no. ${codes[i]} is already used`, `beams.${i}.beamCode`);
-      }
       const who = actor(role);
       const at = nowIso();
       const done = await tx
@@ -482,13 +484,15 @@ export async function finishWarpingJob(role: RoleKey, id: number, input: unknown
       if (!done.length) throw conflict('The job changed meanwhile — refresh and try again.');
       const sysQ = await systemQualityId(tx);
       const numbers = await allocateNumbers(tx, BEAM_COUNTER, data.beams.length);
+      const codes = await allocateBeamCodes(tx, data.beams.length);
       const created = await tx
         .insert(beams)
         .values(
           data.beams.map((b, i) => ({
             beamNo: numbers[i],
             beamCode: codes[i],
-            zone: b.zone,
+            zone: 'warping' as const,
+            remark: b.remark,
             qualityId: sysQ,
             warpingQualityId: b.warpingQualityId,
             taar: b.taar,

@@ -1,9 +1,9 @@
 import { z } from 'zod';
 import {
-  BEAM_CODE_MAX_LENGTH,
-  beamCodeKey,
+  BEAM_REMARK_MAX_LENGTH,
   BEAM_ZONES,
   BEAM_STATUSES,
+  WITHDRAW_ZONES,
 
   BOX_STATUSES,
   hasKgPrecision,
@@ -244,12 +244,12 @@ export const yarnTransferSchema = z
   });
 export type YarnTransferInput = z.input<typeof yarnTransferSchema>;
 
-/** POST /yarn/withdrawals — Direct consumption only (TFO = Run program, Warping = Start warping). */
+/** POST /yarn/withdrawals — Direct consumption (yarn, boxes, beams) and Sprint 20c TFO (raw yarn, whole boxes). */
 export const yarnWithdrawSchema = z
   .discriminatedUnion('what', [
     z.object({
       what: z.literal('raw'),
-      zone: z.literal('direct', { errorMap: () => ({ message: 'Withdraw is for Direct consumption' }) }),
+      zone: z.enum(WITHDRAW_ZONES, { errorMap: () => ({ message: 'Withdraw is for Direct consumption or TFO' }) }),
       qualityId: id('Select the quality'),
       lotId: lotIdField,
       qtyKg: kg('Enter the kg'),
@@ -257,8 +257,12 @@ export const yarnWithdrawSchema = z
     }),
     z.object({
       what: z.literal('twisted'),
-      zone: z.literal('direct', { errorMap: () => ({ message: 'Withdraw is for Direct consumption' }) }),
-      boxes: z.array(z.object({ boxId: boxIdField, qtyKg: kg('Enter the kg') })).max(200).default([]),
+      zone: z.enum(WITHDRAW_ZONES, { errorMap: () => ({ message: 'Withdraw is for Direct consumption or TFO' }) }),
+      /** Sprint 20c: `qtyKg` null = the whole box (always the whole box in TFO). */
+      boxes: z
+        .array(z.object({ boxId: boxIdField, qtyKg: kg('Enter the kg').nullish().transform((v) => v ?? null) }))
+        .max(200)
+        .default([]),
       noBox: noBoxInput.nullish(),
       note: optText(1000),
     }),
@@ -401,6 +405,14 @@ export const tfoPendingStartSchema = z
       })
       .min(1, 'Pick at least one machine section')
       .max(MAX_PROGRAM_SECTIONS, `At most ${MAX_PROGRAM_SECTIONS} sections`),
+    /** Sprint 20c: start only this many rolls now (the rest stays pending). Omitted / null = the whole program. */
+    rolls: z
+      .number({ invalid_type_error: 'Enter the rolls' })
+      .int('Use a whole number')
+      .min(1, 'At least 1')
+      .max(100_000)
+      .nullish()
+      .transform((v) => v ?? null),
   })
   .superRefine((v, ctx) => {
     const seen = new Set<string>();
@@ -486,36 +498,24 @@ export const warpingPendingJobSchema = z
 export type WarpingPendingJobInput = z.input<typeof warpingPendingJobSchema>;
 
 /** POST /yarn/warping/jobs/:id/done — one or more beams: typed beam no. (unique across all beams), warping quality, … */
-export const warpingJobDoneSchema = z
-  .object({
-    beams: z
-      .array(
-        z.object({
-          beamCode: z.string({ required_error: 'Enter the beam no.' }).trim().min(1, 'Enter the beam no.').max(BEAM_CODE_MAX_LENGTH, `At most ${BEAM_CODE_MAX_LENGTH} characters`),
-          warpingQualityId: id('Select the warping quality'),
-          taar: z.number({ required_error: 'Enter the taar', invalid_type_error: 'Enter the taar' }).int('Use a whole number').min(1, 'At least 1').max(1_000_000),
-          panna: z.number({ required_error: 'Enter the panna', invalid_type_error: 'Enter the panna' }).positive('Enter the panna').max(100_000),
-          meters: z.number({ required_error: 'Enter the meters', invalid_type_error: 'Enter the meters' }).positive('Enter the meters').max(10_000_000),
-          zone: z.enum(BEAM_ZONES, { errorMap: () => ({ message: 'Pick where to keep it' }) }),
-        }),
-        { required_error: 'Add at least one beam' },
-      )
-      .min(1, 'Add at least one beam')
-      .max(MAX_BEAMS_PER_JOB, `At most ${MAX_BEAMS_PER_JOB} beams`),
-    note: optText(1000),
-  })
-  .superRefine((v, ctx) => {
-    const seen = new Set<string>();
-    v.beams.forEach((b, i) => {
-      const k = beamCodeKey(b.beamCode);
-      if (seen.has(k)) ctx.addIssue({ code: 'custom', path: ['beams', i, 'beamCode'], message: 'This beam no. is already on this job' });
-      seen.add(k);
-    });
-  });
+export const warpingJobDoneSchema = z.object({
+  beams: z
+    .array(
+      z.object({
+        warpingQualityId: id('Select the warping quality'),
+        taar: z.number({ required_error: 'Enter the taar', invalid_type_error: 'Enter the taar' }).int('Use a whole number').min(1, 'At least 1').max(1_000_000),
+        panna: z.number({ required_error: 'Enter the panna', invalid_type_error: 'Enter the panna' }).positive('Enter the panna').max(100_000),
+        meters: z.number({ required_error: 'Enter the meters', invalid_type_error: 'Enter the meters' }).positive('Enter the meters').max(10_000_000),
+        remark: optText(BEAM_REMARK_MAX_LENGTH),
+      }),
+      { required_error: 'Add at least one beam' },
+    )
+    .min(1, 'Add at least one beam')
+    .max(MAX_BEAMS_PER_JOB, `At most ${MAX_BEAMS_PER_JOB} beams`),
+  note: optText(1000),
+});
 export type WarpingJobDoneInput = z.input<typeof warpingJobDoneSchema>;
 
-/** GET /yarn/beams/check — the live "beam no. is free" check. */
-export const checkBeamCodeQuerySchema = z.object({ code: z.string().trim().min(1).max(BEAM_CODE_MAX_LENGTH) });
 
 /** GET /yarn/no-box — "No box" twisted stock of a zone. */
 export const noBoxQuerySchema = z.object({ zone: z.enum(YARN_ZONES) });

@@ -74,6 +74,7 @@ const YarnReceivePage = lazy(() => import('@/features/yarn/receive-page'));
 const YarnPoPrintPage = lazy(() => import('@/features/yarn/po-print-page'));
 const YarnInventoryPage = lazy(() => import('@/features/yarn/inventory-page'));
 const YarnZonePage = lazy(() => import('@/features/yarn/zone-page'));
+const YarnStockPage = lazy(() => import('@/features/yarn/stock-page'));
 const YarnMovementsPage = lazy(() => import('@/features/yarn/zone-page').then((m) => ({ default: m.YarnMovementsPage })));
 const LoginPage = lazy(() => import('@/features/auth/login-page'));
 const NotFoundPage = lazy(() => import('@/pages/not-found-page'));
@@ -293,6 +294,7 @@ const router = createBrowserRouter([
           { path: 'yarn', element: guard('canUseYarnInventory', <YarnInventoryPage />) },
           { path: 'yarn/movements', element: guard('canUseYarnInventory', <YarnMovementsPage />) },
           { path: 'yarn/:zone', element: guard('canUseYarnInventory', <YarnZonePage />) },
+          { path: 'yarn/:zone/stock', element: guard('canUseYarnInventory', <YarnStockPage />) },
           // Sprint 17/20: Yarn PO (view: Jenish, Gaurang, the production + Yarn inventory supervisors).
           { path: 'yarn-po', element: guard('canViewYarn', <YarnPoListPage />) },
           { path: 'yarn-po/:id', element: guard('canViewYarn', <YarnPoDetailsPage />) },

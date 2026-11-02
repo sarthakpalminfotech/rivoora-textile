@@ -13,7 +13,9 @@ import {
   type Beam,
   type YarnBox,
   type YarnStockWhat,
+  type WithdrawZone,
   type YarnZone, kgText, gramsToKg,
+  withdrawWholeBoxes,
 } from '@rivoora/shared';
 import { Field } from '@/components/ui/field';
 import { Textarea } from '@/components/ui/input';
@@ -52,7 +54,7 @@ export function BeamChecklist({ beams, selected, onChange, invalid }: { beams: B
                     <span className="truncate text-sm font-medium text-slate-700">{b.quality.name}</span>
                   </span>
                   <span className="block truncate text-xs text-slate-500">
-                    Taar {b.taar} · Panna {b.panna} · {b.meters.toLocaleString('en-IN')} m · {formatDate(b.createdAt)}
+                    Taar {b.taar} · Panna {b.panna} · {b.meters.toLocaleString('en-IN')} m{b.remark ? ` · ${b.remark}` : ''} · {formatDate(b.createdAt)}
                   </span>
                 </span>
               </label>
@@ -309,7 +311,14 @@ export function StockFields({
               <BoxChecklist
                 boxes={pick.boxes}
                 selected={pick.boxIds}
-                onChange={pick.setBoxIds}
+                onChange={(ids) => {
+                  // Sprint 20c: a newly ticked box starts with its whole free kg (change it to take part of it).
+                  if (partialBoxes) for (const id of ids) if (!pick.boxIds.includes(id)) {
+                    const box = pick.boxes.find((b) => b.id === id);
+                    if (box && !pick.boxKg[id]) pick.setBoxKgOne(id, kgText(boxFreeG(box)));
+                  }
+                  pick.setBoxIds(ids);
+                }}
                 partial={partialBoxes}
                 boxKg={pick.boxKg}
                 onKgChange={pick.setBoxKgOne}
@@ -495,9 +504,13 @@ export function TransferDialog({ open, onOpenChange, from }: { open: boolean; on
   );
 }
 
-/** Withdraw (Direct consumption): yarn used directly, or beams consumed (marked Consumed; no loom link). */
-export function WithdrawDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
-  const pick = useStockPick('direct', open);
+/**
+ * Withdraw: Direct consumption — yarn used directly (part of a box allowed), or beams consumed (marked Consumed; no loom
+ * link). Sprint 20c: TFO too — raw yarn, or WHOLE boxes.
+ */
+export function WithdrawDialog({ open, onOpenChange, zone = 'direct' }: { open: boolean; onOpenChange: (o: boolean) => void; zone?: WithdrawZone }) {
+  const pick = useStockPick(zone, open);
+  const whole = withdrawWholeBoxes(zone);
   const [tried, setTried] = useState(false);
   const [serverErr, setServerErr] = useState<{ field: string; message: string } | null>(null);
   const withdraw = useWithdraw();
@@ -507,7 +520,7 @@ export function WithdrawDialog({ open, onOpenChange }: { open: boolean; onOpenCh
       setServerErr(null);
     }
   }, [open]);
-  const twistedOk = pick.twistedMode === 'boxes' ? boxesValid(pick, true) : !pick.yarnError;
+  const twistedOk = pick.twistedMode === 'boxes' ? boxesValid(pick, !whole) : !pick.yarnError;
   const invalid = pick.what === 'beams' ? !pick.beamIds.length : pick.what === 'twisted' ? !twistedOk : !!pick.yarnError;
   const submit = () => {
     setTried(true);
@@ -519,12 +532,12 @@ export function WithdrawDialog({ open, onOpenChange }: { open: boolean; onOpenCh
         : pick.what === 'twisted'
           ? {
               what: 'twisted' as const,
-              zone: 'direct' as const,
-              boxes: pick.twistedMode === 'boxes' ? pick.boxIds.map((id) => ({ boxId: id, qtyKg: gramsToKg(parseKgText(pick.boxKg[id] ?? '')!) })) : [],
+              zone,
+              boxes: pick.twistedMode === 'boxes' ? pick.boxIds.map((id) => ({ boxId: id, qtyKg: whole ? null : gramsToKg(parseKgText(pick.boxKg[id] ?? '')!) })) : [],
               noBox: pick.twistedMode === 'no_box' ? pick.noBoxBody() : null,
               note: pick.note.trim() || null,
             }
-          : { what: 'raw' as const, zone: 'direct' as const, qualityId: pick.qualityId!, lotId: pick.lotId || null, qtyKg: gramsToKg(pick.grams!), note: pick.note.trim() || null };
+          : { what: 'raw' as const, zone, qualityId: pick.qualityId!, lotId: pick.lotId || null, qtyKg: gramsToKg(pick.grams!), note: pick.note.trim() || null };
     withdraw.mutate(body, {
       onSuccess: () => {
         const label =
@@ -546,8 +559,8 @@ export function WithdrawDialog({ open, onOpenChange }: { open: boolean; onOpenCh
     <YarnDialog
       open={open}
       onOpenChange={onOpenChange}
-      title="Withdraw"
-      description="Yarn or beams used directly from Direct consumption."
+      title={zone === 'tfo' ? 'Withdraw from TFO' : 'Withdraw'}
+      description={zone === 'tfo' ? 'Raw yarn, or whole twisted boxes, taken out of TFO.' : 'Yarn or beams used directly from Direct consumption.'}
       busy={withdraw.isPending}
       dirty={!!pick.kg || pick.beamIds.length > 0 || pick.boxIds.length > 0}
       footer={<DialogButtons onCancel={() => onOpenChange(false)} busy={withdraw.isPending} label={pick.what === 'beams' ? 'Mark consumed' : 'Withdraw'} form="yarn-withdraw-form" />}
@@ -562,9 +575,9 @@ export function WithdrawDialog({ open, onOpenChange }: { open: boolean; onOpenCh
         className="grid gap-5"
       >
         <Field label="What" required>
-          <WhatPicker zone="direct" value={pick.what} onChange={pick.setWhat} />
+          <WhatPicker zone={zone} value={pick.what} onChange={pick.setWhat} />
         </Field>
-        <StockFields pick={pick} tried={tried} serverErr={serverErr} zone="direct" partialBoxes />
+        <StockFields pick={pick} tried={tried} serverErr={serverErr} zone={zone} partialBoxes={!whole} />
         <Field label="Note" htmlFor="wd-note" hint={pick.what === 'beams' ? 'e.g. which loom it went to' : undefined}>
           <Textarea id="wd-note" rows={2} maxLength={1000} value={pick.note} onChange={(e) => pick.setNote(e.target.value)} className="min-h-[72px]" />
         </Field>

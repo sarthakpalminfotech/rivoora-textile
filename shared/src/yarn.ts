@@ -348,6 +348,13 @@ function checkBeams(ids: readonly number[], inZone?: ReadonlySet<number>): 'no_b
   return null;
 }
 
+/** Sprint 20c: Withdraw is open in Direct consumption (yarn, boxes, beams) and TFO (raw yarn, whole boxes). */
+export const WITHDRAW_ZONES = ['direct', 'tfo'] as const;
+export type WithdrawZone = (typeof WITHDRAW_ZONES)[number];
+export const isWithdrawZone = (z: string): z is WithdrawZone => (WITHDRAW_ZONES as readonly string[]).includes(z);
+/** In TFO a box is always withdrawn whole; in Direct consumption part of a box may be taken. */
+export const withdrawWholeBoxes = (zone: YarnZone) => zone === 'tfo';
+
 /** Withdraw (Direct consumption): yarn within the balance, or in-stock beams of the zone. */
 export function validateWithdraw(p: {
   zone: YarnZone;
@@ -448,6 +455,24 @@ export const boxNoKey = (no: string) => no.trim().toLowerCase();
 
 /** Sprint 20b: raw kg of a program = rolls × winding kg (units). */
 export const rawFromRolls = (rolls: number, windingG: number) => (Number.isInteger(rolls) && rolls > 0 && windingG > 0 ? rolls * windingG : 0);
+
+/**
+ * Sprint 20c — start part of a pending program: `startRolls` of its `totalRolls` start now; the rest stays pending
+ * (same settings). Null / equal = the whole program. Only programs created with rolls can be split.
+ */
+export type StartRollsError = 'whole' | 'too_many' | 'no_rolls';
+export const START_ROLLS_ERROR_TEXT: Record<StartRollsError, string> = {
+  whole: 'Rolls to start is a whole number of at least 1',
+  too_many: 'More rolls than the program has',
+  no_rolls: 'This older program has no rolls — start it whole',
+};
+export function checkStartRolls(totalRolls: number | null, startRolls: number | null | undefined): StartRollsError | null {
+  if (startRolls === null || startRolls === undefined) return null;
+  if (!Number.isInteger(startRolls) || startRolls < 1) return 'whole';
+  if (totalRolls === null) return startRolls === undefined ? null : 'no_rolls';
+  if (startRolls > totalRolls) return 'too_many';
+  return null;
+}
 
 /** Sprint 20b: a box's net = gross − roll weight × rolls (units). */
 export const boxNetG = (grossG: number, rollWeightG: number, rolls: number) => grossG - rollWeightG * rolls;
@@ -615,36 +640,35 @@ export function prefillBeamQuality(inputs: readonly { warpingQualityId: number |
 }
 
 export interface BeamInputLike {
-  beamCode: string;
   taar: number;
   panna: number;
   meters: number;
   warpingQualityId: number;
-  zone: string;
 }
-export type BeamInputError = 'code' | 'code_repeat' | 'taar' | 'panna' | 'meters' | 'quality' | 'zone';
+export type BeamInputError = 'taar' | 'panna' | 'meters' | 'quality';
 export const BEAM_INPUT_ERROR_TEXT: Record<BeamInputError, string> = {
-  code: 'Enter the beam no.',
-  code_repeat: 'This beam no. is already on this job',
   taar: 'Taar is a whole number of at least 1',
   panna: 'Enter the panna',
   meters: 'Enter the meters',
   quality: 'Select the warping quality',
-  zone: 'Keep it in Direct consumption or Warping',
 };
 
-/** One beam on Mark done (`others` = the codes of the beams before it on the same job). */
-export function validateBeam(b: BeamInputLike, others: readonly string[] = []): BeamInputError | null {
-  const code = b.beamCode.trim();
-  if (!code || code.length > BEAM_CODE_MAX_LENGTH) return 'code';
-  if (others.some((o) => beamCodeKey(o) === beamCodeKey(code))) return 'code_repeat';
+/**
+ * One beam on Mark done. Sprint 20c: the beam no. is given by the system (counter `yarn_beam_code_no` from 1, skipping
+ * numbers already used) and every new beam is kept in Warping — move it later with Transfer.
+ */
+export function validateBeam(b: BeamInputLike): BeamInputError | null {
   if (!Number.isInteger(b.taar) || b.taar < 1) return 'taar';
   if (!(b.panna > 0)) return 'panna';
   if (!(b.meters > 0)) return 'meters';
   if (!Number.isInteger(b.warpingQualityId) || b.warpingQualityId <= 0) return 'quality';
-  if (!isBeamZone(b.zone)) return 'zone';
   return null;
 }
+
+/** Sprint 20c: the counter behind auto beam numbers ("1", "2", …). `BEAM_COUNTER` stays the internal `beam_no`. */
+export const BEAM_CODE_COUNTER = 'yarn_beam_code_no';
+/** A beam's remark at most this long. */
+export const BEAM_REMARK_MAX_LENGTH = 500;
 
 /** Beams per zone after Mark done (e.g. { direct: 1, warping: 1 }). */
 export function beamsByZone(beams: readonly { zone: string }[]): Record<BeamZone, number> {

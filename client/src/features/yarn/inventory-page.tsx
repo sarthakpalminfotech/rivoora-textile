@@ -1,4 +1,4 @@
-import { ArrowLeftRight, ChevronRight, Cylinder, History, PackagePlus, RotateCw, SlidersHorizontal, Spool, Waves } from 'lucide-react';
+import { ArrowLeftRight, ChevronRight, Cylinder, History, PackageMinus, PackagePlus, RotateCw, SlidersHorizontal, Spool, Waves } from 'lucide-react';
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
@@ -19,7 +19,7 @@ import { useYarnSummary } from './api';
 import { ManualStockDialog } from './manual-stock';
 import { MovementList } from './movements';
 import { Kg, ZONE_ICON } from './parts';
-import { ZoneActionDialogs, zoneMainAction, type ZoneAction } from './zone-actions';
+import { ZoneActionDialogs, zoneHasExtraWithdraw, zoneMainAction, type ZoneAction } from './zone-actions';
 
 function KpiTile({ label, value, icon: Icon, tone }: { label: string; value: React.ReactNode; icon: typeof Spool; tone?: string }) {
   return (
@@ -78,11 +78,16 @@ function ZonePanel({ stock, summary, onAction }: { stock: YarnZoneStock; summary
         </div>
       </Link>
       <div className="grid grid-cols-2 gap-2 border-t p-3 md:grid-cols-1 lg:grid-cols-2" style={{ borderColor: c.accent.border, backgroundColor: c.accent.soft }}>
-        <Button variant="secondary" className={cn('bg-white', !main && 'col-span-2 md:col-span-1 lg:col-span-2')} onClick={() => onAction({ kind: 'transfer', zone: z })}>
+        <Button variant="secondary" className={cn('bg-white', !main && !zoneHasExtraWithdraw(z) && 'col-span-2 md:col-span-1 lg:col-span-2')} onClick={() => onAction({ kind: 'transfer', zone: z })}>
           <ArrowLeftRight /> Transfer
         </Button>
+        {zoneHasExtraWithdraw(z) && (
+          <Button variant="secondary" className={cn('bg-white', !main && 'md:col-span-1')} onClick={() => onAction({ kind: 'withdraw', zone: z })}>
+            <PackageMinus /> Withdraw
+          </Button>
+        )}
         {main && (
-          <Button className="text-white hover:opacity-90" style={{ backgroundColor: c.accent.solid }} onClick={() => onAction({ kind: main, zone: z })}>
+          <Button className={cn('text-white hover:opacity-90', zoneHasExtraWithdraw(z) && 'col-span-2 md:col-span-1 lg:col-span-2')} style={{ backgroundColor: c.accent.solid }} onClick={() => onAction({ kind: main, zone: z })}>
             {c.actionLabel}
           </Button>
         )}

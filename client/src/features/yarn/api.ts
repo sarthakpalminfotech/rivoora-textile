@@ -334,13 +334,5 @@ export const useCancelPendingJob = () => useYarnMutation((id: number) => api.pos
 export const useStartPendingJob = () => useYarnMutation((id: number) => api.post<WarpingJob>(`/yarn/warping/pending/${id}/start`));
 
 /** Sprint 20 — live "beam no. is free" check on Mark done. */
-export function useCheckBeamCode(code: string, enabled = true) {
-  return useQuery({
-    queryKey: ['yarn', 'beam-code-check', code.trim().toLowerCase()],
-    queryFn: ({ signal }) => api.get<{ available: boolean }>('/yarn/beams/check', { code: code.trim() }, signal),
-    enabled: enabled && code.trim().length > 0,
-    staleTime: 5_000,
-  });
-}
 export const useFinishWarping = (id: number) =>
   useYarnMutation((data: WarpingJobDoneInput) => api.post<WarpingDoneResult>(`/yarn/warping/jobs/${id}/done`, data), { silentFieldErrors: true });

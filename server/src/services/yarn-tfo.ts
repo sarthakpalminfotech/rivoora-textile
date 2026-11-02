@@ -3,6 +3,8 @@ import {
   availableAfterReserved,
   BOX_NO_COUNTER,
   boxNetG,
+  checkStartRolls,
+  START_ROLLS_ERROR_TEXT,
   formatKg,
   gramsToKg,
   kgToGrams,
@@ -363,6 +365,12 @@ export async function startPendingProgram(role: RoleKey, pendingId: number, inpu
     return await db.transaction(async (tx) => {
       const pending = await getPending(tx, pendingId);
       if (pending.status !== 'pending') throw conflict('This program is no longer pending — refresh and try again.');
+      // Sprint 20c: start only part of the rolls — the rest stays a pending program with the same settings.
+      const rollsErr = checkStartRolls(pending.rolls, data.rolls) ?? (data.rolls !== null && !pending.windingG ? 'no_rolls' : null);
+      if (rollsErr) throw badRequest(START_ROLLS_ERROR_TEXT[rollsErr], 'rolls');
+      const partial = data.rolls !== null && pending.rolls !== null && data.rolls < pending.rolls;
+      const startRolls = partial ? data.rolls! : pending.rolls;
+      const startRawG = partial ? rawFromRolls(data.rolls!, pending.windingG!) : pending.rawG;
       const machineIds = [...new Set(data.sections.map((s) => s.machineId))];
       const machines = await tx
         .select({ id: tfoMachines.id, machineNo: tfoMachines.machineNo, isActive: tfoMachines.isActive })
@@ -394,10 +402,10 @@ export async function startPendingProgram(role: RoleKey, pendingId: number, inpu
           machineId: first.machineId,
           section: first.section,
           rawQualityId: pending.rawQualityId,
-          rawG: pending.rawG,
+          rawG: startRawG,
           outputQualityId: pending.outputQualityId,
           windingMeter: pending.windingMeter,
-          rolls: pending.rolls,
+          rolls: startRolls,
           windingG: pending.windingG,
           denierFilament: pending.denierFilament,
           tpm: pending.tpm,
@@ -412,10 +420,11 @@ export async function startPendingProgram(role: RoleKey, pendingId: number, inpu
         })
         .returning({ id: tfoPrograms.id });
       await tx.insert(tfoProgramSections).values(data.sections.map((s) => ({ programId: p.id, machineId: s.machineId, section: s.section, isRunning: true, createdAt: at })));
+      const rest = partial ? pending.rolls! - data.rolls! : 0;
       const started = await tx
         .update(tfoPendingPrograms)
-        .set({ status: 'started', startedProgramId: p.id, updatedAt: at })
-        .where(and(eq(tfoPendingPrograms.id, pending.id), eq(tfoPendingPrograms.status, 'pending')))
+        .set(partial ? { rolls: rest, rawG: rawFromRolls(rest, pending.windingG!), updatedAt: at } : { status: 'started', startedProgramId: p.id, updatedAt: at })
+        .where(and(eq(tfoPendingPrograms.id, pending.id), eq(tfoPendingPrograms.status, 'pending'), partial ? eq(tfoPendingPrograms.rolls, pending.rolls!) : undefined))
         .returning({ id: tfoPendingPrograms.id });
       if (!started.length) throw conflict('This program is no longer pending — refresh and try again.');
       await takeStock(tx, {
@@ -423,7 +432,7 @@ export async function startPendingProgram(role: RoleKey, pendingId: number, inpu
         item: 'raw',
         qualityId: pending.rawQualityId,
         lotId: pending.lotId,
-        qtyG: pending.rawG,
+        qtyG: startRawG,
         kind: 'tfo_issue',
         refType: 'program',
         refId: p.id,

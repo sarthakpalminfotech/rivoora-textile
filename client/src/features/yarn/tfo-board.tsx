@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
 import {
+  checkStartRolls,
   checkTake,
   formatKg,
   MAX_PENDING_PROGRAMS,
@@ -11,6 +12,7 @@ import {
   programSectionsLabel,
   rawFromRolls,
   runningSectionsText,
+  START_ROLLS_ERROR_TEXT,
   TAKE_ERROR_TEXT,
   TFO_SECTION_LABEL,
   tfoSectionLabel,
@@ -403,20 +405,30 @@ function StartProgramDialog({ program, onOpenChange }: { program: TfoPendingProg
   const board = useTfoBoard();
   const start = useStartPendingProgram();
   const [picked, setPicked] = useState<{ machineId: number; section: TfoSection }[]>([]);
-  useEffect(() => setPicked([]), [program]);
+  /** Sprint 20c: rolls to start now ('' = all) — the rest stays pending. */
+  const [rollsText, setRollsText] = useState('');
+  useEffect(() => {
+    setPicked([]);
+    setRollsText(program?.rolls != null ? String(program.rolls) : '');
+  }, [program]);
   if (!program) return null;
+  const canSplit = program.rolls !== null && program.windingG !== null;
+  const startRolls = canSplit ? numOrNull(rollsText) : null;
+  const rollsErr = canSplit ? (startRolls === null ? 'Enter the rolls to start' : checkStartRolls(program.rolls, startRolls) ? START_ROLLS_ERROR_TEXT[checkStartRolls(program.rolls, startRolls)!] : null) : null;
+  const restRolls = canSplit && startRolls !== null && !rollsErr ? program.rolls! - startRolls : 0;
+  const startRawG = canSplit && startRolls !== null && !rollsErr ? rawFromRolls(startRolls, program.windingG!) : program.rawG;
   const machines = board.data?.machines ?? [];
   const isPicked = (machineId: number, section: TfoSection) => picked.some((x) => x.machineId === machineId && x.section === section);
   const toggle = (machineId: number, section: TfoSection) =>
     setPicked((xs) => (isPicked(machineId, section) ? xs.filter((x) => !(x.machineId === machineId && x.section === section)) : [...xs, { machineId, section }]));
   const pickedLabel = programSectionsLabel(picked.map((x) => ({ machineNo: machines.find((m) => m.id === x.machineId)?.machineNo ?? 0, section: x.section })));
   const submit = () => {
-    if (!picked.length) return;
+    if (!picked.length || rollsErr) return;
     start.mutate(
-      { id: program.id, data: { sections: picked } },
+      { id: program.id, data: { sections: picked, rolls: restRolls > 0 ? startRolls : null } },
       {
         onSuccess: (p) => {
-          toast.success(`Program started on ${programSectionsLabel(p.sections)} · ${formatKg(p.rawG)} issued`);
+          toast.success(`Program started on ${programSectionsLabel(p.sections)} · ${formatKg(p.rawG)} issued${restRolls > 0 ? ` · ${restRolls} roll${restRolls === 1 ? '' : 's'} stay pending` : ''}`);
           onOpenChange(false);
         },
         onError: (err) => toast.error(errorMessage(err)),
@@ -429,9 +441,9 @@ function StartProgramDialog({ program, onOpenChange }: { program: TfoPendingProg
       onOpenChange={onOpenChange}
       layout="wide"
       title="Start program"
-      description={`${program.rawQuality.name} · ${lotText(program.lot)} · ${formatKg(program.rawG)} · TPM ${program.tpm} · ${TWIST_DIRECTION_LABEL[program.direction]}`}
+      description={`${program.rawQuality.name} · ${lotText(program.lot)} · ${formatKg(program.rawG)}${program.rolls !== null ? ` (${program.rolls} rolls)` : ''} · TPM ${program.tpm} · ${TWIST_DIRECTION_LABEL[program.direction]}`}
       busy={start.isPending}
-      footer={<DialogButtons onCancel={() => onOpenChange(false)} busy={start.isPending} label={picked.length ? `Start on ${pickedLabel}` : 'Pick sections'} disabled={!picked.length} form="tfo-start-form" />}
+      footer={<DialogButtons onCancel={() => onOpenChange(false)} busy={start.isPending} label={picked.length ? `Start on ${pickedLabel}` : 'Pick sections'} disabled={!picked.length || !!rollsErr} form="tfo-start-form" />}
     >
       <form
         id="tfo-start-form"
@@ -441,6 +453,29 @@ function StartProgramDialog({ program, onOpenChange }: { program: TfoPendingProg
           submit();
         }}
       >
+        {canSplit && (
+          <div className="mb-4 grid gap-3 rounded-xl border border-border bg-slate-50 p-3 sm:grid-cols-[10rem_minmax(0,1fr)] sm:items-end">
+            <Field label="Rolls to start now" required error={rollsErr ?? undefined} htmlFor="tfo-start-rolls">
+              <Input
+                id="tfo-start-rolls"
+                inputMode="numeric"
+                autoComplete="off"
+                value={rollsText}
+                onChange={(e) => setRollsText(cleanDecimal(e.target.value, 0, 6))}
+                className="text-right tabular-nums"
+                invalid={!!rollsErr}
+              />
+            </Field>
+            <p className="pb-2.5 text-sm text-slate-600">
+              of {program.rolls} rolls · <Kg g={startRawG} className="font-semibold text-slate-900" /> issued now
+              {restRolls > 0 && (
+                <span className="block font-medium text-amber-800">
+                  {restRolls} roll{restRolls === 1 ? '' : 's'} (<Kg g={rawFromRolls(restRolls, program.windingG!)} />) stay pending — start them later.
+                </span>
+              )}
+            </p>
+          </div>
+        )}
         <p className="mb-3 text-sm text-slate-600">Tap one or more idle sections (any machines). The raw kg leave TFO stock when the program starts.</p>
         {board.isPending ? (
           <Skeleton className="h-40 w-full rounded-2xl" />
