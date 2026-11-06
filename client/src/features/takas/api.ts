@@ -16,6 +16,7 @@ import type {
   TakaJobsheetPage,
   TakaTab,
   SendBackResult,
+  UndoSendBackResult,
 } from '@rivoora/shared';
 import { useInfiniteList } from '@/hooks/useInfiniteList';
 import { api } from '@/lib/api';
@@ -154,5 +155,14 @@ export function useOrderShrinkage(orderId: number, enabled = true) {
     queryKey: ['takas', 'order', orderId, 'shrinkage'] as const,
     queryFn: ({ signal }) => api.get<OrderShrinkage>(`/orders/${orderId}/shrinkage`, undefined, signal),
     enabled: enabled && orderId > 0,
+  });
+}
+
+/** Sprint 21 (CR-09): undo a send back (until the taka is on a challan). */
+export function useUndoSendBack(orderId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { takaIds: number[]; reason: string }) => api.post<UndoSendBackResult>(`/orders/${orderId}/takas/undo-send-back`, data),
+    onSuccess: () => invalidateAfterWrite(qc, orderId),
   });
 }

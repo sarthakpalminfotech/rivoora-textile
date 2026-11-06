@@ -16,7 +16,7 @@ import { listOrderChallans } from '../services/challans';
 import { getOrderMilestones } from '../services/order-milestones';
 import { listOrderTakas } from '../services/takas';
 import { getOrderShrinkage } from '../services/order-shrinkage';
-import { sendBackTakas } from '../services/rework';
+import { sendBackTakas, undoSendBack } from '../services/rework';
 import { addFromFreeStock, moveToInventory } from '../services/inventory-moves';
 import { holdOrder, releaseOrder } from '../services/hold-order';
 import { getDashboardItems, getOrderDamages, getOrderDashboard } from '../services/dashboard';
@@ -130,6 +130,14 @@ ordersRouter.post(
   requirePermission('canReworkTakas'),
   ah(async (req, res) => {
     res.json(await sendBackTakas(req.role, parseId(req.params.id), req.body));
+  }),
+);
+
+ordersRouter.post(
+  '/:id/takas/undo-send-back',
+  requirePermission('canReworkTakas'),
+  ah(async (req, res) => {
+    res.json(await undoSendBack(req.role, parseId(req.params.id), req.body));
   }),
 );
 

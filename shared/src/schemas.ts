@@ -862,6 +862,19 @@ const takaIdList = (what: string) =>
     .max(2000)
     .transform((ids) => [...new Set(ids)]);
 
+/** Sprint 21: the reason every undo / remove / lost action asks for (min 3, max 300 characters). */
+export const REASON_MIN = 3;
+export const REASON_MAX = 300;
+export const reasonField = z
+  .string({ required_error: 'Write the reason' })
+  .trim()
+  .min(REASON_MIN, `Write at least ${REASON_MIN} characters`)
+  .max(REASON_MAX, `At most ${REASON_MAX} characters`);
+
+/** POST /orders/:id/takas/undo-send-back (Sprint 21, CR-09) */
+export const undoSendBackSchema = z.object({ takaIds: takaIdList('taka'), reason: reasonField });
+export type UndoSendBackInput = z.input<typeof undoSendBackSchema>;
+
 /** POST /orders/:id/takas/send-back */
 export const sendBackSchema = z.object({
   takaIds: takaIdList('taka'),
@@ -1038,3 +1051,7 @@ export const dispatchedListQuerySchema = z.object({
   status: z.enum(DISPATCHED_STATUS_FILTERS).optional().catch(undefined),
 });
 export type DispatchedListQuery = z.infer<typeof dispatchedListQuerySchema>;
+
+/** POST /qc-corrections/:takaId/undo-qc and /cancel-refinish (Sprint 21) */
+export const reasonOnlySchema = z.object({ reason: reasonField });
+export type ReasonOnlyInput = z.input<typeof reasonOnlySchema>;

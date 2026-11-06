@@ -11,6 +11,7 @@ import {
   type QcResult,
   type RoleKey,
 } from '@rivoora/shared';
+import { recordQcRun, snapshotDamages } from './qc-runs';
 import { db } from '../db/client';
 import { challanTakas, challans, orders, takas } from '../db/schema';
 import { conflict, notFound } from '../lib/errors';
@@ -146,6 +147,7 @@ export async function submitMillQc(role: RoleKey, takaId: number, input: unknown
 
     // 2 — meters / pcs, the open damages, the new Mill damages.
     const refinish = data.result === 'refinish';
+    const qcBefore = await snapshotDamages(tx, takaId);
     const changes = await applyQcChanges(
       tx,
       role,
@@ -171,6 +173,7 @@ export async function submitMillQc(role: RoleKey, takaId: number, input: unknown
     } else {
       events.push({ takaId, event: 'mill_qc_done', note: moved[0].isDamaged ? 'Damaged' : 'Fresh' });
     }
+    await recordQcRun(tx, role, { takaId, kind: 'mill', result: refinish ? 'refinish' : 'final', before: qcBefore, stageBefore: 'mill_qc', refinishCountBefore: moved[0].refinishCount - (refinish ? 1 : 0) });
     // Sprint 16: a taka of a CLOSED order becomes free stock once it is back.
     await freeTakasOfClosedOrders(tx, role, [takaId], at, events);
     await writeTakaEvents(tx, role, events);

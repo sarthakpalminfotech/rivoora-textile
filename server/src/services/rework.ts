@@ -4,6 +4,9 @@ import {
   sendBackSchema,
   SENT_BACK_BY_OWNER,
   sendBackStage,
+  undoSendBackSchema,
+  type TakaStage,
+  type UndoSendBackResult,
   takaActualPcs,
   takaStageStatusText,
   type RoleKey,
@@ -58,8 +61,8 @@ export async function sendBackTakas(role: RoleKey, orderId: number, input: unkno
           .update(takas)
           .set(
             data.target === 'butta'
-              ? { stage: targetStage, reworkCount: sql`${takas.reworkCount} + 1`, godownCheckedAt: null, godownCheckedBy: null }
-              : { stage: targetStage, refinishCount: sql`${takas.refinishCount} + 1`, godownCheckedAt: null, godownCheckedBy: null },
+              ? { stage: targetStage, stageBeforeRework: stage as TakaStage, reworkCount: sql`${takas.reworkCount} + 1`, godownCheckedAt: null, godownCheckedBy: null }
+              : { stage: targetStage, stageBeforeRework: stage as TakaStage, refinishCount: sql`${takas.refinishCount} + 1`, godownCheckedAt: null, godownCheckedBy: null },
           )
           .where(and(inArray(takas.id, part), eq(takas.stage, stage as typeof takas.$inferSelect.stage)))
           .returning({ id: takas.id });
@@ -78,5 +81,64 @@ export async function sendBackTakas(role: RoleKey, orderId: number, input: unkno
     await writeTakaEvents(tx, role, events);
     await recomputeOrdersStatus(tx, role, [orderId]);
     return { orderId, target: data.target, sent: rows.length, pcs: rows.reduce((n, r) => n + (takaActualPcs(r) ?? 0), 0) };
+  });
+}
+
+/**
+ * Sprint 21 (CR-09) — undo a send back, until the taka is put on a challan. The taka returns to the stage it had before
+ * (`stage_before_rework`; an older send-back without one falls back to `final`, where it came from the godown). Allowed
+ * only while the taka's LAST event is that send back (a refinish that came from Mill QC, or a taka that has been on a
+ * challan since, can't be undone this way). Reason required; event `rework_undone`.
+ */
+export async function undoSendBack(role: RoleKey, orderId: number, input: unknown): Promise<UndoSendBackResult> {
+  const data = undoSendBackSchema.parse(input);
+  return db.transaction(async (tx) => {
+    const [order] = await tx.select({ id: orders.id }).from(orders).where(eq(orders.id, orderId));
+    if (!order) throw notFound('Order');
+    const rows: { id: number; takaNo: string; stage: TakaStage; before: TakaStage | null; lastEvent: string | null }[] = [];
+    for (const part of chunk(data.takaIds)) {
+      rows.push(
+        ...(await tx
+          .select({
+            id: takas.id,
+            takaNo: takas.takaNo,
+            stage: takas.stage,
+            before: takas.stageBeforeRework,
+            lastEvent: sql<string | null>`(SELECT e.event FROM taka_events e WHERE e.taka_id = "takas"."id" ORDER BY e.id DESC LIMIT 1)`,
+          })
+          .from(takas)
+          .where(and(inArray(takas.id, part), takaInOrder(orderId), eq(takas.isDeleted, false)))),
+      );
+    }
+    const found = new Map(rows.map((r) => [r.id, r]));
+    const bad = data.takaIds.flatMap((id) => {
+      const r = found.get(id);
+      if (!r) return [`#${id} (not on this order)`];
+      if ((r.stage !== 'rework_butta' && r.stage !== 'refinish') || r.lastEvent !== 'sent_back') return [`${r.takaNo} (${takaStageStatusText(r.stage)})`];
+      return [];
+    });
+    if (bad.length) {
+      throw conflict(`These takas can't be taken back — a send back can be undone only until the taka is put on a challan: ${bad.slice(0, 15).join(', ')}${bad.length > 15 ? ' …' : ''}.`);
+    }
+    for (const r of rows) {
+      const back = r.before ?? 'final';
+      const moved = await tx
+        .update(takas)
+        .set({
+          stage: back,
+          stageBeforeRework: null,
+          ...(r.stage === 'rework_butta' ? { reworkCount: sql`MAX(${takas.reworkCount} - 1, 0)` } : { refinishCount: sql`MAX(${takas.refinishCount} - 1, 0)` }),
+        })
+        .where(and(eq(takas.id, r.id), eq(takas.stage, r.stage)))
+        .returning({ id: takas.id });
+      if (!moved.length) throw conflict('Some takas changed meanwhile. Refresh and try again.');
+    }
+    await writeTakaEvents(
+      tx,
+      role,
+      rows.map((r): TakaEventInput => ({ takaId: r.id, event: 'rework_undone', note: `Send back undone → ${takaStageStatusText(r.before ?? 'final')} · ${data.reason}` })),
+    );
+    await recomputeOrdersStatus(tx, role, [orderId]);
+    return { orderId, undone: rows.length };
   });
 }

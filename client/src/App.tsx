@@ -49,6 +49,7 @@ const FgReceivePage = lazy(() => import('@/features/outside/fg-receive-page'));
 const PoPrintPage = lazy(() => import('@/features/outside/po-print-page'));
 const DamageDetailsPage = lazy(() => import('@/features/takas/damage-details-page'));
 const QcHomePage = lazy(() => import('@/features/qc/qc-home-page'));
+const QcCorrectionsPage = lazy(() => import('@/features/qc-corrections/qc-corrections-page'));
 const QcTakaPage = lazy(() => import('@/features/butta-qc/qc-taka-page'));
 const MillQcTakaPage = lazy(() => import('@/features/mill-qc/qc-taka-page'));
 const GodownOrdersPage = lazy(() => import('@/features/godown/godown-orders-page'));
@@ -271,6 +272,7 @@ const router = createBrowserRouter([
           { path: 'mill/challans/:id', element: guard('canUseMillModule', <ChallanDetailsPage kind="mill" />) },
           // One QC home for the QC role; the old home paths lead there.
           { path: 'qc', element: guard('canButtaQc', <QcHomePage />) },
+          { path: 'qc-corrections', element: guard('canUndoQc', <QcCorrectionsPage />) },
           { path: 'butta-qc', element: <Navigate to="/qc" replace /> },
           { path: 'butta-qc/taka/:takaNo', element: guard('canButtaQc', <QcTakaPage />) },
           { path: 'mill-qc', element: <Navigate to="/qc" replace /> },

@@ -34,6 +34,10 @@ import { useOrderTakas } from './api';
 import { EditTakasDialog, type EditTakasTarget } from './edit-takas-dialog';
 import { EditReceiptTakasDialog, type EditReceiptTarget } from './edit-receipt-takas-dialog';
 import { SendBackDialog, type SendBackTarget } from './send-back-dialog';
+import { toast } from 'sonner';
+import { errorMessage } from '@/lib/api';
+import { ReasonDialog } from '@/components/ui/reason-dialog';
+import { useUndoSendBack } from './api';
 import { StageDot, TakaChip } from './taka-chip';
 import { TakaDrawer } from './taka-drawer';
 
@@ -325,6 +329,9 @@ export function OrderTakasCard({ order }: { order: OrderDetail }) {
   const [sendTarget, setSendTarget] = useState<SendBackTarget | null>(null);
   const [moveOpen, setMoveOpen] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
+  const [undoOpen, setUndoOpen] = useState(false);
+  const [undoError, setUndoError] = useState<string | null>(null);
+  const undoSend = useUndoSendBack(order.id);
   // Sprint 15: a held order allows no changes (the page banner explains why; the server answers 409 anyway).
   const held = order.isOnHold;
   const canEdit = can('canEditTakas') && !held;
@@ -459,6 +466,18 @@ export function OrderTakasCard({ order }: { order: OrderDetail }) {
                 <Button size="sm" variant="secondary" disabled={picked.size === 0} onClick={() => setSendTarget('mill')}>
                   Send back to mill
                 </Button>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  disabled={picked.size === 0 || [...picked.values()].some((t) => t.stage !== 'rework_butta' && t.stage !== 'refinish')}
+                  onClick={() => {
+                    setUndoError(null);
+                    setUndoOpen(true);
+                  }}
+                  title="Only takas that were sent back and are not on a challan yet"
+                >
+                  Undo send back ({picked.size})
+                </Button>
               </>
             )}
             {canStock && lump && (
@@ -471,6 +490,31 @@ export function OrderTakasCard({ order }: { order: OrderDetail }) {
             </Button>
           </div>
         </div>
+      )}
+      {canRework && (
+        <ReasonDialog
+          open={undoOpen}
+          onOpenChange={setUndoOpen}
+          title="Undo send back"
+          confirmLabel="Undo send back"
+          loading={undoSend.isPending}
+          error={undoError}
+          onConfirm={(reason) =>
+            undoSend.mutate(
+              { takaIds: [...picked.keys()], reason },
+              {
+                onSuccess: (r) => {
+                  toast.success(`${r.undone} taka${r.undone === 1 ? '' : 's'} taken back`);
+                  setUndoOpen(false);
+                  stopSelecting();
+                },
+                onError: (err) => setUndoError(errorMessage(err)),
+              },
+            )
+          }
+        >
+          {picked.size} taka{picked.size === 1 ? '' : 's'} go back to the stage they were in before the send back.
+        </ReasonDialog>
       )}
       {canRework && (
         <SendBackDialog orderId={order.id} target={sendTarget} takas={[...picked.values()]} onClose={() => setSendTarget(null)} onDone={stopSelecting} />

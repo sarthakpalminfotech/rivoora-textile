@@ -529,6 +529,8 @@ export const takas = sqliteTable(
     godownCheckedBy: text('godown_checked_by').$type<RoleKey>(),
     /** Sprint 12: how many times the owner sent the taka back to butta cutting. */
     reworkCount: integer('rework_count').notNull().default(0),
+    /** Sprint 21 (CR-09): the stage a taka had before the owner sent it back (butta / mill) — Undo send back returns it there. */
+    stageBeforeRework: text('stage_before_rework').$type<TakaStage>(),
     /** Sprint 12: set when the taka came back from a customer (GR) — and from which dispatch challan. */
     returnedAt: text('returned_at'),
     returnedFromChallanId: integer('returned_from_challan_id'),
@@ -687,6 +689,33 @@ export const takaEvents = sqliteTable(
     updatedAt: updatedAt(),
   },
   (t) => [index('taka_events_taka_idx').on(t.takaId)],
+);
+
+/**
+ * Sprint 21 (C6): what each Butta QC / Mill QC submit changed, so the QC result can be undone exactly (damages added are
+ * deleted, damages resolved are reopened with their old pcs / metres). `changes` = JSON, see services/qc-runs.ts.
+ */
+export const qcRuns = sqliteTable(
+  'qc_runs',
+  {
+    id: id(),
+    takaId: integer('taka_id')
+      .notNull()
+      .references(() => takas.id),
+    kind: text('kind').$type<'butta' | 'mill'>().notNull(),
+    /** The stage the taka moved to: `waiting_mill` | `final` | `refinish`. */
+    result: text('result').$type<TakaStage>().notNull(),
+    changes: text('changes').notNull(),
+    doneByRole: text('done_by_role').$type<RoleKey>().notNull(),
+    doneByUserId: integer('done_by_user_id'),
+    undoneAt: text('undone_at'),
+    undoneByRole: text('undone_by_role').$type<RoleKey>(),
+    undoneByUserId: integer('undone_by_user_id'),
+    undoneReason: text('undone_reason'),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index('qc_runs_taka_idx').on(t.takaId)],
 );
 
 /** Butta parties (outsourced butta cutting). The name is printed as "M/s. …" on the challan. */

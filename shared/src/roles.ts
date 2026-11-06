@@ -114,6 +114,16 @@ export interface RolePermissions {
   canViewDesignLibrary: boolean;
   /** Sprint 18: add / edit / delete designs and Upload many (Jenish + Gaurang). */
   canManageDesigns: boolean;
+  /** Sprint 21 (C6): undo a Butta / Mill QC result and cancel a refinish — Jenish, Gaurang, the production supervisor. */
+  canUndoQc: boolean;
+  /** Sprint 21 (C3): edit a butta / mill challan and remove an unreceived taka from it. */
+  canEditChallan: boolean;
+  /** Sprint 21 (C4): mark a taka lost / short at a party — Gaurang only. */
+  canMarkLostAtParty: boolean;
+  /** Sprint 21 (CR-10, C7): undo a dispatch and edit a delivery challan. */
+  canUndoDispatch: boolean;
+  /** Sprint 21 (CR-11): the Alerts page (overdue production / butta / mill / whole order). */
+  canViewAlerts: boolean;
 }
 
 export interface RoleConfig {
@@ -156,6 +166,11 @@ const NO_SPRINT12 = {
   canAdjustYarnStock: false,
   canViewDesignLibrary: false,
   canManageDesigns: false,
+  canUndoQc: false,
+  canEditChallan: false,
+  canMarkLostAtParty: false,
+  canUndoDispatch: false,
+  canViewAlerts: false,
 };
 /**
  * Sprint 17 → 20: the yarn floor rights — view + receive Yarn POs (no rate), Yarn inventory: transfer, withdraw, start /
@@ -192,6 +207,12 @@ const OWNER_SPRINT12 = {
   // Sprint 18: the design library — both manage designs (add / edit / delete, Upload many).
   canViewDesignLibrary: true,
   canManageDesigns: true,
+  // Sprint 21
+  canUndoQc: true,
+  canEditChallan: true,
+  canMarkLostAtParty: false,
+  canUndoDispatch: true,
+  canViewAlerts: true,
 };
 
 const NO_TAKAS = { canUseTakaModules: false, canEnterTakas: false, canEditTakas: false, canEditOwnTakaEntry: false, canViewTakas: false };
@@ -309,6 +330,8 @@ export const ROLES: Record<RoleKey, RoleConfig> = {
       ...OWNER_SPRINT12,
       // Sprint 21 (CR-03): Gaurang can hold and release too (either owner can release whoever held it).
       canHoldOrder: true,
+      // Sprint 21 (C4): only Gaurang marks a taka lost / short at a party.
+      canMarkLostAtParty: true,
     },
   },
   supervisor: {
@@ -340,6 +363,9 @@ export const ROLES: Record<RoleKey, RoleConfig> = {
       ...NO_MILL,
       ...NO_SPRINT12,
       canViewProductionOrders: true,
+      // Sprint 21: QC corrections and the Alerts page.
+      canUndoQc: true,
+      canViewAlerts: true,
       // Sprint 17: Yarn PO (view + receive) and Yarn inventory.
       ...YARN_FLOOR,
     },
@@ -389,7 +415,7 @@ export const ROLES: Record<RoleKey, RoleConfig> = {
     // Sprint 15: + the read-only Orders module (butta cutting onwards): order, takas, damages, docs — no client, no rate.
     // Sprint 16: + Receive goods (outside weavers' challans, FG purchases) — never the client or rate there.
     // Sprint 20: no yarn access any more (that moved to the Yarn inventory supervisor).
-    permissions: { ...NOTHING, canUseButtaModule: true, canUseMillModule: true, canViewGodownOrders: true, canViewTakas: true, canReceiveOutside: true },
+    permissions: { ...NOTHING, canUseButtaModule: true, canUseMillModule: true, canViewGodownOrders: true, canViewTakas: true, canReceiveOutside: true, canEditChallan: true },
   },
   // One person does both QCs: the Butta QC and the Mill QC share this role and one screen (/qc).
   qc: {
@@ -417,6 +443,8 @@ export const ROLES: Record<RoleKey, RoleConfig> = {
       canDispatch: true,
       canGoodsReturn: true,
       canMoveToInventory: true,
+      // Sprint 21: Dhruvil undoes a dispatch / edits a delivery challan.
+      canUndoDispatch: true,
       // Sprint 16: Receive goods (outside weavers' challans, FG purchases).
       canReceiveOutside: true,
       // Sprint 18: the Design library, view only.

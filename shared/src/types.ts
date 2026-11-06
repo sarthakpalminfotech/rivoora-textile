@@ -955,6 +955,14 @@ export const TAKA_EVENT_KINDS = [
   // Sprint 16
   'received_outside',
   'received_fg',
+  // Sprint 21
+  'rework_undone',
+  'qc_undone',
+  'refinish_cancelled',
+  'removed_from_challan',
+  'marked_lost',
+  'lost_undone',
+  'dispatch_undone',
 ] as const;
 export type TakaEventKind = (typeof TAKA_EVENT_KINDS)[number];
 
@@ -1629,6 +1637,12 @@ export interface AuthSession {
 
 /* ---------- Rework (Sprint 12) ---------- */
 
+/** POST /orders/:id/takas/undo-send-back (Sprint 21) */
+export interface UndoSendBackResult {
+  orderId: number;
+  undone: number;
+}
+
 /** POST /orders/:id/takas/send-back */
 export interface SendBackResult {
   orderId: number;
@@ -2030,4 +2044,35 @@ export interface ClosePreview {
   freePcs: number;
   freeMeters: number;
   dispatchedTakas: number;
+}
+
+/* ---------- Sprint 21 (C6): QC corrections ---------- */
+
+export interface QcCorrectionAction {
+  allowed: boolean;
+  /** Why not (shown as a grey note). */
+  reason: string | null;
+}
+
+/** GET /qc-corrections/taka/:no */
+export interface QcCorrectionTaka {
+  id: number;
+  takaNo: string;
+  orderNo: number;
+  designCode: string | null;
+  stage: TakaStage;
+  pcs: number | null;
+  meters: number | null;
+  /** The last QC result (not yet undone). */
+  lastQc: { kind: 'butta' | 'mill'; result: TakaStage; at: string; byName: string | null; byRole: RoleKey } | null;
+  damages: { id: number; label: string; status: DamageStatus }[];
+  undoQc: QcCorrectionAction;
+  cancelRefinish: QcCorrectionAction;
+  events: { id: number; event: TakaEventKind; note: string | null; createdAt: string }[];
+}
+
+export interface QcCorrectionResult {
+  takaId: number;
+  takaNo: string;
+  stage: TakaStage;
 }

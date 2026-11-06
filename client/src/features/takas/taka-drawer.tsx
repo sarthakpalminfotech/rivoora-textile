@@ -55,6 +55,13 @@ const EVENT_LABEL: Record<TakaEventKind, string> = {
   moved_order: 'Moved to another order',
   received_outside: 'Received from outside weaver',
   received_fg: 'Received (FG purchase)',
+  rework_undone: 'Send back undone',
+  qc_undone: 'QC result undone',
+  refinish_cancelled: 'Refinish cancelled',
+  removed_from_challan: 'Removed from challan',
+  marked_lost: 'Marked lost / short at party',
+  lost_undone: 'Lost mark undone',
+  dispatch_undone: 'Dispatch undone',
 };
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
