@@ -1998,30 +1998,22 @@ export interface TakaLookupCandidate {
 export interface CloseOrderResult {
   orderId: number;
   orderNo: number;
-  /** Ongoing jobsheets completed with the frames entered. */
-  completed: number;
-  /** Pending / Sent jobsheets cancelled. */
+  /** Pending jobsheets cancelled. */
   cancelled: number;
-  /** Open outside POs closed. */
-  closedPos: number;
   /** Takas with us that became free stock (and their pcs). */
   freeTakas: number;
   freePcs: number;
   /** Sprint 19: the meter twin of `freePcs`, for a meter order. */
   freeMeters: number;
-  /** Takas still at butta cutting / the mill (they become free stock when they come back). */
-  outTakas: number;
 }
 
 /** What Close order will do (GET /orders/:id/close-preview) — the summary of the confirm dialog. */
 export interface ClosePreview {
-  /** Sprint 19: `meters` is set instead of `frames` for a meter order's ongoing jobsheet. */
-  ongoing: { id: number; jobsheetNo: number; frames: number; meters: number | null; machineNo: number | null }[];
+  /** Sprint 21: while any exists, Close is blocked (409). */
+  blockers: import('./closeBlockers').CloseBlocker[];
   pendingJobsheets: number;
-  openPos: number;
   freeTakas: number;
   freePcs: number;
   freeMeters: number;
-  outTakas: number;
   dispatchedTakas: number;
 }

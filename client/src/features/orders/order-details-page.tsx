@@ -291,7 +291,7 @@ export default function OrderDetailsPage() {
           </div>
         </div>
       )}
-      {order.isOnHold && <OnHoldBanner note={order.holdNote} canRelease={can('canHoldOrder')} />}
+      {order.isOnHold && <OnHoldBanner note={order.holdNote} canRelease={can('canHoldOrder')} heldBy={[...order.holdEvents].reverse().find((e) => e.event === 'held') ?? null} />}
 
       <OrderHeader
         order={order}

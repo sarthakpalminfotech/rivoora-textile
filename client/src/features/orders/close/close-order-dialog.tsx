@@ -1,18 +1,8 @@
-import { AlertTriangle, Ban, Info, Minus, Plus, XCircle } from 'lucide-react';
+import { Ban, CheckCircle2, ExternalLink, Info, ShieldAlert, XCircle } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
-import {
-  completedFramesNote,
-  completedMetersNote,
-  formatQty,
-  isMeterOrder,
-  planHold,
-  planHoldMeters,
-  type ClosePreview,
-  type HoldJobsheetEntry,
-  type HoldMetersJobsheetEntry,
-  type Unit,
-} from '@rivoora/shared';
+import { formatQty, isMeterOrder, type ClosePreview, type Unit } from '@rivoora/shared';
 import { Button } from '@/components/ui/button';
 import { Field } from '@/components/ui/field';
 import { ResponsiveModal } from '@/components/ui/modal';
@@ -20,55 +10,15 @@ import { errorMessage } from '@/lib/api';
 import { formatOrderNo } from '@/lib/format';
 import { useCloseOrder, useClosePreview } from './api';
 
-/** "Frames completed" for one jobsheet on the loom (same rule as Hold order). */
-function FramesDone({ jobsheetNo, frames, value, onChange, disabled }: { jobsheetNo: number; frames: number; value: string; onChange: (text: string) => void; disabled: boolean }) {
-  const n = /^\d+$/.test(value.trim()) ? Number(value.trim()) : null;
-  const step = (d: number) => onChange(String(Math.min(frames, Math.max(0, (n ?? 0) + d))));
-  return (
-    <div className="flex items-stretch gap-2">
-      <Button variant="secondary" className="size-11 shrink-0 p-0 [&_svg]:size-5" onClick={() => step(-1)} disabled={disabled || n === 0} aria-label="One frame less">
-        <Minus />
-      </Button>
-      <input
-        type="text"
-        inputMode="numeric"
-        autoComplete="off"
-        value={value}
-        onChange={(e) => onChange(e.target.value.replace(/[^\d]/g, ''))}
-        disabled={disabled}
-        aria-label={`Frames completed on jobsheet ${jobsheetNo}`}
-        className="h-11 min-w-0 flex-1 rounded-[10px] border border-input bg-slate-50/60 text-center text-lg font-bold tabular-nums text-slate-900 focus:border-primary focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary/15"
-      />
-      <Button variant="secondary" className="size-11 shrink-0 p-0 [&_svg]:size-5" onClick={() => step(1)} disabled={disabled || (n ?? 0) >= frames} aria-label="One frame more">
-        <Plus />
-      </Button>
-    </div>
-  );
-}
-
-/** Sprint 19: the meter twin of `FramesDone` — a plain decimal field (no stepper). */
-function MetersDone({ jobsheetNo, value, onChange, disabled }: { jobsheetNo: number; value: string; onChange: (text: string) => void; disabled: boolean }) {
-  return (
-    <input
-      type="text"
-      inputMode="decimal"
-      autoComplete="off"
-      value={value}
-      onChange={(e) => onChange(e.target.value.replace(/[^\d.]/g, ''))}
-      disabled={disabled}
-      aria-label={`Metres completed on jobsheet ${jobsheetNo}`}
-      className="h-11 w-full rounded-[10px] border border-input bg-slate-50/60 px-3 text-center text-lg font-bold tabular-nums text-slate-900 focus:border-primary focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary/15"
-    />
-  );
-}
-
-function SummaryLine({ preview, meterOrder }: { preview: ClosePreview; meterOrder: boolean }) {
+/** What Close will do when the order is clear (Sprint 21). */
+function WhatHappens({ preview, meterOrder }: { preview: ClosePreview; meterOrder: boolean }) {
   const parts: string[] = [];
-  if (preview.pendingJobsheets) parts.push(`${preview.pendingJobsheets} pending jobsheet${preview.pendingJobsheets === 1 ? '' : 's'} cancelled`);
-  if (preview.openPos) parts.push(`${preview.openPos} outside PO${preview.openPos === 1 ? '' : 's'} closed`);
-  if (preview.freeTakas) parts.push(`${preview.freeTakas} taka${preview.freeTakas === 1 ? '' : 's'} (${meterOrder ? formatQty(preview.freeMeters, 'meters') : `${preview.freePcs} pcs`}) → free stock`);
-  if (preview.outTakas) parts.push(`${preview.outTakas} taka${preview.outTakas === 1 ? '' : 's'} still at butta cutting / the mill`);
-  if (preview.dispatchedTakas) parts.push(`${preview.dispatchedTakas} taka${preview.dispatchedTakas === 1 ? '' : 's'} already dispatched (unaffected)`);
+  if (preview.pendingJobsheets) parts.push(`${preview.pendingJobsheets} pending jobsheet${preview.pendingJobsheets === 1 ? '' : 's'} will be cancelled`);
+  if (preview.freeTakas)
+    parts.push(
+      `${preview.freeTakas} taka${preview.freeTakas === 1 ? '' : 's'} with us (${meterOrder ? formatQty(preview.freeMeters, 'meters') : `${preview.freePcs} pcs`}) go to free stock`,
+    );
+  if (preview.dispatchedTakas) parts.push(`${preview.dispatchedTakas} dispatched taka${preview.dispatchedTakas === 1 ? '' : 's'} stay with the client`);
   if (!parts.length) return <p className="text-sm text-slate-500">Nothing is in progress — the order will simply be marked Closed.</p>;
   return (
     <ul className="space-y-1.5 text-sm text-slate-700">
@@ -82,40 +32,79 @@ function SummaryLine({ preview, meterOrder }: { preview: ClosePreview; meterOrde
   );
 }
 
-/** Close order (Jenish, Gaurang): any order, any time. Completes jobsheets on the loom, cancels the rest, frees stock. */
+/** The red panel: what must be cleared first. Phone: stacked cards · tablet: 2-column cards · desktop: a table. */
+function BlockerList({ blockers, onNavigate }: { blockers: ClosePreview['blockers']; onNavigate: () => void }) {
+  return (
+    <section role="alert" aria-label="Why this order can't be closed" className="rounded-xl border border-red-300 bg-red-50 p-4">
+      <p className="flex items-start gap-2 text-[15px] font-semibold text-red-900">
+        <ShieldAlert className="mt-0.5 size-5 shrink-0 text-red-600" aria-hidden />
+        This order can't be closed yet — clear these first:
+      </p>
+      {/* phone + tablet: cards (2 columns from md) */}
+      <ul className="mt-3 grid gap-2 md:grid-cols-2 lg:hidden">
+        {blockers.map((b) => (
+          <li key={b.kind} className="flex items-center justify-between gap-3 rounded-lg bg-white px-3 py-2.5 shadow-soft">
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-slate-900">{b.label}</p>
+              <p className="text-xs text-slate-500">{b.count}</p>
+            </div>
+            <Link to={b.link} onClick={onNavigate} className="inline-flex min-h-11 shrink-0 items-center gap-1 rounded-lg px-3 text-sm font-semibold text-primary hover:bg-primary-soft">
+              Open <ExternalLink className="size-4" aria-hidden />
+            </Link>
+          </li>
+        ))}
+      </ul>
+      {/* desktop: a table */}
+      <table className="mt-3 hidden w-full overflow-hidden rounded-lg bg-white text-sm shadow-soft lg:table">
+        <thead>
+          <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-slate-500">
+            <th className="px-3 py-2 font-semibold">Still in process</th>
+            <th className="px-3 py-2 text-right font-semibold">Count</th>
+            <th className="px-3 py-2" />
+          </tr>
+        </thead>
+        <tbody>
+          {blockers.map((b) => (
+            <tr key={b.kind} className="border-b border-border last:border-0">
+              <td className="px-3 py-2 font-medium text-slate-900">{b.label}</td>
+              <td className="px-3 py-2 text-right tabular-nums">{b.count}</td>
+              <td className="px-3 py-2 text-right">
+                <Link to={b.link} onClick={onNavigate} className="inline-flex items-center gap-1 font-semibold text-primary hover:underline">
+                  Open <ExternalLink className="size-4" aria-hidden />
+                </Link>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </section>
+  );
+}
+
+/**
+ * Close order (Jenish, Gaurang). Sprint 21 (CR-04): only when nothing of the order is in process. The dialog opens with
+ * the preview — blockers (Close disabled) or a summary of what will happen.
+ */
 export function CloseOrderDialog({ orderId, orderNo, unit, open, onOpenChange }: { orderId: number; orderNo: number; unit: Unit; open: boolean; onOpenChange: (open: boolean) => void }) {
   const preview = useClosePreview(orderId, open);
   const close = useCloseOrder(orderId);
   const meterOrder = isMeterOrder({ unit });
   const [note, setNote] = useState('');
-  const [texts, setTexts] = useState<Record<number, string>>({});
   const [serverError, setServerError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) return;
     setNote('');
-    setTexts({});
     setServerError(null);
   }, [open]);
 
-  const ongoing = preview.data?.ongoing ?? [];
-  const framesEntries: HoldJobsheetEntry[] = ongoing.flatMap((j) => {
-    const t = (texts[j.id] ?? '').trim();
-    return /^\d+$/.test(t) ? [{ jobsheetId: j.id, completedFrames: Number(t) }] : [];
-  });
-  const metersEntries: HoldMetersJobsheetEntry[] = ongoing.flatMap((j) => {
-    const t = (texts[j.id] ?? '').trim();
-    return /^\d+(\.\d{1,2})?$/.test(t) ? [{ jobsheetId: j.id, completedMeters: Number(t) }] : [];
-  });
-  const plan = meterOrder
-    ? planHoldMeters(ongoing.map((j) => ({ id: j.id, meters: j.meters ?? 0 })), metersEntries)
-    : planHold(ongoing, framesEntries);
-  const ready = !preview.isPending && !preview.isError && plan.errors.length === 0;
+  const blockers = preview.data?.blockers ?? [];
+  const ready = !preview.isPending && !preview.isError && blockers.length === 0;
 
   const submit = () => {
     setServerError(null);
     close.mutate(
-      { note: note.trim() || null, ongoing: meterOrder ? metersEntries : framesEntries },
+      { note: note.trim() || null },
       {
         onSuccess: (res) => {
           toast.success(
@@ -124,7 +113,11 @@ export function CloseOrderDialog({ orderId, orderNo, unit, open, onOpenChange }:
           );
           onOpenChange(false);
         },
-        onError: (err) => setServerError(errorMessage(err)),
+        // A 409 means something changed meanwhile — show it and reload the blocker list.
+        onError: (err) => {
+          setServerError(errorMessage(err));
+          void preview.refetch();
+        },
       },
     );
   };
@@ -134,7 +127,7 @@ export function CloseOrderDialog({ orderId, orderNo, unit, open, onOpenChange }:
       open={open}
       onOpenChange={(o) => !close.isPending && onOpenChange(o)}
       title={`Close order ${formatOrderNo(orderNo)}?`}
-      size="sm"
+      size="md"
       footer={
         <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto">
           <Button variant="secondary" size="lg" onClick={() => onOpenChange(false)} disabled={close.isPending}>
@@ -157,69 +150,15 @@ export function CloseOrderDialog({ orderId, orderNo, unit, open, onOpenChange }:
           <p role="alert" className="text-sm font-medium text-destructive">
             {errorMessage(preview.error)}
           </p>
+        ) : blockers.length > 0 ? (
+          <BlockerList blockers={blockers} onNavigate={() => onOpenChange(false)} />
         ) : (
-          <>
-            {ongoing.length > 0 && (
-              <section className="space-y-4 rounded-xl border border-amber-300 bg-amber-50 p-4" aria-label="Jobsheets on the loom">
-                <p className="flex items-start gap-2 text-[15px] font-semibold text-amber-950">
-                  <AlertTriangle className="mt-0.5 size-5 shrink-0 text-amber-600" aria-hidden />
-                  {ongoing.length === 1 ? '1 jobsheet is on the loom.' : `${ongoing.length} jobsheets are on the loom.`} Enter the {meterOrder ? 'metres' : 'frames'} completed — each is completed now; no new jobsheet is created for the rest.
-                </p>
-                <ul className="space-y-4">
-                  {ongoing.map((j) => {
-                    const text = texts[j.id] ?? '';
-                    const err = plan.errors.find((e) => e.jobsheetId === j.id);
-                    if (meterOrder) {
-                      const assigned = j.meters ?? 0;
-                      const n = /^\d+(\.\d{1,2})?$/.test(text.trim()) ? Number(text.trim()) : null;
-                      const note2 = n !== null && n <= assigned ? completedMetersNote(assigned, n) : null;
-                      return (
-                        <li key={j.id} className="space-y-2 rounded-lg bg-white p-3 shadow-soft">
-                          <p className="text-[15px] font-bold text-slate-900">Jobsheet {j.jobsheetNo}</p>
-                          <p className="text-sm text-slate-600">
-                            {j.machineNo ? `Machine ${j.machineNo}` : 'Machine —'} · {formatQty(assigned, 'meters')} assigned
-                          </p>
-                          <Field label="Metres completed" required error={text !== '' && err ? err.message : undefined}>
-                            <MetersDone jobsheetNo={j.jobsheetNo} value={text} onChange={(t) => setTexts((prev) => ({ ...prev, [j.id]: t }))} disabled={close.isPending} />
-                          </Field>
-                          {note2 && (
-                            <p className="flex items-start gap-2 text-sm text-slate-600" role="status">
-                              <Info className="mt-0.5 size-4 shrink-0 text-slate-400" aria-hidden />
-                              {note2}
-                            </p>
-                          )}
-                        </li>
-                      );
-                    }
-                    const n = /^\d+$/.test(text.trim()) ? Number(text.trim()) : null;
-                    const note2 = n !== null && n <= j.frames ? completedFramesNote(j.frames, n) : null;
-                    return (
-                      <li key={j.id} className="space-y-2 rounded-lg bg-white p-3 shadow-soft">
-                        <p className="text-[15px] font-bold text-slate-900">Jobsheet {j.jobsheetNo}</p>
-                        <p className="text-sm text-slate-600">
-                          {j.machineNo ? `Machine ${j.machineNo}` : 'Machine —'} · {j.frames} frame{j.frames === 1 ? '' : 's'} assigned
-                        </p>
-                        <Field label="Frames completed" required error={text !== '' && err ? err.message : undefined}>
-                          <FramesDone jobsheetNo={j.jobsheetNo} frames={j.frames} value={text} onChange={(t) => setTexts((prev) => ({ ...prev, [j.id]: t }))} disabled={close.isPending} />
-                        </Field>
-                        {note2 && (
-                          <p className="flex items-start gap-2 text-sm text-slate-600" role="status">
-                            <Info className="mt-0.5 size-4 shrink-0 text-slate-400" aria-hidden />
-                            {note2}
-                          </p>
-                        )}
-                      </li>
-                    );
-                  })}
-                </ul>
-              </section>
-            )}
-
-            <div className="rounded-xl border border-border p-3.5">
-              <p className="mb-2 text-sm font-semibold text-slate-700">On close:</p>
-              <SummaryLine preview={preview.data!} meterOrder={meterOrder} />
-            </div>
-          </>
+          <div className="rounded-xl border border-green-200 bg-green-50/60 p-3.5">
+            <p className="mb-2 flex items-center gap-2 text-sm font-semibold text-green-900">
+              <CheckCircle2 className="size-4 text-green-600" aria-hidden /> Everything is cleared. On close:
+            </p>
+            <WhatHappens preview={preview.data!} meterOrder={meterOrder} />
+          </div>
         )}
 
         <Field label="Note (optional)" htmlFor="close-note" hint="Shown on the order and in its History.">

@@ -305,6 +305,8 @@ export const ROLES: Record<RoleKey, RoleConfig> = {
       canViewInventory: true,
       canViewProductionOrders: false,
       ...OWNER_SPRINT12,
+      // Sprint 21 (CR-03): Gaurang can hold and release too (either owner can release whoever held it).
+      canHoldOrder: true,
     },
   },
   supervisor: {

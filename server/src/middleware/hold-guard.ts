@@ -101,8 +101,8 @@ interface Rule {
 
 /**
  * Writes. NOT listed on purpose: orders hold / release, the receive endpoints (butta / mill receive, the mill received
- * count, undo receive, Sprint 16: goods received from an outside weaver / an FG supplier), Close order is listed (a held
- * order is released first).
+ * count, undo receive, Sprint 16: goods received from an outside weaver / an FG supplier), Close order (Sprint 21: a held order
+ * can be closed — the close ends the hold).
  */
 const WRITE_RULES: Rule[] = [
   { methods: ['PUT', 'DELETE'], pattern: /^\/jobsheets\/(\d+)$/, resolve: ofJobsheet },
@@ -110,7 +110,7 @@ const WRITE_RULES: Rule[] = [
   { methods: ['PUT'], pattern: /^\/orders\/(\d+)(?:\/steps)?$/, resolve: ofOrder },
   {
     methods: ['POST'],
-    pattern: /^\/orders\/(\d+)\/(?:jobsheets|jobsheets\/generate|jobsheets\/send|undo-production|takas\/move-to-inventory|takas\/add-from-free-stock|takas\/send-back|outside-pos|close)$/,
+    pattern: /^\/orders\/(\d+)\/(?:jobsheets|jobsheets\/generate|jobsheets\/send|undo-production|takas\/move-to-inventory|takas\/add-from-free-stock|takas\/send-back|outside-pos)$/,
     resolve: ofOrder,
   },
   { methods: ['POST'], pattern: /^\/orders\/send-to-production$/, resolve: ofBodyOrderIds },

@@ -263,6 +263,7 @@ const ongoingEntry = z
 /** POST /orders/:id/close — an optional note + "Frames completed" for every jobsheet on the loom (like Hold). */
 export const orderCloseSchema = z.object({
   note: optText(300),
+  /** Sprint 21: ignored (a close needs no loom jobsheet any more); old clients may still send it. */
   ongoing: z.array(ongoingEntry).max(500).default([]),
 });
 export type OrderCloseInput = z.input<typeof orderCloseSchema>;
