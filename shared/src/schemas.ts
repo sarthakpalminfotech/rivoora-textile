@@ -1055,3 +1055,21 @@ export type DispatchedListQuery = z.infer<typeof dispatchedListQuerySchema>;
 /** POST /qc-corrections/:takaId/undo-qc and /cancel-refinish (Sprint 21) */
 export const reasonOnlySchema = z.object({ reason: reasonField });
 export type ReasonOnlyInput = z.input<typeof reasonOnlySchema>;
+
+/** PUT /butta|mill/challans/:id (Sprint 21, C3) — header fields of an active challan. */
+export const challanEditSchema = z.object({
+  partyId: z.number({ required_error: 'Select the party', invalid_type_error: 'Select the party' }).int().positive('Select the party'),
+  challanDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date'),
+  ewayNo: optText(40),
+  transport: optText(80),
+  vehicleNo: optText(40),
+  notes: optText(300),
+});
+export type ChallanEditInput = z.input<typeof challanEditSchema>;
+
+/** POST /butta|mill/challans/:id/remove-taka and /mark-lost and /undo-lost (Sprint 21, C3/C4) */
+export const challanTakaReasonSchema = z.object({
+  takaId: z.number().int().positive('Pick the taka'),
+  reason: reasonField,
+});
+export type ChallanTakaReasonInput = z.input<typeof challanTakaReasonSchema>;

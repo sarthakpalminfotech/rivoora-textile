@@ -766,6 +766,10 @@ export const challans = sqliteTable(
     /** yyyy-MM-dd */
     challanDate: text('challan_date').notNull(),
     ewayNo: text('eway_no'),
+    /** Sprint 21 (C3): transport, vehicle number and notes — editable while the challan is active. */
+    transport: text('transport'),
+    vehicleNo: text('vehicle_no'),
+    notes: text('notes'),
     /** Mill challans: how many takas the godown supervisor counted as received (just a count; the QC finds out which). */
     receivedCount: integer('received_count').notNull().default(0),
     status: text('status').$type<ChallanStatus>().notNull().default('active'),
@@ -780,6 +784,24 @@ export const challans = sqliteTable(
     index('challans_party_idx').on(t.kind, t.partyId),
     index('challans_status_idx').on(t.status),
   ],
+);
+
+/** Sprint 21 (C3/C4): history lines of a butta / mill challan (edited, taka removed, taka lost, lost undone). */
+export const challanEvents = sqliteTable(
+  'challan_events',
+  {
+    id: id(),
+    challanId: integer('challan_id')
+      .notNull()
+      .references(() => challans.id),
+    event: text('event').$type<'edited' | 'taka_removed' | 'taka_lost' | 'lost_undone'>().notNull(),
+    note: text('note'),
+    role: text('role').$type<RoleKey>().notNull(),
+    userId: integer('user_id'),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index('challan_events_challan_idx').on(t.challanId)],
 );
 
 /**
@@ -811,6 +833,9 @@ export const challanTakas = sqliteTable(
     receivedBy: text('received_by').$type<RoleKey>(),
     /** Butta QC completed. */
     qcDoneAt: text('qc_done_at'),
+    /** Sprint 21 (C4): Gaurang marked this taka lost / short at the party — the row is settled, the taka has stage `lost`. */
+    lostAt: text('lost_at'),
+    lostBy: text('lost_by').$type<RoleKey>(),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },

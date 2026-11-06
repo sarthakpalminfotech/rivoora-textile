@@ -1179,6 +1179,8 @@ export interface ChallanListItem {
   totalTakas: number;
   totalMeters: number;
   receivedCount: number;
+  /** Sprint 21: takas marked lost / short at the party (settled, not received). */
+  lostCount: number;
   /** Sprint 15: a mill challan whose takas are ALL refinish trips ("For refinish"). Never mixed with normal takas. */
   isRefinish: boolean;
   createdAt: string;
@@ -1195,6 +1197,8 @@ export interface ChallanTakaRow {
   meters: number | null;
   pcs: number | null;
   receivedAt: string | null;
+  /** Sprint 21: marked lost / short at the party. */
+  lostAt: string | null;
   /** Butta QC done. */
   qcDone: boolean;
   isDamaged: boolean;
@@ -1222,13 +1226,20 @@ export interface ChallanDetail {
   party: { id: number; name: string; address: string | null; mobile: string | null; gstin: string | null };
   challanDate: string;
   ewayNo: string | null;
+  /** Sprint 21 (C3) */
+  transport: string | null;
+  vehicleNo: string | null;
+  notes: string | null;
   createdBy: RoleKey;
   createdAt: string;
   cancelledAt: string | null;
   totalTakas: number;
   totalMeters: number;
   receivedCount: number;
+  lostCount: number;
   pendingCount: number;
+  /** Sprint 21: edits / removals / lost marks, oldest first. */
+  history: ChallanHistoryEntry[];
   /** Sprint 15: all takas are refinish trips (mill challans only). */
   isRefinish: boolean;
   /** Cancel is allowed while nothing was received (and the challan is active). */
@@ -2075,4 +2086,23 @@ export interface QcCorrectionResult {
   takaId: number;
   takaNo: string;
   stage: TakaStage;
+}
+
+/** A history line of a challan (Sprint 21). */
+export interface ChallanHistoryEntry {
+  id: number;
+  event: 'edited' | 'taka_removed' | 'taka_lost' | 'lost_undone';
+  note: string | null;
+  role: RoleKey;
+  userName: string | null;
+  createdAt: string;
+}
+
+/** POST /butta|mill/challans/:id/remove-taka | mark-lost | undo-lost */
+export interface ChallanTakaActionResult {
+  challanId: number;
+  takaId: number;
+  takaNo: string;
+  /** The challan was cancelled because its last taka was removed. */
+  challanCancelled: boolean;
 }

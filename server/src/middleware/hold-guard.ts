@@ -116,6 +116,8 @@ const WRITE_RULES: Rule[] = [
   { methods: ['POST'], pattern: /^\/orders\/send-to-production$/, resolve: ofBodyOrderIds },
   { methods: ['POST'], pattern: /^\/(?:butta|mill)\/challans$/, resolve: ofBodyTakaIds },
   { methods: ['POST'], pattern: /^\/(?:butta|mill)\/challans\/(\d+)\/cancel$/, resolve: ofChallanTakas },
+  { methods: ['PUT'], pattern: /^\/(?:butta|mill)\/challans\/(\d+)$/, resolve: ofChallanTakas },
+  { methods: ['POST'], pattern: /^\/(?:butta|mill)\/challans\/(\d+)\/(?:remove-taka|mark-lost|undo-lost)$/, resolve: ofChallanTakas },
   { methods: ['POST'], pattern: /^\/(?:butta-qc|mill-qc)\/(\d+)$/, resolve: ofTaka, allowClosed: true },
   { methods: ['POST'], pattern: /^\/qc-corrections\/(\d+)\/(?:undo-qc|cancel-refinish)$/, resolve: ofTaka },
   { methods: ['PATCH', 'POST'], pattern: /^\/godown\/takas\/(\d+)(?:\/[a-z-]+)?$/, resolve: ofTaka },

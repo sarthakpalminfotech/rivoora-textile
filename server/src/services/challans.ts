@@ -42,6 +42,7 @@ import {
 import { db, type Tx } from '../db/client';
 import {
   buttaParties,
+  challanEvents,
   challanTakas,
   challans,
   counters,
@@ -53,6 +54,7 @@ import {
   millParties,
   orders,
   takas,
+  users,
 } from '../db/schema';
 import { badRequest, conflict, notFound } from '../lib/errors';
 import { likePattern } from '../lib/http';
@@ -468,11 +470,14 @@ const totalMetersSql = sql<number>`(SELECT COALESCE(SUM(ct.meters), 0) ${rowsOf}
 // Sprint 15: a mill challan whose takas are ALL refinish trips ("For refinish"); the server never mixes them with normal takas.
 const isRefinishSql = sql<number>`CASE WHEN "challans"."kind" = 'mill' AND EXISTS (SELECT 1 ${rowsOf}) AND NOT EXISTS (SELECT 1 ${rowsOf} AND ct.is_refinish = 0) THEN 1 ELSE 0 END`;
 const receivedSql = sql<number>`MAX("challans"."received_count", (SELECT COUNT(*) ${rowsOf} AND ct.received_at IS NOT NULL))`;
+// Sprint 21 (C4): takas marked lost / short at the party are settled (not received) — the challan can still complete.
+const lostSql = sql<number>`(SELECT COUNT(*) ${rowsOf} AND ct.lost_at IS NOT NULL)`;
+const settledSql = sql<number>`(${receivedSql} + ${lostSql})`;
 
 export async function listChallans(kind: ChallanKind, q: ChallanListQuery): Promise<ChallanPage> {
   const conds: (SQL | undefined)[] = [eq(challans.kind, kind), challanFilters(workFiltersOf(q))];
-  if (q.filter === 'open') conds.push(eq(challans.status, 'active'), sql`${receivedSql} < ${totalTakasSql}`);
-  if (q.filter === 'received') conds.push(eq(challans.status, 'active'), sql`${totalTakasSql} > 0 AND ${receivedSql} = ${totalTakasSql}`);
+  if (q.filter === 'open') conds.push(eq(challans.status, 'active'), sql`${settledSql} < ${totalTakasSql}`);
+  if (q.filter === 'received') conds.push(eq(challans.status, 'active'), sql`${totalTakasSql} > 0 AND ${settledSql} >= ${totalTakasSql}`);
   if (q.search) {
     const term = q.search.replace(/^#/, '');
     const p = likePattern(term);
@@ -499,6 +504,7 @@ export async function listChallans(kind: ChallanKind, q: ChallanListQuery): Prom
         totalTakas: totalTakasSql,
         totalMeters: totalMetersSql,
         receivedCount: receivedSql,
+        lostCount: lostSql,
         isRefinish: isRefinishSql,
         createdAt: challans.createdAt,
       })
@@ -548,6 +554,7 @@ export async function listChallans(kind: ChallanKind, q: ChallanListQuery): Prom
       totalTakas: Number(r.totalTakas),
       totalMeters: round2(Number(r.totalMeters)),
       receivedCount: Number(r.receivedCount),
+      lostCount: Number(r.lostCount),
     })),
     page: q.page,
     limit: q.limit,
@@ -571,6 +578,9 @@ async function loadChallan(kind: ChallanKind, id: number) {
         status: challans.status,
         challanDate: challans.challanDate,
         ewayNo: challans.ewayNo,
+        transport: challans.transport,
+        vehicleNo: challans.vehicleNo,
+        notes: challans.notes,
         countedReceived: challans.receivedCount,
         createdBy: challans.createdBy,
         createdAt: challans.createdAt,
@@ -595,6 +605,7 @@ async function loadChallan(kind: ChallanKind, id: number) {
         pcs: challanTakas.pcs,
         rowIsRefinish: challanTakas.isRefinish,
         receivedAt: challanTakas.receivedAt,
+        lostAt: challanTakas.lostAt,
         qcDoneAt: challanTakas.qcDoneAt,
         orderId: orders.id,
         orderNo: orders.orderNo,
@@ -643,15 +654,23 @@ export async function getChallan(kind: ChallanKind, id: number): Promise<Challan
       meters: r.meters,
       pcs: r.pcs,
       receivedAt: r.receivedAt,
+      lostAt: r.lostAt,
       qcDone: r.qcDoneAt !== null,
       isDamaged: r.isDamaged,
     });
   }
   const orderGroups = [...groups.values()].sort((a, b) => a.orderNo - b.orderNo);
   for (const g of orderGroups) {
-    g.takas.sort((a, b) => Number(a.receivedAt !== null) - Number(b.receivedAt !== null) || compareTakaNo(a.takaNo, b.takaNo));
+    g.takas.sort((a, b) => Number(a.receivedAt !== null || a.lostAt !== null) - Number(b.receivedAt !== null || b.lostAt !== null) || compareTakaNo(a.takaNo, b.takaNo));
   }
   const receivedCount = Math.max(challan.countedReceived, rows.filter((r) => r.receivedAt !== null).length);
+  const lostCount = rows.filter((r) => r.lostAt !== null).length;
+  const history = await db
+    .select({ id: challanEvents.id, event: challanEvents.event, note: challanEvents.note, role: challanEvents.role, userName: users.name, createdAt: challanEvents.createdAt })
+    .from(challanEvents)
+    .leftJoin(users, eq(users.id, challanEvents.userId))
+    .where(eq(challanEvents.challanId, id))
+    .orderBy(asc(challanEvents.id));
   return {
     id: challan.id,
     kind: challan.kind,
@@ -660,15 +679,20 @@ export async function getChallan(kind: ChallanKind, id: number): Promise<Challan
     party: { id: challan.partyId, name: challan.partyName, address: challan.partyAddress, mobile: challan.partyMobile, gstin: challan.partyGstin },
     challanDate: challan.challanDate,
     ewayNo: challan.ewayNo,
+    transport: challan.transport,
+    vehicleNo: challan.vehicleNo,
+    notes: challan.notes,
     createdBy: challan.createdBy,
     createdAt: challan.createdAt,
     cancelledAt: challan.cancelledAt,
     totalTakas: rows.length,
     totalMeters: round2(rows.reduce((s, r) => s + (r.meters ?? 0), 0)),
     receivedCount,
+    lostCount,
+    history,
     isRefinish: challan.kind === 'mill' && rows.length > 0 && rows.every((r) => r.rowIsRefinish),
-    pendingCount: challan.status === 'cancelled' ? 0 : rows.length - receivedCount,
-    canCancel: challan.status === 'active' && receivedCount === 0,
+    pendingCount: challan.status === 'cancelled' ? 0 : rows.length - receivedCount - lostCount,
+    canCancel: challan.status === 'active' && receivedCount === 0 && lostCount === 0,
     orders: orderGroups,
   };
 }

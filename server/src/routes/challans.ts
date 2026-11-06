@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { buttaListQuerySchema, challanListQuerySchema, pendingTakasQuerySchema, workFiltersOf, type ChallanKind } from '@rivoora/shared';
 import { ah, parseId } from '../lib/http';
 import { requirePermission } from '../middleware/role';
+import { editChallan, markTakaLost, removeTakaFromChallan, undoTakaLost } from '../services/challan-edit';
 import {
   cancelChallan,
   createChallan,
@@ -100,6 +101,36 @@ export function challansRouter(kind: ChallanKind): Router {
     requirePermission('canCancelChallan'),
     ah(async (req, res) => {
       res.json(await cancelChallan(kind, req.role, parseId(req.params.id)));
+    }),
+  );
+
+  // Sprint 21 (C3): edit the header, remove an unreceived taka; (C4) Gaurang marks a taka lost / short at the party.
+  router.put(
+    '/challans/:id',
+    requirePermission('canEditChallan'),
+    ah(async (req, res) => {
+      res.json(await editChallan(kind, req.role, parseId(req.params.id), req.body));
+    }),
+  );
+  router.post(
+    '/challans/:id/remove-taka',
+    requirePermission('canEditChallan'),
+    ah(async (req, res) => {
+      res.json(await removeTakaFromChallan(kind, req.role, parseId(req.params.id), req.body));
+    }),
+  );
+  router.post(
+    '/challans/:id/mark-lost',
+    requirePermission('canMarkLostAtParty'),
+    ah(async (req, res) => {
+      res.json(await markTakaLost(kind, req.role, parseId(req.params.id), req.body));
+    }),
+  );
+  router.post(
+    '/challans/:id/undo-lost',
+    requirePermission('canMarkLostAtParty'),
+    ah(async (req, res) => {
+      res.json(await undoTakaLost(kind, req.role, parseId(req.params.id), req.body));
     }),
   );
 

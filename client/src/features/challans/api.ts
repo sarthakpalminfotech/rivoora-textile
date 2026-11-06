@@ -2,6 +2,8 @@ import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tansta
 import {
   CHALLAN_KIND_CONFIG,
   type ChallanCreateInput,
+  type ChallanEditInput,
+  type ChallanTakaActionResult,
   type ChallanCreateResult,
   type ChallanDetail,
   type ChallanFilter,
@@ -173,5 +175,25 @@ export function useOrderChallans(orderId: number) {
     queryFn: ({ signal }) => api.get<OrderChallans>(`/orders/${orderId}/challans`, undefined, signal),
     enabled: orderId > 0,
     refetchOnWindowFocus: true,
+  });
+}
+
+/* ---------- Sprint 21: edit a challan · remove a taka · mark lost ---------- */
+
+export function useEditChallan(kind: ChallanKind, id: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    meta: { silentFieldErrors: true },
+    mutationFn: (data: ChallanEditInput) => api.put<{ challanId: number; changed: number }>(`${base(kind)}/challans/${id}`, data),
+    onSuccess: () => invalidateAfterChallanWrite(qc),
+  });
+}
+
+/** action: remove-taka | mark-lost | undo-lost (each needs a reason). */
+export function useChallanTakaAction(kind: ChallanKind, id: number, action: 'remove-taka' | 'mark-lost' | 'undo-lost') {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { takaId: number; reason: string }) => api.post<ChallanTakaActionResult>(`${base(kind)}/challans/${id}/${action}`, data),
+    onSuccess: () => invalidateAfterChallanWrite(qc),
   });
 }

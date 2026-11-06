@@ -308,7 +308,7 @@ export async function recomputeOrderStatus(orderId: number, role: RoleKey, tx: T
     .where(eq(dispatchChallans.orderId, orderId));
   const next = orderStatusForJobsheets(
     rows,
-    stageRows.map((r) => r.stage),
+    stageRows.filter((r) => r.stage !== 'lost').map((r) => r.stage),
     Number(gr?.n ?? 0) > 0,
     { steps: { hasProduction: order.hasProduction, hasButta: order.hasButta, hasMill: order.hasMill } },
   );

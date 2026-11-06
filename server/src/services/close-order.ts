@@ -36,7 +36,7 @@ import { chunk, recomputeOrdersStatus, writeTakaEvents, type TakaEventInput } fr
  */
 
 /** Stages that never become free stock when the order closes (the rest are blockers or with the client). */
-const NOT_WITH_US: TakaStage[] = ['at_butta', 'at_mill', 'dispatched'];
+const NOT_WITH_US: TakaStage[] = ['at_butta', 'at_mill', 'dispatched', 'lost'];
 
 async function loadOrder(tx: DbOrTx, role: RoleKey, orderId: number) {
   const [order] = await tx

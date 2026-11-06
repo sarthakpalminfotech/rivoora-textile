@@ -297,6 +297,11 @@ export function buildOrderDashboard(input: DashboardInput, now: Date = new Date(
   for (const t of takas) {
     const n = t.count ?? 1;
     if (n <= 0) continue;
+    // Sprint 21: lost / short takas only show as their own small card — not in the totals, the bar or the done checks.
+    if (t.stage === 'lost') {
+      subs.get('lost')!.count += n;
+      continue;
+    }
     takaCount += n;
     const q = qtyOf(t);
     if (q != null) takaPcs = (takaPcs ?? 0) + q;

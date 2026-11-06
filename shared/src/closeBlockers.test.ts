@@ -5,7 +5,7 @@ const base: CloseBlockerInput = { orderId: 7, jobsheetsOnLoom: 0, completedWitho
 
 describe('closeBlockers (Sprint 21 CR-04)', () => {
   it('is empty when nothing is in process — pending jobsheets and takas with us are not blockers', () => {
-    expect(closeBlockers({ ...base, takasByStage: { entered: 4, waiting_mill: 2, final: 5, ready_dispatch: 3, dispatched: 9 } })).toEqual([]);
+    expect(closeBlockers({ ...base, takasByStage: { entered: 4, waiting_mill: 2, final: 5, ready_dispatch: 3, dispatched: 9, lost: 1 } })).toEqual([]);
   });
   it.each([
     ['jobsheet_on_loom', { jobsheetsOnLoom: 2 }],
