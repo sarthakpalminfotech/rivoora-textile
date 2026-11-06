@@ -16,7 +16,7 @@ import {
   startJobsheet,
   updateJobsheet,
 } from '../services/jobsheets';
-import { editTakas, enterTakas } from '../services/takas';
+import { editOwnTakaEntry, editTakas, enterTakas, getOwnEditData } from '../services/takas';
 
 export const jobsheetsRouter = Router();
 // The godown supervisor and Butta QC roles have no access to jobsheets at all.
@@ -129,6 +129,22 @@ jobsheetsRouter.post(
   requirePermission('canEnterTakas'),
   ah(async (req, res) => {
     res.status(201).json(await enterTakas(req.role, parseId(req.params.id), req.body));
+  }),
+);
+
+/** Sprint 21 (CR-06): the Taka entry person edits his own takas while they are in their first stage. */
+jobsheetsRouter.get(
+  '/:id/takas/entry',
+  requirePermission('canEditOwnTakaEntry'),
+  ah(async (req, res) => {
+    res.json(await getOwnEditData(req.role, parseId(req.params.id)));
+  }),
+);
+jobsheetsRouter.put(
+  '/:id/takas/entry',
+  requirePermission('canEditOwnTakaEntry'),
+  ah(async (req, res) => {
+    res.json(await editOwnTakaEntry(req.role, parseId(req.params.id), req.body));
   }),
 );
 

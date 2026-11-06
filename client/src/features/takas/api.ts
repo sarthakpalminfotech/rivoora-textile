@@ -5,6 +5,8 @@ import type {
   TakaDetail,
   TakaEditInput,
   TakaEditResult,
+  TakaOwnEditData,
+  TakaOwnEditInput,
   TakaEntryInput,
   TakaEntryResult,
   TakaNextNumbers,
@@ -118,5 +120,29 @@ export function useSendBackTakas(orderId: number) {
     mutationFn: (data: { takaIds: number[]; target: 'butta' | 'mill'; note?: string }) =>
       api.post<SendBackResult>(`/orders/${orderId}/takas/send-back`, data),
     onSuccess: () => invalidateAfterWrite(qc, orderId),
+  });
+}
+
+/** Sprint 21 (CR-06): the Taka entry person's own edit — the takas + which are still editable. */
+export function useOwnEditData(jobsheetId: number, enabled: boolean) {
+  return useQuery({
+    queryKey: ['takas', 'own-edit', jobsheetId] as const,
+    queryFn: ({ signal }) => api.get<TakaOwnEditData>(`/jobsheets/${jobsheetId}/takas/entry`, undefined, signal),
+    enabled: enabled && jobsheetId > 0,
+    staleTime: 0,
+    gcTime: 0,
+  });
+}
+
+export function useEditOwnTakas(jobsheetId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    meta: { silentFieldErrors: true },
+    mutationFn: (data: TakaOwnEditInput) => api.put<TakaEditResult>(`/jobsheets/${jobsheetId}/takas/entry`, data),
+    onSuccess: (res) => {
+      invalidateAfterWrite(qc, res.orderId);
+      void qc.invalidateQueries({ queryKey: ['lookup', 'damages'] });
+      void qc.invalidateQueries({ queryKey: ['damages'] });
+    },
   });
 }

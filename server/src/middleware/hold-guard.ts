@@ -106,7 +106,7 @@ interface Rule {
  */
 const WRITE_RULES: Rule[] = [
   { methods: ['PUT', 'DELETE'], pattern: /^\/jobsheets\/(\d+)$/, resolve: ofJobsheet },
-  { methods: ['POST', 'PUT'], pattern: /^\/jobsheets\/(\d+)\/(?:pull-back|start|complete|change-machine|takas)$/, resolve: ofJobsheet },
+  { methods: ['POST', 'PUT'], pattern: /^\/jobsheets\/(\d+)\/(?:pull-back|start|complete|change-machine|takas|takas\/entry)$/, resolve: ofJobsheet },
   { methods: ['PUT'], pattern: /^\/orders\/(\d+)(?:\/steps)?$/, resolve: ofOrder },
   {
     methods: ['POST'],

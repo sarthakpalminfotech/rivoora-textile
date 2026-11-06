@@ -42,6 +42,8 @@ export interface RolePermissions {
   canEnterTakas: boolean;
   /** Edit or remove submitted takas and edit the taka note. */
   canEditTakas: boolean;
+  /** Sprint 21 (CR-06): the Taka entry person edits pcs / meters / damage of his own takas while they are in their first stage. */
+  canEditOwnTakaEntry: boolean;
   /** See takas on order and jobsheet details (the Taka entry role: on his own screens only). */
   canViewTakas: boolean;
   /** Butta cutting module (`/butta`): send takas on a challan + receive them back. */
@@ -192,7 +194,7 @@ const OWNER_SPRINT12 = {
   canManageDesigns: true,
 };
 
-const NO_TAKAS = { canUseTakaModules: false, canEnterTakas: false, canEditTakas: false, canViewTakas: false };
+const NO_TAKAS = { canUseTakaModules: false, canEnterTakas: false, canEditTakas: false, canEditOwnTakaEntry: false, canViewTakas: false };
 const NO_BUTTA = { canUseButtaModule: false, canCancelChallan: false, canManageButtaParties: false, canButtaQc: false };
 const NO_MILL = {
   canUseMillModule: false,
@@ -369,6 +371,7 @@ export const ROLES: Record<RoleKey, RoleConfig> = {
       canUseTakaModules: true,
       canEnterTakas: true,
       canEditTakas: false,
+      canEditOwnTakaEntry: true,
       canViewTakas: true,
       ...NO_BUTTA,
       ...NO_MILL,

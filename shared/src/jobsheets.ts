@@ -726,3 +726,22 @@ export function completedMetersNote(assigned: number, completed: number): string
   const diff = Math.round(Math.abs(assigned - completed) * 100) / 100;
   return `Assigned ${formatQty(assigned, 'meters')} — you're recording ${formatQty(completed, 'meters')} (${formatQty(diff, 'meters')} ${completed < assigned ? 'fewer' : 'more'}).`;
 }
+
+/* ---------- Sprint 21 (CR-05): frames come from the taka entry ---------- */
+
+/** Frames done = total pcs of the jobsheet's takas ÷ its sections per beam, rounded half up (96 pcs ÷ 3 = 32). */
+export function framesFromTakaPcs(totalPcs: number, sections: number): number {
+  const s = sections > 0 ? sections : 3;
+  return Math.floor(totalPcs / s + 0.5);
+}
+
+/** Meter orders: loom metres done = total taka metres ÷ sections, two decimals. */
+export function metersFromTakaMeters(totalMeters: number, sections: number): number {
+  const s = sections > 0 ? sections : 3;
+  return Math.round((totalMeters / s) * 100) / 100;
+}
+
+/** "Frames 32 (96 pcs)" — what a Completed jobsheet with takas shows. */
+export function framesFromTakasText(totalPcs: number, sections: number): string {
+  return `Frames ${framesFromTakaPcs(totalPcs, sections)} (${totalPcs} pcs)`;
+}

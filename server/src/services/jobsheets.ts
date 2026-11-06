@@ -1356,7 +1356,8 @@ export async function startJobsheet(role: RoleKey, id: number, input: unknown): 
 
 /** Ongoing → Completed with the actual frames (or, for a meter order, metres) made. */
 export async function completeJobsheet(role: RoleKey, id: number, input: unknown): Promise<JobsheetActionResult> {
-  const data = jobsheetCompleteSchema.parse(input);
+  // Sprint 21 (CR-05): no frames / metres asked; an old client's `completedFrames` is accepted and ignored.
+  jobsheetCompleteSchema.parse(input ?? {});
   return db.transaction(async (tx) => {
     const js = await loadJobsheetForRun(tx, role, id);
     if (js.status !== JOBSHEET_STATUS.ONGOING) {
@@ -1364,20 +1365,13 @@ export async function completeJobsheet(role: RoleKey, id: number, input: unknown
         js.status === JOBSHEET_STATUS.COMPLETED ? `${js.ref} is already completed.` : `${js.ref} hasn't been started yet.`,
       );
     }
-    const meterOrder = isMeterOrder(js);
-    if (meterOrder && data.completedMeters === undefined) throw badRequest('Enter the metres completed', 'completedMeters');
-    if (!meterOrder && data.completedFrames === undefined) throw badRequest('Enter the frames completed', 'completedFrames');
     const updated = await tx
       .update(jobsheets)
-      .set(
-        meterOrder
-          ? { status: JOBSHEET_STATUS.COMPLETED, completedMeters: data.completedMeters, completedAt: now() }
-          : { status: JOBSHEET_STATUS.COMPLETED, completedFrames: data.completedFrames, completedAt: now() },
-      )
+      .set({ status: JOBSHEET_STATUS.COMPLETED, completedFrames: null, completedMeters: null, completedAt: now() })
       .where(and(eq(jobsheets.id, id), eq(jobsheets.status, JOBSHEET_STATUS.ONGOING)))
       .returning({ id: jobsheets.id });
     if (!updated.length) throw conflict(`${js.ref} is already completed.`);
-    await writeEvents(tx, role, [{ jobsheetId: id, event: 'completed', machineId: js.runningMachineId, frames: meterOrder ? 0 : data.completedFrames! }]);
+    await writeEvents(tx, role, [{ jobsheetId: id, event: 'completed', machineId: js.runningMachineId, frames: 0, note: 'completed by supervisor – frames from taka entry' }]);
     await recomputeOrderStatus(js.orderId, role, tx);
     const [m] = js.runningMachineId
       ? await tx.select({ machineNo: machines.machineNo }).from(machines).where(eq(machines.id, js.runningMachineId))

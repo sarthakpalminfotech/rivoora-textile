@@ -53,6 +53,15 @@ export function machineLabel(m: { machineNo: number; name: string | null }) {
   return m.name ? `Machine ${m.machineNo} · ${m.name}` : `Machine ${m.machineNo}`;
 }
 
+/** Sprint 21: a Completed jobsheet whose frames / metres will come from the taka entry. */
+export function WaitingForTakaEntry() {
+  return (
+    <span className="ml-1.5 inline-flex items-center whitespace-nowrap rounded-md border border-amber-300 bg-amber-50 px-1.5 py-0.5 align-middle text-[11px] font-semibold text-amber-800">
+      Waiting for taka entry
+    </span>
+  );
+}
+
 /**
  * Frames of a jobsheet: "10" — or "8/10" (actual/assigned) once Completed, in amber when fewer frames were made.
  * `withUnit` appends "frames".
@@ -76,6 +85,7 @@ export function FramesValue({
       <span className={className}>
         {frames}
         {unit}
+        {status === JOBSHEET_STATUS.COMPLETED && <WaitingForTakaEntry />}
       </span>
     );
   }
@@ -108,7 +118,11 @@ export function MetersValue({
 }) {
   const fmt = (n: number) => n.toLocaleString('en-IN', { maximumFractionDigits: 2 });
   if (status !== JOBSHEET_STATUS.COMPLETED || completedMeters === null) {
-    return <span className={className}>{fmt(meters)} m</span>;
+    return (
+      <span className={className}>
+        {fmt(meters)} m{status === JOBSHEET_STATUS.COMPLETED && <WaitingForTakaEntry />}
+      </span>
+    );
   }
   const short = completedMeters < meters;
   return (

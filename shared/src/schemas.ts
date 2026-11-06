@@ -393,9 +393,8 @@ const metersDone = z
 export const jobsheetStartSchema = z.object({ machineId });
 export type JobsheetStartInput = z.input<typeof jobsheetStartSchema>;
 
-export const jobsheetCompleteSchema = z
-  .object({ completedFrames: framesDone.optional(), completedMeters: metersDone.optional() })
-  .refine((v) => v.completedFrames !== undefined || v.completedMeters !== undefined, { message: 'Enter the frames completed', path: ['completedFrames'] });
+/** Sprint 21: Complete takes no quantity any more (frames come from the taka entry); old clients' fields are ignored. */
+export const jobsheetCompleteSchema = z.object({ completedFrames: framesDone.optional(), completedMeters: metersDone.optional() });
 export type JobsheetCompleteInput = z.input<typeof jobsheetCompleteSchema>;
 
 export const jobsheetChangeMachineSchema = z
@@ -569,6 +568,25 @@ export const takaEditSchema = z.object({
   receiptId: z.number().int().positive().optional(),
 });
 export type TakaEditInput = z.input<typeof takaEditSchema>;
+
+/**
+ * PUT /jobsheets/:id/takas/entry (Sprint 21, the Taka entry person): like Edit takas but with no taka number — existing
+ * takas keep theirs, new rows get the next automatic numbers.
+ */
+export const takaOwnEditSchema = z.object({
+  takas: z
+    .array(
+      z.object({
+        id: z.number().int().positive().optional(),
+        meters: takaMeters,
+        pcs: takaPcs.nullish().transform((v) => v ?? null),
+        damages: z.array(takaEditDamage).max(MAX_DAMAGES_PER_TAKA, `At most ${MAX_DAMAGES_PER_TAKA} damages per taka`).default([]),
+      }),
+    )
+    .max(MAX_TAKAS_PER_JOBSHEET, `At most ${MAX_TAKAS_PER_JOBSHEET} takas per jobsheet`),
+  note: takaNote,
+});
+export type TakaOwnEditInput = z.input<typeof takaOwnEditSchema>;
 
 export const TAKA_TABS = ['pending', 'done'] as const;
 export type TakaTab = (typeof TAKA_TABS)[number];

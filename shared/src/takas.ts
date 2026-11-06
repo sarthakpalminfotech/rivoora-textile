@@ -772,3 +772,26 @@ export function validateOutsideRows(
     return null;
   });
 }
+
+/* ------------------------------------------------------------------ */
+/* Sprint 21 (CR-06): the Taka entry person edits his own takas          */
+/* ------------------------------------------------------------------ */
+
+/**
+ * A taka the Taka entry person may still change: it is in the FIRST stage of its order's route (entered with butta
+ * cutting, else waiting for the mill) — so it is on no challan and has had no QC — and is not free stock / assigned
+ * to another order. `firstStage` = `nextTakaStage(order, 'taka_entry')`.
+ */
+export function takaEditableAtEntry(
+  taka: { stage: string; isFreeStock?: boolean; allocatedOrderNo?: number | null; parentTakaId?: number | null },
+  firstStage: string,
+): boolean {
+  return taka.stage === firstStage && !taka.isFreeStock && !taka.allocatedOrderNo && !taka.parentTakaId;
+}
+
+/** "Taka 6245 has already gone to butta cutting — ask Jenish / Gaurang" (bilingual). */
+export function takaLockedAtEntryText(takaNo: string, stage: string): string {
+  const where = stage === 'at_butta' || stage === 'rework_butta' ? 'butta cutting' : stage === 'butta_qc' ? 'Butta QC' : stage === 'at_mill' || stage === 'mill_qc' ? 'the mill' : 'the next step';
+  const whereHi = stage === 'at_butta' || stage === 'rework_butta' || stage === 'butta_qc' ? 'बट्टा में' : stage === 'at_mill' || stage === 'mill_qc' ? 'मिल में' : 'अगले चरण में';
+  return `Taka ${takaNo} has already gone to ${where} — ask Jenish / Gaurang / टाका ${takaNo} ${whereHi} जा चुका है — जेनिश / गौरांग से कहें`;
+}

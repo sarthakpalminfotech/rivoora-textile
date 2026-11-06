@@ -17,6 +17,10 @@ import {
   MAX_TAKAS_PER_JOBSHEET,
   takaEditNote,
   takaEditSchema,
+  takaOwnEditSchema,
+  takaEditableAtEntry,
+  takaLockedAtEntryText,
+  type TakaOwnEditData,
   takaEntrySchema,
   takaNoError,
   takaSummary,
@@ -42,6 +46,7 @@ import {
   type TakaListQuery,
   type TakaNoError,
 } from '@rivoora/shared';
+import { syncCompletedFromTakas } from './jobsheet-frames';
 import { db, type Tx } from '../db/client';
 import {
   challanTakas,
@@ -259,8 +264,8 @@ export async function enterTakas(role: RoleKey, id: number, input: unknown): Pro
         .update(jobsheets)
         .set(
           meterOrder
-            ? { status: JOBSHEET_STATUS.COMPLETED, completedAt: at, completedMeters: js.meters }
-            : { status: JOBSHEET_STATUS.COMPLETED, completedAt: at, completedFrames: js.frames },
+            ? { status: JOBSHEET_STATUS.COMPLETED, completedAt: at }
+            : { status: JOBSHEET_STATUS.COMPLETED, completedAt: at },
         )
         .where(and(eq(jobsheets.id, id), eq(jobsheets.status, js.status)))
         .returning({ id: jobsheets.id });
@@ -274,12 +279,13 @@ export async function enterTakas(role: RoleKey, id: number, input: unknown): Pro
               event: 'completed' as const,
               machineId: js.runningMachineId,
               frames: js.frames,
-              note: 'completed at taka entry',
+              note: 'completed at taka entry – frames from taka entry',
             },
           ]
         : []),
       { jobsheetId: id, event: 'takas_entered', note: takaSummary(added) },
     ]);
+    await syncCompletedFromTakas(tx, id);
     await recomputeOrderStatus(js.orderId, role, tx);
     return { jobsheetId: id, jobsheetNo: js.jobsheetNo, orderNo: js.orderNo, orderId: js.orderId, added, autoCompleted };
   });
@@ -306,7 +312,40 @@ type EditRow = ReturnType<typeof takaEditSchema.parse>['takas'][number];
  * damages are read-only. The note is replaced. One transaction; ends with the order status recompute.
  */
 export async function editTakas(role: RoleKey, id: number, input: unknown): Promise<TakaEditResult> {
-  const data = takaEditSchema.parse(input);
+  return editTakasCore(role, id, takaEditSchema.parse(input), false);
+}
+
+/**
+ * Sprint 21 (CR-06) — the Taka entry person edits his own takas: pcs, meters, damage, delete a row, add rows. Numbers
+ * are never his to change (existing rows keep theirs, new rows get the next automatic numbers). Every taka he touches
+ * must still be in the FIRST stage of its route; new rows only while ALL takas of the jobsheet still are.
+ */
+export async function editOwnTakaEntry(role: RoleKey, id: number, input: unknown): Promise<TakaEditResult> {
+  const parsed = takaOwnEditSchema.parse(input);
+  const data = { takas: parsed.takas.map((t) => ({ ...t, takaNo: '', weaverTakaNo: null as string | null })), note: parsed.note, receiptId: undefined };
+  return editTakasCore(role, id, data, true);
+}
+
+/** GET /jobsheets/:id/takas/entry — the takas + which are still editable by the Taka entry person. */
+export async function getOwnEditData(role: RoleKey, id: number): Promise<TakaOwnEditData> {
+  return db.transaction(async (tx) => {
+    const js = await loadJobsheetForTakas(tx, role, id);
+    const first = await initialStageForOrder(tx, js.orderId);
+    const list = (await activeTakas(tx, id)).filter((t) => !t.isFreeStock && t.allocatedOrderNo === null);
+    const rows = list.map((t) => ({ ...t, editable: takaEditableAtEntry(t, first) }));
+    return {
+      jobsheetId: id,
+      jobsheetNo: js.jobsheetNo,
+      orderNo: js.orderNo,
+      takaNote: js.takaNote,
+      takas: rows,
+      canAdd: rows.every((t) => t.editable),
+      meterOrder: isMeterOrder(js),
+    };
+  });
+}
+
+async function editTakasCore(role: RoleKey, id: number, data: ReturnType<typeof takaEditSchema.parse>, own: boolean): Promise<TakaEditResult> {
   return db.transaction(async (tx) => {
     const js = await loadJobsheetForTakas(tx, role, id);
     // Sprint 16: outside / FG takas sit on the order's hidden external jobsheet and are edited ONE RECEIPT at a time
@@ -329,6 +368,26 @@ export async function editTakas(role: RoleKey, id: number, input: unknown): Prom
     const existing = (await activeTakas(tx, id)).filter(
       (t) => !t.isFreeStock && t.allocatedOrderNo === null && (!receipt || t.outsideReceiptId === receipt.id),
     );
+    // Sprint 21: the Taka entry person's rules (see editOwnTakaEntry).
+    const editableIds = new Set<number>();
+    if (own) {
+      const first = await initialStageForOrder(tx, js.orderId);
+      for (const t of existing) if (takaEditableAtEntry(t, first)) editableIds.add(t.id);
+      const byIdOwn = new Map(existing.map((t) => [t.id, t]));
+      for (const row of data.takas) {
+        const old = row.id !== undefined ? byIdOwn.get(row.id) : undefined;
+        if (old) row.takaNo = old.takaNo;
+      }
+      const fresh = data.takas.filter((t) => t.id === undefined);
+      if (fresh.length) {
+        const locked = existing.find((t) => !editableIds.has(t.id));
+        if (locked) throw conflict(takaLockedAtEntryText(locked.takaNo, locked.stage));
+        const nos = await allocateTakaNumbers(tx, fresh.length);
+        fresh.forEach((t, i) => {
+          t.takaNo = nos[i];
+        });
+      }
+    }
     const values = data.takas.map((t) => t.takaNo);
     const used = await usedTakaNumbers(tx, values, existing.map((t) => t.id));
     assertValidNumbers(values, validateTakaNumbers(values, [], { used }), used);
@@ -500,6 +559,10 @@ export async function editTakas(role: RoleKey, id: number, input: unknown): Prom
       );
     }
     const changed = rows.filter((t) => t.id !== undefined && isChanged(t, byId.get(t.id)!));
+    if (own) {
+      const bad = [...removed, ...changed.map((t) => byId.get(t.id!)!)].find((t) => !editableIds.has(t.id));
+      if (bad) throw conflict(takaLockedAtEntryText(bad.takaNo, bad.stage));
+    }
     const note = data.note;
     const noteChanged = (js.takaNote ?? null) !== note;
 
@@ -612,6 +675,7 @@ export async function editTakas(role: RoleKey, id: number, input: unknown): Prom
       noteChanged && 'note edited',
     ].filter(Boolean);
     await writeEvents(tx, role, [{ jobsheetId: id, event: 'takas_edited', note: `${takaSummary(after)} · ${parts.join(', ')}` }]);
+    await syncCompletedFromTakas(tx, id);
     await recomputeOrderStatus(js.orderId, role, tx);
     return {
       jobsheetId: id,
@@ -1066,6 +1130,8 @@ export async function takaByNo(role: RoleKey, takaNo: string): Promise<TakaDetai
 /* Taka entry Jobsheets list                                            */
 /* ------------------------------------------------------------------ */
 
+/** Sprint 21 (CR-06): takas of the jobsheet still in the first stage of their order's route (the Taka entry person may edit them). */
+const editableCount = sql<number>`(SELECT COUNT(*) FROM takas t WHERE t.jobsheet_id = "jobsheets"."id" AND t.is_deleted = 0 AND t.is_free_stock = 0 AND t.allocated_order_id IS NULL AND t.stage = CASE WHEN "orders"."has_butta" = 1 THEN 'entered' WHEN "orders"."has_mill" = 1 THEN 'waiting_mill' ELSE 'final' END)`;
 const damagedCount = sql<number>`(SELECT COUNT(*) FROM takas t WHERE t.jobsheet_id = "jobsheets"."id" AND t.is_deleted = 0 AND t.is_damaged = 1)`;
 const lastTakaAt = sql<string | null>`(SELECT MAX(t.created_at) FROM takas t WHERE t.jobsheet_id = "jobsheets"."id" AND t.is_deleted = 0)`;
 
@@ -1107,6 +1173,7 @@ export async function listTakaJobsheets(role: RoleKey, q: TakaListQuery): Promis
         completedAt: jobsheets.completedAt,
         takaCount: activeTakaCount,
         damagedCount,
+        editableCount,
         lastTakaAt,
       })
       .from(jobsheets)
@@ -1149,6 +1216,7 @@ export async function listTakaJobsheets(role: RoleKey, q: TakaListQuery): Promis
         completedAt: r.completedAt,
         takaCount: Number(r.takaCount),
         damagedCount: Number(r.damagedCount),
+        editableCount: Number(r.editableCount),
         lastTakaAt: r.lastTakaAt,
       }),
     ),

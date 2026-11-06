@@ -805,6 +805,18 @@ export interface TakaEditResult {
   takas: Taka[];
 }
 
+/** Sprint 21: GET /jobsheets/:id/takas/entry — the jobsheet's takas with what the Taka entry person may still change. */
+export interface TakaOwnEditData {
+  jobsheetId: number;
+  jobsheetNo: number;
+  orderNo: number;
+  takaNote: string | null;
+  takas: (Taka & { editable: boolean })[];
+  /** New rows may be added only while every taka is still editable. */
+  canAdd: boolean;
+  meterOrder: boolean;
+}
+
 /** One card of the Taka entry Jobsheets list. */
 export interface TakaJobsheetItem {
   id: number;
@@ -824,6 +836,8 @@ export interface TakaJobsheetItem {
   completedAt: string | null;
   takaCount: number;
   damagedCount: number;
+  /** Sprint 21: takas the Taka entry person may still edit (first stage of the route). */
+  editableCount: number;
   lastTakaAt: string | null;
 }
 
