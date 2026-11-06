@@ -1,5 +1,6 @@
 import {
   Bandage,
+  BellRing,
   Boxes,
   Database,
   ClipboardCheck,
@@ -56,6 +57,7 @@ export const NAV_ITEMS: NavItem[] = [
   // Butta cutting: Jenish, Gaurang and the Godown supervisor. Butta QC: the QC role (bilingual).
   { to: '/butta', label: 'Butta cutting', icon: Scissors, permission: 'canUseButtaModule', group: 'main' },
   { to: '/mill', label: 'Mill', icon: FlaskConical, permission: 'canUseMillModule', group: 'main' },
+  { to: '/alerts', label: 'Alerts', icon: BellRing, permission: 'canViewAlerts', group: 'main' },
   { to: '/qc-corrections', label: 'QC corrections', icon: Undo2, permission: 'canUndoQc', group: 'main' },
   { to: '/qc', label: 'QC', hi: 'क्यूसी', icon: BadgeCheck, permission: 'canButtaQc', group: 'main' },
   // Inventory: design-wise pcs and damaged stock (Jenish, Gaurang).

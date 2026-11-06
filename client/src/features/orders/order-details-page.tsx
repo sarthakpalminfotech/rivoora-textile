@@ -30,6 +30,7 @@ import { BlouseTag } from '../free-stock/blouse';
 import { CloseOrderDialog } from './close/close-order-dialog';
 import { HistoryTab } from './history-tab';
 import { useOrderShrinkage } from '../takas/api';
+import { OverdueBanner } from '../alerts/alerts-page';
 import { HoldOrderDialog, OnHoldBanner, ReleaseHoldDialog } from './hold/hold-order';
 
 function Card({ title, children, action, className }: { title: string; children: ReactNode; action?: ReactNode; className?: string }) {
@@ -316,6 +317,7 @@ export default function OrderDetailsPage() {
           </div>
         </div>
       )}
+      {can('canViewAlerts') && <OverdueBanner orderId={order.id} />}
       {order.isOnHold && <OnHoldBanner note={order.holdNote} canRelease={can('canHoldOrder')} heldBy={[...order.holdEvents].reverse().find((e) => e.event === 'held') ?? null} />}
 
       <OrderHeader
