@@ -13,6 +13,10 @@ import {
   isMeterOrder,
   ORDER_TYPE_LABEL,
   ORDER_TYPES,
+  FG_TYPES,
+  FG_TYPE_LABEL,
+  DEFAULT_FG_TYPE,
+  type FgType,
   stepsHelperText,
   stepOn,
   UNITS,
@@ -62,6 +66,8 @@ const schema = z
     customerId: z.number().nullable(),
     brokerId: z.number().nullable(),
     orderType: z.enum(ORDER_TYPES).nullable(),
+    /** Sprint 21: Saree | Suit (default Saree). */
+    fgType: z.enum(FG_TYPES),
     /** Optional (Sprint 13): With blouse / Without blouse; null = not set. */
     blouseOption: z.enum(BLOUSE_OPTIONS).nullable(),
     /** Sprint 18: Outside order (making for another party) + that party's name (typed, required when ticked). */
@@ -106,6 +112,7 @@ const defaults = (): FormValues => ({
   brokerId: null,
   // Nothing pre-selected on a new order: the type is a required choice.
   orderType: null,
+  fgType: DEFAULT_FG_TYPE,
   blouseOption: null,
   isOutsideOrder: false,
   outsidePartyName: '',
@@ -128,6 +135,7 @@ const fromOrder = (o: OrderDetail): FormValues => {
     customerId: o.customer.id,
     brokerId: o.broker?.id ?? null,
     orderType: o.orderType,
+    fgType: o.fgType,
     blouseOption: o.blouseOption,
     isOutsideOrder: o.isOutsideOrder,
     outsidePartyName: o.outsidePartyName ?? '',
@@ -156,6 +164,7 @@ const fromOrder = (o: OrderDetail): FormValues => {
 
 /** Sprint 19: new orders only choose Pcs or Meters; kg / g stay valid on old orders (never offered on a new one). */
 const NEW_ORDER_UNITS: readonly Unit[] = ['pcs', 'meters'];
+const fgTypeOptions = FG_TYPES.map((t) => ({ value: t, label: FG_TYPE_LABEL[t] }));
 const orderTypeOptions = ORDER_TYPES.map((t) => ({ value: t, label: ORDER_TYPE_LABEL[t] }));
 const blouseOptions = BLOUSE_OPTIONS.map((b) => ({ value: b, label: BLOUSE_LABEL[b] }));
 
@@ -306,6 +315,7 @@ export function OrderForm({ order }: { order?: OrderDetail }) {
       customerId: v.customerId!,
       brokerId: v.brokerId,
       orderType: v.orderType!,
+      fgType: v.fgType,
       blouseOption: v.blouseOption,
       isOutsideOrder: v.isOutsideOrder,
       outsidePartyName: v.isOutsideOrder ? v.outsidePartyName : null,
@@ -491,6 +501,15 @@ export function OrderForm({ order }: { order?: OrderDetail }) {
                     emptyText="No materials found"
                     invalid={!!errors.materialId}
                   />
+                )}
+              />
+            </Field>
+            <Field label="FG type" htmlFor="fg-type" required error={errors.fgType?.message}>
+              <Controller
+                control={control}
+                name="fgType"
+                render={({ field }) => (
+                  <Segmented<FgType> id="fg-type" aria-label="FG type" options={fgTypeOptions} value={field.value} onChange={field.onChange} invalid={!!errors.fgType} />
                 )}
               />
             </Field>

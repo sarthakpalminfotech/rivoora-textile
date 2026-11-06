@@ -3,6 +3,7 @@ export * from './statuses';
 export * from './units';
 export * from './orderUnit';
 export * from './orderTypes';
+export * from './fgTypes';
 export * from './codes';
 export * from './designs';
 export * from './schemas';

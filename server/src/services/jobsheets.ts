@@ -578,6 +578,7 @@ export async function getJobsheet(role: RoleKey, id: number): Promise<JobsheetDe
         takaNote: jobsheets.takaNote,
         isExternal: jobsheets.isExternal,
         blouseOption: orders.blouseOption,
+        fgType: orders.fgType,
         orderOnHold: orders.isOnHold,
         orderHasProduction: orders.hasProduction,
         orderHasButta: orders.hasButta,
@@ -664,6 +665,7 @@ export async function getJobsheet(role: RoleKey, id: number): Promise<JobsheetDe
     id: r.id,
     jobsheetNo: r.jobsheetNo,
     blouseOption: r.blouseOption,
+    fgType: r.fgType,
     orderOnHold: r.orderOnHold,
     orderSteps: { hasProduction: r.orderHasProduction, hasButta: r.orderHasButta, hasMill: r.orderHasMill },
     status: r.status,
@@ -749,6 +751,7 @@ export async function printJobsheets(role: RoleKey, ids: number[]): Promise<Jobs
         clothMeters: liveJobsheetClothMeters,
         orderType: orders.orderType,
         blouseOption: orders.blouseOption,
+        fgType: orders.fgType,
         designCode: sql<string | null>`${designs.code}`,
       })
       .from(jobsheets)
@@ -785,6 +788,7 @@ export async function printJobsheets(role: RoleKey, ids: number[]): Promise<Jobs
       designCode: r.designCode,
       orderType: r.orderType,
       blouseOption: r.blouseOption,
+      fgType: r.fgType,
     });
   }
   if (items.length === 0) throw notFound('Jobsheets');
@@ -885,6 +889,7 @@ export async function listSupervisorJobsheets(role: RoleKey, q: JobsheetListQuer
         orderNo: orders.orderNo,
         quality: materials.name,
         blouseOption: orders.blouseOption,
+        fgType: orders.fgType,
         designCode: designCodeCol,
         thumbUrl: designThumbCol,
         imageUrl: designImageCol,
@@ -939,6 +944,7 @@ export async function listSupervisorJobsheets(role: RoleKey, q: JobsheetListQuer
         orderNo: r.orderNo,
         quality: r.quality,
         blouseOption: r.blouseOption,
+        fgType: r.fgType,
         designCode: r.designCode,
         thumbUrl: r.thumbUrl,
         imageUrl: r.imageUrl,

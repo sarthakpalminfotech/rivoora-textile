@@ -2,7 +2,7 @@ import { ArrowLeft, CalendarClock, Check, ImageOff, PackageCheck, Send, X as XIc
 import { useState, type ReactNode } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
-import { isMeterOrder, isReadyOrLater, ORDER_TYPE_LABEL, STEP_KEYS, STEP_LABEL, returnedSummary, stepOn, STATUS, type OrderDetail } from '@rivoora/shared';
+import { FG_TYPE_LABEL, isMeterOrder, isReadyOrLater, ORDER_TYPE_LABEL, STEP_KEYS, STEP_LABEL, returnedSummary, stepOn, STATUS, type OrderDetail } from '@rivoora/shared';
 import { usePageTitle } from '@/components/layout/page-title';
 import { ErrorState } from '@/components/list-parts';
 import { Button } from '@/components/ui/button';
@@ -62,6 +62,7 @@ function DetailsTab({ order }: { order: OrderDetail }) {
       <div className="min-w-0 space-y-4">
         <Card title="Order">
           <dl className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+            <Item label="FG type">{FG_TYPE_LABEL[order.fgType]}</Item>
             <Item label="Order type">{ORDER_TYPE_LABEL[order.orderType]}</Item>
             <Item label="Blouse">{order.blouseOption ? <BlouseTag option={order.blouseOption} /> : <span className="font-normal text-slate-400">Not set</span>}</Item>
             {isMeterOrder(order) && (

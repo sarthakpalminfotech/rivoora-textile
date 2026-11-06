@@ -2,6 +2,7 @@ import type { RoleKey } from './roles';
 import type { JobsheetStatusKey, OrderStatusKey } from './statuses';
 import type { Unit } from './units';
 import type { OrderType } from './orderTypes';
+import type { FgType } from './fgTypes';
 import type { Coverage, CoverageWarning, MetersCoverage } from './jobsheets';
 import type { ChallanFilter, JobsheetTab, TakaTab } from './schemas';
 import type { DamageType, SubStageKey, TakaStage } from './pipeline';
@@ -129,6 +130,8 @@ export interface OrderListItem {
   quantity: number;
   unit: Unit;
   orderType: OrderType;
+  /** Sprint 21: Saree | Suit. */
+  fgType: FgType;
   /** Sprint 13: the order's blouse option (null = not set). */
   blouseOption: BlouseOption | null;
   brokerName: string | null;
@@ -152,7 +155,7 @@ export interface OrderListItem {
 /** Sprint 16: a "Steps changed: …" / "Order closed" entry of the History tab. */
 export interface OrderEventEntry {
   id: number;
-  event: 'steps_changed' | 'order_closed';
+  event: 'steps_changed' | 'order_closed' | 'fg_type_changed';
   note: string | null;
   role: RoleKey;
   userName: string | null;
@@ -198,6 +201,7 @@ export interface OrderDetail {
   orderNo: number;
   status: OrderStatusKey;
   orderType: OrderType;
+  fgType: FgType;
   /** Sprint 13: the order's blouse option (null = not set). */
   blouseOption: BlouseOption | null;
   quantity: number;
@@ -446,6 +450,7 @@ export interface JobsheetDetail {
   orderNo: number;
   /** Sprint 13: the order's blouse option (null = not set). */
   blouseOption: BlouseOption | null;
+  fgType: FgType;
   /** Sprint 16: the order's steps (the damage types at taka entry follow them). */
   orderSteps: OrderSteps;
   design: JobsheetDesign | null;
@@ -530,6 +535,7 @@ export interface SupervisorJobsheetItem {
   quality: string;
   /** Sprint 13: the order's blouse option (null = not set). */
   blouseOption: BlouseOption | null;
+  fgType: FgType;
   designCode: string | null;
   thumbUrl: string | null;
   imageUrl: string | null;
@@ -590,6 +596,7 @@ export interface JobsheetPrintItem {
   orderType: OrderType;
   /** Sprint 13: the order's blouse option (null = not set). */
   blouseOption: BlouseOption | null;
+  fgType: FgType;
 }
 
 /* ---------- machine view ---------- */
@@ -808,6 +815,7 @@ export interface TakaJobsheetItem {
   orderNo: number;
   /** Sprint 13: the order's blouse option (null = not set). */
   blouseOption: BlouseOption | null;
+  fgType: FgType;
   designCode: string | null;
   thumbUrl: string | null;
   imageUrl: string | null;
@@ -989,6 +997,7 @@ export interface TakaDetail {
   quality: string | null;
   /** Sprint 13: the order's blouse option (null = not set). */
   blouseOption: BlouseOption | null;
+  fgType: FgType;
   /** Sprint 13: the taka is free stock (no order; `orderNo` is the order it was made for). */
   isFreeStock: boolean;
   /** Sprint 16: where it came from + the weaver's number; the order's steps; where it has been (damage types follow). */

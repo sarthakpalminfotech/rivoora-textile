@@ -5,7 +5,7 @@ import { toast } from 'sonner';
 import { STATUS, type OrderListItem } from '@rivoora/shared';
 import { OrderStepsTag } from './order-steps-tag';
 import { OutsideOrderTag } from './outside-order-tag';
-import { OrderTypeTag } from './order-type-tag';
+import { FgTypeTag, OrderTypeTag } from './order-type-tag';
 import { usePageTitle } from '@/components/layout/page-title';
 import { ErrorState, Fab, FetchingIndicator, LoadMore, SearchBar } from '@/components/list-parts';
 import { Button } from '@/components/ui/button';
@@ -312,6 +312,7 @@ export default function OrdersPage() {
                         <Field label="Quantity" value={formatQuantity(o.quantity, o.unit)} />
                         <Field label="Date" value={formatDate(o.orderDate)} />
                         <div className="flex flex-wrap items-end gap-1.5 pb-0.5">
+                          <FgTypeTag type={o.fgType} />
                           <OrderTypeTag type={o.orderType} />
                           <BlouseTag option={o.blouseOption} />
                           <OrderStepsTag steps={o} />

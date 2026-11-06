@@ -21,6 +21,7 @@ import type {
   JobsheetStatusKey,
   OrderStatusKey,
   OrderType,
+  FgType,
   PoStatus,
   PoUnit,
   ReceiptKind,
@@ -219,6 +220,8 @@ export const orders = sqliteTable(
     brokerId: integer('broker_id').references(() => customerBrokers.id),
     /** `lump` | `pcs_to_pcs` — required on new orders; existing orders were backfilled as `pcs_to_pcs`. */
     orderType: text('order_type').$type<OrderType>().notNull().default('pcs_to_pcs'),
+    /** Sprint 21 (CR-01): `saree` | `suit`; every existing order is a Saree. */
+    fgType: text('fg_type').$type<FgType>().notNull().default('saree'),
     /** Sprint 13: optional blouse option (`with_blouse` | `without_blouse`); null = not set. */
     blouseOption: text('blouse_option').$type<BlouseOption>(),
     /** Sprint 18: "Outside order" — made for another party (typed name, no master). Not Sprint 16's outside production. */
@@ -314,7 +317,7 @@ export const orderEvents = sqliteTable(
     orderId: integer('order_id')
       .notNull()
       .references(() => orders.id, { onDelete: 'cascade' }),
-    event: text('event').$type<'steps_changed' | 'order_closed'>().notNull(),
+    event: text('event').$type<'steps_changed' | 'order_closed' | 'fg_type_changed'>().notNull(),
     note: text('note'),
     role: text('role').$type<RoleKey>().notNull(),
     userId: integer('user_id'),

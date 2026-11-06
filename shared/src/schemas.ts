@@ -3,6 +3,7 @@ import { MAX_PASSWORD_LENGTH, MIN_PASSWORD_LENGTH } from './auth';
 import { ROLE_KEYS } from './roles';
 import { normalizeCode } from './codes';
 import { ORDER_TYPES } from './orderTypes';
+import { FG_TYPES } from './fgTypes';
 import { BLOUSE_FILTERS, BLOUSE_OPTIONS, CHOOSABLE_DAMAGE_TYPES } from './freeStock';
 import { UNITS } from './units';
 import { workFilterQueryFields } from './workFilters';
@@ -178,6 +179,8 @@ const orderBaseShape = {
       required_error: 'Pick the order type',
       invalid_type_error: 'Pick the order type',
     }),
+    /** Sprint 21 (CR-01): Saree | Suit. An old client that sends none gets Saree. */
+    fgType: z.enum(FG_TYPES, { invalid_type_error: 'Pick Saree or Suit' }).default('saree'),
     /** Sprint 13: optional blouse option; null = not set. */
     blouseOption: z.enum(BLOUSE_OPTIONS).nullish().transform((v) => v ?? null),
     /** Sprint 18: Outside order — made for another party; the party name is then required (typed, no master). */
@@ -234,6 +237,8 @@ export type OrderCreateInput = z.input<typeof orderCreateSchema>;
 export const orderUpdateSchema = z
   .object({
     ...orderBaseShape,
+    /** Sprint 21: omitted = keep the order's current FG type. */
+    fgType: z.enum(FG_TYPES, { invalid_type_error: 'Pick Saree or Suit' }).optional(),
     hasProduction: stepFlag.optional(),
     hasButta: stepFlag.optional(),
     hasMill: stepFlag.optional(),
