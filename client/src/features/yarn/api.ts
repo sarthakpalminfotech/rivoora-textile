@@ -8,14 +8,19 @@ import type {
   TfoBoard,
   TfoMachine,
   TfoMachineInput,
+  TfoPendingProgram,
+  TfoPendingProgramInput,
+  TfoPendingProgramsCreateInput,
+  TfoPendingStartInput,
   TfoProgram,
-  TfoProgramStartInput,
   TfoProgramStopInput,
   TfoSection,
   WarpingDoneResult,
   WarpingJob,
   WarpingJobDoneInput,
-  WarpingJobStartInput,
+  WarpingPendingJob,
+  WarpingPendingJobInput,
+  NoBoxStock,
   WarpingQuality,
   WarpingQualityInput,
   WarpingStatus,
@@ -37,6 +42,8 @@ import type {
   YarnReceiptInput,
   YarnReceiptResult,
   YarnSummary,
+  YarnManualAddInput,
+  YarnManualRemoveInput,
   YarnTransferInput,
   YarnWithdrawInput,
   YarnZone,
@@ -71,6 +78,8 @@ export const yarnKeys = {
   board: ['yarn', 'tfo', 'board'] as const,
   programs: (machineId?: number, section?: TfoSection) => ['yarn', 'tfo', 'programs', machineId ?? 0, section ?? ''] as const,
   jobs: (status?: WarpingStatus) => ['yarn', 'warping', 'jobs', status ?? 'all'] as const,
+  pendingJobs: ['yarn', 'warping', 'pending'] as const,
+  noBox: (zone: YarnZone) => ['yarn', 'no-box', zone] as const,
 };
 
 function useYarnMutation<TVars, TResult>(fn: (vars: TVars) => Promise<TResult>, options: { silentFieldErrors?: boolean } = {}) {
@@ -260,8 +269,21 @@ export function useBoxStock(zone: YarnZone | undefined, enabled = true) {
   });
 }
 
+/** Sprint 20 — "No box" twisted stock of a zone (yarn quality or warping quality). */
+export function useNoBoxStock(zone: YarnZone, enabled = true) {
+  return useQuery({
+    queryKey: yarnKeys.noBox(zone),
+    queryFn: ({ signal }) => api.get<NoBoxStock[]>('/yarn/no-box', { zone }, signal),
+    enabled,
+  });
+}
+
 export const useTransfer = () => useYarnMutation((data: YarnTransferInput) => api.post<{ transferId: number }>('/yarn/transfers', data), { silentFieldErrors: true });
 export const useWithdraw = () => useYarnMutation((data: YarnWithdrawInput) => api.post<{ withdrawalId: number }>('/yarn/withdrawals', data), { silentFieldErrors: true });
+
+/** Sprint 20 — manual add / remove (owners). */
+export const useManualAdd = () => useYarnMutation((data: YarnManualAddInput) => api.post<{ adjustmentId: number }>('/yarn/adjustments/add', data), { silentFieldErrors: true });
+export const useManualRemove = () => useYarnMutation((data: YarnManualRemoveInput) => api.post<{ adjustmentId: number }>('/yarn/adjustments/remove', data), { silentFieldErrors: true });
 
 /* ---------- TFO ---------- */
 
@@ -281,7 +303,15 @@ export function useTfoPrograms(machineId: number | undefined, section: TfoSectio
   });
 }
 
-export const useStartProgram = () => useYarnMutation((data: TfoProgramStartInput) => api.post<TfoProgram>('/yarn/tfo/programs', data), { silentFieldErrors: true });
+/** Sprint 20 — pending programs: create (owners), edit / cancel / start (the floor). */
+export const useCreatePendingPrograms = () =>
+  useYarnMutation((data: TfoPendingProgramsCreateInput) => api.post<TfoPendingProgram[]>('/yarn/tfo/pending', data), { silentFieldErrors: true });
+export const useUpdatePendingProgram = (id: number) =>
+  useYarnMutation((data: TfoPendingProgramInput) => api.put<TfoPendingProgram>(`/yarn/tfo/pending/${id}`, data), { silentFieldErrors: true });
+export const useCancelPendingProgram = () => useYarnMutation((id: number) => api.post<{ id: number }>(`/yarn/tfo/pending/${id}/cancel`));
+export const useStartPendingProgram = () =>
+  useYarnMutation(({ id, data }: { id: number; data: TfoPendingStartInput }) => api.post<TfoProgram>(`/yarn/tfo/pending/${id}/start`, data), { silentFieldErrors: true });
+
 export const useStopProgram = (id: number) =>
   useYarnMutation((data: TfoProgramStopInput) => api.post<TfoProgram>(`/yarn/tfo/programs/${id}/stop`, data), { silentFieldErrors: true });
 
@@ -289,6 +319,20 @@ export const useStopProgram = (id: number) =>
 
 export const useWarpingJobs = (status: WarpingStatus) => useInfiniteList<WarpingJob>([...yarnKeys.jobs(status)], '/yarn/warping/jobs', { status });
 
-export const useStartWarping = () => useYarnMutation((data: WarpingJobStartInput) => api.post<WarpingJob>('/yarn/warping/jobs', data), { silentFieldErrors: true });
+/** Sprint 20 — pending warping jobs: create (owners), edit / cancel / start (the floor). */
+export function usePendingJobs(enabled = true) {
+  return useQuery({
+    queryKey: yarnKeys.pendingJobs,
+    queryFn: ({ signal }) => api.get<WarpingPendingJob[]>('/yarn/warping/pending', undefined, signal),
+    enabled,
+  });
+}
+export const useCreatePendingJob = () => useYarnMutation((data: WarpingPendingJobInput) => api.post<WarpingPendingJob>('/yarn/warping/pending', data), { silentFieldErrors: true });
+export const useUpdatePendingJob = (id: number) =>
+  useYarnMutation((data: WarpingPendingJobInput) => api.put<WarpingPendingJob>(`/yarn/warping/pending/${id}`, data), { silentFieldErrors: true });
+export const useCancelPendingJob = () => useYarnMutation((id: number) => api.post<{ id: number }>(`/yarn/warping/pending/${id}/cancel`));
+export const useStartPendingJob = () => useYarnMutation((id: number) => api.post<WarpingJob>(`/yarn/warping/pending/${id}/start`));
+
+/** Sprint 20 — live "beam no. is free" check on Mark done. */
 export const useFinishWarping = (id: number) =>
   useYarnMutation((data: WarpingJobDoneInput) => api.post<WarpingDoneResult>(`/yarn/warping/jobs/${id}/done`, data), { silentFieldErrors: true });

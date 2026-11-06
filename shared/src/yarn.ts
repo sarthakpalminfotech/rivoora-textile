@@ -40,14 +40,14 @@ export const YARN_ZONE_CONFIG: Record<YarnZone, YarnZoneConfig> = {
   tfo: {
     label: 'TFO',
     description: 'Raw yarn twisted on TFO machines',
-    actionLabel: 'Run program',
+    actionLabel: 'New programs',
     hasBeams: false,
     accent: { solid: '#6D28D9', soft: '#F5F3FF', text: '#5B21B6', border: '#DDD6FE' },
   },
   warping: {
     label: 'Warping',
     description: 'Raw and twisted yarn warped into beams',
-    actionLabel: 'Start warping',
+    actionLabel: 'New warping job',
     hasBeams: true,
     accent: { solid: '#B45309', soft: '#FFFBEB', text: '#92400E', border: '#FDE68A' },
   },
@@ -98,11 +98,14 @@ export const YARN_MOVE_KINDS = [
   'tfo_output',
   'tfo_return',
   'warping_issue',
+  // Sprint 20: owners' manual corrections (remark kept in `note`).
+  'manual_add',
+  'manual_remove',
 ] as const;
 export type YarnMoveKind = (typeof YARN_MOVE_KINDS)[number];
 
 /** Kinds of beam history rows (`beam_moves.kind`). */
-export const BEAM_MOVE_KINDS = ['beam_created', 'transfer_in', 'transfer_out', 'consumed'] as const;
+export const BEAM_MOVE_KINDS = ['beam_created', 'transfer_in', 'transfer_out', 'consumed', 'removed'] as const;
 export type BeamMoveKind = (typeof BEAM_MOVE_KINDS)[number];
 
 export type MoveKind = YarnMoveKind | BeamMoveKind;
@@ -118,6 +121,9 @@ export const MOVE_KIND_LABEL: Record<MoveKind, string> = {
   warping_issue: 'Warping issue',
   beam_created: 'Beam created',
   consumed: 'Consumed',
+  manual_add: 'Added manually',
+  manual_remove: 'Removed manually',
+  removed: 'Removed manually',
 };
 
 /** The sign a kind always has (receipts / outputs add, issues / withdraws take away). */
@@ -130,10 +136,15 @@ export const MOVE_KIND_SIGN: Record<YarnMoveKind, 1 | -1> = {
   tfo_output: 1,
   tfo_return: 1,
   warping_issue: -1,
+  manual_add: 1,
+  manual_remove: -1,
 };
 
+/** Beam history kinds that take a beam out of a zone (shown as −1 beam). */
+export const BEAM_OUT_KINDS: readonly BeamMoveKind[] = ['transfer_out', 'consumed', 'removed'];
+
 /** Movement filter types on the zone screen → the ledger kinds they cover (yarn + beam rows). */
-export const MOVE_FILTERS = ['receipt', 'transfer_in', 'transfer_out', 'withdraw', 'tfo', 'warping'] as const;
+export const MOVE_FILTERS = ['receipt', 'transfer_in', 'transfer_out', 'withdraw', 'tfo', 'warping', 'manual'] as const;
 export type MoveFilter = (typeof MOVE_FILTERS)[number];
 export const MOVE_FILTER_LABEL: Record<MoveFilter, string> = {
   receipt: 'Receipt',
@@ -142,6 +153,7 @@ export const MOVE_FILTER_LABEL: Record<MoveFilter, string> = {
   withdraw: 'Withdraw',
   tfo: 'TFO',
   warping: 'Warping',
+  manual: 'Manual',
 };
 export const MOVE_FILTER_KINDS: Record<MoveFilter, MoveKind[]> = {
   receipt: ['receipt'],
@@ -150,6 +162,7 @@ export const MOVE_FILTER_KINDS: Record<MoveFilter, MoveKind[]> = {
   withdraw: ['withdraw', 'consumed'],
   tfo: ['tfo_issue', 'tfo_output', 'tfo_return'],
   warping: ['warping_issue', 'beam_created'],
+  manual: ['manual_add', 'manual_remove', 'removed'],
 };
 export const isMoveFilter = (v: string): v is MoveFilter => (MOVE_FILTERS as readonly string[]).includes(v);
 
@@ -159,59 +172,72 @@ export function kindsForFilters(filters: readonly MoveFilter[]): MoveKind[] {
 }
 
 /** What a ledger row points at (`ref_type`). */
-export const YARN_REF_TYPES = ['receipt', 'transfer', 'withdrawal', 'program', 'job'] as const;
+export const YARN_REF_TYPES = ['receipt', 'transfer', 'withdrawal', 'program', 'job', 'adjustment'] as const;
+
+/** Sprint 20: manual add / remove actions are numbered by this counter (rows of one action share the ref). */
+export const YARN_ADJUSTMENT_COUNTER = 'yarn_adjustment_no';
 export type YarnRefType = (typeof YARN_REF_TYPES)[number];
 
 /* ------------------------------------------------------------------ */
 /* kg / grams / money                                                   */
 /* ------------------------------------------------------------------ */
 
-export const KG_DECIMALS = 3;
+/**
+ * Sprint 20b: yarn kg have up to 4 decimals. Every yarn quantity is stored and summed as an INTEGER number of
+ * TENTHS OF A GRAM (1 kg = 10,000 units). The `*_g` columns / `*G` DTO fields and the `kgToGrams` / `gramsToKg`
+ * helpers keep their names but mean these units (migration 0020 multiplied the older gram values by 10).
+ */
+export const KG_DECIMALS = 4;
+export const UNITS_PER_KG = 10_000;
 /** The most kg on one line / one move (a sanity cap, not a business rule). */
 export const MAX_KG = 1_000_000;
-export const MAX_GRAMS = MAX_KG * 1000;
+export const MAX_GRAMS = MAX_KG * UNITS_PER_KG;
 
-/** kg (≤ 3 decimals) → integer grams. Rounds half away from zero at the 4th decimal so 1.0005 never sneaks in. */
+/** kg (≤ 4 decimals) → integer units (0.1 g). Rounds half away from zero at the 5th decimal. */
 export function kgToGrams(kg: number): number {
   if (!Number.isFinite(kg)) return NaN;
-  const g = Math.round(Math.abs(kg) * 1000 + 1e-7);
+  const g = Math.round(Math.abs(kg) * UNITS_PER_KG + 1e-7);
   return kg < 0 ? -g : g;
 }
 
-export const gramsToKg = (g: number): number => g / 1000;
+/** units (0.1 g) → kg. */
+export const gramsToKg = (g: number): number => g / UNITS_PER_KG;
 
-/** A kg value has at most 3 decimals (the zod schemas use this). */
-export const hasKgPrecision = (kg: number) => Number.isFinite(kg) && Math.abs(kg * 1000 - Math.round(kg * 1000)) < 1e-6;
+/** A kg value has at most 4 decimals (the zod schemas use this). */
+export const hasKgPrecision = (kg: number) => Number.isFinite(kg) && Math.abs(kg * UNITS_PER_KG - Math.round(kg * UNITS_PER_KG)) < 1e-5;
 
-/** Typed text → grams, or null when it is not a non-negative number with ≤ 3 decimals ("12", "12.5", ".250"). */
+/** Typed text → units, or null when it is not a non-negative number with ≤ 4 decimals ("12", "12.5", ".2505"). */
 export function parseKgText(text: string): number | null {
   const s = text.trim();
-  const m = /^(\d{0,7})(?:\.(\d{0,3}))?$/.exec(s);
+  const m = /^(\d{0,7})(?:\.(\d{0,4}))?$/.exec(s);
   if (!m || (!m[1] && !m[2]) || s === '.') return null;
-  return Number(m[1] || '0') * 1000 + Number((m[2] ?? '').padEnd(3, '0') || '0');
+  return Number(m[1] || '0') * UNITS_PER_KG + Number((m[2] ?? '').padEnd(KG_DECIMALS, '0') || '0');
 }
 
-/** Keeps a kg input clean while typing: digits and one dot, at most 3 decimals. */
+/** Keeps a kg input clean while typing: digits and one dot, at most 4 decimals. */
 export function cleanKgText(text: string): string {
   const s = text.replace(/,/g, '.').replace(/[^\d.]/g, '');
   const i = s.indexOf('.');
   if (i < 0) return s.slice(0, 7);
-  return `${s.slice(0, Math.min(i, 7))}.${s.slice(i + 1).replace(/\./g, '').slice(0, 3)}`;
+  return `${s.slice(0, Math.min(i, 7))}.${s.slice(i + 1).replace(/\./g, '').slice(0, KG_DECIMALS)}`;
 }
 
-const kgFormat = new Intl.NumberFormat('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 3 });
-/** grams → "1,234.5" (no unit). */
+/** units → the text a kg input shows ("12.5"). */
+export const kgText = (g: number) => String(gramsToKg(g));
+
+const kgFormat = new Intl.NumberFormat('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: KG_DECIMALS });
+/** units → "1,234.5" (no unit). */
 export const formatKgNumber = (g: number) => kgFormat.format(gramsToKg(g));
-/** grams → "1,234.5 kg" */
+/** units → "1,234.5 kg" */
 export const formatKg = (g: number) => `${formatKgNumber(g)} kg`;
 
 /** ₹/kg (≤ 2 decimals) → integer paise. */
 export function ratePaise(rate: number): number {
   return Math.round(rate * 100 + (rate >= 0 ? 1e-7 : -1e-7));
 }
-/** The amount of a line in paise: grams × paise-per-kg / 1000, rounded to the paisa. */
+/** The amount of a line in paise: units × paise-per-kg / 10,000, rounded to the paisa. */
 export function amountPaise(grams: number, ratePaisePerKg: number): number {
-  return Math.round((grams * ratePaisePerKg) / 1000);
+  return Math.round((grams * ratePaisePerKg) / UNITS_PER_KG);
 }
 export const paiseToRupees = (p: number) => p / 100;
 
@@ -322,6 +348,13 @@ function checkBeams(ids: readonly number[], inZone?: ReadonlySet<number>): 'no_b
   return null;
 }
 
+/** Sprint 20c: Withdraw is open in Direct consumption (yarn, boxes, beams) and TFO (raw yarn, whole boxes). */
+export const WITHDRAW_ZONES = ['direct', 'tfo'] as const;
+export type WithdrawZone = (typeof WITHDRAW_ZONES)[number];
+export const isWithdrawZone = (z: string): z is WithdrawZone => (WITHDRAW_ZONES as readonly string[]).includes(z);
+/** In TFO a box is always withdrawn whole; in Direct consumption part of a box may be taken. */
+export const withdrawWholeBoxes = (zone: YarnZone) => zone === 'tfo';
+
 /** Withdraw (Direct consumption): yarn within the balance, or in-stock beams of the zone. */
 export function validateWithdraw(p: {
   zone: YarnZone;
@@ -396,6 +429,114 @@ export function programResultLine(p: { rawG: number; twistedG: number | null; re
   return p.returnedG ? `${line} · returned ${formatKg(p.returnedG)}` : line;
 }
 
+/* ---------- Sprint 20: pending programs, reservations, boxes at stop ---------- */
+
+/** The most programs created in one go ("Add another"). */
+export const MAX_PENDING_PROGRAMS = 20;
+/** The most boxes recorded at one stop. */
+export const MAX_BOXES_PER_STOP = 200;
+export const BOX_NO_MAX_LENGTH = 30;
+
+/** Stock you can still take: the balance minus what pending programs / warping jobs have reserved (never below 0). */
+export const availableAfterReserved = (balanceG: number, reservedG: number) => Math.max(0, balanceG - reservedG);
+
+/** "12.5 kg available · reserved 40 kg" — the picker line under a lot / quality. */
+export function availableText(availableG: number, reservedG: number): string {
+  return reservedG > 0 ? `${formatKg(availableG)} available · reserved ${formatKg(reservedG)}` : `${formatKg(availableG)} available`;
+}
+
+/** Sprint 20b: box numbers are given by the system — counter `yarn_box_no`, starting at 1 (numbers in use are skipped). */
+export const BOX_NO_COUNTER = 'yarn_box_no';
+/** The most sections one program can run on. */
+export const MAX_PROGRAM_SECTIONS = 40;
+
+/** Box numbers compare without case and outer spaces ("b-12" = "B-12 "). */
+export const boxNoKey = (no: string) => no.trim().toLowerCase();
+
+/** Sprint 20b: raw kg of a program = rolls × winding kg (units). */
+export const rawFromRolls = (rolls: number, windingG: number) => (Number.isInteger(rolls) && rolls > 0 && windingG > 0 ? rolls * windingG : 0);
+
+/**
+ * Sprint 20c — start part of a pending program: `startRolls` of its `totalRolls` start now; the rest stays pending
+ * (same settings). Null / equal = the whole program. Only programs created with rolls can be split.
+ */
+export type StartRollsError = 'whole' | 'too_many' | 'no_rolls';
+export const START_ROLLS_ERROR_TEXT: Record<StartRollsError, string> = {
+  whole: 'Rolls to start is a whole number of at least 1',
+  too_many: 'More rolls than the program has',
+  no_rolls: 'This older program has no rolls — start it whole',
+};
+export function checkStartRolls(totalRolls: number | null, startRolls: number | null | undefined): StartRollsError | null {
+  if (startRolls === null || startRolls === undefined) return null;
+  if (!Number.isInteger(startRolls) || startRolls < 1) return 'whole';
+  if (totalRolls === null) return startRolls === undefined ? null : 'no_rolls';
+  if (startRolls > totalRolls) return 'too_many';
+  return null;
+}
+
+/** Sprint 20b: a box's net = gross − roll weight × rolls (units). */
+export const boxNetG = (grossG: number, rollWeightG: number, rolls: number) => grossG - rollWeightG * rolls;
+
+/** "600" / "612.5" — TPM without trailing zeros. */
+const tpmText = (tpm: number) => String(Number(tpm.toFixed(4)));
+
+/**
+ * Sprint 20b: the output (warping) quality of a box is named from the program: "denier/filament RawQuality-TPM-Dir",
+ * e.g. "75/36 Poly 75D-600-S" (without denier / filament: "Poly 75D-600-S"). Found case-insensitively in the Warping
+ * qualities master, or created there.
+ */
+export function tfoOutputQualityName(p: { denierFilament: string | null; rawQualityName: string; tpm: number; direction: 'S' | 'Z' }): string {
+  const tail = `${p.rawQualityName.trim()}-${tpmText(p.tpm)}-${p.direction}`;
+  const df = p.denierFilament?.trim();
+  return df ? `${df} ${tail}` : tail;
+}
+
+export interface StopBoxLike {
+  rolls: number;
+  grossG: number;
+  /** null / 0 = not entered (optional). */
+  avgG?: number | null;
+}
+
+export type StopBoxError = 'rolls' | 'gross' | 'net' | 'direction';
+export const STOP_BOX_ERROR_TEXT: Record<StopBoxError, string> = {
+  rolls: 'Rolls is a whole number of at least 1',
+  gross: 'Enter the gross kg',
+  net: 'Gross kg must be more than roll weight × rolls',
+  direction: 'Pick S or Z',
+};
+
+/** One box at Stop, given the stop's common roll weight. */
+export function validateStopBox(b: StopBoxLike & { direction?: string | null }, rollWeightG: number, needsDirection = false): StopBoxError | null {
+  if (!Number.isInteger(b.rolls) || b.rolls < 1) return 'rolls';
+  if (!(b.grossG > 0)) return 'gross';
+  if (!(boxNetG(b.grossG, rollWeightG, b.rolls) > 0)) return 'net';
+  if (needsDirection && b.direction !== 'S' && b.direction !== 'Z') return 'direction';
+  return null;
+}
+
+/** Live totals of the Stop screen: boxes, rolls, gross, net (= the TFO output). */
+export function stopTotals(boxes: readonly Pick<StopBoxLike, 'rolls' | 'grossG'>[], rollWeightG: number) {
+  let rolls = 0;
+  let grossG = 0;
+  let netG = 0;
+  for (const b of boxes) {
+    const r = Number.isFinite(b.rolls) ? b.rolls : 0;
+    const g = Number.isFinite(b.grossG) ? b.grossG : 0;
+    rolls += r;
+    grossG += g;
+    netG += Math.max(0, boxNetG(g, rollWeightG, r));
+  }
+  return { boxes: boxes.length, rolls, grossG, netG };
+}
+
+/** "3A, 3B, 5A" — the sections a program runs on. */
+export const programSectionsLabel = (sections: readonly { machineNo: number; section: TfoSection }[]) =>
+  [...sections]
+    .sort((a, b) => a.machineNo - b.machineNo || a.section.localeCompare(b.section))
+    .map((s) => tfoSectionLabel(s.machineNo, s.section))
+    .join(', ');
+
 /** Sections running out of all sections of the active machines: "3 of 10 running". */
 export const runningSectionsText = (running: number, machines: number) => `${running} of ${machines * TFO_SECTIONS.length} running`;
 
@@ -417,9 +558,10 @@ export const WARPING_STATUSES = ['in_process', 'done'] as const;
 export type WarpingStatus = (typeof WARPING_STATUSES)[number];
 export const WARPING_STATUS_LABEL: Record<WarpingStatus, string> = { in_process: 'In process', done: 'Done' };
 
-export const BEAM_STATUSES = ['in_stock', 'consumed'] as const;
+/** Sprint 20: `removed` = taken out by a manual remove (not used on a loom — that is `consumed`). */
+export const BEAM_STATUSES = ['in_stock', 'consumed', 'removed'] as const;
 export type BeamStatus = (typeof BEAM_STATUSES)[number];
-export const BEAM_STATUS_LABEL: Record<BeamStatus, string> = { in_stock: 'In stock', consumed: 'Consumed' };
+export const BEAM_STATUS_LABEL: Record<BeamStatus, string> = { in_stock: 'In stock', consumed: 'Consumed', removed: 'Removed' };
 
 export interface WarpingInputLike {
   item: YarnItem;
@@ -459,31 +601,74 @@ export function warpingInputsSummary(inputs: readonly { item: YarnItem; qtyG: nu
   return parts.join(' · ') || '—';
 }
 
+/* ---------- Sprint 20: pending warping jobs, typed beam codes ---------- */
+
+/** What one warping input is: raw yarn of a lot, (part of) a TFO box, or "No box" twisted yarn. */
+export const WARPING_INPUT_KINDS = ['raw', 'box', 'no_box'] as const;
+export type WarpingInputKind = (typeof WARPING_INPUT_KINDS)[number];
+export const WARPING_INPUT_KIND_LABEL: Record<WarpingInputKind, string> = { raw: 'Raw', box: 'Box', no_box: 'No box' };
+
+export const MAX_PENDING_JOBS_INPUTS = MAX_WARPING_INPUTS;
+export const BEAM_CODE_MAX_LENGTH = 30;
+/** Beam codes compare without case and outer spaces. */
+export const beamCodeKey = (code: string) => code.trim().toLowerCase();
+
+export type WarpingJobError = 'taar' | 'panna' | 'meters' | 'no_inputs';
+export const WARPING_JOB_ERROR_TEXT: Record<WarpingJobError, string> = {
+  taar: 'Taar is a whole number of at least 1',
+  panna: 'Enter the panna',
+  meters: 'Enter the meters, or tick Full meter',
+  no_inputs: 'Add at least one input',
+};
+
+/** A pending warping job's header: taar, panna, and meters OR "Full meter" (then meters are entered per beam at Done). */
+export function validateWarpingJob(p: { taar: number; panna: number; meters: number | null; fullMeter: boolean; inputs: number }): WarpingJobError | null {
+  if (p.inputs <= 0) return 'no_inputs';
+  if (!Number.isInteger(p.taar) || p.taar < 1) return 'taar';
+  if (!(p.panna > 0)) return 'panna';
+  if (!p.fullMeter && !(p.meters !== null && p.meters > 0)) return 'meters';
+  return null;
+}
+
+/**
+ * The warping quality pre-filled on each beam at Mark done: the twisted inputs' warping quality when there is exactly
+ * one, else nothing (the user picks).
+ */
+export function prefillBeamQuality(inputs: readonly { warpingQualityId: number | null }[]): number | null {
+  const ids = [...new Set(inputs.map((i) => i.warpingQualityId).filter((v): v is number => v !== null))];
+  return ids.length === 1 ? ids[0] : null;
+}
+
 export interface BeamInputLike {
   taar: number;
   panna: number;
   meters: number;
-  qualityId: number;
-  zone: string;
+  warpingQualityId: number;
 }
-export type BeamInputError = 'taar' | 'panna' | 'meters' | 'quality' | 'zone';
+export type BeamInputError = 'taar' | 'panna' | 'meters' | 'quality';
 export const BEAM_INPUT_ERROR_TEXT: Record<BeamInputError, string> = {
   taar: 'Taar is a whole number of at least 1',
   panna: 'Enter the panna',
   meters: 'Enter the meters',
-  quality: 'Select the quality',
-  zone: 'Keep it in Direct consumption or Warping',
+  quality: 'Select the warping quality',
 };
 
-/** One beam on Mark done. */
+/**
+ * One beam on Mark done. Sprint 20c: the beam no. is given by the system (counter `yarn_beam_code_no` from 1, skipping
+ * numbers already used) and every new beam is kept in Warping — move it later with Transfer.
+ */
 export function validateBeam(b: BeamInputLike): BeamInputError | null {
   if (!Number.isInteger(b.taar) || b.taar < 1) return 'taar';
   if (!(b.panna > 0)) return 'panna';
   if (!(b.meters > 0)) return 'meters';
-  if (!Number.isInteger(b.qualityId) || b.qualityId <= 0) return 'quality';
-  if (!isBeamZone(b.zone)) return 'zone';
+  if (!Number.isInteger(b.warpingQualityId) || b.warpingQualityId <= 0) return 'quality';
   return null;
 }
+
+/** Sprint 20c: the counter behind auto beam numbers ("1", "2", …). `BEAM_COUNTER` stays the internal `beam_no`. */
+export const BEAM_CODE_COUNTER = 'yarn_beam_code_no';
+/** A beam's remark at most this long. */
+export const BEAM_REMARK_MAX_LENGTH = 500;
 
 /** Beams per zone after Mark done (e.g. { direct: 1, warping: 1 }). */
 export function beamsByZone(beams: readonly { zone: string }[]): Record<BeamZone, number> {

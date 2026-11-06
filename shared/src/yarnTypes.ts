@@ -5,6 +5,7 @@ import type {
   MoveKind,
   TfoSection,
   TwistDirection,
+  WarpingInputKind,
   WarpingStatus,
   YarnItem,
   YarnPoEventKind,
@@ -196,6 +197,8 @@ export interface YarnZoneStock {
   twistedG: number;
   /** In-stock beams (0 for TFO). */
   beams: number;
+  /** Sprint 20: in-stock TFO boxes kept here. */
+  boxes: number;
 }
 
 export interface YarnMove extends YarnActor {
@@ -211,7 +214,8 @@ export interface YarnMove extends YarnActor {
   qtyG: number | null;
   /** Beams in the action (signed: + in, − out) — null for yarn rows. */
   beams: number | null;
-  beamNos: number[];
+  /** Sprint 20: the beams' codes ("BM-12", typed codes). */
+  beamCodes: string[];
   refType: YarnRefType | null;
   refId: number | null;
   /** A short "what" line: "PO 104 · challan 55", "To TFO", "3A · 75D", "WJ-2"… */
@@ -229,7 +233,10 @@ export interface YarnLotStock {
   id: number | null;
   lotNo: string | null;
   partyName: string | null;
+  /** Balance minus reservations (pending programs / warping jobs) — what can still be taken. */
   availableG: number;
+  /** Held by pending programs / warping jobs (0 outside TFO / Warping). */
+  reservedG: number;
 }
 
 /** Sprint 20 — a TFO output box, for box pickers and zone stock screens. */
@@ -245,6 +252,8 @@ export interface YarnBox {
   netG: number;
   /** Net wt minus whatever has been withdrawn / moved out so far. */
   remainingG: number;
+  /** Held by pending warping jobs (Warping zone only). */
+  reservedG: number;
   programId: number;
   createdAt: string;
 }
@@ -252,8 +261,8 @@ export interface YarnBox {
 export interface YarnSummary {
   totals: { rawG: number; twistedG: number; beams: number };
   zones: YarnZoneStock[];
-  tfo: { runningSections: number; activeMachines: number };
-  warping: { inProcess: number };
+  tfo: { runningSections: number; activeMachines: number; pending: number };
+  warping: { inProcess: number; pending: number };
   recent: YarnMove[];
 }
 
@@ -266,8 +275,13 @@ export interface YarnQualityStock {
 export interface Beam {
   id: number;
   beamNo: number;
+  /** Sprint 20: what is shown — typed on new beams, "BM-<n>" on older ones. */
+  beamCode: string;
   zone: BeamZone;
+  /** The shown quality: the warping quality on new beams, the yarn quality on older ones. */
   quality: { id: number; name: string };
+  /** Sprint 20: set on beams made from Sprint 20 on. */
+  warpingQuality: { id: number; name: string } | null;
   taar: number;
   panna: number;
   meters: number;
@@ -277,6 +291,23 @@ export interface Beam {
   createdAt: string;
   consumedAt: string | null;
   consumedNote: string | null;
+  /** Sprint 20c: the beam's own remark (typed at Mark done), else its warping job's done note. */
+  remark: string | null;
+}
+
+/** Sprint 20c: the TFO program a box came from — the stock screen groups boxes by it. */
+export interface YarnBoxProgram {
+  id: number;
+  /** "3A, 3B, 5A" */
+  sectionsLabel: string;
+  rawQuality: string;
+  lot: string | null;
+  denierFilament: string | null;
+  tpm: number;
+  direction: TwistDirection;
+  rolls: number | null;
+  startedAt: string;
+  stoppedAt: string | null;
 }
 
 export interface YarnZoneData {
@@ -284,20 +315,36 @@ export interface YarnZoneData {
   stock: YarnZoneStock;
   /** Qualities with stock in this zone (raw or twisted ≠ 0), by name. */
   qualities: YarnQualityStock[];
+  /** Sprint 20: twisted yarn recorded under a warping quality (TFO boxes, manual "No box" additions) + its boxes here. */
+  warpingQualities: { quality: { id: number; name: string }; twistedG: number; boxes: number }[];
   /** In-stock beams of the zone (Direct consumption, Warping), newest first. */
   beams: Beam[];
+  /** Sprint 20: raw yarn per quality + lot (null lot = "No lot"), with what pending work reserves. */
+  rawLots: { quality: { id: number; name: string }; lot: { id: number; lotNo: string; partyName: string } | null; balanceG: number; reservedG: number }[];
+  /** Sprint 20: in-stock boxes kept here, newest first. */
+  boxes: YarnBox[];
+  /** Sprint 20: "No box" twisted stock here. */
+  noBox: NoBoxStock[];
+  /** Sprint 20c: the programs of `boxes` (newest first). */
+  programs: YarnBoxProgram[];
 }
 
 /* ---------- TFO ---------- */
 
 export interface TfoProgram {
   id: number;
+  /** The first section (older programs: their only one) — use `sections` for all of them. */
   machineId: number;
   machineNo: number;
   section: TfoSection;
+  /** Sprint 20b: every section the program runs / ran on (`programSectionsLabel` → "3A, 3B, 5A"). */
+  sections: { machineId: number; machineNo: number; section: TfoSection }[];
   rawQuality: { id: number; name: string };
   rawG: number;
-  outputQuality: { id: number; name: string };
+  /** Sprint 20b: rolls × winding kg = raw kg (null on older programs). */
+  rolls: number | null;
+  windingG: number | null;
+  /** Older programs only: the winding meter they were created with. */
   windingMeter: number | null;
   denierFilament: string | null;
   tpm: number;
@@ -311,7 +358,45 @@ export interface TfoProgram {
   twistedG: number | null;
   twistedMeters: number | null;
   returnedRawG: number | null;
+  /** Sprint 20b: the roll weight entered at stop. */
+  rollWeightG: number | null;
   stopNote: string | null;
+  /** Sprint 20: the raw lot issued (null = "No lot"). */
+  lot: { id: number; lotNo: string; partyName: string } | null;
+  /** Sprint 20: the output qualities of the boxes (one per direction for S + Z). */
+  warpingQualities: { id: number; name: string }[];
+  /** Sprint 20: boxes recorded at stop (empty for older programs / while running). */
+  boxes: TfoProgramBox[];
+}
+
+/** Sprint 20 — one box recorded at a program's stop (`currentZone` = where it is now). */
+export interface TfoProgramBox {
+  id: number;
+  boxNo: string;
+  rolls: number;
+  grossG: number;
+  netG: number;
+  /** null when not entered. */
+  avgG: number | null;
+  warpingQuality: { id: number; name: string };
+  currentZone: YarnZone;
+}
+
+/** Sprint 20 — a TFO program waiting for a section (its raw kg reserved on its lot). */
+export interface TfoPendingProgram {
+  id: number;
+  rawQuality: { id: number; name: string };
+  lot: { id: number; lotNo: string; partyName: string } | null;
+  rawG: number;
+  /** Sprint 20b: rolls × winding kg = raw kg (null on programs created before). */
+  rolls: number | null;
+  windingG: number | null;
+  denierFilament: string | null;
+  tpm: number;
+  direction: TwistDirection;
+  note: string | null;
+  createdAt: string;
+  createdBy: YarnActor;
 }
 
 export interface TfoBoardMachine {
@@ -324,17 +409,50 @@ export interface TfoBoardMachine {
 export interface TfoBoard {
   machines: TfoBoardMachine[];
   runningSections: number;
-  /** Raw stock in the TFO zone per quality (for the Assign program dialog). */
-  rawStock: { quality: { id: number; name: string; denier: string | null; filament: string | null }; rawG: number }[];
+  /** Sprint 20: programs waiting for a section, oldest first. */
+  pending: TfoPendingProgram[];
+  /** Raw stock in the TFO zone per quality (for the Create program form): balance, reserved by pending programs, available. */
+  rawStock: { quality: { id: number; name: string; denier: string | null; filament: string | null }; rawG: number; reservedG: number; availableG: number }[];
 }
 
 /* ---------- warping ---------- */
 
+/** Sprint 20 — "No box" twisted stock of a zone: under a yarn quality (old stock) or a warping quality (manual adds). */
+export interface NoBoxStock {
+  qualityId: number | null;
+  warpingQualityId: number | null;
+  name: string;
+  availableG: number;
+  reservedG: number;
+}
+
 export interface WarpingJobInput {
   id: number;
   item: YarnItem;
+  /** Sprint 20: raw (lot) · box · no_box; older inputs are raw / no_box. */
+  kind: WarpingInputKind;
+  /** The shown quality (warping quality for boxes / warping-quality no-box stock, else the yarn quality). */
   quality: { id: number; name: string };
   qtyG: number;
+  lot: { id: number; lotNo: string } | null;
+  box: { id: number; boxNo: string } | null;
+  /** Raw yarn quality id (raw / old no-box) or null. */
+  qualityId: number | null;
+  warpingQualityId: number | null;
+}
+
+/** Sprint 20 — a warping job waiting to start (its inputs reserved in Warping stock). */
+export interface WarpingPendingJob {
+  id: number;
+  inputs: WarpingJobInput[];
+  totalG: number;
+  taar: number;
+  panna: number;
+  meters: number | null;
+  fullMeter: boolean;
+  note: string | null;
+  createdAt: string;
+  createdBy: YarnActor;
 }
 
 export interface WarpingJob {
@@ -344,14 +462,19 @@ export interface WarpingJob {
   note: string | null;
   inputs: WarpingJobInput[];
   totalG: number;
+  /** Sprint 20: from the pending job it was started from (null on older jobs). */
+  taar: number | null;
+  panna: number | null;
+  meters: number | null;
+  fullMeter: boolean;
   startedAt: string;
   startedBy: YarnActor;
   doneAt: string | null;
   doneBy: YarnActor | null;
-  beams: { id: number; beamNo: number; zone: BeamZone; quality: string; taar: number; panna: number; meters: number; status: BeamStatus }[];
+  beams: { id: number; beamNo: number; beamCode: string; zone: BeamZone; quality: string; taar: number; panna: number; meters: number; status: BeamStatus }[];
 }
 
 export interface WarpingDoneResult {
   jobId: number;
-  beams: { id: number; beamNo: number; zone: BeamZone }[];
+  beams: { id: number; beamCode: string; zone: BeamZone }[];
 }

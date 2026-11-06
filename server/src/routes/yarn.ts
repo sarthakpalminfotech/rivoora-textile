@@ -2,6 +2,7 @@ import { Router } from 'express';
 import {
   beamsQuerySchema,
   checkLotNoQuerySchema,
+  noBoxQuerySchema,
   isYarnZone,
   tfoProgramsQuerySchema,
   warpingJobsQuerySchema,
@@ -12,12 +13,31 @@ import {
 import { notFound } from '../lib/errors';
 import { ah, parseId } from '../lib/http';
 import { requirePermission } from '../middleware/role';
-import { checkLotNo, createTransfer, createWithdrawal, listBeams, listBoxStock, listLotStock, listMoves, yarnSummary, yarnZone } from '../services/yarn-stock';
-import { getProgram, listPrograms, startProgram, stopProgram, tfoBoard } from '../services/yarn-tfo';
-import { finishWarpingJob, getWarpingJob, listWarpingJobs, startWarpingJob } from '../services/yarn-warping';
+import { checkLotNo, createTransfer, listNoBoxStock, manualAdd, manualRemove, createWithdrawal, listBeams, listBoxStock, listLotStock, listMoves, yarnSummary, yarnZone } from '../services/yarn-stock';
+import {
+  cancelPendingProgram,
+  createPendingPrograms,
+  getProgram,
+  listPendingPrograms,
+  listPrograms,
+  startPendingProgram,
+  stopProgram,
+  tfoBoard,
+  updatePendingProgram,
+} from '../services/yarn-tfo';
+import {
+  cancelPendingJob,
+  createPendingJob,
+  finishWarpingJob,
+  getWarpingJob,
+  listPendingJobs,
+  listWarpingJobs,
+  startPendingJob,
+  updatePendingJob,
+} from '../services/yarn-warping';
 
 /**
- * Sprint 17 — Yarn inventory (`canUseYarnInventory`: Jenish, Gaurang, the Supervisor, the Godown supervisor — all may
+ * Sprint 17/20 — Yarn inventory (`canUseYarnInventory`: Jenish, Gaurang, the production + Yarn inventory supervisors — all may
  * transfer, withdraw, run TFO programs and warping). Not linked to orders, so the hold guard never applies.
  */
 export const yarnRouter = Router();
@@ -85,6 +105,15 @@ yarnRouter.get(
   }),
 );
 
+/** Sprint 20 — "No box" twisted stock of a zone (yarn quality or warping quality), for the pickers. */
+yarnRouter.get(
+  '/no-box',
+  ah(async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    res.json(await listNoBoxStock(noBoxQuerySchema.parse(req.query).zone));
+  }),
+);
+
 yarnRouter.post(
   '/transfers',
   ah(async (req, res) => {
@@ -96,6 +125,24 @@ yarnRouter.post(
   '/withdrawals',
   ah(async (req, res) => {
     res.status(201).json(await createWithdrawal(req.role, req.body));
+  }),
+);
+
+/* Sprint 20 — manual add / remove (Jenish, Gaurang only). */
+
+yarnRouter.post(
+  '/adjustments/add',
+  requirePermission('canAdjustYarnStock'),
+  ah(async (req, res) => {
+    res.status(201).json(await manualAdd(req.role, req.body));
+  }),
+);
+
+yarnRouter.post(
+  '/adjustments/remove',
+  requirePermission('canAdjustYarnStock'),
+  ah(async (req, res) => {
+    res.status(201).json(await manualRemove(req.role, req.body));
   }),
 );
 
@@ -125,10 +172,42 @@ yarnRouter.get(
   }),
 );
 
+/* Sprint 20 — pending programs: owners create (`canPlanYarn`); the floor edits / cancels / starts. */
+
+yarnRouter.get(
+  '/tfo/pending',
+  ah(async (_req, res) => {
+    res.set('Cache-Control', 'no-store');
+    res.json(await listPendingPrograms());
+  }),
+);
+
 yarnRouter.post(
-  '/tfo/programs',
+  '/tfo/pending',
+  requirePermission('canPlanYarn'),
   ah(async (req, res) => {
-    res.status(201).json(await startProgram(req.role, req.body));
+    res.status(201).json(await createPendingPrograms(req.role, req.body));
+  }),
+);
+
+yarnRouter.put(
+  '/tfo/pending/:id',
+  ah(async (req, res) => {
+    res.json(await updatePendingProgram(req.role, parseId(req.params.id), req.body));
+  }),
+);
+
+yarnRouter.post(
+  '/tfo/pending/:id/cancel',
+  ah(async (req, res) => {
+    res.json(await cancelPendingProgram(req.role, parseId(req.params.id)));
+  }),
+);
+
+yarnRouter.post(
+  '/tfo/pending/:id/start',
+  ah(async (req, res) => {
+    res.status(201).json(await startPendingProgram(req.role, parseId(req.params.id), req.body));
   }),
 );
 
@@ -157,10 +236,42 @@ yarnRouter.get(
   }),
 );
 
+/* Sprint 20 — pending warping jobs: owners create (`canPlanYarn`); the floor edits / cancels / starts. */
+
+yarnRouter.get(
+  '/warping/pending',
+  ah(async (_req, res) => {
+    res.set('Cache-Control', 'no-store');
+    res.json(await listPendingJobs());
+  }),
+);
+
 yarnRouter.post(
-  '/warping/jobs',
+  '/warping/pending',
+  requirePermission('canPlanYarn'),
   ah(async (req, res) => {
-    res.status(201).json(await startWarpingJob(req.role, req.body));
+    res.status(201).json(await createPendingJob(req.role, req.body));
+  }),
+);
+
+yarnRouter.put(
+  '/warping/pending/:id',
+  ah(async (req, res) => {
+    res.json(await updatePendingJob(req.role, parseId(req.params.id), req.body));
+  }),
+);
+
+yarnRouter.post(
+  '/warping/pending/:id/cancel',
+  ah(async (req, res) => {
+    res.json(await cancelPendingJob(req.role, parseId(req.params.id)));
+  }),
+);
+
+yarnRouter.post(
+  '/warping/pending/:id/start',
+  ah(async (req, res) => {
+    res.status(201).json(await startPendingJob(req.role, parseId(req.params.id)));
   }),
 );
 

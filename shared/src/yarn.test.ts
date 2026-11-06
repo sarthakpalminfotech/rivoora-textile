@@ -48,33 +48,34 @@ const move = (zone: StockMoveLike['zone'], item: StockMoveLike['item'], qualityI
 
 describe('kg rounding', () => {
   it('converts kg to whole grams without float drift', () => {
-    expect(kgToGrams(1.005)).toBe(1005);
-    expect(kgToGrams(0.1 + 0.2)).toBe(300);
-    expect(kgToGrams(12.345)).toBe(12345);
-    expect(kgToGrams(-2.5)).toBe(-2500);
-    expect(gramsToKg(12345)).toBe(12.345);
+    // Sprint 20b: units are tenths of a gram (1 kg = 10,000).
+    expect(kgToGrams(1.005)).toBe(10050);
+    expect(kgToGrams(0.1 + 0.2)).toBe(3000);
+    expect(kgToGrams(12.3456)).toBe(123456);
+    expect(kgToGrams(-2.5)).toBe(-25000);
+    expect(gramsToKg(123456)).toBe(12.3456);
   });
 
   it('sums many small receipts exactly', () => {
     const g = Array.from({ length: 1000 }, () => kgToGrams(0.1)).reduce((s, v) => s + v, 0);
-    expect(g).toBe(100_000);
+    expect(g).toBe(1_000_000);
     expect(formatKg(g)).toBe('100 kg');
   });
 
-  it('accepts at most 3 decimals', () => {
-    expect(hasKgPrecision(1.234)).toBe(true);
-    expect(hasKgPrecision(1.2345)).toBe(false);
-    expect(parseKgText('12.5')).toBe(12500);
-    expect(parseKgText('.250')).toBe(250);
-    expect(parseKgText('12.')).toBe(12000);
-    expect(parseKgText('1.2345')).toBeNull();
+  it('accepts at most 4 decimals', () => {
+    expect(hasKgPrecision(1.2345)).toBe(true);
+    expect(hasKgPrecision(1.23456)).toBe(false);
+    expect(parseKgText('12.5')).toBe(125000);
+    expect(parseKgText('.250')).toBe(2500);
+    expect(parseKgText('12.')).toBe(120000);
+    expect(parseKgText('1.23456')).toBeNull();
     expect(parseKgText('abc')).toBeNull();
     expect(parseKgText('')).toBeNull();
-    expect(cleanKgText('1,25.1239kg')).toBe('1.251');
+    expect(cleanKgText('1,25.12399kg')).toBe('1.2512');
   });
 
   it('formats kg the Indian way', () => {
-    expect(formatKg(1_234_567_500)).toBe('12,34,567.5 kg');
+    expect(formatKg(12_345_675_000)).toBe('12,34,567.5 kg');
   });
 });
 
@@ -85,16 +86,17 @@ describe('amounts', () => {
     expect(amountPaise(kgToGrams(100), ratePaise(245.5))).toBe(2_455_000);
     expect(amountPaise(kgToGrams(1.333), ratePaise(10))).toBe(1333);
     expect(amountPaise(kgToGrams(0.005), ratePaise(1))).toBe(1); // 0.5 paisa rounds up
+    expect(amountPaise(kgToGrams(0.0001), ratePaise(100))).toBe(1);
   });
 
   it('PO totals add up the lines', () => {
     const t = yarnPoTotals([
-      { qtyG: 100_000, ratePaise: 20_000, receivedG: 40_000 },
+      { qtyG: 1_000_000, ratePaise: 20_000, receivedG: 40_000 },
       { qtyG: 50_500, ratePaise: 31_050, receivedG: 0 },
     ]);
-    expect(t.orderedG).toBe(150_500);
+    expect(t.orderedG).toBe(1_050_500);
     expect(t.receivedG).toBe(40_000);
-    expect(t.pendingG).toBe(110_500);
+    expect(t.pendingG).toBe(1_010_500);
     expect(t.amountPaise).toBe(2_000_000 + amountPaise(50_500, 31_050));
   });
 });
@@ -144,7 +146,7 @@ describe('no negative stock', () => {
     expect(checkTake(0, 1)).toBe('not_enough');
     expect(checkTake(10_000, 0)).toBe('zero');
     expect(checkTake(10_000, -5)).toBe('zero');
-    expect(notEnoughText({ availableG: 12_500, item: 'raw', qualityName: '75D', zone: 'tfo' })).toBe('Only 12.5 kg of raw yarn 75D in TFO');
+    expect(notEnoughText({ availableG: 125_000, item: 'raw', qualityName: '75D', zone: 'tfo' })).toBe('Only 12.5 kg of raw yarn 75D in TFO');
   });
 
   it('transfer', () => {
@@ -171,7 +173,7 @@ describe('no negative stock', () => {
     expect(validateWarpingInputs([{ item: 'raw', qualityId: 1, qtyG: 6_000 }, { item: 'raw', qualityId: 1, qtyG: 4_001 }], avail)).toEqual({ index: 1, error: 'not_enough' });
     expect(validateWarpingInputs([{ item: 'raw', qualityId: 2, qtyG: 1 }], avail)).toEqual({ index: 0, error: 'not_enough' });
     expect(validateWarpingInputs([], avail)).toEqual({ index: -1, error: 'none' });
-    expect(warpingInputsSummary([{ item: 'raw', qtyG: 6_000 }, { item: 'twisted', qtyG: 4_000 }])).toBe('Raw 6 kg · Twisted 4 kg');
+    expect(warpingInputsSummary([{ item: 'raw', qtyG: 60_000 }, { item: 'twisted', qtyG: 40_000 }])).toBe('Raw 6 kg · Twisted 4 kg');
   });
 });
 
@@ -187,7 +189,7 @@ describe('TFO programs', () => {
     expect(validateProgramStop({ rawG: 50_000, twistedG: 10_000, returnedG: 50_001 })).toBe('returned_too_much');
     expect(validateProgramStop({ rawG: 50_000, twistedG: 0, returnedG: 0 })).toBe('nothing');
     expect(validateProgramStop({ rawG: 50_000, twistedG: 0, returnedG: 50_000 })).toBeNull();
-    expect(programResultLine({ rawG: 50_000, twistedG: 48_200, returnedG: 1_000 })).toBe('Raw 50 kg → twisted 48.2 kg · returned 1 kg');
+    expect(programResultLine({ rawG: 500_000, twistedG: 482_000, returnedG: 10_000 })).toBe('Raw 50 kg → twisted 48.2 kg · returned 1 kg');
   });
 
   it('issue then stop with a returned raw kg balances the TFO zone', () => {
@@ -202,9 +204,10 @@ describe('TFO programs', () => {
     expect(b.get(balanceKey('tfo', 'twisted', 2))).toBe(48_200);
   });
 
-  it('stop schema: returned is optional', () => {
-    expect(tfoProgramStopSchema.parse({ twistedKg: 48.2 }).returnedRawKg).toBe(0);
-    expect(() => tfoProgramStopSchema.parse({ twistedKg: 1.2345 })).toThrow();
+  it('stop schema (Sprint 20b boxes): returned is optional, kg keep 4 decimals', () => {
+    const box = { rolls: 4, grossKg: 50, avgKg: 12.05 };
+    expect(tfoProgramStopSchema.parse({ rollWeightKg: 0.5, boxes: [box] }).returnedRawKg).toBe(0);
+    expect(() => tfoProgramStopSchema.parse({ rollWeightKg: 0.5, boxes: [{ ...box, grossKg: 50.12345 }] })).toThrow();
   });
 });
 
@@ -234,13 +237,13 @@ describe('beams', () => {
 
   it('a warping job → several beams in different zones', () => {
     const out = [
-      { taar: 4800, panna: 52, meters: 1200, qualityId: 1, zone: 'direct' },
-      { taar: 4800, panna: 52, meters: 1150.5, qualityId: 1, zone: 'warping' },
+      { beamCode: 'B-1', taar: 4800, panna: 52, meters: 1200, warpingQualityId: 1, zone: 'direct' },
+      { beamCode: 'B-2', taar: 4800, panna: 52, meters: 1150.5, warpingQualityId: 1, zone: 'warping' },
     ];
-    expect(out.map(validateBeam)).toEqual([null, null]);
+    expect(out.map((b) => validateBeam(b))).toEqual([null, null]);
     expect(beamsByZone(out)).toEqual({ direct: 1, warping: 1 });
     expect(validateBeam({ ...out[0], taar: 10.5 })).toBe('taar');
-    expect(validateBeam({ ...out[0], zone: 'tfo' })).toBe('zone');
+    expect(validateBeam({ ...out[0], warpingQualityId: 0 })).toBe('quality');
     expect(validateBeam({ ...out[0], meters: 0 })).toBe('meters');
   });
 });
@@ -276,8 +279,8 @@ describe('Yarn PO', () => {
 
   it('over-receipt is a warning, not a block', () => {
     const lines = [
-      { qualityName: '75D', pendingG: 10_000, qtyG: 12_000 },
-      { qualityName: '150D', pendingG: 10_000, qtyG: 10_000 },
+      { qualityName: '75D', pendingG: 100_000, qtyG: 120_000 },
+      { qualityName: '150D', pendingG: 100_000, qtyG: 100_000 },
     ];
     expect(overReceiptLines(lines)).toEqual([0]);
     expect(overReceiptText(lines)).toBe('2 kg more than pending on 75D');
@@ -313,7 +316,7 @@ describe('Yarn PO', () => {
     const dup = yarnPoInputSchema.safeParse({ ...base, lines: [{ qualityId: 1, qtyKg: 10, rate: 200 }, { qualityId: 1, qtyKg: 5, rate: 210 }] });
     expect(dup.success).toBe(false);
     if (!dup.success) expect(dup.error.issues[0].path.join('.')).toBe('lines.1.qualityId');
-    expect(yarnPoInputSchema.safeParse({ ...base, lines: [{ qualityId: 1, qtyKg: 10.0001, rate: 200 }] }).success).toBe(false);
+    expect(yarnPoInputSchema.safeParse({ ...base, lines: [{ qualityId: 1, qtyKg: 10.00001, rate: 200 }] }).success).toBe(false);
     expect(yarnPoInputSchema.safeParse({ ...base, lines: [] }).success).toBe(false);
   });
 });

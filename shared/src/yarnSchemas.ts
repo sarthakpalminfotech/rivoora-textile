@@ -1,19 +1,24 @@
 import { z } from 'zod';
 import {
+  BEAM_REMARK_MAX_LENGTH,
   BEAM_ZONES,
   BEAM_STATUSES,
+  WITHDRAW_ZONES,
+
   BOX_STATUSES,
   hasKgPrecision,
   isMoveFilter,
   isYarnPoStatus,
   MAX_BEAMS_PER_JOB,
+  MAX_BOXES_PER_STOP,
   MAX_KG,
+  MAX_PENDING_PROGRAMS,
+  MAX_PROGRAM_SECTIONS,
   MAX_PO_LINES,
   MAX_WARPING_INPUTS,
   TFO_SECTIONS,
   TWIST_DIRECTIONS,
   WARPING_STATUSES,
-  YARN_ITEMS,
   YARN_ZONES,
   type MoveFilter,
   type YarnPoStatus,
@@ -33,13 +38,13 @@ const isoDate = (msg = 'Pick a date') => z.string({ required_error: msg }).regex
 
 const id = (msg: string) => z.number({ required_error: msg, invalid_type_error: msg }).int(msg).positive(msg);
 
-/** kg > 0 (or ≥ 0), at most 3 decimals. */
+/** kg > 0 (or ≥ 0), at most 4 decimals. */
 const kg = (msg: string, { allowZero = false } = {}) =>
   z
     .number({ required_error: msg, invalid_type_error: msg })
     .refine((v) => (allowZero ? v >= 0 : v > 0), allowZero ? 'Cannot be negative' : 'Must be more than 0 kg')
     .refine((v) => v <= MAX_KG, `At most ${MAX_KG.toLocaleString('en-IN')} kg`)
-    .refine(hasKgPrecision, 'Use at most 3 decimals');
+    .refine(hasKgPrecision, 'Use at most 4 decimals');
 
 const optNumber = (max: number, msg = 'Enter a number') =>
   z
@@ -192,7 +197,14 @@ const beamIds = z.array(z.number().int().positive(), { required_error: 'Select a
 /** null / undefined on the wire both mean "No lot". */
 const lotIdField = z.number().int().positive().nullish();
 const boxIdField = id('Select a box');
-const noBoxInput = z.object({ qualityId: id('Select the quality'), qtyKg: kg('Enter the kg') });
+/**
+ * "No box" twisted stock: pre-Sprint-20 stock is kept under a YARN quality (`qualityId`); manual additions under a
+ * WARPING quality (`warpingQualityId`). Exactly one of the two.
+ */
+const noBoxInput = z
+  .object({ qualityId: id('Select the quality').nullish(), warpingQualityId: id('Select the quality').nullish(), qtyKg: kg('Enter the kg') })
+  .refine((v) => !!v.qualityId !== !!v.warpingQualityId, { message: 'Select the quality', path: ['qualityId'] });
+export type NoBoxInput = z.input<typeof noBoxInput>;
 
 /** Sprint 20: raw moves carry a lot (null = "No lot"); twisted moves are whole boxes OR a "No box" quality + kg. */
 export const yarnTransferSchema = z
@@ -232,12 +244,12 @@ export const yarnTransferSchema = z
   });
 export type YarnTransferInput = z.input<typeof yarnTransferSchema>;
 
-/** POST /yarn/withdrawals — Direct consumption only (TFO = Run program, Warping = Start warping). */
+/** POST /yarn/withdrawals — Direct consumption (yarn, boxes, beams) and Sprint 20c TFO (raw yarn, whole boxes). */
 export const yarnWithdrawSchema = z
   .discriminatedUnion('what', [
     z.object({
       what: z.literal('raw'),
-      zone: z.literal('direct', { errorMap: () => ({ message: 'Withdraw is for Direct consumption' }) }),
+      zone: z.enum(WITHDRAW_ZONES, { errorMap: () => ({ message: 'Withdraw is for Direct consumption or TFO' }) }),
       qualityId: id('Select the quality'),
       lotId: lotIdField,
       qtyKg: kg('Enter the kg'),
@@ -245,8 +257,12 @@ export const yarnWithdrawSchema = z
     }),
     z.object({
       what: z.literal('twisted'),
-      zone: z.literal('direct', { errorMap: () => ({ message: 'Withdraw is for Direct consumption' }) }),
-      boxes: z.array(z.object({ boxId: boxIdField, qtyKg: kg('Enter the kg') })).max(200).default([]),
+      zone: z.enum(WITHDRAW_ZONES, { errorMap: () => ({ message: 'Withdraw is for Direct consumption or TFO' }) }),
+      /** Sprint 20c: `qtyKg` null = the whole box (always the whole box in TFO). */
+      boxes: z
+        .array(z.object({ boxId: boxIdField, qtyKg: kg('Enter the kg').nullish().transform((v) => v ?? null) }))
+        .max(200)
+        .default([]),
       noBox: noBoxInput.nullish(),
       note: optText(1000),
     }),
@@ -266,6 +282,55 @@ export const yarnWithdrawSchema = z
     }
   });
 export type YarnWithdrawInput = z.input<typeof yarnWithdrawSchema>;
+
+/* ---------- Sprint 20: manual add / remove (owners) ---------- */
+
+/** POST /yarn/adjustments/add — goes in as "No lot" raw (yarn quality) / "No box" twisted (warping quality). */
+export const yarnManualAddSchema = z
+  .object({
+    zone: z.enum(YARN_ZONES, { errorMap: () => ({ message: 'Pick the zone' }) }),
+    item: z.enum(['raw', 'twisted'], { errorMap: () => ({ message: 'Pick raw or twisted' }) }),
+    qualityId: id('Select the quality').nullish(),
+    warpingQualityId: id('Select the quality').nullish(),
+    qtyKg: kg('Enter the kg'),
+    remark: optText(1000),
+  })
+  .superRefine((v, ctx) => {
+    if (v.item === 'raw' && !v.qualityId) ctx.addIssue({ code: 'custom', path: ['qualityId'], message: 'Select the yarn quality' });
+    if (v.item === 'twisted' && !v.warpingQualityId) ctx.addIssue({ code: 'custom', path: ['warpingQualityId'], message: 'Select the warping quality' });
+  });
+export type YarnManualAddInput = z.input<typeof yarnManualAddSchema>;
+
+const remarkRequired = z.string({ required_error: 'Enter the remark' }).trim().min(1, 'Enter the remark').max(1000, 'Must be at most 1000 characters');
+
+/** POST /yarn/adjustments/remove — raw (quality + lot), twisted (boxes + kg, or No box), beams; the remark is required. */
+export const yarnManualRemoveSchema = z
+  .discriminatedUnion('what', [
+    z.object({ what: z.literal('raw'), zone: z.enum(YARN_ZONES), qualityId: id('Select the quality'), lotId: lotIdField, qtyKg: kg('Enter the kg'), remark: remarkRequired }),
+    z.object({
+      what: z.literal('twisted'),
+      zone: z.enum(YARN_ZONES),
+      boxes: z.array(z.object({ boxId: boxIdField, qtyKg: kg('Enter the kg') })).max(200).default([]),
+      noBox: noBoxInput.nullish(),
+      remark: remarkRequired,
+    }),
+    z.object({
+      what: z.literal('beams'),
+      zone: z.enum(BEAM_ZONES, { errorMap: () => ({ message: 'Beams are kept in Direct consumption or Warping' }) }),
+      beamIds,
+      remark: remarkRequired,
+    }),
+  ])
+  .superRefine((v, ctx) => {
+    if (v.what !== 'twisted') return;
+    if ((v.boxes.length > 0) === !!v.noBox) ctx.addIssue({ code: 'custom', path: ['boxes'], message: v.boxes.length ? 'Pick boxes or enter "No box" kg, not both' : 'Pick at least one box, or enter "No box" kg' });
+    const seen = new Set<number>();
+    v.boxes.forEach((b, i) => {
+      if (seen.has(b.boxId)) ctx.addIssue({ code: 'custom', path: ['boxes', i, 'boxId'], message: 'A box appears twice' });
+      seen.add(b.boxId);
+    });
+  });
+export type YarnManualRemoveInput = z.input<typeof yarnManualRemoveSchema>;
 
 /** GET /yarn/lots — raw lots (+ "No lot") with stock of one quality in one zone. */
 export const yarnLotsQuerySchema = z.object({
@@ -302,30 +367,94 @@ export const beamsQuerySchema = z.object({
 
 /* ---------- TFO ---------- */
 
-export const tfoProgramStartSchema = z.object({
-  machineId: id('Pick the machine'),
-  section: z.enum(TFO_SECTIONS, { errorMap: () => ({ message: 'Pick the section' }) }),
+/**
+ * Sprint 20 → 20b — a pending program (no machine yet): raw quality + LOT (null = "No lot") + rolls × winding kg (= raw
+ * kg, worked out by the server) are reserved in TFO raw stock until someone starts it. No output quality any more —
+ * the boxes' quality is named at stop (`tfoOutputQualityName`).
+ */
+export const tfoPendingProgramInputSchema = z.object({
   rawQualityId: id('Select the raw yarn quality'),
-  rawKg: kg('Enter the raw yarn kg'),
-  outputQualityId: id('Select the output quality'),
-  windingMeter: optNumber(10_000_000),
+  lotId: lotIdField,
+  rolls: z.number({ required_error: 'Enter the rolls', invalid_type_error: 'Enter the rolls' }).int('Use a whole number').min(1, 'At least 1').max(1_000_000),
+  windingKg: kg('Enter the winding kg'),
   denierFilament: optText(40),
   tpm: z
     .number({ required_error: 'Enter the TPM', invalid_type_error: 'Enter the TPM' })
     .positive('Enter the TPM')
     .max(100_000, 'TPM is too high'),
-  direction: z.enum(TWIST_DIRECTIONS, { errorMap: () => ({ message: 'Pick S or Z' }) }),
+  direction: z.enum(TWIST_DIRECTIONS, { errorMap: () => ({ message: 'Pick S, Z or S + Z' }) }),
   note: optText(1000),
 });
-export type TfoProgramStartInput = z.input<typeof tfoProgramStartSchema>;
+export type TfoPendingProgramInput = z.input<typeof tfoPendingProgramInputSchema>;
 
-export const tfoProgramStopSchema = z.object({
-  twistedKg: kg('Enter the twisted yarn produced', { allowZero: true }),
-  twistedMeters: optNumber(100_000_000),
-  returnedRawKg: kg('Enter the raw yarn returned', { allowZero: true }).nullish().transform((v) => v ?? 0),
-  note: optText(1000),
+/** POST /yarn/tfo/pending — one or more programs created in one go. */
+export const tfoPendingProgramsCreateSchema = z.object({
+  programs: z
+    .array(tfoPendingProgramInputSchema, { required_error: 'Add at least one program' })
+    .min(1, 'Add at least one program')
+    .max(MAX_PENDING_PROGRAMS, `At most ${MAX_PENDING_PROGRAMS} programs at once`),
 });
+export type TfoPendingProgramsCreateInput = z.input<typeof tfoPendingProgramsCreateSchema>;
+
+/** POST /yarn/tfo/pending/:id/start — Sprint 20b: one or more idle sections (any machines, both sections of one machine allowed). */
+export const tfoPendingStartSchema = z
+  .object({
+    sections: z
+      .array(z.object({ machineId: id('Pick the machine'), section: z.enum(TFO_SECTIONS, { errorMap: () => ({ message: 'Pick the section' }) }) }), {
+        required_error: 'Pick at least one machine section',
+      })
+      .min(1, 'Pick at least one machine section')
+      .max(MAX_PROGRAM_SECTIONS, `At most ${MAX_PROGRAM_SECTIONS} sections`),
+    /** Sprint 20c: start only this many rolls now (the rest stays pending). Omitted / null = the whole program. */
+    rolls: z
+      .number({ invalid_type_error: 'Enter the rolls' })
+      .int('Use a whole number')
+      .min(1, 'At least 1')
+      .max(100_000)
+      .nullish()
+      .transform((v) => v ?? null),
+  })
+  .superRefine((v, ctx) => {
+    const seen = new Set<string>();
+    v.sections.forEach((s, i) => {
+      const k = `${s.machineId}|${s.section}`;
+      if (seen.has(k)) ctx.addIssue({ code: 'custom', path: ['sections', i], message: 'This section is picked twice' });
+      seen.add(k);
+    });
+  });
+export type TfoPendingStartInput = z.input<typeof tfoPendingStartSchema>;
+
+const stopBoxInput = z.object({
+  rolls: z.number({ required_error: 'Enter the rolls', invalid_type_error: 'Enter the rolls' }).int('Use a whole number').min(1, 'At least 1').max(100_000),
+  grossKg: kg('Enter the gross kg'),
+  /** Optional. */
+  avgKg: kg('Enter the avg kg').nullish().transform((v) => v ?? null),
+  /** Only for S + Z programs: which twist this box is (S or Z). */
+  direction: z.enum(['S', 'Z']).nullish().transform((v) => v ?? null),
+});
+export type TfoStopBoxInput = z.input<typeof stopBoxInput>;
+
+/**
+ * Sprint 20 → 20b — Stop: boxes (numbered by the system) with rolls + gross kg; net = gross − roll weight × rolls
+ * (one roll weight for the stop). TFO output = total net; every box stays in TFO. Raw returned goes back to TFO raw stock
+ * with the program's lot.
+ */
+export const tfoProgramStopSchema = z
+  .object({
+    rollWeightKg: kg('Enter the roll weight', { allowZero: true }),
+    boxes: z.array(stopBoxInput).max(MAX_BOXES_PER_STOP, `At most ${MAX_BOXES_PER_STOP} boxes`).default([]),
+    twistedMeters: optNumber(100_000_000),
+    returnedRawKg: kg('Enter the raw yarn returned', { allowZero: true }).nullish().transform((v) => v ?? 0),
+    note: optText(1000),
+  })
+  .superRefine((v, ctx) => {
+    v.boxes.forEach((b, i) => {
+      if (!(b.grossKg - v.rollWeightKg * b.rolls > 1e-9)) ctx.addIssue({ code: 'custom', path: ['boxes', i, 'grossKg'], message: 'Gross kg must be more than roll weight × rolls' });
+    });
+    if (!v.boxes.length && !(v.returnedRawKg > 0)) ctx.addIssue({ code: 'custom', path: ['boxes'], message: 'Add at least one box' });
+  });
 export type TfoProgramStopInput = z.input<typeof tfoProgramStopSchema>;
+
 
 export const tfoProgramsQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
@@ -336,31 +465,48 @@ export const tfoProgramsQuerySchema = z.object({
 
 /* ---------- warping ---------- */
 
-export const warpingJobStartSchema = z.object({
-  inputs: z
-    .array(
-      z.object({
-        item: z.enum(YARN_ITEMS, { errorMap: () => ({ message: 'Pick raw or twisted' }) }),
-        qualityId: id('Select the quality'),
-        qtyKg: kg('Enter the kg'),
-      }),
-      { required_error: 'Add at least one input' },
-    )
-    .min(1, 'Add at least one input')
-    .max(MAX_WARPING_INPUTS, `At most ${MAX_WARPING_INPUTS} inputs`),
-  note: optText(1000),
-});
-export type WarpingJobStartInput = z.input<typeof warpingJobStartSchema>;
+/** Sprint 20 — one input of a pending warping job (all from Warping stock, reserved while pending). */
+const warpingInput = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('raw'), qualityId: id('Select the quality'), lotId: lotIdField, qtyKg: kg('Enter the kg') }),
+  z.object({ kind: z.literal('box'), boxId: boxIdField, qtyKg: kg('Enter the kg') }),
+  z.object({ kind: z.literal('no_box'), qualityId: id('Select the quality').nullish(), warpingQualityId: id('Select the quality').nullish(), qtyKg: kg('Enter the kg') }),
+]);
+export type WarpingInputInput = z.input<typeof warpingInput>;
 
+/** POST /yarn/warping/pending · PUT /yarn/warping/pending/:id — inputs + taar + panna + meters OR Full meter. */
+export const warpingPendingJobSchema = z
+  .object({
+    inputs: z.array(warpingInput, { required_error: 'Add at least one input' }).min(1, 'Add at least one input').max(MAX_WARPING_INPUTS, `At most ${MAX_WARPING_INPUTS} inputs`),
+    taar: z.number({ required_error: 'Enter the taar', invalid_type_error: 'Enter the taar' }).int('Use a whole number').min(1, 'At least 1').max(1_000_000),
+    panna: z.number({ required_error: 'Enter the panna', invalid_type_error: 'Enter the panna' }).positive('Enter the panna').max(100_000),
+    meters: z.number({ invalid_type_error: 'Enter the meters' }).positive('Enter the meters').max(10_000_000).nullish().transform((v) => v ?? null),
+    fullMeter: z.boolean().default(false),
+    note: optText(1000),
+  })
+  .superRefine((v, ctx) => {
+    if (!v.fullMeter && v.meters === null) ctx.addIssue({ code: 'custom', path: ['meters'], message: 'Enter the meters, or tick Full meter' });
+    const boxes = new Set<number>();
+    v.inputs.forEach((i, idx) => {
+      if (i.kind === 'no_box' && !!i.qualityId === !!i.warpingQualityId) ctx.addIssue({ code: 'custom', path: ['inputs', idx, 'qualityId'], message: 'Select the quality' });
+      if (i.kind === 'box') {
+        if (boxes.has(i.boxId)) ctx.addIssue({ code: 'custom', path: ['inputs', idx, 'boxId'], message: 'This box is already an input' });
+        boxes.add(i.boxId);
+      }
+    });
+  })
+  .transform((v) => (v.fullMeter ? { ...v, meters: null } : v));
+export type WarpingPendingJobInput = z.input<typeof warpingPendingJobSchema>;
+
+/** POST /yarn/warping/jobs/:id/done — one or more beams: typed beam no. (unique across all beams), warping quality, … */
 export const warpingJobDoneSchema = z.object({
   beams: z
     .array(
       z.object({
+        warpingQualityId: id('Select the warping quality'),
         taar: z.number({ required_error: 'Enter the taar', invalid_type_error: 'Enter the taar' }).int('Use a whole number').min(1, 'At least 1').max(1_000_000),
         panna: z.number({ required_error: 'Enter the panna', invalid_type_error: 'Enter the panna' }).positive('Enter the panna').max(100_000),
         meters: z.number({ required_error: 'Enter the meters', invalid_type_error: 'Enter the meters' }).positive('Enter the meters').max(10_000_000),
-        qualityId: id('Select the quality'),
-        zone: z.enum(BEAM_ZONES, { errorMap: () => ({ message: 'Pick where to keep it' }) }),
+        remark: optText(BEAM_REMARK_MAX_LENGTH),
       }),
       { required_error: 'Add at least one beam' },
     )
@@ -369,6 +515,10 @@ export const warpingJobDoneSchema = z.object({
   note: optText(1000),
 });
 export type WarpingJobDoneInput = z.input<typeof warpingJobDoneSchema>;
+
+
+/** GET /yarn/no-box — "No box" twisted stock of a zone. */
+export const noBoxQuerySchema = z.object({ zone: z.enum(YARN_ZONES) });
 
 export const warpingJobsQuerySchema = z.object({
   status: z.enum(WARPING_STATUSES).optional().catch(undefined),

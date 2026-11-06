@@ -121,6 +121,30 @@ async function yarnBalanceSnapshot(): Promise<{ balances: string[]; programs: nu
 }
 
 /**
+ * Sprint 20b (migration 0020): yarn quantities move from grams to tenths of a gram (× 10) so kg get 4 decimals. Snapshot
+ * every zone / item / quality balance and the PO / box totals before, so `main()` can confirm afterwards that each one is
+ * exactly ten times its old value (and stock otherwise didn't move).
+ */
+async function yarnUnitsSnapshot(): Promise<{ balances: [string, bigint][]; poG: bigint; boxNetG: bigint; programRawG: bigint } | null> {
+  const applied = await libsql.execute(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'tfo_program_sections'`);
+  if (applied.rows.length > 0) return null; // already migrated
+  const movesTable = await libsql.execute(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'yarn_stock_moves'`);
+  if (movesTable.rows.length === 0) return null; // fresh database: nothing to check
+  return yarnUnitTotals();
+}
+async function yarnUnitTotals() {
+  const rows = await libsql.execute(`SELECT zone, item, quality_id, SUM(qty_g) AS total FROM yarn_stock_moves GROUP BY zone, item, quality_id ORDER BY zone, item, quality_id`);
+  const big = async (q: string) => BigInt(String((await libsql.execute(q)).rows[0]?.n ?? 0));
+  const hasBoxes = (await libsql.execute(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'yarn_boxes'`)).rows.length > 0;
+  return {
+    balances: rows.rows.map((r): [string, bigint] => [`${r.zone}|${r.item}|${r.quality_id}`, BigInt(String(r.total))]),
+    poG: await big('SELECT COALESCE(SUM(qty_g), 0) AS n FROM yarn_po_lines'),
+    boxNetG: hasBoxes ? await big('SELECT COALESCE(SUM(net_g), 0) AS n FROM yarn_boxes') : 0n,
+    programRawG: await big('SELECT COALESCE(SUM(raw_g), 0) AS n FROM tfo_programs'),
+  };
+}
+
+/**
  * Sprint 8 (migration 0009) moves the butta challans into the generic `challans` / `challan_takas` tables. The SQL
  * itself compares the counts and fails (rolling everything back) if anything is off; this wrapper counts before and
  * after as well and explains a failure in plain words.
@@ -132,6 +156,7 @@ async function main() {
   const s18 = await variationPlan();
   const s19 = await meterOrdersPlan();
   const s20 = await yarnBalanceSnapshot();
+  const s20b = await yarnUnitsSnapshot();
   try {
     await migrate(db, { migrationsFolder: resolve(SERVER_ROOT, 'drizzle') });
   } catch (err) {
@@ -208,7 +233,9 @@ async function main() {
     const programsAfter = await countOf('SELECT COUNT(*) AS n FROM tfo_programs');
     const jobsAfter = await countOf('SELECT COUNT(*) AS n FROM warping_jobs');
     const beamsAfter = await countOf('SELECT COUNT(*) AS n FROM beams');
-    const balancesMatch = JSON.stringify(s20.balances) === JSON.stringify(balancesAfter);
+    // When 0020 ran in the same go, every balance is ten times what it was (grams → tenths of a gram).
+    const expectedBalances = s20b ? s20.balances.map((b) => b.replace(/\|(-?\d+)$/, (_m, n) => `|${BigInt(n) * 10n}`)) : s20.balances;
+    const balancesMatch = JSON.stringify(expectedBalances) === JSON.stringify(balancesAfter);
     if (!balancesMatch || programsAfter !== s20.programs || jobsAfter !== s20.jobs || beamsAfter !== s20.beams) {
       console.error(
         '\nCheck failed: yarn balances or counts changed across the Sprint 20 migration. Nothing should have moved —\n' +
@@ -224,6 +251,21 @@ async function main() {
       process.exit(1);
     }
     console.log(`Yarn balances unchanged: ${balancesAfter.length} zone/item/quality balance(s), ${programsAfter} TFO programs, ${jobsAfter} warping jobs, ${beamsAfter} beams (counts match).`);
+  }
+  if (s20b) {
+    const after = await yarnUnitTotals();
+    const same =
+      after.balances.length === s20b.balances.length &&
+      after.balances.every(([k, v], i) => k === s20b.balances[i][0] && v === s20b.balances[i][1] * 10n) &&
+      after.poG === s20b.poG * 10n &&
+      after.boxNetG === s20b.boxNetG * 10n &&
+      after.programRawG === s20b.programRawG * 10n;
+    if (!same) {
+      console.error('\nCheck failed: after migration 0020 every yarn quantity should be exactly 10 × its old value (grams → tenths of a gram). It is not — restore the backup and report this.\n');
+      libsql.close();
+      process.exit(1);
+    }
+    console.log(`Yarn units converted to tenths of a gram: ${after.balances.length} balance(s), PO lines, boxes and programs all exactly × 10 (check OK).`);
   }
   console.log('Migrations applied.');
   // Sprint 12: the default logins (a phone that already exists is left alone).

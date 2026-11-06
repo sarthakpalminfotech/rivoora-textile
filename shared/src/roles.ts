@@ -4,7 +4,7 @@
  * To add a role: add its key to ROLE_KEYS, give it a config below and
  * add it to `visibleTo` of the statuses it may see (see statuses.ts).
  */
-export const ROLE_KEYS = ['jemish', 'gaurang', 'supervisor', 'taka_entry', 'godown_supervisor', 'qc', 'dhruvil'] as const;
+export const ROLE_KEYS = ['jemish', 'gaurang', 'supervisor', 'taka_entry', 'godown_supervisor', 'qc', 'dhruvil', 'yarn_supervisor'] as const;
 export type RoleKey = (typeof ROLE_KEYS)[number];
 
 export interface RolePermissions {
@@ -104,6 +104,10 @@ export interface RolePermissions {
   canViewYarn: boolean;
   /** Sprint 17: Yarn inventory (`/yarn`): zones, transfer, withdraw, TFO programs, warping. */
   canUseYarnInventory: boolean;
+  /** Sprint 20: create TFO programs and warping jobs (they wait as Pending until someone on the floor starts them). */
+  canPlanYarn: boolean;
+  /** Sprint 20: manual add / remove of yarn stock (Jenish, Gaurang). */
+  canAdjustYarnStock: boolean;
   /** Sprint 18: the Design library (/designs: qualities → designs → design), read. */
   canViewDesignLibrary: boolean;
   /** Sprint 18: add / edit / delete designs and Upload many (Jenish + Gaurang). */
@@ -146,10 +150,16 @@ const NO_SPRINT12 = {
   canReceiveYarn: false,
   canViewYarn: false,
   canUseYarnInventory: false,
+  canPlanYarn: false,
+  canAdjustYarnStock: false,
   canViewDesignLibrary: false,
   canManageDesigns: false,
 };
-/** Sprint 17: the yarn area for the production / godown supervisors — view + receive Yarn POs, the whole Yarn inventory. */
+/**
+ * Sprint 17 → 20: the yarn floor rights — view + receive Yarn POs (no rate), Yarn inventory: transfer, withdraw, start /
+ * stop TFO programs, start / done warping, edit / cancel pending ones. The production supervisor and the Yarn inventory
+ * supervisor have them; the godown supervisor lost them in Sprint 20. Creating programs / jobs is `canPlanYarn` (owners).
+ */
 const YARN_FLOOR = { canReceiveYarn: true, canViewYarn: true, canUseYarnInventory: true };
 /** Jenish + Gaurang: all the Sprint 12 owner permissions. */
 const OWNER_SPRINT12 = {
@@ -175,6 +185,8 @@ const OWNER_SPRINT12 = {
   canReceiveYarn: true,
   canViewYarn: true,
   canUseYarnInventory: true,
+  canPlanYarn: true,
+  canAdjustYarnStock: true,
   // Sprint 18: the design library — both manage designs (add / edit / delete, Upload many).
   canViewDesignLibrary: true,
   canManageDesigns: true,
@@ -371,7 +383,8 @@ export const ROLES: Record<RoleKey, RoleConfig> = {
     // Sprint 12: the godown Orders module moved to Dhruvil — he keeps Butta cutting and Mill.
     // Sprint 15: + the read-only Orders module (butta cutting onwards): order, takas, damages, docs — no client, no rate.
     // Sprint 16: + Receive goods (outside weavers' challans, FG purchases) — never the client or rate there.
-    permissions: { ...NOTHING, canUseButtaModule: true, canUseMillModule: true, canViewGodownOrders: true, canViewTakas: true, canReceiveOutside: true, ...YARN_FLOOR },
+    // Sprint 20: no yarn access any more (that moved to the Yarn inventory supervisor).
+    permissions: { ...NOTHING, canUseButtaModule: true, canUseMillModule: true, canViewGodownOrders: true, canViewTakas: true, canReceiveOutside: true },
   },
   // One person does both QCs: the Butta QC and the Mill QC share this role and one screen (/qc).
   qc: {
@@ -404,6 +417,15 @@ export const ROLES: Record<RoleKey, RoleConfig> = {
       // Sprint 18: the Design library, view only.
       canViewDesignLibrary: true,
     },
+  },
+  // Sprint 20: the yarn floor — Yarn PO (view, receive challans; no rates) and Yarn inventory. English only.
+  yarn_supervisor: {
+    key: 'yarn_supervisor',
+    name: 'Yarn inventory supervisor',
+    title: 'Yarn',
+    initials: 'Y',
+    landing: '/yarn',
+    permissions: { ...NOTHING, ...YARN_FLOOR },
   },
 };
 

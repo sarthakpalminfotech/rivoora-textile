@@ -2,7 +2,6 @@ import { ArrowDownLeft, ArrowUpRight, History } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
-  beamLabel,
   isMoveFilter,
   isYarnZone,
   MOVE_FILTER_LABEL,
@@ -242,6 +241,3 @@ export function MovementsSection({ zone, title = 'Movements' }: { zone?: YarnZon
     </section>
   );
 }
-
-/** Beam numbers for small lists ("BM-3, BM-4 +2"). */
-export const beamNos = (nos: number[], max = 4) => nos.slice(0, max).map(beamLabel).join(', ') + (nos.length > max ? ` +${nos.length - max}` : '');

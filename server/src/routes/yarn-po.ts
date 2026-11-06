@@ -14,7 +14,7 @@ import {
 } from '../services/yarn-po';
 
 /**
- * Sprint 17 — Yarn POs. View: `canViewYarn` (Jenish, Gaurang, the Supervisor, the Godown supervisor). Create / edit /
+ * Sprint 17 — Yarn POs. View: `canViewYarn` (Jenish, Gaurang, the production + Yarn inventory supervisors). Create / edit /
  * close / cancel / print: `canManageYarnPo` (Jenish, Gaurang). Receive a challan: `canReceiveYarn`.
  */
 export const yarnPosRouter = Router();

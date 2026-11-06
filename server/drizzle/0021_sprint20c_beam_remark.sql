@@ -1,0 +1,1 @@
+ALTER TABLE `beams` ADD `remark` text;

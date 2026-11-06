@@ -1,4 +1,4 @@
-import { ArrowLeftRight, ChevronRight, Cylinder, History, RotateCw, Spool, Waves } from 'lucide-react';
+import { ArrowLeftRight, ChevronRight, Cylinder, History, PackageMinus, PackagePlus, RotateCw, SlidersHorizontal, Spool, Waves } from 'lucide-react';
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
@@ -13,10 +13,13 @@ import { ErrorState } from '@/components/list-parts';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Skeleton } from '@/components/ui/skeleton';
+import { useRole } from '@/hooks/useRole';
+import { cn } from '@/lib/utils';
 import { useYarnSummary } from './api';
+import { ManualStockDialog } from './manual-stock';
 import { MovementList } from './movements';
 import { Kg, ZONE_ICON } from './parts';
-import { ZoneActionDialogs, type ZoneAction } from './zone-actions';
+import { ZoneActionDialogs, zoneHasExtraWithdraw, zoneMainAction, type ZoneAction } from './zone-actions';
 
 function KpiTile({ label, value, icon: Icon, tone }: { label: string; value: React.ReactNode; icon: typeof Spool; tone?: string }) {
   return (
@@ -46,6 +49,8 @@ function ZonePanel({ stock, summary, onAction }: { stock: YarnZoneStock; summary
   const z = stock.zone;
   const c = YARN_ZONE_CONFIG[z];
   const Icon = ZONE_ICON[z];
+  const { can } = useRole();
+  const main = zoneMainAction(z, can);
   return (
     <section className="flex min-w-0 flex-col overflow-hidden rounded-2xl border bg-white shadow-soft" style={{ borderColor: c.accent.border }}>
       <Link to={`/yarn/${z}`} className="group flex-1 p-4 transition-colors hover:bg-slate-50/60 md:p-3.5 lg:p-5" aria-label={`Open ${c.label}`}>
@@ -63,25 +68,29 @@ function ZonePanel({ stock, summary, onAction }: { stock: YarnZoneStock; summary
           <Stat label="Raw yarn">
             <Kg g={stock.rawG} />
           </Stat>
-          <Stat label="Twisted yarn">
+          <Stat label={stock.boxes ? `Twisted · ${stock.boxes} box${stock.boxes === 1 ? '' : 'es'}` : 'Twisted yarn'}>
             <Kg g={stock.twistedG} />
           </Stat>
           {c.hasBeams && <Stat label="Beams">{stock.beams}</Stat>}
-          {z === 'tfo' && <Stat label="Sections">{runningSectionsText(summary.tfo.runningSections, summary.tfo.activeMachines)}</Stat>}
-          {z === 'warping' && <Stat label="Jobs in process">{summary.warping.inProcess}</Stat>}
+          {z === 'tfo' && <Stat label="Running">{runningSectionsText(summary.tfo.runningSections, summary.tfo.activeMachines)}</Stat>}
+          {z === 'tfo' && <Stat label="Pending programs">{summary.tfo.pending}</Stat>}
+          {z === 'warping' && <Stat label="Jobs in process · pending">{`${summary.warping.inProcess} · ${summary.warping.pending}`}</Stat>}
         </div>
       </Link>
       <div className="grid grid-cols-2 gap-2 border-t p-3 md:grid-cols-1 lg:grid-cols-2" style={{ borderColor: c.accent.border, backgroundColor: c.accent.soft }}>
-        <Button variant="secondary" className="bg-white" onClick={() => onAction({ kind: 'transfer', zone: z })}>
+        <Button variant="secondary" className={cn('bg-white', !main && !zoneHasExtraWithdraw(z) && 'col-span-2 md:col-span-1 lg:col-span-2')} onClick={() => onAction({ kind: 'transfer', zone: z })}>
           <ArrowLeftRight /> Transfer
         </Button>
-        <Button
-          className="text-white hover:opacity-90"
-          style={{ backgroundColor: c.accent.solid }}
-          onClick={() => onAction({ kind: z === 'direct' ? 'withdraw' : z === 'tfo' ? 'program' : 'warping', zone: z })}
-        >
-          {c.actionLabel}
-        </Button>
+        {zoneHasExtraWithdraw(z) && (
+          <Button variant="secondary" className={cn('bg-white', !main && 'md:col-span-1')} onClick={() => onAction({ kind: 'withdraw', zone: z })}>
+            <PackageMinus /> Withdraw
+          </Button>
+        )}
+        {main && (
+          <Button className={cn('text-white hover:opacity-90', zoneHasExtraWithdraw(z) && 'col-span-2 md:col-span-1 lg:col-span-2')} style={{ backgroundColor: c.accent.solid }} onClick={() => onAction({ kind: main, zone: z })}>
+            {c.actionLabel}
+          </Button>
+        )}
       </div>
     </section>
   );
@@ -96,6 +105,8 @@ export default function YarnInventoryPage() {
   const navigate = useNavigate();
   const { data, isPending, isError, error, refetch } = useYarnSummary();
   const [action, setAction] = useState<ZoneAction | null>(null);
+  const [manual, setManual] = useState(false);
+  const { can } = useRole();
 
   if (isPending) {
     return (
@@ -117,6 +128,20 @@ export default function YarnInventoryPage() {
 
   return (
     <div className="page-container space-y-5 pb-24 pt-5 lg:pb-6">
+      {(can('canViewYarn') || can('canAdjustYarnStock')) && (
+        <div className="flex flex-wrap justify-end gap-2">
+          {can('canViewYarn') && (
+            <Button variant="secondary" onClick={() => navigate('/yarn-po')}>
+              <PackagePlus /> Receive (via PO)
+            </Button>
+          )}
+          {can('canAdjustYarnStock') && (
+            <Button variant="secondary" onClick={() => setManual(true)}>
+              <SlidersHorizontal /> Add / remove stock
+            </Button>
+          )}
+        </div>
+      )}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
         <KpiTile label="Raw yarn" value={<Kg g={data.totals.rawG} />} icon={Spool} />
         <KpiTile label="Twisted yarn" value={<Kg g={data.totals.twistedG} />} icon={RotateCw} />
@@ -148,6 +173,7 @@ export default function YarnInventoryPage() {
       </section>
 
       <ZoneActionDialogs action={action} onClose={() => setAction(null)} />
+      <ManualStockDialog open={manual} onOpenChange={setManual} />
     </div>
   );
 }

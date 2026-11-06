@@ -45,6 +45,7 @@ export const DEFAULT_USERS: readonly { name: string; phone: string; role: RoleKe
   { name: 'QC', phone: '5555555555', role: 'qc' },
   { name: 'Godown supervisor', phone: '4444444444', role: 'godown_supervisor' },
   { name: 'Dhruvil', phone: '3333333333', role: 'dhruvil' },
+  { name: 'Yarn supervisor', phone: '2222222222', role: 'yarn_supervisor' },
 ];
 
 export interface AuthUser {
