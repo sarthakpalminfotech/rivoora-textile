@@ -651,6 +651,138 @@ export const stockAdjustments = sqliteTable(
   (t) => [index('stock_adjustments_design_idx').on(t.designId), index('stock_adjustments_material_idx').on(t.materialId)],
 );
 
+/**
+ * Sprint 22 (CR-13 / C8): goods return AGAINST THE PARTY (GR-n). Received first (Pending), organised design-wise later,
+ * then Completed (→ free stock). Not linked to any delivery challan or order: no DC revision, no Returned status.
+ */
+export const partyReturns = sqliteTable(
+  'party_returns',
+  {
+    id: id(),
+    returnNo: integer('return_no').notNull(),
+    customerId: integer('customer_id')
+      .notNull()
+      .references(() => customers.id),
+    receivedDate: text('received_date').notNull(),
+    /** pcs | meters | takas — pcs and metres never mix in one return. */
+    receivedAs: text('received_as').$type<'pcs' | 'meters' | 'takas'>().notNull(),
+    receivedQty: real('received_qty').notNull().default(0),
+    note: text('note'),
+    status: text('status').$type<'pending' | 'completed'>().notNull().default('pending'),
+    completedAt: text('completed_at'),
+    completedByRole: text('completed_by_role').$type<RoleKey>(),
+    role: text('role').$type<RoleKey>().notNull(),
+    userId: integer('user_id'),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [uniqueIndex('party_returns_no_unique').on(t.returnNo), index('party_returns_status_idx').on(t.status), index('party_returns_customer_idx').on(t.customerId)],
+);
+
+/** Takas mode: our dispatched takas that came back. */
+export const partyReturnTakas = sqliteTable(
+  'party_return_takas',
+  {
+    id: id(),
+    returnId: integer('return_id')
+      .notNull()
+      .references(() => partyReturns.id),
+    takaId: integer('taka_id')
+      .notNull()
+      .references(() => takas.id),
+    createdAt: createdAt(),
+  },
+  (t) => [index('party_return_takas_return_idx').on(t.returnId)],
+);
+
+/** A design line of a return (organised design-wise). Takas mode: one line per returned taka (`taka_id` set). */
+export const partyReturnLines = sqliteTable(
+  'party_return_lines',
+  {
+    id: id(),
+    returnId: integer('return_id')
+      .notNull()
+      .references(() => partyReturns.id),
+    takaId: integer('taka_id').references(() => takas.id),
+    materialId: integer('material_id')
+      .notNull()
+      .references(() => materials.id),
+    designId: integer('design_id')
+      .notNull()
+      .references(() => designs.id),
+    qty: real('qty').notNull(),
+    blouseOption: text('blouse_option').$type<BlouseOption>(),
+    createdAt: createdAt(),
+  },
+  (t) => [index('party_return_lines_return_idx').on(t.returnId)],
+);
+
+/** The damaged part of a line: one row per damage (type + name + quantity). */
+export const partyReturnLineDamages = sqliteTable(
+  'party_return_line_damages',
+  {
+    id: id(),
+    lineId: integer('line_id')
+      .notNull()
+      .references(() => partyReturnLines.id),
+    type: text('type').$type<DamageType>().notNull(),
+    damageId: integer('damage_id').references(() => damages.id),
+    otherName: text('other_name'),
+    qty: real('qty').notNull(),
+  },
+  (t) => [index('party_return_line_damages_line_idx').on(t.lineId)],
+);
+
+export const partyReturnImages = sqliteTable(
+  'party_return_images',
+  {
+    id: id(),
+    returnId: integer('return_id')
+      .notNull()
+      .references(() => partyReturns.id),
+    imageUrl: text('image_url').notNull(),
+    thumbUrl: text('thumb_url').notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [index('party_return_images_return_idx').on(t.returnId)],
+);
+
+/** Sprint 22 (C9): a lot of damaged free-stock takas sold together for a lump sum (DL-n). */
+export const damagedLots = sqliteTable(
+  'damaged_lots',
+  {
+    id: id(),
+    lotNo: integer('lot_no').notNull(),
+    lotDate: text('lot_date').notNull(),
+    buyer: text('buyer'),
+    /** Lump-sum amount in rupees; only shown to roles with `canSeeRate`. */
+    amount: real('amount'),
+    note: text('note'),
+    role: text('role').$type<RoleKey>().notNull(),
+    userId: integer('user_id'),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [uniqueIndex('damaged_lots_lot_no_unique').on(t.lotNo)],
+);
+
+export const damagedLotTakas = sqliteTable(
+  'damaged_lot_takas',
+  {
+    id: id(),
+    lotId: integer('lot_id')
+      .notNull()
+      .references(() => damagedLots.id),
+    takaId: integer('taka_id')
+      .notNull()
+      .references(() => takas.id),
+    pcs: integer('pcs'),
+    meters: real('meters'),
+    createdAt: createdAt(),
+  },
+  (t) => [index('damaged_lot_takas_lot_idx').on(t.lotId), index('damaged_lot_takas_taka_idx').on(t.takaId)],
+);
+
 /** Photos of a damage (added at the Butta QC, shown in the taka details drawer and the damage details screen only). */
 export const takaDamageImages = sqliteTable(
   'taka_damage_images',

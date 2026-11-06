@@ -162,6 +162,13 @@
       "when": 1793960631678,
       "tag": "0022_loud_callisto",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "6",
+      "when": 1793967496543,
+      "tag": "0023_fuzzy_weapon_omega",
+      "breakpoints": true
     }
   ]
 }

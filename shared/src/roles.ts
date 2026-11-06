@@ -124,6 +124,8 @@ export interface RolePermissions {
   canUndoDispatch: boolean;
   /** Sprint 21 (CR-11): the Alerts page (overdue production / butta / mill / whole order). */
   canViewAlerts: boolean;
+  /** Sprint 22 (C2, CR-14, C9): manual Add / Remove stock and selling damaged stock in a lot — Jenish + Gaurang. */
+  canAdjustFinishedStock: boolean;
 }
 
 export interface RoleConfig {
@@ -171,6 +173,7 @@ const NO_SPRINT12 = {
   canMarkLostAtParty: false,
   canUndoDispatch: false,
   canViewAlerts: false,
+  canAdjustFinishedStock: false,
 };
 /**
  * Sprint 17 → 20: the yarn floor rights — view + receive Yarn POs (no rate), Yarn inventory: transfer, withdraw, start /
@@ -213,6 +216,7 @@ const OWNER_SPRINT12 = {
   canMarkLostAtParty: false,
   canUndoDispatch: true,
   canViewAlerts: true,
+  canAdjustFinishedStock: true,
 };
 
 const NO_TAKAS = { canUseTakaModules: false, canEnterTakas: false, canEditTakas: false, canEditOwnTakaEntry: false, canViewTakas: false };

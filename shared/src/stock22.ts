@@ -285,3 +285,64 @@ export function lineDamageError(qtyOfLine: number, damages: readonly { qty: numb
 }
 
 export const UNITS_FOR_STOCK = UNITS.filter((u) => u === 'pcs' || u === 'meters');
+
+/** One line of the Stock adjustments list (Inventory). */
+export interface StockAdjustmentRow {
+  id: number;
+  kind: 'add' | 'remove';
+  createdAt: string;
+  quality: string;
+  designCode: string | null;
+  unit: string;
+  qty: number;
+  condition: 'fresh' | 'damaged' | null;
+  takaNo: string | null;
+  remark: string;
+  userName: string | null;
+  role: string;
+}
+
+/** Goods return DTOs (Sprint 22). */
+export interface PartyReturnCard {
+  id: number;
+  returnNo: number;
+  label: string;
+  customerName: string;
+  receivedDate: string;
+  receivedAs: ReturnReceivedAs;
+  unit: 'pcs' | 'meters';
+  receivedQty: number;
+  organised: number;
+  status: ReturnStatus;
+}
+export interface PartyReturnLineView {
+  id: number;
+  takaId: number | null;
+  takaNo: string | null;
+  materialId: number;
+  quality: string;
+  designId: number;
+  designCode: string | null;
+  qty: number;
+  blouseOption: 'with_blouse' | 'without_blouse' | null;
+  damages: { type: string; damageId: number | null; otherName: string | null; name: string; qty: number }[];
+}
+export interface PartyReturnDetail {
+  id: number;
+  returnNo: number;
+  label: string;
+  customer: { id: number; name: string };
+  receivedDate: string;
+  receivedAs: ReturnReceivedAs;
+  unit: 'pcs' | 'meters';
+  receivedQty: number;
+  note: string | null;
+  status: ReturnStatus;
+  images: { url: string; thumbUrl: string }[];
+  lines: PartyReturnLineView[];
+  organised: number;
+  left: number;
+  canComplete: boolean;
+  completedAt: string | null;
+  createdAt: string;
+}

@@ -62,6 +62,10 @@ const EVENT_LABEL: Record<TakaEventKind, string> = {
   marked_lost: 'Marked lost / short at party',
   lost_undone: 'Lost mark undone',
   dispatch_undone: 'Dispatch undone',
+  stock_added: 'Manual stock added',
+  stock_removed: 'Stock removed',
+  sold_lot: 'Sold in a damaged lot',
+  party_return: 'Returned by the party',
 };
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {

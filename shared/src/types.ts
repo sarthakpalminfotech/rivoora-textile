@@ -963,6 +963,11 @@ export const TAKA_EVENT_KINDS = [
   'marked_lost',
   'lost_undone',
   'dispatch_undone',
+  // Sprint 22
+  'stock_added',
+  'stock_removed',
+  'sold_lot',
+  'party_return',
 ] as const;
 export type TakaEventKind = (typeof TAKA_EVENT_KINDS)[number];
 
