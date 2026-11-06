@@ -1154,3 +1154,11 @@ All eight phases (A–H) are built: FG type, Hold by Gaurang, Close only when cl
 - Verified on a local file DB: `npm run typecheck` clean, `npm test` 449 passing, `npm run build` OK, `node scripts/check-sprint21.mjs` all checks pass.
 - **Turso**: migration `0022_loud_callisto.sql` is additive (3 tables, nullable columns, `orders.fg_type` default 'saree'). Export a Turso backup, then `npm run db:migrate`. Not applied.
 - Not done: screenshot pass at 360 / 820 / 1180 / 1440 px; Undo buttons in the Butta / Mill pending lists; "W <weaver no>" on challan prints.
+
+### Sprint 22 (built on branch `sprint-22`, on top of sprint-21, not deployed) — current as of 2026-11-06
+
+Meter free stock, dummy taka numbers (D01 …), manual Add / Remove stock with a hidden stock-holder order and a Stock adjustments list, damaged stock sold in a lot (DL-n), goods return against the party (GR-n: received → organised design-wise → Complete → free stock), and the Inventory home by Quality → Design → Design details (pcs and metres shown separately). Details: "Sprint 22" in CLAUDE.md.
+
+- Verified on a local file DB: `npm run typecheck` clean, `npm test` 461 passing, `npm run build` OK, `node scripts/check-sprint22.mjs` all checks pass.
+- **Turso**: migration `0023_fuzzy_weapon_omega.sql` (7 new tables, additive) — apply after 0022 (Sprint 21). Export a backup first.
+- Not done: lot print; browser / screenshot pass at 360 / 820 / 1180 / 1440 px.

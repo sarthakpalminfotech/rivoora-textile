@@ -15,6 +15,8 @@ import { useDebounce } from '@/hooks/useDebounce';
 import { formatOrderNo } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { useEffect, useState } from 'react';
+import { DesignQuantityTiles, DesignStockActions } from '../stock/quantity-tiles';
+import { useDesignQuantities } from '../stock/api';
 import { AddFromFreeStockDialog } from '../free-stock/add-from-free-stock-dialog';
 import { useItemFreeStock } from '../free-stock/api';
 import { BlouseTag, BlouseToggle } from '../free-stock/blouse';
@@ -190,6 +192,7 @@ export default function InventoryItemDetailsPage() {
       { replace: true },
     );
   const item = useInventoryItem(key, blouse);
+  const quantities = useDesignQuantities(key);
   const navigate = useNavigate();
   const filterParam = params.get('filter') as ItemFilter | null;
   const filter: ItemFilter = filterParam && ITEM_FILTERS.includes(filterParam) ? filterParam : '';
@@ -223,6 +226,9 @@ export default function InventoryItemDetailsPage() {
       ) : (
         <>
           {item.data ? <ItemHeader item={item.data} /> : <Skeleton className="h-28 rounded-2xl" />}
+          {/* Sprint 22 (CR-15): the current quantity in pcs AND metres, and the stock actions for this design. */}
+          <DesignQuantityTiles dual={quantities.data?.dual} />
+          <DesignStockActions itemKey={key} />
           {item.data && <BlouseToggle value={blouse} onChange={setBlouse} counts={item.data.blouseCounts} />}
           <div className={KPI_GRID}>
             {pcs ? (

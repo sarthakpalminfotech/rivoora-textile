@@ -12,7 +12,10 @@ import {
   orderInventoryPcs,
   parseInventoryKey,
   visibleStatusKeys,
+  type DesignQuantities,
   type DualStock,
+  type QualityCard,
+  type StockDesignCard,
   type OrderStatusKey,
   type RoleKey,
   type StockQty,
@@ -174,30 +177,6 @@ export async function loadStockCells(role: RoleKey): Promise<Map<string, StockCe
   return cells;
 }
 
-export interface QualityCard {
-  materialId: number;
-  name: string;
-  designs: number;
-  dual: DualStock;
-}
-export interface StockDesignCard {
-  key: string;
-  designId: number | null;
-  code: string | null;
-  name: string | null;
-  thumbUrl: string | null;
-  imageUrl: string | null;
-  materialId: number;
-  quality: string;
-  dual: DualStock;
-}
-export interface DesignQuantities {
-  key: string;
-  /** All qualities of the design together, in both units. */
-  dual: DualStock;
-  /** Per quality (a design can be made in several). */
-  byQuality: { materialId: number; quality: string; dual: DualStock }[];
-}
 
 const passes = (c: StockCell, flag: 'free' | 'damaged' | undefined, fgType: string | undefined) => {
   if (fgType && !c.fgTypes.has(fgType)) return false;

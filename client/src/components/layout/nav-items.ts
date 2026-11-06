@@ -12,6 +12,7 @@ import {
   Layers,
   Palette,
   PackageSearch,
+  PackageX,
   ReceiptText,
   RotateCw,
   ScanLine,
@@ -64,6 +65,7 @@ export const NAV_ITEMS: NavItem[] = [
   { to: '/inventory', label: 'Inventory', icon: Boxes, permission: 'canViewInventory', group: 'main', phoneOrder: 3 },
   // Dhruvil (dispatch): final takas, split, ready to dispatch, dispatch challans. Jenish / Gaurang have their own Orders.
   { to: '/godown/orders', label: 'Orders', icon: Warehouse, permission: 'canUseGodownOrders', group: 'main', hideWith: 'canViewOrders' },
+  { to: '/goods-return', label: 'Goods return', icon: PackageX, permission: 'canGoodsReturn', group: 'main' },
   { to: '/dispatched', label: 'Dispatched', icon: Truck, permission: 'canDispatch', group: 'main' },
   // Sprint 16: Receive goods (outside weavers' challans, FG purchases) — the godown supervisor and Dhruvil; Jenish /
   // Gaurang receive from the order's Outside production tab instead, so it is not in their nav.

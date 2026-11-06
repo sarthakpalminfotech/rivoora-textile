@@ -56,7 +56,16 @@ const MillQcTakaPage = lazy(() => import('@/features/mill-qc/qc-taka-page'));
 const GodownOrdersPage = lazy(() => import('@/features/godown/godown-orders-page'));
 const GodownOrderPage = lazy(() => import('@/features/godown/godown-order-page'));
 const SplitPage = lazy(() => import('@/features/godown/split-page'));
-const InventoryPage = lazy(() => import('@/features/inventory/inventory-page'));
+const InventoryPage = lazy(() => import('@/features/stock/inventory-home-page'));
+const QualityDesignsPage = lazy(() => import('@/features/stock/quality-designs-page'));
+const AddStockPage = lazy(() => import('@/features/stock/add-stock-page'));
+const RemoveStockPage = lazy(() => import('@/features/stock/remove-stock-page'));
+const StockAdjustmentsPage = lazy(() => import('@/features/stock/stock-adjustments-page'));
+const SellLotPage = lazy(() => import('@/features/stock/sell-lot-page'));
+const DamagedLotsPage = lazy(() => import('@/features/stock/damaged-lots-page'));
+const GoodsReturnListPage = lazy(() => import('@/features/stock/goods-return-list-page'));
+const GoodsReturnFormPage = lazy(() => import('@/features/stock/goods-return-form-page'));
+const GoodsReturnOrganisePage = lazy(() => import('@/features/stock/goods-return-organise-page'));
 const InventoryItemDetailsPage = lazy(() => import('@/features/inventory/item-details-page'));
 const DamagedDetailsPage = lazy(() => import('@/features/inventory/damaged-details-page'));
 const DispatchedHistoryPage = lazy(() => import('@/features/inventory/dispatched-history-page'));
@@ -286,6 +295,15 @@ const router = createBrowserRouter([
           { path: 'godown/orders/:orderId/takas/:takaId/damages', element: guard('canUseGodownOrders', <DamageDetailsPage />) },
           // Inventory (Jenish / Gaurang): design-wise pcs, damaged stock.
           { path: 'inventory', element: guard('canViewInventory', <InventoryPage />) },
+          { path: 'inventory/quality/:materialId', element: guard('canViewInventory', <QualityDesignsPage />) },
+          { path: 'inventory/stock/add', element: guard('canAdjustFinishedStock', <AddStockPage />) },
+          { path: 'inventory/stock/remove', element: guard('canAdjustFinishedStock', <RemoveStockPage />) },
+          { path: 'inventory/stock-adjustments', element: guard('canViewInventory', <StockAdjustmentsPage />) },
+          { path: 'inventory/damaged/sell-lot', element: guard('canAdjustFinishedStock', <SellLotPage />) },
+          { path: 'inventory/damaged/lots', element: guard('canViewInventory', <DamagedLotsPage />) },
+          { path: 'goods-return', element: guard('canGoodsReturn', <GoodsReturnListPage />) },
+          { path: 'goods-return/new', element: guard('canGoodsReturn', <GoodsReturnFormPage />) },
+          { path: 'goods-return/:id', element: guard('canGoodsReturn', <GoodsReturnOrganisePage />) },
           { path: 'inventory/items/:key', element: guard('canViewInventory', <InventoryItemDetailsPage />) },
           { path: 'inventory/items/:key/dispatched', element: guard('canViewInventory', <DispatchedHistoryPage />) },
           { path: 'inventory/damaged/:key', element: guard('canViewInventory', <DamagedDetailsPage />) },

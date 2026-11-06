@@ -249,6 +249,7 @@ The Yarn inventory supervisor (`yarn_supervisor`, Sprint 20) has exactly `canVie
 | `canManageDesigns` | ✅ | ✅ | · | · | · | · | · |
 
 **Notes on the matrix**
+- Sprint 22: `canAdjustFinishedStock` (Jenish, Gaurang) — manual Add / Remove stock and selling damaged lots; the goods return against the party uses `canGoodsReturn` (Dhruvil, Jenish, Gaurang).
 - Sprint 21: Gaurang may now **Hold** too. New permissions: `canEditOwnTakaEntry` (Taka entry), `canUndoQc` (Jenish, Gaurang, Supervisor), `canEditChallan` (Jenish, Gaurang, Godown supervisor), `canMarkLostAtParty` (Gaurang), `canUndoDispatch` (Jenish, Gaurang, Dhruvil), `canViewAlerts` (Jenish, Gaurang, Supervisor).
 - Gaurang may **Close** an order, and may edit an order he can't add or send for production.
 - `canViewTakas` is on for Taka entry, but he only sees takas on his own entry screen (no Orders access).

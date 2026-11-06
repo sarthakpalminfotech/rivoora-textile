@@ -121,8 +121,8 @@ export default function DispatchedOrderPage() {
                       </Button>
                     )}
                     {c.canGoodsReturn && (
-                      <Button variant="secondary" className="h-11" onClick={() => navigate(`/dispatched/${o.orderId}/challans/${c.id}/gr`)}>
-                        <Undo2 /> GR
+                      <Button variant="secondary" className="h-11" onClick={() => navigate('/goods-return/new')}>
+                        <Undo2 /> Goods return
                       </Button>
                     )}
                   </div>

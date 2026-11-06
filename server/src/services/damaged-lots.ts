@@ -5,6 +5,9 @@ import {
   damageLabel,
   damagedLotLabel,
   damagedLotSchema,
+  type DamagedFreeTaka,
+  type DamagedLotDetail,
+  type DamagedLotRow,
   type Paginated,
   type RoleKey,
 } from '@rivoora/shared';
@@ -24,33 +27,6 @@ import { loadFreeTakas, removeFreeTakas } from './stock-adjust';
 const now = () => new Date().toISOString();
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
-export interface DamagedLotRow {
-  id: number;
-  lotNo: number;
-  label: string;
-  lotDate: string;
-  buyer: string | null;
-  amount: number | null;
-  takas: number;
-  pcs: number;
-  meters: number;
-  note: string | null;
-}
-export interface DamagedLotDetail extends DamagedLotRow {
-  items: { takaId: number; takaNo: string; quality: string; designCode: string | null; pcs: number | null; meters: number | null }[];
-}
-export interface DamagedFreeTaka {
-  id: number;
-  takaNo: string;
-  materialId: number;
-  quality: string;
-  designId: number | null;
-  designCode: string | null;
-  unit: string;
-  pcs: number | null;
-  meters: number | null;
-  damages: { type: string; label: string }[];
-}
 
 /** GET /inventory/damaged/free-takas?materialId=&designId=&type= — damaged FREE-stock takas to pick for a lot. */
 export async function listDamagedFreeTakas(query: { materialId?: number; designId?: number; type?: string }): Promise<DamagedFreeTaka[]> {

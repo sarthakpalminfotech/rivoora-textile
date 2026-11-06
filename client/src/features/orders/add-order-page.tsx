@@ -2,7 +2,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { CheckCircle2, FolderOpen, ImagePlus, Mic, Plus, RefreshCw, Trash2, X, XCircle } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Controller, useForm, useWatch } from 'react-hook-form';
-import { Navigate, useBlocker, useLocation, useNavigate } from 'react-router-dom';
+import { Navigate, useBlocker, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import { z } from 'zod';
 import {
@@ -49,7 +49,7 @@ import { errorMessage } from '@/lib/api';
 import { formatOrderNo, toApiDate } from '@/lib/format';
 import { applyServerFieldError } from '@/lib/form';
 import { cn, toNumber } from '@/lib/utils';
-import { useBrokerLookup, useCustomerLookup, useMaterialLookup } from '../masters/api';
+import { useBrokerLookup, useCustomerLookup, useDesign, useMaterialLookup } from '../masters/api';
 import { CustomerFormDialog } from '../masters/customers/customer-form';
 import { BUTTA_OPTIONS, designCodeField, useCodeAvailability, type ButtaChoice } from '../masters/designs/design-form';
 import { useCreateOrder, useUpdateOrder } from './api';
@@ -292,6 +292,27 @@ export function OrderForm({ order }: { order?: OrderDetail }) {
     window.addEventListener('beforeunload', onBeforeUnload);
     return () => window.removeEventListener('beforeunload', onBeforeUnload);
   }, [isDirty]);
+
+  // Sprint 22 (CR-15): /orders/new?designId=…&qualityId=… (Inventory → Create order) opens the form with the design — and its
+  // quality — already picked. Only for a NEW order, once.
+  const [searchParams] = useSearchParams();
+  const prefillDesignId = !isEdit && /^\d+$/.test(searchParams.get('designId') ?? '') ? Number(searchParams.get('designId')) : null;
+  const prefillQualityId = /^\d+$/.test(searchParams.get('qualityId') ?? '') ? Number(searchParams.get('qualityId')) : null;
+  const prefillDesign = useDesign(prefillDesignId);
+  const prefilled = useRef(false);
+  useEffect(() => {
+    const d = prefillDesign.data;
+    if (!d || prefilled.current) return;
+    prefilled.current = true;
+    setValue('design', { kind: 'saved', designId: d.id, code: d.code, imageUrl: d.imageUrl, thumbUrl: d.thumbUrl, qualities: d.qualities, buttaCutting: d.buttaCutting }, { shouldDirty: false });
+    const q = (prefillQualityId ? d.qualities.find((x) => x.id === prefillQualityId) : undefined) ?? (d.qualities.length === 1 ? d.qualities[0] : undefined);
+    if (q) {
+      setValue('materialId', q.id, { shouldDirty: false, shouldValidate: true });
+      setLabels((l) => ({ ...l, material: q.name }));
+      setMaterialFromDesign(d.code);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prefillDesign.data]);
 
   if (!can(isEdit ? 'canEditOrder' : 'canAddOrder')) return <Navigate to={order ? `/orders/${order.id}` : '/orders'} replace />;
 

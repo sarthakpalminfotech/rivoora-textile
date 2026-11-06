@@ -346,3 +346,70 @@ export interface PartyReturnDetail {
   completedAt: string | null;
   createdAt: string;
 }
+
+/** Inventory home DTOs (Quality → Design → Design details). */
+export interface QualityCard {
+  materialId: number;
+  name: string;
+  designs: number;
+  dual: DualStock;
+}
+export interface StockDesignCard {
+  key: string;
+  designId: number | null;
+  code: string | null;
+  name: string | null;
+  thumbUrl: string | null;
+  imageUrl: string | null;
+  materialId: number;
+  quality: string;
+  dual: DualStock;
+}
+export interface DesignQuantities {
+  key: string;
+  /** All qualities of the design together, in both units. */
+  dual: DualStock;
+  /** Per quality (a design can be made in several). */
+  byQuality: { materialId: number; quality: string; dual: DualStock }[];
+}
+export interface DamagedLotRow {
+  id: number;
+  lotNo: number;
+  label: string;
+  lotDate: string;
+  buyer: string | null;
+  /** Null for roles without `canSeeRate`. */
+  amount: number | null;
+  takas: number;
+  pcs: number;
+  meters: number;
+  note: string | null;
+}
+export interface DamagedLotDetail extends DamagedLotRow {
+  items: { takaId: number; takaNo: string; quality: string; designCode: string | null; pcs: number | null; meters: number | null }[];
+}
+export interface DamagedFreeTaka {
+  id: number;
+  takaNo: string;
+  materialId: number;
+  quality: string;
+  designId: number | null;
+  designCode: string | null;
+  unit: string;
+  pcs: number | null;
+  meters: number | null;
+  damages: { type: string; label: string }[];
+}
+/** A free-stock taka that can be removed (Remove stock picker). */
+export interface RemovableTaka {
+  id: number;
+  takaNo: string;
+  stage: string;
+  pcs: number | null;
+  meters: number | null;
+  unit: string;
+  fromOrderNo: number;
+  reason: string | null;
+  isDamaged: boolean;
+  isManual: boolean;
+}

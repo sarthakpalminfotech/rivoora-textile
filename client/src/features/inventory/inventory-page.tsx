@@ -1,6 +1,8 @@
 import { PackageOpen, SearchX } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
+import { Button } from '@/components/ui/button';
+import { useRole } from '@/hooks/useRole';
 import { inventoryBarShares, type DamagedItemCard, type InventoryItemCard } from '@rivoora/shared';
 import { usePageTitle } from '@/components/layout/page-title';
 import { ErrorState, LoadMore, SearchBar } from '@/components/list-parts';
@@ -258,6 +260,7 @@ export default function InventoryPage() {
   usePageTitle('Inventory');
   const [params, setParams] = useSearchParams();
   const location = useLocation();
+  const { can } = useRole();
   const section: Section = params.get('section') === 'damaged' ? 'damaged' : 'all';
   const KPI_KEYS: KpiKey[] = ['godown', 'ready', 'making', 'damaged', 'refinish', 'free'];
   const kpis = (params.get('kpi') ?? '').split(',').filter((k): k is KpiKey => (KPI_KEYS as string[]).includes(k));
@@ -321,6 +324,21 @@ export default function InventoryPage() {
         </div>
       </div>
 
+      {section === 'damaged' && (
+        <div className="flex flex-wrap gap-2">
+          {can('canAdjustFinishedStock') && (
+            <Button asChild size="sm">
+              <Link to="/inventory/damaged/sell-lot">Sell as lot</Link>
+            </Button>
+          )}
+          <Button asChild variant="secondary" size="sm">
+            <Link to="/inventory/damaged/lots">Damaged lots sold</Link>
+          </Button>
+          <Button asChild variant="ghost" size="sm">
+            <Link to="/inventory">← Qualities</Link>
+          </Button>
+        </div>
+      )}
       {section === 'all' ? <AllDesigns search={debounced} kpi={kpis.join(',')} from={from} /> : <DamagedItems search={debounced} from={from} />}
     </div>
   );
