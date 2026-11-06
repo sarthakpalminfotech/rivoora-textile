@@ -4,9 +4,9 @@ import { ORDER_ON_HOLD_HI, orderOnHoldMessage, planHold, seesHeldOrders } from '
 import { orderHoldSchema } from './schemas';
 
 describe('hold permissions', () => {
-  it('only Jenish can hold; Jenish and Gaurang still see held orders; everyone else does not', () => {
+  it('Jenish and Gaurang can hold (Sprint 21); Jenish and Gaurang still see held orders; everyone else does not', () => {
     expect(can('jemish', 'canHoldOrder')).toBe(true);
-    expect(can('gaurang', 'canHoldOrder')).toBe(false);
+    expect(can('gaurang', 'canHoldOrder')).toBe(true);
     expect(seesHeldOrders('jemish')).toBe(true);
     expect(seesHeldOrders('gaurang')).toBe(true);
     for (const r of ['supervisor', 'taka_entry', 'qc', 'godown_supervisor', 'dhruvil'] as const) {
