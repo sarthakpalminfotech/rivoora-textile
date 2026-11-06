@@ -8,6 +8,7 @@ import { Bi } from '@/lib/bilingual';
 import { cn } from '@/lib/utils';
 import { isMasterPath, navItemsFor, type NavItem } from './nav-items';
 import { usePageTitleValue } from './page-title';
+import { QcSessionBar } from '@/features/auth/qc-session-bar';
 import { AlertsNavBadge } from '@/features/alerts/alerts-page';
 import { ProfileMenu, RoleTag } from './profile-menu';
 import { PageSkeleton } from './page-skeleton';
@@ -205,6 +206,7 @@ export function AppLayout() {
       <Sidebar />
       <div className="flex min-w-0 flex-1 flex-col">
         <ActingAsBar />
+        <QcSessionBar />
         <TopBar />
         <main className="flex-1 pb-[calc(5rem+env(safe-area-inset-bottom))] lg:pb-10">
           <Suspense fallback={<PageSkeleton />}>

@@ -1145,9 +1145,92 @@ export const sessions = sqliteTable(
     createdAt: createdAt(),
     expiresAt: text('expires_at').notNull(),
     lastSeenAt: text('last_seen_at').notNull().default(nowIso),
+    /** Sprint 23 (C10): a QC session ends at this time (end of the login hours / the extra time). Null = no limit. */
+    validUntil: text('valid_until'),
+    lastLat: real('last_lat'),
+    lastLng: real('last_lng'),
+    lastHeartbeatAt: text('last_heartbeat_at'),
+    /** Heartbeats in a row that were outside every allowed location. */
+    outsideStrikes: integer('outside_strikes').notNull().default(0),
+    /** Set when the server ended the session (time over / left the place); the next request answers 401 with the reason. */
+    endedAt: text('ended_at'),
+    endedReason: text('ended_reason'),
   },
   (t) => [index('sessions_user_idx').on(t.userId), index('sessions_expires_idx').on(t.expiresAt)],
 );
+
+/* ------------------------------------------------------------------ */
+/* Sprint 23 (C10): QC login limits                                     */
+/* ------------------------------------------------------------------ */
+
+/** One row (id = 1): the login hours and days of the QC role. */
+export const loginLimitSettings = sqliteTable('login_limit_settings', {
+  id: integer('id').primaryKey(),
+  enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
+  fromTime: text('from_time').notNull().default('08:30'),
+  toTime: text('to_time').notNull().default('19:20'),
+  /** Comma-separated weekdays, 1 = Monday … 7 = Sunday. */
+  days: text('days').notNull().default('1,2,3,4,5,6,7'),
+  updatedAt: updatedAt(),
+  updatedByUserId: integer('updated_by_user_id'),
+});
+
+/** An allowed place: name · latitude · longitude · radius (metres). */
+export const loginLocations = sqliteTable('login_locations', {
+  id: id(),
+  name: text('name').notNull(),
+  latitude: real('latitude').notNull(),
+  longitude: real('longitude').notNull(),
+  radiusM: integer('radius_m').notNull().default(200),
+  isActive: integer('is_active', { mode: 'boolean' }).notNull().default(true),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+});
+
+/** Extra time for one QC person: until `until_time` on `grant_date`. */
+export const loginTimeGrants = sqliteTable(
+  'login_time_grants',
+  {
+    id: id(),
+    userId: integer('user_id')
+      .notNull()
+      .references(() => users.id),
+    grantDate: text('grant_date').notNull(),
+    untilTime: text('until_time').notNull(),
+    reason: text('reason').notNull(),
+    status: text('status').$type<'active' | 'cancelled'>().notNull().default('active'),
+    createdByUserId: integer('created_by_user_id'),
+    cancelledAt: text('cancelled_at'),
+    cancelledByUserId: integer('cancelled_by_user_id'),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index('login_time_grants_user_idx').on(t.userId, t.grantDate)],
+);
+
+/** Every refused login / forced log-out (Settings → QC login log, last 30 days). */
+export const loginLimitLog = sqliteTable(
+  'login_limit_log',
+  {
+    id: id(),
+    userId: integer('user_id'),
+    phone: text('phone'),
+    event: text('event').$type<'login_refused' | 'forced_logout' | 'heartbeat_outside'>().notNull(),
+    reason: text('reason').notNull(),
+    distanceM: real('distance_m'),
+    createdAt: createdAt(),
+  },
+  (t) => [index('login_limit_log_created_idx').on(t.createdAt)],
+);
+
+/** Who changed the settings / a place / a grant, and from what to what. */
+export const loginLimitChanges = sqliteTable('login_limit_changes', {
+  id: id(),
+  kind: text('kind').notNull(),
+  note: text('note').notNull(),
+  userId: integer('user_id'),
+  createdAt: createdAt(),
+});
 
 /* ------------------------------------------------------------------ */
 /* Sprint 16: weavers, outside POs, receipts                            */

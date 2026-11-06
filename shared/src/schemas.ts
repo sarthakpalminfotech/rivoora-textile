@@ -4,6 +4,7 @@ import { ROLE_KEYS } from './roles';
 import { normalizeCode } from './codes';
 import { ORDER_TYPES } from './orderTypes';
 import { FG_TYPES } from './fgTypes';
+import { geoPointSchema } from './loginLimits';
 import { BLOUSE_FILTERS, BLOUSE_OPTIONS, CHOOSABLE_DAMAGE_TYPES } from './freeStock';
 import { UNITS } from './units';
 import { workFilterQueryFields } from './workFilters';
@@ -826,6 +827,10 @@ export type ChallanReceivedCountInput = z.input<typeof challanReceivedCountSchem
 export const loginSchema = z.object({
   phone: z.string().trim().regex(/^\d{10}$/, 'Wrong number or password'),
   password: z.string().min(1, 'Wrong number or password').max(MAX_PASSWORD_LENGTH),
+  /** Sprint 23 (C10): the device location — required of a QC user, ignored for everyone else. */
+  location: geoPointSchema.nullish(),
+  /** The browser refused / could not give the location (the QC login then explains how to allow it). */
+  locationDenied: z.boolean().optional(),
 });
 export type LoginInput = z.input<typeof loginSchema>;
 

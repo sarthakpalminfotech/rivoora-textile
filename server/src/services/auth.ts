@@ -1,9 +1,10 @@
 import { and, eq, gt, lt } from 'drizzle-orm';
-import { loginSchema, SESSION_DAYS, type AuthUser, type RoleKey } from '@rivoora/shared';
+import { isLoginLimited, loginSchema, MSG_TIME_OVER, SESSION_DAYS, SESSION_ENDED_FIELD, type AuthUser, type RoleKey } from '@rivoora/shared';
 import { db } from '../db/client';
 import { sessions, users } from '../db/schema';
 import { HttpError } from '../lib/errors';
 import { hashToken, newSessionToken, verifyPassword } from '../lib/password';
+import { checkQcLogin, endSession } from './login-limits';
 
 /** Sessions + login. Sessions are looked up by the SHA-256 of the cookie token; only the hash is stored. */
 
@@ -76,6 +77,9 @@ export async function login(input: unknown, ip: string): Promise<LoginResult> {
   }
   clearFailures(phone, ip);
 
+  // Sprint 23 (C10): the QC role logs in only at an allowed place and inside the login hours (403 + a log line otherwise).
+  const validUntil = isLoginLimited(user.role) ? await checkQcLogin({ id: user.id, phone }, parsed.data.location, parsed.data.locationDenied === true) : null;
+
   const token = newSessionToken();
   const now = new Date();
   const maxAgeMs = SESSION_DAYS * DAY_MS;
@@ -85,11 +89,13 @@ export async function login(input: unknown, ip: string): Promise<LoginResult> {
     createdAt: now.toISOString(),
     expiresAt: new Date(now.getTime() + maxAgeMs).toISOString(),
     lastSeenAt: now.toISOString(),
+    validUntil: validUntil ? validUntil.toISOString() : null,
   });
   await db.update(users).set({ lastLoginAt: now.toISOString() }).where(eq(users.id, user.id));
   // Opportunistic cleanup of expired sessions.
   await db.delete(sessions).where(lt(sessions.expiresAt, now.toISOString()));
-  return { user: { id: user.id, name: user.name, role: user.role as RoleKey }, token, maxAgeMs };
+  await db.delete(sessions).where(lt(sessions.endedAt, new Date(now.getTime() - DAY_MS).toISOString()));
+  return { user: { id: user.id, name: user.name, role: user.role as RoleKey, limitUntil: validUntil ? validUntil.toISOString() : null }, token, maxAgeMs };
 }
 
 /** The active user behind a cookie token, or null (unknown / expired session, deactivated user). */
@@ -98,15 +104,19 @@ export async function userForToken(token: string | undefined): Promise<AuthUser 
   const id = hashToken(token);
   const nowIso = new Date().toISOString();
   const [row] = await db
-    .select({ userId: users.id, name: users.name, role: users.role, lastSeenAt: sessions.lastSeenAt })
+    .select({ userId: users.id, name: users.name, role: users.role, lastSeenAt: sessions.lastSeenAt, validUntil: sessions.validUntil, endedAt: sessions.endedAt, endedReason: sessions.endedReason })
     .from(sessions)
     .innerJoin(users, eq(users.id, sessions.userId))
     .where(and(eq(sessions.id, id), gt(sessions.expiresAt, nowIso), eq(users.isActive, true)));
   if (!row) return null;
+  // Sprint 23 (C10): a QC session the server ended, or whose login time is over, answers 401 with the reason (once, then the
+  // client signs out). `valid_until` is checked on EVERY request, so it works even without a heartbeat.
+  if (row.endedAt) throw new HttpError(401, row.endedReason ?? MSG_TIME_OVER, SESSION_ENDED_FIELD);
+  if (row.validUntil && Date.now() > new Date(row.validUntil).getTime()) await endSession(id, MSG_TIME_OVER, row.userId);
   if (Date.now() - new Date(row.lastSeenAt).getTime() > TOUCH_EVERY_MS) {
     await db.update(sessions).set({ lastSeenAt: nowIso }).where(eq(sessions.id, id));
   }
-  return { id: row.userId, name: row.name, role: row.role as RoleKey };
+  return { id: row.userId, name: row.name, role: row.role as RoleKey, limitUntil: row.validUntil };
 }
 
 export async function logout(token: string | undefined): Promise<void> {

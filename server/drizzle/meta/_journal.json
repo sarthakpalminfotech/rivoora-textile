@@ -176,6 +176,13 @@
       "when": 1793969722498,
       "tag": "0024_easy_red_hulk",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "6",
+      "when": 1793970292578,
+      "tag": "0025_tiresome_tarot",
+      "breakpoints": true
     }
   ]
 }

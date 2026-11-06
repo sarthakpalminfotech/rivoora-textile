@@ -55,9 +55,13 @@ async function request<T>(method: string, path: string, { query, body, signal }:
   }
 
   // The session ended (expired, logged out elsewhere, user deactivated): show the login screen.
-  if (res.status === 401 && path !== '/auth/login' && authStore.user()) authStore.signOut();
   if (res.status === 204) return undefined as T;
   const data = (await res.json().catch(() => null)) as unknown;
+  if (res.status === 401 && path !== '/auth/login' && authStore.user()) {
+    // Sprint 23: a QC session the server ended (login time over / left the place) carries its own bilingual reason.
+    const e401 = (data as ApiErrorBody | null)?.error;
+    authStore.signOut(e401?.field === 'session_ended' ? e401.message : undefined);
+  }
   if (!res.ok) {
     const e = (data as ApiErrorBody | null)?.error;
     throw new ApiError(e?.message ?? `Request failed (${res.status})`, res.status, e?.field);

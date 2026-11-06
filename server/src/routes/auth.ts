@@ -3,6 +3,7 @@ import { env } from '../env';
 import { ah } from '../lib/http';
 import { authMiddleware, readCookie } from '../middleware/role';
 import { login, logout, SESSION_COOKIE } from '../services/auth';
+import { heartbeat } from '../services/login-limits';
 
 /** Login / me / logout. Login is the only public /api route (besides /health). */
 export const authRouter = Router();
@@ -36,6 +37,17 @@ authRouter.get('/me', authMiddleware, (req, res) => {
   res.set('Cache-Control', 'no-store');
   res.json({ user: req.user });
 });
+
+/** Sprint 23 (C10): the QC app reports its location every 5 minutes; the server re-checks time and place. */
+authRouter.post(
+  '/heartbeat',
+  authMiddleware,
+  ah(async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    const token = readCookie(req.headers.cookie, SESSION_COOKIE) ?? '';
+    res.json(await heartbeat(token, req.user, (req.body as { location?: unknown } | undefined)?.location ?? req.body));
+  }),
+);
 
 authRouter.post(
   '/logout',

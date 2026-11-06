@@ -53,4 +53,6 @@ export interface AuthUser {
   name: string;
   /** The user's own role (the acting role may differ for Jenish / Gaurang). */
   role: RoleKey;
+  /** Sprint 23 (C10): a QC user's session ends at this time (ISO); absent for everyone else. */
+  limitUntil?: string | null;
 }

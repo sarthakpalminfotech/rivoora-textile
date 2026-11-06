@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Field } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import { errorMessage } from '@/lib/api';
+import { authStore } from '@/lib/auth-store';
 import { login } from './api';
 
 /**
@@ -18,6 +19,9 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [locating, setLocating] = useState(false);
+  // Sprint 23: why a QC session ended (login time over …), shown once.
+  const [endedMessage] = useState(() => authStore.takeSignedOutMessage());
 
   const phoneOk = isValidPhone(phone);
 
@@ -35,7 +39,7 @@ export default function LoginPage() {
     setBusy(true);
     setError(null);
     try {
-      await login(phone, password);
+      await login(phone, password, setLocating);
     } catch (err) {
       setError(errorMessage(err));
       setBusy(false);
@@ -106,6 +110,16 @@ export default function LoginPage() {
               }}
             />
           </Field>
+          {endedMessage && !error && (
+            <p role="status" className="rounded-lg bg-amber-50 px-3 py-2 text-[13px] font-medium text-amber-900">
+              {endedMessage}
+            </p>
+          )}
+          {locating && (
+            <p role="status" className="rounded-lg bg-sky-50 px-3 py-2 text-[13px] font-medium text-sky-900">
+              Checking your location… allow it when asked. / लोकेशन जाँच रही है… पूछने पर अनुमति दें।
+            </p>
+          )}
           {error && (
             <p role="alert" className="rounded-lg bg-destructive-soft px-3 py-2 text-[13px] font-medium text-destructive">
               {error}
@@ -114,6 +128,9 @@ export default function LoginPage() {
           <Button type="submit" size="lg" className="w-full" loading={busy}>
             Log in
           </Button>
+          <p className="text-center text-[12px] text-slate-500">
+            QC login needs your location at the factory. / क्यूसी लॉगिन के लिए फैक्ट्री में लोकेशन चाहिए।
+          </p>
         </form>
       </div>
     </div>
