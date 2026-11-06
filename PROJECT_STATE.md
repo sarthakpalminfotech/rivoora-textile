@@ -1146,3 +1146,11 @@ Yarn stock screen `/yarn/:zone/stock` (search + type / quality filters; TFO boxe
 
 - Verified: typecheck, `npm test` 423 passing; `check-sprint20` (100 checks, now incl. part start, TFO withdraw, auto beam numbers + remark) and `check-sprint17` pass on a local file DB; screenshots at 390 / 1280 of the stock screens, zone screens, Start and Withdraw dialogs (no overflow).
 - **Turso**: migration `0021_sprint20c_beam_remark.sql` — one nullable column `beams.remark` (additive; safe before or after the deploy).
+
+### Sprint 21 (built on branch `sprint-21`, not deployed) — current as of 2026-11-06
+
+All eight phases (A–H) are built: FG type, Hold by Gaurang, Close only when cleared, Complete without frames (frames from taka entry), the Taka entry person's own edit, automatic Rivoora numbers on receipts, godown Edit taka + shrinkage, Undo send back, QC corrections (undo QC result / cancel refinish), challan edit / remove taka / lost at party, Undo dispatch (cancelled DC) + delivery challan edit, overdue Alerts. Details and decisions: see the "Sprint 21" section of CLAUDE.md.
+
+- Verified on a local file DB: `npm run typecheck` clean, `npm test` 449 passing, `npm run build` OK, `node scripts/check-sprint21.mjs` all checks pass.
+- **Turso**: migration `0022_loud_callisto.sql` is additive (3 tables, nullable columns, `orders.fg_type` default 'saree'). Export a Turso backup, then `npm run db:migrate`. Not applied.
+- Not done: screenshot pass at 360 / 820 / 1180 / 1440 px; Undo buttons in the Butta / Mill pending lists; "W <weaver no>" on challan prints.
