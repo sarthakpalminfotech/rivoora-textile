@@ -1,24 +1,21 @@
-import { AlertTriangle, ArrowLeft, ListPlus, Plus, SearchX } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { AlertTriangle, ArrowLeft, Plus, SearchX } from 'lucide-react';
+import { useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import {
   cleanMeters,
   cleanPcs,
-  cleanTakaNo,
   cleanWeaverTakaNo,
   damageTypeOptions,
   METERS_ERROR_TEXT,
   MAX_TAKAS_PER_SUBMIT,
   OUTSIDE_ROW_ERROR_TEXT,
-  outsideTakaNumber,
+  validateWeaverTakaNos,
   parseMeters,
   parsePcs,
   PCS_ERROR_TEXT,
   totalMeters,
   totalPcs,
-  validateOutsideRows,
-  WEAVER_TAKA_NO_REGEX,
   type ReceiptFormData,
   type TakaSource,
 } from '@rivoora/shared';
@@ -31,8 +28,6 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { ApiError, errorMessage } from '@/lib/api';
 import { formatOrderNo, toApiDate } from '@/lib/format';
 import { cn } from '@/lib/utils';
-import { useNextTakaNumbers } from '../takas/api';
-import { useUsedTakaNumbers } from '../takas/taka-check';
 import { qcEntryPayload, TakaDamageControl, type DamageEntry } from '../takas/damage-dialog';
 import { BlouseTag } from '../free-stock/blouse';
 import { useCreateFgReceipt, useCreateOutsideReceipt, useFgReceiptForm, useOutsideReceiptForm } from './api';
@@ -62,20 +57,15 @@ const fieldBox = (invalid: boolean) =>
   );
 
 /**
- * Sprint 16 — one row's taka numbers are validated like `validateOutsideRows` (weaver number required + unique; our
- * number optional, valid, unique system-wide — checked live via the existing `/takas/check`).
+ * Sprint 21 (CR-07) — OUR taka number is automatic (shown as "Auto"); the weaver's / supplier's own number is optional,
+ * but a typed one must be numeric and unique in the form (the server also checks it per weaver).
  */
-function useRowErrors(rows: Row[], prefix: string) {
+function useRowErrors(rows: Row[]) {
   const filled = rows.filter(isUsed);
-  const systemNos = filled.map((r) => {
-    const w = r.weaverNo.trim();
-    return w && WEAVER_TAKA_NO_REGEX.test(w) ? outsideTakaNumber(prefix, w, r.ourNo) : '';
-  });
-  const usedSystem = useUsedTakaNumbers(systemNos.filter(Boolean));
   return useMemo(
-    () => validateOutsideRows(filled.map((r) => ({ weaverTakaNo: r.weaverNo, ourTakaNo: r.ourNo || null })), prefix, { usedSystemNos: new Set(usedSystem.keys()) }),
+    () => validateWeaverTakaNos(filled.map((r) => ({ weaverTakaNo: r.weaverNo }))),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [filled.map((r) => `${r.weaverNo}|${r.ourNo}`).join(','), prefix, usedSystem],
+    [filled.map((r) => r.weaverNo).join(',')],
   );
 }
 
@@ -128,28 +118,15 @@ export function ReceiptEntryPage({ kind, id }: { kind: 'outside_po' | 'fg'; id: 
   const [supplierName, setSupplierName] = useState('');
   const [notes, setNotes] = useState('');
   const [rows, setRows] = useState<Row[]>(() => emptyRows(3));
-  const [showOurNumbers, setShowOurNumbers] = useState(false);
   const [showAllErrors, setShowAllErrors] = useState(false);
   const [serverError, setServerError] = useState<{ key: number; field: string; message: string } | null>(null);
   const weaverInputs = useRef(new Map<number, HTMLInputElement>());
   const pcsInputs = useRef(new Map<number, HTMLInputElement>());
   const meterInputs = useRef(new Map<number, HTMLInputElement>());
-  const filledOnceRef = useRef(false);
 
   usePageTitle(kind === 'outside_po' ? 'Receive challan' : 'Receive goods');
 
-  const prefix = formQuery.data?.prefix ?? '';
-  const nextNumbers = useNextTakaNumbers(rows.length, showOurNumbers && !!formQuery.data);
-  useEffect(() => {
-    if (!showOurNumbers || !nextNumbers.data || filledOnceRef.current) return;
-    filledOnceRef.current = true;
-    let i = 0;
-    // Only rows already in use get a suggested number — an untouched blank row must stay blank, or it would
-    // suddenly count as "filled" and demand a weaver number of its own.
-    setRows((prev) => prev.map((r) => (r.ourNo || !isUsed(r) ? r : { ...r, ourNo: nextNumbers.data!.numbers[i++] ?? r.ourNo })));
-  }, [showOurNumbers, nextNumbers.data]);
-
-  const rowErrors = useRowErrors(rows, prefix);
+  const rowErrors = useRowErrors(rows);
   const filled = rows.filter(isUsed);
   // Sprint 19: the ORDER's unit decides — a meter order's rows carry metres only (pcs hidden, never required).
   const meterOrder = formQuery.data?.unit === 'meters';
@@ -215,7 +192,6 @@ export function ReceiptEntryPage({ kind, id }: { kind: 'outside_po' | 'fg'; id: 
   const submit = () => {
     const rowPayload = filled.map((r) => ({
       weaverTakaNo: cleanWeaverTakaNo(r.weaverNo),
-      ourTakaNo: r.ourNo.trim() || null,
       pcs: meterOrder ? undefined : parsePcs(r.pcs).pcs!,
       meters: parseMeters(r.meters).meters,
       damages: r.damages.map((e) => qcEntryPayload(e, meterOrder)),
@@ -224,7 +200,9 @@ export function ReceiptEntryPage({ kind, id }: { kind: 'outside_po' | 'fg'; id: 
     const payload = kind === 'outside_po' ? { ...base, rows: rowPayload } : { ...base, supplierName: supplierName.trim(), rows: rowPayload };
     submitMutation.mutate(payload as never, {
       onSuccess: (res) => {
-        toast.success(`${res.takas.length} taka${res.takas.length === 1 ? '' : 's'} received · ${res.pcs.toLocaleString('en-IN')} pcs`);
+        const nos = res.takas.map((t) => t.takaNo);
+        const range = nos.length > 1 ? `Takas ${nos[0]}–${nos[nos.length - 1]} created` : nos.length === 1 ? `Taka ${nos[0]} created` : '';
+        toast.success(`${range ? `${range} · ` : ''}${res.takas.length} taka${res.takas.length === 1 ? '' : 's'} received · ${res.pcs.toLocaleString('en-IN')} pcs`);
         navigate(kind === 'outside_po' ? `/orders/${res.orderId}?tab=outside` : `/orders/${res.orderId}?tab=takas`);
       },
       onError: (err) => {
@@ -249,7 +227,7 @@ export function ReceiptEntryPage({ kind, id }: { kind: 'outside_po' | 'fg'; id: 
   })();
 
   return (
-    <div className="page-container max-w-2xl space-y-4 pt-3 pb-24 md:pt-5">
+    <div className="page-container max-w-2xl space-y-4 pt-3 pb-24 md:max-w-4xl md:pt-5">
       {back}
       <IdentityCard form={form} headerLabel={kind === 'outside_po' ? 'Receiving against a PO · Order' : 'Receiving goods · Order'} />
 
@@ -286,20 +264,10 @@ export function ReceiptEntryPage({ kind, id }: { kind: 'outside_po' | 'fg'; id: 
           </span>
         }
       >
-        <div className="mb-3 flex justify-end">
-          <Button
-            type="button"
-            variant="secondary"
-            size="sm"
-            onClick={() => {
-              if (!showOurNumbers) filledOnceRef.current = false;
-              setShowOurNumbers((v) => !v);
-            }}
-          >
-            <ListPlus className="size-4" /> {showOurNumbers ? 'Hide our taka numbers' : 'Add our taka numbers'}
-          </Button>
-        </div>
-        <ol className="space-y-3">
+        <p className="mb-3 text-sm text-slate-500">
+          Our taka numbers are given automatically when you submit. The {kind === 'outside_po' ? "weaver's" : "supplier's"} own number is optional.
+        </p>
+        <ol className="space-y-3 md:grid md:grid-cols-2 md:gap-3 md:space-y-0 lg:grid-cols-1 lg:gap-0 lg:space-y-3">
           {rows.map((r, i) => {
             const filledIndex = filled.indexOf(r);
             const rowErr = filledIndex >= 0 ? rowErrors[filledIndex] : null;
@@ -309,7 +277,6 @@ export function ReceiptEntryPage({ kind, id }: { kind: 'outside_po' | 'fg'; id: 
             const metersFieldMessage = serverError?.key === r.key && serverError.field === 'meters' ? serverError.message : null;
             const server = serverError?.key === r.key && serverError.field !== 'meters' ? serverError : null;
             const weaverFieldErr = rowErr && rowErr.startsWith('weaver') ? OUTSIDE_ROW_ERROR_TEXT[rowErr] : server?.field === 'weaverTakaNo' ? server.message : null;
-            const ourFieldErr = rowErr && (rowErr.startsWith('own') || rowErr === 'system_used') ? OUTSIDE_ROW_ERROR_TEXT[rowErr] : server?.field === 'ourTakaNo' ? server.message : null;
             const showWeaverErr = !!weaverFieldErr && (r.weaverTouched || showAllErrors);
             const showPcsErr = !!pcsErr && (r.pcsTouched || showAllErrors);
             const showMeterRequiredErr = meterRequiredErr && (r.pcsTouched || showAllErrors);
@@ -321,8 +288,7 @@ export function ReceiptEntryPage({ kind, id }: { kind: 'outside_po' | 'fg'; id: 
                 <div className="flex flex-wrap items-end gap-2">
                   <div className="min-w-[8.5rem] flex-1 basis-[8.5rem]">
                     <label htmlFor={`r-${r.key}-w`} className="text-sm font-semibold text-slate-600">
-                      {noun}
-                      <span className="text-destructive">*</span>
+                      {noun} <span className="font-normal text-slate-400">(optional)</span>
                     </label>
                     <input
                       ref={(el) => {
@@ -340,23 +306,10 @@ export function ReceiptEntryPage({ kind, id }: { kind: 'outside_po' | 'fg'; id: 
                       className={cn(fieldBox(showWeaverErr), 'mt-1 w-full px-3 text-base font-bold')}
                     />
                   </div>
-                  {showOurNumbers && (
-                    <div className="min-w-[8.5rem] flex-1 basis-[8.5rem]">
-                      <label htmlFor={`r-${r.key}-o`} className="text-sm font-semibold text-slate-600">
-                        Our taka no
-                      </label>
-                      <input
-                        id={`r-${r.key}-o`}
-                        value={r.ourNo}
-                        onChange={(e) => setRow(r.key, { ourNo: cleanTakaNo(e.target.value) })}
-                        inputMode="tel"
-                        autoComplete="off"
-                        placeholder="optional"
-                        aria-invalid={!!ourFieldErr || undefined}
-                        className={cn(fieldBox(!!ourFieldErr), 'mt-1 w-full px-3 text-base font-bold')}
-                      />
-                    </div>
-                  )}
+                  <div className="w-[4.5rem] shrink-0">
+                    <span className="text-sm font-semibold text-slate-600">Our no</span>
+                    <div className="mt-1 flex h-12 items-center rounded-xl border border-dashed border-slate-200 bg-slate-50 px-3 text-sm font-semibold text-slate-400">Auto</div>
+                  </div>
                   {!meterOrder && (
                     <div className="w-[5.5rem] shrink-0">
                       <label htmlFor={`r-${r.key}-p`} className="text-sm font-semibold text-slate-600">
@@ -416,7 +369,6 @@ export function ReceiptEntryPage({ kind, id }: { kind: 'outside_po' | 'fg'; id: 
                   />
                 </div>
                 {showWeaverErr && <p className="mt-1 text-sm font-semibold text-destructive">{weaverFieldErr}</p>}
-                {ourFieldErr && <p className="mt-1 text-sm font-semibold text-destructive">{ourFieldErr}</p>}
                 {metersFieldMessage && <p className="mt-1 text-sm font-semibold text-destructive">{metersFieldMessage}</p>}
                 {!metersFieldMessage && meterErr && <p className="mt-1 text-sm font-semibold text-destructive">{METERS_ERROR_TEXT[meterErr].en}</p>}
                 {!metersFieldMessage && !meterErr && showMeterRequiredErr && <p className="mt-1 text-sm font-semibold text-destructive">Enter the metres</p>}

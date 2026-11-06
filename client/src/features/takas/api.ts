@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type {
   JobsheetByNo,
+  OrderShrinkage,
   OrderTakas,
   TakaDetail,
   TakaEditInput,
@@ -144,5 +145,14 @@ export function useEditOwnTakas(jobsheetId: number) {
       void qc.invalidateQueries({ queryKey: ['lookup', 'damages'] });
       void qc.invalidateQueries({ queryKey: ['damages'] });
     },
+  });
+}
+
+/** Sprint 21 (CR-08): expected vs actual metres of the order (Order details tab). */
+export function useOrderShrinkage(orderId: number, enabled = true) {
+  return useQuery({
+    queryKey: ['takas', 'order', orderId, 'shrinkage'] as const,
+    queryFn: ({ signal }) => api.get<OrderShrinkage>(`/orders/${orderId}/shrinkage`, undefined, signal),
+    enabled: enabled && orderId > 0,
   });
 }

@@ -795,3 +795,23 @@ export function takaLockedAtEntryText(takaNo: string, stage: string): string {
   const whereHi = stage === 'at_butta' || stage === 'rework_butta' || stage === 'butta_qc' ? 'बट्टा में' : stage === 'at_mill' || stage === 'mill_qc' ? 'मिल में' : 'अगले चरण में';
   return `Taka ${takaNo} has already gone to ${where} — ask Jenish / Gaurang / टाका ${takaNo} ${whereHi} जा चुका है — जेनिश / गौरांग से कहें`;
 }
+
+/**
+ * Sprint 21 (CR-07): the weaver's / supplier's own number is OPTIONAL now (our number comes from the automatic counter).
+ * A typed one must be numeric, unique in the form and for the weaver (`usedWeaverNos`). One error (or null) per row.
+ */
+export function validateWeaverTakaNos(
+  rows: readonly { weaverTakaNo: string }[],
+  { usedWeaverNos }: { usedWeaverNos?: ReadonlySet<string> | null } = {},
+): (OutsideRowError | null)[] {
+  const seen = new Set<string>();
+  return rows.map((r) => {
+    const w = r.weaverTakaNo.trim();
+    if (!w) return null;
+    if (!WEAVER_TAKA_NO_REGEX.test(w) || w.length > TAKA_NO_MAX_LENGTH - 4) return 'weaver_format';
+    if (seen.has(w)) return 'weaver_duplicate';
+    seen.add(w);
+    if (usedWeaverNos?.has(w)) return 'weaver_used';
+    return null;
+  });
+}

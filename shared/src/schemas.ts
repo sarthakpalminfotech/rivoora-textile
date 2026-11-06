@@ -976,12 +976,14 @@ const receiptDamage = qcNewDamageSchema;
 
 /** One received taka: the weaver's / supplier's number (required), OUR number (optional), pcs, meters, damages. */
 export const receiptRowSchema = z.object({
+  /** Sprint 21: optional — our own number is automatic. '' = none typed. */
   weaverTakaNo: z
-    .string({ required_error: 'Enter the weaver taka number' })
+    .string()
     .trim()
-    .min(1, 'Enter the weaver taka number')
     .max(TAKA_NO_MAX_LENGTH - 4, 'Too long')
-    .regex(WEAVER_TAKA_NO_REGEX, 'Use digits, - or / only'),
+    .refine((v) => v === '' || WEAVER_TAKA_NO_REGEX.test(v), 'Use digits, - or / only')
+    .nullish()
+    .transform((v) => v ?? ''),
   ourTakaNo: z
     .string()
     .trim()

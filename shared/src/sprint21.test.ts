@@ -45,3 +45,24 @@ describe('Sprint 21 — Taka entry person edits his own takas (CR-06)', () => {
     expect(t).toContain('टाका 6245');
   });
 });
+
+import { orderShrinkage } from './godown';
+describe('Sprint 21 — shrinkage (CR-08)', () => {
+  it('sums only reductions as shrinkage, increases as gain; takas without metres are left out', () => {
+    const s = orderShrinkage([
+      { meters: 100, actualMeters: 96.5 },
+      { meters: 100, actualMeters: 102 },
+      { meters: 50, actualMeters: null },
+      { meters: null, actualMeters: 40 },
+    ]);
+    expect(s.takaCount).toBe(3);
+    expect(s.expectedMeters).toBe(250);
+    expect(s.actualMeters).toBe(248.5);
+    expect(s.shrinkage).toBe(3.5);
+    expect(s.gain).toBe(2);
+    expect(s.shrinkagePct).toBe(1.4);
+  });
+  it('is all zero with no takas', () => {
+    expect(orderShrinkage([])).toEqual({ takaCount: 0, expectedMeters: 0, actualMeters: 0, shrinkage: 0, gain: 0, shrinkagePct: 0 });
+  });
+});

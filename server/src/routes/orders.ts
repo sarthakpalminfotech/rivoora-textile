@@ -15,6 +15,7 @@ import { addSingleJobsheet, generateJobsheets, listOrderJobsheets, sendJobsheets
 import { listOrderChallans } from '../services/challans';
 import { getOrderMilestones } from '../services/order-milestones';
 import { listOrderTakas } from '../services/takas';
+import { getOrderShrinkage } from '../services/order-shrinkage';
 import { sendBackTakas } from '../services/rework';
 import { addFromFreeStock, moveToInventory } from '../services/inventory-moves';
 import { holdOrder, releaseOrder } from '../services/hold-order';
@@ -210,6 +211,15 @@ ordersRouter.post(
   requirePermission('canManageJobsheets'),
   ah(async (req, res) => {
     res.status(201).json(await addSingleJobsheet(req.role, parseId(req.params.id), req.body));
+  }),
+);
+
+/** Sprint 21: expected vs actual metres (shrinkage) — shown on the Order details tab. */
+ordersRouter.get(
+  '/:id/shrinkage',
+  requirePermission('canViewTakas'),
+  ah(async (req, res) => {
+    res.json(await getOrderShrinkage(req.role, parseId(req.params.id)));
   }),
 );
 
