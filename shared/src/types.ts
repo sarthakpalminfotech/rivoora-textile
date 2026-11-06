@@ -155,7 +155,7 @@ export interface OrderListItem {
 /** Sprint 16: a "Steps changed: …" / "Order closed" entry of the History tab. */
 export interface OrderEventEntry {
   id: number;
-  event: 'steps_changed' | 'order_closed' | 'fg_type_changed';
+  event: 'steps_changed' | 'order_closed' | 'fg_type_changed' | 'dispatch_undone';
   note: string | null;
   role: RoleKey;
   userName: string | null;
@@ -1350,7 +1350,7 @@ export interface OrderDeliveryChallan {
   /** `DC-12` / `DC-12 R1` */
   label: string;
   /** active = the latest revision · revised = replaced by a later one. */
-  status: 'active' | 'revised';
+  status: 'active' | 'revised' | 'cancelled';
   challanDate: string;
   takas: number;
   pcs: number;
@@ -1693,11 +1693,17 @@ export interface DispatchChallanDetail {
   label: string;
   /** Revisions: "DC-12" (the label of the revision it replaces). */
   replacesLabel: string | null;
-  status: 'active' | 'revised';
+  status: 'active' | 'revised' | 'cancelled';
   challanDate: string;
   transport: string | null;
   lrNo: string | null;
   ewayNo: string | null;
+  /** Sprint 21 */
+  vehicleNo: string | null;
+  notes: string | null;
+  cancelledAt: string | null;
+  cancelledReason: string | null;
+  history: { id: number; event: 'edited' | 'dispatch_undone'; note: string | null; role: RoleKey; userName: string | null; createdAt: string }[];
   order: {
     orderId: number;
     orderNo: number;
@@ -1726,13 +1732,15 @@ export interface DispatchChallanListItem {
   challanNo: number;
   revision: number;
   label: string;
-  status: 'active' | 'revised';
+  status: 'active' | 'revised' | 'cancelled';
   challanDate: string;
   takas: number;
   pcs: number;
   meters: number;
   /** A GR can still be made (active revision with something on it). */
   canGoodsReturn: boolean;
+  /** Sprint 21: Undo dispatch / Edit are available (active revision, no goods return against it). */
+  canUndo: boolean;
 }
 
 /** One order card of the Dispatched list. */
@@ -2105,4 +2113,13 @@ export interface ChallanTakaActionResult {
   takaNo: string;
   /** The challan was cancelled because its last taka was removed. */
   challanCancelled: boolean;
+}
+
+/** POST /dispatch/challans/:id/undo (Sprint 21, CR-10) */
+export interface UndoDispatchResult {
+  challanId: number;
+  label: string;
+  orderId: number;
+  takas: number;
+  pcs: number;
 }

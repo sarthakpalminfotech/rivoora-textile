@@ -1073,3 +1073,14 @@ export const challanTakaReasonSchema = z.object({
   reason: reasonField,
 });
 export type ChallanTakaReasonInput = z.input<typeof challanTakaReasonSchema>;
+
+/** PUT /dispatch/challans/:id (Sprint 21, C7) — header fields of an active delivery challan; no new revision. */
+export const dispatchChallanEditSchema = z.object({
+  challanDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date'),
+  transport: optText(80),
+  lrNo: optText(40),
+  ewayNo: optText(40),
+  vehicleNo: optText(40),
+  notes: optText(300),
+});
+export type DispatchChallanEditInput = z.input<typeof dispatchChallanEditSchema>;

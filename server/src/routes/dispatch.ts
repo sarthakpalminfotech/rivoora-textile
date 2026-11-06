@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { dispatchedListQuerySchema } from '@rivoora/shared';
 import { ah, parseId } from '../lib/http';
 import { requirePermission } from '../middleware/role';
-import { createGoodsReturn, getDispatchChallan, getDispatchedOrder, listDispatchedOrders } from '../services/dispatch';
+import { createGoodsReturn, editDispatchChallan, getDispatchChallan, getDispatchedOrder, listDispatchedOrders, undoDispatch } from '../services/dispatch';
 
 /** Dispatch challans (DC-n): one challan (any revision), the print data and goods return. */
 export const dispatchRouter = Router();
@@ -21,6 +21,22 @@ dispatchRouter.get(
   ah(async (req, res) => {
     res.set('Cache-Control', 'no-store');
     res.json(await getDispatchChallan(parseId(req.params.id, 'challan id')));
+  }),
+);
+
+// Sprint 21: undo a dispatch (the whole latest challan, with a reason) and edit the header of an active challan.
+dispatchRouter.post(
+  '/challans/:id/undo',
+  requirePermission('canUndoDispatch'),
+  ah(async (req, res) => {
+    res.json(await undoDispatch(req.role, parseId(req.params.id, 'challan id'), req.body));
+  }),
+);
+dispatchRouter.put(
+  '/challans/:id',
+  requirePermission('canUndoDispatch'),
+  ah(async (req, res) => {
+    res.json(await editDispatchChallan(req.role, parseId(req.params.id, 'challan id'), req.body));
   }),
 );
 

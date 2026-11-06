@@ -123,6 +123,8 @@ const WRITE_RULES: Rule[] = [
   { methods: ['PATCH', 'POST'], pattern: /^\/godown\/takas\/(\d+)(?:\/[a-z-]+)?$/, resolve: ofTaka },
   { methods: ['POST'], pattern: /^\/godown\/orders\/(\d+)\/(?:ready-dispatch|dispatch)$/, resolve: ofOrder },
   { methods: ['POST'], pattern: /^\/dispatch\/challans\/(\d+)\/goods-return$/, resolve: ofDispatchChallan, allowClosed: true },
+  { methods: ['POST'], pattern: /^\/dispatch\/challans\/(\d+)\/undo$/, resolve: ofDispatchChallan },
+  { methods: ['PUT'], pattern: /^\/dispatch\/challans\/(\d+)$/, resolve: ofDispatchChallan },
   { methods: ['POST'], pattern: /^\/inventory\/takas\/(\d+)\/mark-fresh$/, resolve: ofTaka },
   // Sprint 16: outside POs (receiving against a PO is a receive endpoint — not listed).
   { methods: ['PUT'], pattern: /^\/outside-pos\/(\d+)$/, resolve: ofOutsidePo },

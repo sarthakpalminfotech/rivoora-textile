@@ -317,7 +317,7 @@ export const orderEvents = sqliteTable(
     orderId: integer('order_id')
       .notNull()
       .references(() => orders.id, { onDelete: 'cascade' }),
-    event: text('event').$type<'steps_changed' | 'order_closed' | 'fg_type_changed'>().notNull(),
+    event: text('event').$type<'steps_changed' | 'order_closed' | 'fg_type_changed' | 'dispatch_undone'>().notNull(),
     note: text('note'),
     role: text('role').$type<RoleKey>().notNull(),
     userId: integer('user_id'),
@@ -871,8 +871,14 @@ export const dispatchChallans = sqliteTable(
     transport: text('transport'),
     lrNo: text('lr_no'),
     ewayNo: text('eway_no'),
-    /** active = the latest revision · revised = replaced by a later revision (kept for history). */
-    status: text('status').$type<'active' | 'revised'>().notNull().default('active'),
+    /** Sprint 21 (G2): vehicle number and notes — editable on an active challan. */
+    vehicleNo: text('vehicle_no'),
+    notes: text('notes'),
+    /** active = the latest revision · revised = replaced by a later revision (kept for history) · cancelled = dispatch undone (Sprint 21). */
+    status: text('status').$type<'active' | 'revised' | 'cancelled'>().notNull().default('active'),
+    cancelledAt: text('cancelled_at'),
+    cancelledBy: text('cancelled_by').$type<RoleKey>(),
+    cancelledReason: text('cancelled_reason'),
     createdBy: text('created_by').$type<RoleKey>().notNull(),
     createdByUserId: integer('created_by_user_id'),
     createdAt: createdAt(),
@@ -883,6 +889,24 @@ export const dispatchChallans = sqliteTable(
     index('dispatch_challans_order_idx').on(t.orderId),
     index('dispatch_challans_status_idx').on(t.status),
   ],
+);
+
+/** Sprint 21 (G1/G2): history of a delivery challan (edited, dispatch undone). */
+export const dispatchChallanEvents = sqliteTable(
+  'dispatch_challan_events',
+  {
+    id: id(),
+    challanId: integer('challan_id')
+      .notNull()
+      .references(() => dispatchChallans.id),
+    event: text('event').$type<'edited' | 'dispatch_undone'>().notNull(),
+    note: text('note'),
+    role: text('role').$type<RoleKey>().notNull(),
+    userId: integer('user_id'),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index('dispatch_challan_events_challan_idx').on(t.challanId)],
 );
 
 /** The takas of a dispatch challan revision, with the taka number / meters / pcs AT THE TIME of dispatch. */

@@ -48,7 +48,7 @@ export async function getOrderMilestones(role: RoleKey, orderId: number): Promis
     db
       .select({ createdAt: dispatchChallans.createdAt })
       .from(dispatchChallans)
-      .where(and(eq(dispatchChallans.orderId, orderId), eq(dispatchChallans.revision, 0)))
+      .where(and(eq(dispatchChallans.orderId, orderId), eq(dispatchChallans.revision, 0), ne(dispatchChallans.status, 'cancelled')))
       .orderBy(asc(dispatchChallans.createdAt)),
     // Sprint 16: POs placed (not cancelled) and the receipts (outside weavers / FG).
     db
