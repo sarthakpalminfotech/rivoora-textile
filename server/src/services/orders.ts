@@ -103,6 +103,8 @@ export async function listOrders(role: RoleKey, q: OrderListQuery): Promise<Pagi
   // Sprint 15: the godown supervisor only lists orders that have takas at the butta stage or later.
   const conditions: (SQL | undefined)[] = [
     inArray(orders.status, statuses),
+    // Sprint 22: hidden Manual-stock holder orders are never listed.
+    eq(orders.isStockHolder, false),
     orderNotHeldFor(role),
     isGodownOrdersOnly(role) ? orderHasGodownTakas : undefined,
     productionOnly(role) ? eq(orders.hasProduction, true) : undefined,

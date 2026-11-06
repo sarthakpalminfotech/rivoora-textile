@@ -4,7 +4,7 @@
  */
 import { MAX_SECTIONS_PER_BEAM, METERS_ON_TARGET_SLACK, SECTIONS_PER_BEAM } from './production';
 import { JOBSHEET_STATUS, type JobsheetStatusKey } from './statuses';
-import { formatQty } from './orderUnit';
+import { formatQty, isManualStockOrderNo, MANUAL_STOCK_LABEL } from './orderUnit';
 
 const isPositiveInt = (n: unknown): n is number => typeof n === 'number' && Number.isInteger(n) && n >= 1;
 
@@ -416,11 +416,13 @@ export const externalJobsheetNo = (orderId: number): number => -orderId;
 
 /** "Order #26 (319)" ("Order #26" for the hidden external jobsheet). */
 export function jobsheetRef(orderNo: number, jobsheetNo: number): string {
+  if (isManualStockOrderNo(orderNo)) return MANUAL_STOCK_LABEL;
   return isExternalJobsheetNo(jobsheetNo) ? `Order #${orderNo}` : `Order #${orderNo} (${jobsheetNo})`;
 }
 
 /** "#26 (319)" — chips, tiles, toasts and other tight spots ("#26" for the external jobsheet). */
 export function jobsheetRefShort(orderNo: number, jobsheetNo: number): string {
+  if (isManualStockOrderNo(orderNo)) return MANUAL_STOCK_LABEL;
   return isExternalJobsheetNo(jobsheetNo) ? `#${orderNo}` : `#${orderNo} (${jobsheetNo})`;
 }
 

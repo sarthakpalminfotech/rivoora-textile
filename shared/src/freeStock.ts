@@ -88,9 +88,10 @@ export function blouseMismatchNote(takaOption: BlouseOption | null | undefined, 
 /* ------------------------------------------------------------------ */
 
 // Sprint 16: `order_closed` = the order was closed and the taka was with us (or came back after the close).
-export const FREE_STOCK_REASONS = ['moved', 'goods_return', 'order_closed'] as const;
+// Sprint 22: `manual_add` = stock added by hand (Manual stock).
+export const FREE_STOCK_REASONS = ['moved', 'goods_return', 'order_closed', 'manual_add'] as const;
 export type FreeStockReason = (typeof FREE_STOCK_REASONS)[number];
-export const FREE_STOCK_REASON_LABEL: Record<FreeStockReason, string> = { moved: 'Moved', goods_return: 'Returned', order_closed: 'Order closed' };
+export const FREE_STOCK_REASON_LABEL: Record<FreeStockReason, string> = { moved: 'Moved', goods_return: 'Returned', order_closed: 'Order closed', manual_add: 'Manual stock' };
 
 /** The columns of a taka that decide which order it counts for. */
 export interface TakaOwnership {

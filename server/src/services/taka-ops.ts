@@ -1,6 +1,8 @@
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { currentUserId } from '../lib/request-context';
 import {
+  DUMMY_TAKA_COUNTER,
+  formatDummyTakaNo,
   nextTakaStage,
   jobsheetRefShort,
   takaUsedText,
@@ -265,4 +267,21 @@ export async function ancestorHasBeenToMill(tx: DbOrTx, parentTakaId: number | n
     cur = row.parentTakaId;
   }
   return false;
+}
+
+/**
+ * Sprint 22 (CR-12): the next dummy taka number D01, D02 … for stock that has no taka of its own (manual Add stock, a
+ * goods-return line without taka numbers, a pcs-to-pcs leftover). ONE place — Sprint 23 makes it restart every
+ * financial year here. Allocated inside the caller's write transaction, never reused.
+ */
+export async function nextDummyTakaNo(tx: Tx): Promise<string> {
+  for (;;) {
+    const [row] = await tx
+      .insert(counters)
+      .values({ name: DUMMY_TAKA_COUNTER, value: 1 })
+      .onConflictDoUpdate({ target: counters.name, set: { value: sql`${counters.value} + 1` } })
+      .returning({ value: counters.value });
+    const no = formatDummyTakaNo(row.value);
+    if (!(await usedTakaNumbers(tx, [no])).has(no)) return no;
+  }
 }

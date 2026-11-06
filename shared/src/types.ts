@@ -1826,6 +1826,8 @@ export interface FreeStockTaka {
   stage: TakaStage;
   pcs: number | null;
   meters: number | null;
+  /** Sprint 22: the unit of the order it was made for — pcs and metres stock never mix. */
+  unit: 'pcs' | 'meters' | string;
   /** The order it was made for (`takas.order_id`). */
   fromOrderId: number;
   fromOrderNo: number;
@@ -1869,6 +1871,8 @@ export interface AssignTargetOrder {
   orderType: OrderType;
   status: OrderStatusKey;
   orderedPcs: number;
+  /** Sprint 22: a meter (all-over) order — `orderedPcs` then holds its ordered METRES. Meter stock goes to meter orders only. */
+  unit?: 'pcs' | 'meters';
   blouseOption: import('./freeStock').BlouseOption | null;
 }
 

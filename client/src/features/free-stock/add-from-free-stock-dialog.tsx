@@ -37,6 +37,8 @@ export interface FreeStockTarget {
   blouseOption: BlouseOption | null;
   /** `d-<id>` | `v-<id>` | `none` — the inventory item whose free stock is offered. */
   itemKey: string;
+  /** Sprint 22: a meter order takes METER stock only (pcs and metres never mix). */
+  unit?: 'pcs' | 'meters';
 }
 
 /** Key of an order's inventory item from its design id. */
@@ -69,8 +71,8 @@ function FreeTakaRow({ t, on, onToggle, orderBlouse }: { t: FreeStockTaka; on: b
             {note && <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[12px] font-semibold text-amber-800">{note}</span>}
           </span>
           <span className="block text-[13px] tabular-nums text-slate-500">
-            {t.pcs != null ? `${t.pcs} pcs` : 'no pcs'}
-            {t.meters != null && ` · ${formatMeters(t.meters)}`} · from Order {formatOrderNo(t.fromOrderNo)}
+            {t.unit === 'meters' ? (t.meters != null ? formatMeters(t.meters) : 'no metres') : t.pcs != null ? `${t.pcs} pcs` : 'no pcs'}
+            {t.unit !== 'meters' && t.meters != null && ` · ${formatMeters(t.meters)}`} · from {t.fromOrderNo < 0 ? 'Manual stock' : `Order ${formatOrderNo(t.fromOrderNo)}`}
             {t.reason && ` · ${FREE_STOCK_REASON_LABEL[t.reason]}`}
             {t.isDamaged && <span className="font-semibold text-red-600"> · damaged</span>}
           </span>
@@ -90,7 +92,7 @@ export function AddFromFreeStockDialog({ open, onOpenChange, order: fixed, choic
   const target: FreeStockTarget | null = fixed
     ? fixed
     : chosen && choices
-      ? { orderId: chosen.orderId, orderNo: chosen.orderNo, orderType: chosen.orderType, designCode: choices.designCode, blouseOption: chosen.blouseOption, itemKey: choices.itemKey }
+      ? { orderId: chosen.orderId, orderNo: chosen.orderNo, orderType: chosen.orderType, designCode: choices.designCode, blouseOption: chosen.blouseOption, itemKey: choices.itemKey, unit: chosen.unit }
       : null;
   const targets = useAssignTargets(choices?.itemKey ?? '', open && !fixed && !!choices);
   const free = useItemFreeStock(target?.itemKey ?? choices?.itemKey ?? '', 'all', open && (!!target || !!choices));
@@ -111,7 +113,7 @@ export function AddFromFreeStockDialog({ open, onOpenChange, order: fixed, choic
   }, [open]);
 
   const lump = target?.orderType === 'lump';
-  const takas = free.data?.takas ?? [];
+  const takas = (free.data?.takas ?? []).filter((t) => !target?.unit || t.unit === target.unit);
   // The free takas of this item that are still there (a preselected one may have been taken meanwhile).
   const shown = useMemo(() => takas, [takas]);
   const pickedTakas = shown.filter((t) => picked.has(t.id));

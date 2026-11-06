@@ -11,7 +11,9 @@ import {
   partialMoveMeters,
   planPcsMove,
   splitWeaverTakaNo,
+  takaActualMeters,
   takaActualPcs,
+  orderRefText,
   type AddFromFreeStockResult,
   type BlouseFilter,
   type FreeStockReason,
@@ -35,11 +37,13 @@ import { chunk, recomputeOrdersStatus, writeTakaEvents, type TakaEventInput } fr
 const now = () => new Date().toISOString();
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
-interface TakaRow {
+export interface TakaRow {
   id: number;
   takaNo: string;
   stage: TakaStage;
   orderId: number;
+  /** The origin order's number (negative = a Manual stock holder). */
+  orderNo?: number;
   jobsheetId: number;
   pcs: number | null;
   actualPcs: number | null;
@@ -60,7 +64,7 @@ interface TakaRow {
   outsideReceiptId: number | null;
 }
 
-const takaSelect = {
+export const takaSelect = {
   id: takas.id,
   takaNo: takas.takaNo,
   stage: takas.stage,
@@ -96,15 +100,16 @@ async function loadOrder(tx: Tx, orderId: number) {
       unit: orders.unit,
       status: orders.status,
       designId: orders.designId,
+      isStockHolder: orders.isStockHolder,
     })
     .from(orders)
     .where(eq(orders.id, orderId));
-  if (!order) throw notFound('Order');
+  if (!order || order.isStockHolder) throw notFound('Order');
   return order;
 }
 
 /** Splits `parent` into a kept part (stays) and a moved part (a NEW taka with the next letter number). */
-async function splitOffPart(
+export async function splitOffPart(
   tx: Tx,
   role: RoleKey,
   parent: TakaRow,
@@ -173,7 +178,7 @@ export async function moveToInventory(role: RoleKey, orderId: number, input: unk
     const lump = order.orderType === 'lump';
     if ('takaIds' in data && !lump) throw badRequest('This order is pcs to pcs — enter how many pcs to move.');
     if ('pcs' in data && lump) throw badRequest('This is a lump order — tick the takas to move.');
-    if (order.unit !== 'pcs') throw badRequest('Only pcs orders can move stock to the inventory.');
+    // Sprint 22: meter (all-over) orders move whole takas too (they are always lump).
 
     const at = now();
     const events: TakaEventInput[] = [];
@@ -260,7 +265,7 @@ export async function moveToInventory(role: RoleKey, orderId: number, input: unk
     }
     movedTakas += wholeRows.length;
     movedPcs += total(wholeRows);
-    movedMeters += wholeRows.reduce((n, r) => n + (r.meters ?? 0), 0);
+    movedMeters += wholeRows.reduce((n, r) => n + (takaActualMeters(r) ?? 0), 0);
 
     await writeTakaEvents(tx, role, events);
     // Both the order the takas leave and (for allocated takas) their origin order change.
@@ -274,9 +279,9 @@ export async function moveToInventory(role: RoleKey, orderId: number, input: unk
 /* ------------------------------------------------------------------ */
 
 /** Free takas of the same item (design) as the order, with their origin order. */
-async function loadFreeCandidates(tx: Tx, order: { designId: number | null }, ids?: readonly number[], blouse: BlouseFilter = 'all') {
+async function loadFreeCandidates(tx: Tx, order: { designId: number | null; unit: string }, ids?: readonly number[], blouse: BlouseFilter = 'all') {
   const rows = await tx
-    .select({ ...takaSelect, originDesignId: orders.designId, blouseOption: orders.blouseOption })
+    .select({ ...takaSelect, originDesignId: orders.designId, blouseOption: orders.blouseOption, originUnit: orders.unit, originOrderNo: orders.orderNo })
     .from(takas)
     .innerJoin(orders, eq(orders.id, takas.orderId))
     .innerJoin(jobsheets, eq(jobsheets.id, takas.jobsheetId))
@@ -289,7 +294,13 @@ async function loadFreeCandidates(tx: Tx, order: { designId: number | null }, id
       ),
     );
   const key = inventoryKey(order);
-  return rows.filter((r) => inventoryKey({ designId: r.originDesignId }) === key && matchesBlouse(blouse, r.blouseOption));
+  const sameItem = rows.filter((r) => inventoryKey({ designId: r.originDesignId }) === key && matchesBlouse(blouse, r.blouseOption));
+  // Sprint 22: pcs and metres never mix — meter free stock goes to a meter order only, pcs stock to a pcs order only.
+  const mixed = sameItem.find((r) => r.originUnit !== order.unit);
+  if (mixed && ids) {
+    throw conflict(order.unit === 'meters' ? 'This stock is in pcs — it can be added to a pcs order only.' : 'This stock is in metres — it can be added to a meter (all-over) order only.');
+  }
+  return sameItem.filter((r) => r.originUnit === order.unit);
 }
 
 /**
@@ -300,7 +311,7 @@ export async function addFromFreeStock(role: RoleKey, orderId: number, input: un
   const data = addFromFreeStockSchema.parse(input);
   return db.transaction(async (tx) => {
     const order = await loadOrder(tx, orderId);
-    if (order.unit !== 'pcs') throw badRequest('Only pcs orders can use free stock.');
+    if (order.unit !== 'pcs' && order.unit !== 'meters') throw badRequest('Only pcs and meter orders can use free stock.');
     if (!canReceiveFreeStock(order.status)) throw conflict(`Order #${order.orderNo} can't receive stock (it is not in production yet, or already dispatched).`);
     const lump = order.orderType === 'lump';
     if ('takaIds' in data && !lump) throw badRequest('This order is pcs to pcs — enter how many pcs to add.');
@@ -351,7 +362,7 @@ export async function addFromFreeStock(role: RoleKey, orderId: number, input: un
         if (moved.length !== part.length) throw conflict('Some takas changed meanwhile. Refresh and try again.');
       }
     }
-    for (const r of rows) events.push({ takaId: r.id, event: 'allocated_from_free_stock', note: `Order #${order.orderNo} (made for Order #${r.orderId})` });
+    for (const r of rows) events.push({ takaId: r.id, event: 'allocated_from_free_stock', note: `Order #${order.orderNo} (made for ${orderRefText((r as { originOrderNo?: number }).originOrderNo ?? 0)})` });
     addedTakas += rows.length;
     addedPcs += total(rows);
 

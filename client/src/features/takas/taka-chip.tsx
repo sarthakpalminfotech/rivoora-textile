@@ -1,5 +1,6 @@
 import { AlertTriangle, Check, CheckCircle2 } from 'lucide-react';
 import {
+  isDummyTakaNo,
   challanLabel,
   damageLabelOf,
   damageResolvedText,
@@ -142,6 +143,7 @@ export function TakaChip({ taka, size = 'md', showStage, showChallan, bilingual,
         {showStage && taka.stage && <StageDot stage={taka.stage} />}
         {damaged && <AlertTriangle className={cn('shrink-0', lg ? 'size-4' : 'size-3.5')} aria-hidden />}
         {taka.takaNo}
+        {isDummyTakaNo(taka.takaNo) && <span className="rounded bg-slate-100 px-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400" title="System number for stock without a taka of its own">dummy</span>}
         {taka.weaverTakaNo && <span className="text-[12px] font-medium text-slate-400">W {taka.weaverTakaNo}</span>}
         {taka.parentTakaNo && <span className="text-[12px] font-medium text-slate-400">from {taka.parentTakaNo}</span>}
         {taka.meters != null && <span className={sub}>· {formatMeters(taka.meters)}</span>}

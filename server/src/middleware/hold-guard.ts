@@ -180,6 +180,12 @@ export const holdGuard: RequestHandler = (req, _res, next) => {
   const method = req.method.toUpperCase();
   const path = req.path.replace(/\/+$/, '') || '/';
   const run = async () => {
+    // Sprint 22: a hidden Manual-stock holder order does not exist for any /orders/:id/* request (before any 409 text could leak its number).
+    const om = path.match(/^\/orders\/(\d+)(?:\/.*)?$/);
+    if (om) {
+      const [o] = await db.select({ h: orders.isStockHolder }).from(orders).where(eq(orders.id, Number(om[1])));
+      if (o?.h) throw notFound('Order');
+    }
     if (method === 'GET' || method === 'HEAD') {
       // Sprint 15: the godown supervisor's Orders — only orders with takas at the butta stage or later.
       // (Sprint 16: the FG receipt form is his Receive goods module, not the Orders module.)

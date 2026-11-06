@@ -38,7 +38,8 @@ export function formatQuantity(quantity: number, unit: string): string {
 }
 
 export function formatOrderNo(n: number): string {
-  return `#${n}`;
+  // Sprint 22: a hidden Manual-stock holder order has a negative number — never show it.
+  return n < 0 ? 'Manual stock' : `#${n}`;
 }
 
 /** 09:41 am */

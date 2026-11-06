@@ -103,7 +103,8 @@ const blouseParam = z
 
 /** Orders the role may see, optionally narrowed to one item (a design / without design). */
 function orderScope(role: RoleKey, key?: string): SQL {
-  const conds: SQL[] = [inArray(orders.status, visibleStatusKeys(role))];
+  // Sprint 22: the hidden Manual-stock holder orders are never listed as orders.
+  const conds: SQL[] = [inArray(orders.status, visibleStatusKeys(role)), eq(orders.isStockHolder, false)];
   if (key) conds.push(itemCondition(key));
   return and(...conds)!;
 }
@@ -234,7 +235,8 @@ async function loadFreeStock(key?: string): Promise<FreeRow[]> {
       takaNo: takas.takaNo,
       stage: takas.stage,
       pcs: sql<number | null>`COALESCE(${takas.actualPcs}, ${takas.pcs})`,
-      meters: takas.meters,
+      meters: sql<number | null>`COALESCE(${takas.actualMeters}, ${takas.meters})`,
+      unit: orders.unit,
       fromOrderId: orders.id,
       fromOrderNo: orders.orderNo,
       reason: takas.freeStockReason,
@@ -247,7 +249,7 @@ async function loadFreeStock(key?: string): Promise<FreeRow[]> {
     .from(takas)
     .innerJoin(jobsheets, eq(jobsheets.id, takas.jobsheetId))
     .innerJoin(orders, eq(orders.id, takas.orderId))
-    .where(and(eq(takas.isFreeStock, true), eq(takas.isDeleted, false), eq(jobsheets.isDeleted, false), eq(orders.unit, 'pcs'), ...conds))
+    .where(and(eq(takas.isFreeStock, true), eq(takas.isDeleted, false), eq(jobsheets.isDeleted, false), inArray(orders.unit, ['pcs', 'meters']), ...conds))
     .orderBy(takas.id);
   return rows.map(({ designId, damagedPcs, ...r }) => ({
     ...r,
@@ -459,9 +461,8 @@ export async function listAssignTargets(role: RoleKey, key: string): Promise<Ass
         .where(inArray(orders.id, list.map((o) => o.orderId)))
     : [];
   const typeOf = new Map(rows.map((r) => [r.id, r.orderType]));
-  return list
+  const pcsTargets: AssignTargetOrder[] = list
     .filter((o) => canReceiveFreeStock(o.status) && !o.isOnHold)
-    .sort((a, b) => b.orderNo - a.orderNo)
     .map((o) => ({
       orderId: o.orderId,
       orderNo: o.orderNo,
@@ -469,8 +470,19 @@ export async function listAssignTargets(role: RoleKey, key: string): Promise<Ass
       orderType: typeOf.get(o.orderId) ?? 'pcs_to_pcs',
       status: o.status,
       orderedPcs: o.pcs.ordered,
+      unit: 'pcs' as const,
       blouseOption: o.blouseOption,
     }));
+  // Sprint 22: meter (all-over) orders of the design are targets for METER stock (pcs and metres never mix).
+  const meterRows = await db
+    .select({ orderId: orders.id, orderNo: orders.orderNo, status: orders.status, orderType: orders.orderType, quantity: orders.quantity, blouseOption: orders.blouseOption, customerName: customers.name })
+    .from(orders)
+    .innerJoin(customers, eq(customers.id, orders.customerId))
+    .where(and(orderScope(role, key), eq(orders.unit, 'meters'), eq(orders.isOnHold, false), eq(orders.isClosed, false)));
+  const meterTargets: AssignTargetOrder[] = meterRows
+    .filter((o) => canReceiveFreeStock(o.status))
+    .map((o) => ({ orderId: o.orderId, orderNo: o.orderNo, customerName: o.customerName, orderType: o.orderType, status: o.status, orderedPcs: o.quantity, unit: 'meters' as const, blouseOption: o.blouseOption }));
+  return [...pcsTargets, ...meterTargets].sort((a, b) => b.orderNo - a.orderNo);
 }
 
 export const itemOrdersQuerySchema = z.object({

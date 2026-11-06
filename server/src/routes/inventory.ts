@@ -15,6 +15,7 @@ import {
   listInventoryItems,
   resolveInventoryKey,
 } from '../services/inventory';
+import { getDesignQuantities, listQualityCards, listQualityDesigns } from '../services/stock-qualities';
 
 /** Inventory (Jenish / Gaurang): design-wise pcs and damaged stock. Live numbers — never cached. */
 export const inventoryRouter = Router();
@@ -37,6 +38,10 @@ inventoryRouter.get(
 );
 inventoryRouter.use(requirePermission('canViewInventory'));
 
+// Sprint 22 (CR-15): Quality → Design → Design details, with pcs AND metres (never mixed).
+inventoryRouter.get('/qualities', ah(async (req, res) => res.json(await listQualityCards(req.role, req.query))));
+inventoryRouter.get('/qualities/:materialId/designs', ah(async (req, res) => res.json(await listQualityDesigns(req.role, parseId(req.params.materialId, 'quality id'), req.query))));
+inventoryRouter.get('/items/:key/quantities', ah(async (req, res) => res.json(await getDesignQuantities(req.role, req.params.key))));
 inventoryRouter.get('/summary', ah(async (req, res) => res.json(await getInventorySummary(req.role, req.query))));
 inventoryRouter.get('/items', ah(async (req, res) => res.json(await listInventoryItems(req.role, req.query))));
 inventoryRouter.get('/items/:key', ah(async (req, res) => res.json(await getInventoryItem(req.role, req.params.key, req.query))));

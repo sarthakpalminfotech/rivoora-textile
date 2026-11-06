@@ -337,7 +337,7 @@ export function OrderTakasCard({ order }: { order: OrderDetail }) {
   const canEdit = can('canEditTakas') && !held;
   const canRework = can('canReworkTakas') && !held;
   // Sprint 13: Move to inventory (free stock) and Add from free stock.
-  const canStock = can('canMoveToInventory') && order.unit === 'pcs' && !held;
+  const canStock = can('canMoveToInventory') && (order.unit === 'pcs' || order.unit === 'meters') && !held;
   const lump = order.orderType === 'lump';
   const stopSelecting = () => {
     setSelecting(false);
@@ -538,6 +538,7 @@ export function OrderTakasCard({ order }: { order: OrderDetail }) {
               orderId: order.id,
               orderNo: order.orderNo,
               orderType: order.orderType,
+              unit: order.unit === 'meters' ? 'meters' : 'pcs',
               designCode: order.design?.code ?? null,
               blouseOption: order.blouseOption,
               itemKey: itemKeyOf(order.design?.id),
