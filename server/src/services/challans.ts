@@ -45,7 +45,6 @@ import {
   challanEvents,
   challanTakas,
   challans,
-  counters,
   designs,
   dispatchChallanTakas,
   dispatchChallans,
@@ -58,6 +57,7 @@ import {
 } from '../db/schema';
 import { badRequest, conflict, notFound } from '../lib/errors';
 import { likePattern } from '../lib/http';
+import { nextNumber } from '../lib/numbering';
 import { chunk, freeTakasOfClosedOrders, recomputeOrdersStatus, writeTakaEvents, type TakaEventInput } from './taka-ops';
 import { resolveTakaNumber } from './taka-lookup';
 import { listOrderDocsOutside } from './outside';
@@ -223,7 +223,7 @@ export async function listPendingOrders(kind: ChallanKind, q: ButtaListQuery, mo
       .where(and(notSentWhere(kind, mode), search, filters))
       .groupBy(orders.id)
       .having(hasReady)
-      .orderBy(asc(orders.orderNo))
+      .orderBy(asc(orders.fy), asc(orders.orderNo))
       .limit(q.limit)
       .offset((q.page - 1) * q.limit),
     db
@@ -338,12 +338,7 @@ export async function getKindCounts(kind: ChallanKind): Promise<KindCounts> {
 
 /** Reserves the next challan number of this kind inside the transaction. Numbers are never handed out twice. */
 async function allocateChallanNo(tx: Tx, kind: ChallanKind): Promise<number> {
-  const [row] = await tx
-    .insert(counters)
-    .values({ name: CHALLAN_KIND_CONFIG[kind].counter, value: 1 })
-    .onConflictDoUpdate({ target: counters.name, set: { value: sql`${counters.value} + 1` } })
-    .returning({ value: counters.value });
-  return row.value;
+  return nextNumber(tx, CHALLAN_KIND_CONFIG[kind].counter);
 }
 
 /**
@@ -510,7 +505,7 @@ export async function listChallans(kind: ChallanKind, q: ChallanListQuery): Prom
       })
       .from(challans)
       .where(where)
-      .orderBy(desc(challans.challanNo))
+      .orderBy(desc(challans.fy), desc(challans.challanNo))
       .limit(q.limit)
       .offset((q.page - 1) * q.limit),
     db.select({ total: sql<number>`COUNT(*)` }).from(challans).where(where),
@@ -537,7 +532,7 @@ export async function listChallans(kind: ChallanKind, q: ChallanListQuery): Prom
         ),
       )
       .groupBy(challanTakas.challanId, orders.id)
-      .orderBy(asc(orders.orderNo));
+      .orderBy(asc(orders.fy), asc(orders.orderNo));
     for (const r of designRows) {
       if (!r.designCode) continue;
       const list = designsByChallan.get(r.challanId) ?? [];

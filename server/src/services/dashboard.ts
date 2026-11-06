@@ -217,7 +217,7 @@ export async function getDashboardItems(role: RoleKey, orderId: number, query: u
         .from(jobsheets)
         .leftJoin(runningMachine, eq(runningMachine.id, jobsheets.runningMachineId))
         .where(activeJobsheetOf(orderId))
-        .orderBy(asc(jobsheets.jobsheetNo)),
+        .orderBy(asc(jobsheets.fy), asc(jobsheets.jobsheetNo)),
     ]);
     const order = assertVisible(role, orderRows[0]);
     const items: DashboardJobsheetItem[] = rows
@@ -255,7 +255,7 @@ export async function getDashboardItems(role: RoleKey, orderId: number, query: u
       .from(takas)
       .innerJoin(jobsheets, eq(jobsheets.id, takas.jobsheetId))
       .where(and(activeTakasOf(orderId), inArray(takas.stage, [...stages])))
-      .orderBy(asc(jobsheets.jobsheetNo)),
+      .orderBy(asc(jobsheets.fy), asc(jobsheets.jobsheetNo)),
   ]);
   const order = assertVisible(role, orderRows[0]);
   const groups: DashboardTakaGroup[] = [];
@@ -314,7 +314,7 @@ export async function getOrderDamages(role: RoleKey, orderId: number, query: unk
           sql`EXISTS (SELECT 1 FROM taka_damages d WHERE d.taka_id = "takas"."id" AND d.is_deleted = 0)`,
         ),
       )
-      .orderBy(asc(jobsheets.jobsheetNo), asc(takas.id)),
+      .orderBy(asc(jobsheets.fy), asc(jobsheets.jobsheetNo), asc(takas.id)),
   ]);
   const order = assertVisible(role, orderRows[0]);
 

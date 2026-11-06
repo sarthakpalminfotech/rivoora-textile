@@ -38,9 +38,10 @@ import {
   type TakaStage,
 } from '@rivoora/shared';
 import { db, type DbOrTx, type Tx } from '../db/client';
-import { counters, designs, materials, orders, outsidePos, outsideReceipts, takas, weavers } from '../db/schema';
+import { designs, materials, orders, outsidePos, outsideReceipts, takas, weavers } from '../db/schema';
 import { badRequest, conflict, notFound } from '../lib/errors';
 import { currentUserId } from '../lib/request-context';
+import { nextNumber } from '../lib/numbering';
 import { likePattern } from '../lib/http';
 import { ensureExternalJobsheet } from './external';
 import { recomputeOrderStatus } from './jobsheets';
@@ -209,12 +210,7 @@ async function assertMaterial(tx: DbOrTx, materialId: number) {
 }
 
 async function allocatePoNo(tx: Tx): Promise<number> {
-  const [row] = await tx
-    .insert(counters)
-    .values({ name: OUTSIDE_PO_COUNTER, value: 1 })
-    .onConflictDoUpdate({ target: counters.name, set: { value: sql`${counters.value} + 1` } })
-    .returning({ value: counters.value });
-  return row.value;
+  return nextNumber(tx, OUTSIDE_PO_COUNTER);
 }
 
 /* ------------------------------------------------------------------ */
@@ -417,7 +413,7 @@ async function receiptsOfOrder(tx: DbOrTx, orderId: number): Promise<OutsideRece
 export async function listOrderOutside(role: RoleKey, orderId: number): Promise<OrderOutside> {
   const order = await loadOrder(db, orderId);
   if (!canRoleSeeStatus(role, order.status)) throw notFound('Order');
-  const [pos, receipts] = await Promise.all([poFrom(db).where(eq(outsidePos.orderId, orderId)).orderBy(desc(outsidePos.poNo)), receiptsOfOrder(db, orderId)]);
+  const [pos, receipts] = await Promise.all([poFrom(db).where(eq(outsidePos.orderId, orderId)).orderBy(desc(outsidePos.fy), desc(outsidePos.poNo)), receiptsOfOrder(db, orderId)]);
   const cards = pos.map((p) => toCard(p, role));
   return { orderId, orderNo: order.orderNo, kind: orderKind(order), totals: outsidePoTotals(cards), pos: cards, receipts };
 }
@@ -425,7 +421,7 @@ export async function listOrderOutside(role: RoleKey, orderId: number): Promise<
 /** The order's Docs â†’ POs + receipts (also the godown supervisor's read-only Docs; rate only with `canSeeRate`). */
 export async function listOrderDocsOutside(role: RoleKey, orderId: number): Promise<{ pos: OutsidePoCard[]; receipts: OutsideReceiptRow[] }> {
   const [pos, receipts] = await Promise.all([
-    poFrom(db).where(and(eq(outsidePos.orderId, orderId), sql`${outsidePos.status} <> 'cancelled'`)).orderBy(desc(outsidePos.poNo)),
+    poFrom(db).where(and(eq(outsidePos.orderId, orderId), sql`${outsidePos.status} <> 'cancelled'`)).orderBy(desc(outsidePos.fy), desc(outsidePos.poNo)),
     receiptsOfOrder(db, orderId),
   ]);
   return { pos: pos.map((p) => toCard(p, role)), receipts };
@@ -433,7 +429,7 @@ export async function listOrderDocsOutside(role: RoleKey, orderId: number): Prom
 
 /** The open POs of an order (the dashboard's "At outside weaver" / "Given outside" drawer). */
 export async function openPosOfOrder(role: RoleKey, orderId: number): Promise<OutsidePoCard[]> {
-  const rows = await poFrom(db).where(and(eq(outsidePos.orderId, orderId), inArray(outsidePos.status, ['open', 'partly_received']))).orderBy(asc(outsidePos.poNo));
+  const rows = await poFrom(db).where(and(eq(outsidePos.orderId, orderId), inArray(outsidePos.status, ['open', 'partly_received']))).orderBy(asc(outsidePos.fy), asc(outsidePos.poNo));
   return rows.map((p) => toCard(p, role));
 }
 
@@ -829,7 +825,7 @@ export async function listReceiveGoods(role: RoleKey, search?: string): Promise<
       .innerJoin(materials, eq(materials.id, outsidePos.materialId))
       .leftJoin(designs, eq(designs.id, orders.designId))
       .where(and(inArray(outsidePos.status, ['open', 'partly_received']), eq(orders.isClosed, false), orderNotHeldFor(role), poSearch))
-      .orderBy(asc(outsidePos.poNo))
+      .orderBy(asc(outsidePos.fy), asc(outsidePos.poNo))
       .limit(200),
     db
       .select({
@@ -858,7 +854,7 @@ export async function listReceiveGoods(role: RoleKey, search?: string): Promise<
           fgSearch,
         ),
       )
-      .orderBy(asc(orders.orderNo))
+      .orderBy(asc(orders.fy), asc(orders.orderNo))
       .limit(200),
   ]);
   const seesClient = can(role, 'canSeeClient');

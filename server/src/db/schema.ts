@@ -1,4 +1,5 @@
 import { sql } from 'drizzle-orm';
+import { currentFyNow } from '../lib/fy-clock';
 import {
   index,
   integer,
@@ -274,11 +275,13 @@ export const orders = sqliteTable(
      * must still filter `is_stock_holder = 0` explicitly — see `middleware/hold-guard.ts` and `services/orders.ts`.
      */
     isStockHolder: integer('is_stock_holder', { mode: 'boolean' }).notNull().default(false),
+    /** Sprint 23 (CR-23): the financial year (India, 1 Apr – 31 Mar) this record's automatic number belongs to; numbers restart each FY. */
+    fy: text('fy').notNull().default('2026-27').$defaultFn(() => currentFyNow()),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
   (t) => [
-    uniqueIndex('orders_order_no_unique').on(t.orderNo),
+    uniqueIndex('orders_order_no_unique').on(t.fy, t.orderNo),
     index('orders_is_closed_idx').on(t.isClosed),
     index('orders_is_on_hold_idx').on(t.isOnHold),
     index('orders_status_idx').on(t.status),
@@ -429,11 +432,13 @@ export const jobsheets = sqliteTable(
      */
     isExternal: integer('is_external', { mode: 'boolean' }).notNull().default(false),
     isDeleted: isDeleted(),
+    /** Sprint 23 (CR-23): the financial year (India, 1 Apr – 31 Mar) this record's automatic number belongs to; numbers restart each FY. */
+    fy: text('fy').notNull().default('2026-27').$defaultFn(() => currentFyNow()),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
   (t) => [
-    uniqueIndex('jobsheets_jobsheet_no_unique').on(t.jobsheetNo),
+    uniqueIndex('jobsheets_jobsheet_no_unique').on(t.fy, t.jobsheetNo),
     index('jobsheets_order_idx').on(t.orderId),
     index('jobsheets_status_idx').on(t.status),
     index('jobsheets_running_machine_idx').on(t.runningMachineId),
@@ -563,6 +568,8 @@ export const takas = sqliteTable(
     removedAt: text('removed_at'),
     enteredBy: text('entered_by').$type<RoleKey>().notNull(),
     isDeleted: isDeleted(),
+    /** Sprint 23 (CR-23): the financial year (India, 1 Apr – 31 Mar) this record's automatic number belongs to; numbers restart each FY. */
+    fy: text('fy').notNull().default('2026-27').$defaultFn(() => currentFyNow()),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
@@ -579,7 +586,7 @@ export const takas = sqliteTable(
     index('takas_free_stock_idx').on(t.isFreeStock),
     index('takas_allocated_order_idx').on(t.allocatedOrderId),
     index('takas_damage_idx').on(t.damageId),
-    uniqueIndex('takas_taka_no_active_unique').on(t.takaNo).where(sql`${t.isDeleted} = 0`),
+    uniqueIndex('takas_taka_no_active_unique').on(t.fy, t.takaNo).where(sql`${t.isDeleted} = 0`),
   ],
 );
 
@@ -673,10 +680,12 @@ export const partyReturns = sqliteTable(
     completedByRole: text('completed_by_role').$type<RoleKey>(),
     role: text('role').$type<RoleKey>().notNull(),
     userId: integer('user_id'),
+    /** Sprint 23 (CR-23): the financial year (India, 1 Apr – 31 Mar) this record's automatic number belongs to; numbers restart each FY. */
+    fy: text('fy').notNull().default('2026-27').$defaultFn(() => currentFyNow()),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
-  (t) => [uniqueIndex('party_returns_no_unique').on(t.returnNo), index('party_returns_status_idx').on(t.status), index('party_returns_customer_idx').on(t.customerId)],
+  (t) => [uniqueIndex('party_returns_no_unique').on(t.fy, t.returnNo), index('party_returns_status_idx').on(t.status), index('party_returns_customer_idx').on(t.customerId)],
 );
 
 /** Takas mode: our dispatched takas that came back. */
@@ -760,10 +769,12 @@ export const damagedLots = sqliteTable(
     note: text('note'),
     role: text('role').$type<RoleKey>().notNull(),
     userId: integer('user_id'),
+    /** Sprint 23 (CR-23): the financial year (India, 1 Apr – 31 Mar) this record's automatic number belongs to; numbers restart each FY. */
+    fy: text('fy').notNull().default('2026-27').$defaultFn(() => currentFyNow()),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
-  (t) => [uniqueIndex('damaged_lots_lot_no_unique').on(t.lotNo)],
+  (t) => [uniqueIndex('damaged_lots_lot_no_unique').on(t.fy, t.lotNo)],
 );
 
 export const damagedLotTakas = sqliteTable(
@@ -908,11 +919,13 @@ export const challans = sqliteTable(
     cancelledAt: text('cancelled_at'),
     cancelledBy: text('cancelled_by').$type<RoleKey>(),
     createdBy: text('created_by').$type<RoleKey>().notNull(),
+    /** Sprint 23 (CR-23): the financial year (India, 1 Apr – 31 Mar) this record's automatic number belongs to; numbers restart each FY. */
+    fy: text('fy').notNull().default('2026-27').$defaultFn(() => currentFyNow()),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
   (t) => [
-    uniqueIndex('challans_kind_challan_no_unique').on(t.kind, t.challanNo),
+    uniqueIndex('challans_kind_challan_no_unique').on(t.kind, t.fy, t.challanNo),
     index('challans_party_idx').on(t.kind, t.partyId),
     index('challans_status_idx').on(t.status),
   ],
@@ -1013,11 +1026,13 @@ export const dispatchChallans = sqliteTable(
     cancelledReason: text('cancelled_reason'),
     createdBy: text('created_by').$type<RoleKey>().notNull(),
     createdByUserId: integer('created_by_user_id'),
+    /** Sprint 23 (CR-23): the financial year (India, 1 Apr – 31 Mar) this record's automatic number belongs to; numbers restart each FY. */
+    fy: text('fy').notNull().default('2026-27').$defaultFn(() => currentFyNow()),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
   (t) => [
-    uniqueIndex('dispatch_challans_no_revision_unique').on(t.challanNo, t.revision),
+    uniqueIndex('dispatch_challans_no_revision_unique').on(t.fy, t.challanNo, t.revision),
     index('dispatch_challans_order_idx').on(t.orderId),
     index('dispatch_challans_status_idx').on(t.status),
   ],
@@ -1192,11 +1207,13 @@ export const outsidePos = sqliteTable(
     cancelledAt: text('cancelled_at'),
     createdBy: text('created_by').$type<RoleKey>().notNull(),
     createdByUserId: integer('created_by_user_id'),
+    /** Sprint 23 (CR-23): the financial year (India, 1 Apr – 31 Mar) this record's automatic number belongs to; numbers restart each FY. */
+    fy: text('fy').notNull().default('2026-27').$defaultFn(() => currentFyNow()),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
   (t) => [
-    uniqueIndex('outside_pos_po_no_unique').on(t.poNo),
+    uniqueIndex('outside_pos_po_no_unique').on(t.fy, t.poNo),
     index('outside_pos_order_idx').on(t.orderId),
     index('outside_pos_weaver_idx').on(t.weaverId),
     index('outside_pos_status_idx').on(t.status),
@@ -1341,11 +1358,13 @@ export const yarnBoxes = sqliteTable(
     zone: text('zone').$type<YarnZone>().notNull(),
     status: text('status').$type<BoxStatus>().notNull().default('in_stock'),
     createdByUserId: integer('created_by_user_id'),
+    /** Sprint 23 (CR-23): the financial year (India, 1 Apr – 31 Mar) this record's automatic number belongs to; numbers restart each FY. */
+    fy: text('fy').notNull().default('2026-27').$defaultFn(() => currentFyNow()),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
   (t) => [
-    uniqueIndex('yarn_boxes_box_no_unique').on(sql`lower(${t.boxNo})`),
+    uniqueIndex('yarn_boxes_box_no_unique').on(t.fy, sql`lower(${t.boxNo})`),
     index('yarn_boxes_zone_status_idx').on(t.zone, t.status),
     index('yarn_boxes_program_idx').on(t.programId),
   ],
@@ -1385,11 +1404,13 @@ export const yarnPos = sqliteTable(
     closedByUserId: integer('closed_by_user_id'),
     cancelledAt: text('cancelled_at'),
     cancelledByUserId: integer('cancelled_by_user_id'),
+    /** Sprint 23 (CR-23): the financial year (India, 1 Apr – 31 Mar) this record's automatic number belongs to; numbers restart each FY. */
+    fy: text('fy').notNull().default('2026-27').$defaultFn(() => currentFyNow()),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
   (t) => [
-    uniqueIndex('yarn_pos_po_no_unique').on(t.poNo),
+    uniqueIndex('yarn_pos_po_no_unique').on(t.fy, t.poNo),
     index('yarn_pos_party_idx').on(t.partyId),
     index('yarn_pos_status_idx').on(t.status),
     index('yarn_pos_date_idx').on(t.poDate),
@@ -1570,10 +1591,12 @@ export const warpingJobs = sqliteTable(
     doneNote: text('done_note'),
     /** Sprint 20: the pending job this one was started from (null for jobs started the old direct way). */
     pendingJobId: integer('pending_job_id').references((): AnySQLiteColumn => warpingPendingJobs.id),
+    /** Sprint 23 (CR-23): the financial year (India, 1 Apr – 31 Mar) this record's automatic number belongs to; numbers restart each FY. */
+    fy: text('fy').notNull().default('2026-27').$defaultFn(() => currentFyNow()),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
-  (t) => [uniqueIndex('warping_jobs_job_no_unique').on(t.jobNo), index('warping_jobs_status_idx').on(t.status)],
+  (t) => [uniqueIndex('warping_jobs_job_no_unique').on(t.fy, t.jobNo), index('warping_jobs_status_idx').on(t.status)],
 );
 
 /** Sprint 20: a warping job before Start — reserves its inputs on Warping stock. */
@@ -1658,6 +1681,8 @@ export const beams = sqliteTable(
     consumedByUserId: integer('consumed_by_user_id'),
     consumedNote: text('consumed_note'),
     createdByUserId: integer('created_by_user_id'),
+    /** Sprint 23 (CR-23): the financial year (India, 1 Apr – 31 Mar) this record's automatic number belongs to; numbers restart each FY. */
+    fy: text('fy').notNull().default('2026-27').$defaultFn(() => currentFyNow()),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
     /**
@@ -1671,8 +1696,8 @@ export const beams = sqliteTable(
     remark: text('remark'),
   },
   (t) => [
-    uniqueIndex('beams_beam_no_unique').on(t.beamNo),
-    uniqueIndex('beams_beam_code_unique').on(sql`lower(${t.beamCode})`),
+    uniqueIndex('beams_beam_no_unique').on(t.fy, t.beamNo),
+    uniqueIndex('beams_beam_code_unique').on(t.fy, sql`lower(${t.beamCode})`),
     index('beams_zone_status_idx').on(t.zone, t.status),
   ],
 );

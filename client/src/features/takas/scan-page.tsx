@@ -2,7 +2,7 @@ import { AlertTriangle, CameraOff, Check, Flashlight, FlashlightOff, Keyboard, L
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type QrScanner from 'qr-scanner';
-import { parseJobsheetQr } from '@rivoora/shared';
+import { parseJobsheetQrFull } from '@rivoora/shared';
 import { usePageTitle } from '@/components/layout/page-title';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -44,7 +44,7 @@ const CAMERA_MESSAGES: Record<'insecure' | 'denied' | 'no-camera' | 'error', { e
 };
 
 /** Live QR scanner with a square guide. Calls `onScan` once with the jobsheet number of a valid Rivoora QR. */
-function CameraScanner({ onScan }: { onScan: (jobsheetNo: number) => void }) {
+function CameraScanner({ onScan }: { onScan: (jobsheetNo: number, fy: string | null) => void }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const scannerRef = useRef<QrScanner | null>(null);
   const doneRef = useRef(false);
@@ -75,8 +75,9 @@ function CameraScanner({ onScan }: { onScan: (jobsheetNo: number) => void }) {
         video,
         (result) => {
           if (doneRef.current) return;
-          const no = parseJobsheetQr(result.data);
-          if (no === null) {
+          const parsed = parseJobsheetQrFull(result.data);
+          const no = parsed?.no ?? null;
+          if (no === null || !parsed) {
             // Not ours: say so and keep scanning.
             setInvalid(true);
             window.clearTimeout(invalidTimer);
@@ -88,7 +89,7 @@ function CameraScanner({ onScan }: { onScan: (jobsheetNo: number) => void }) {
           setState('found');
           navigator.vibrate?.(80);
           scanner.stop();
-          foundTimer = window.setTimeout(() => onScanRef.current(no), 350);
+          foundTimer = window.setTimeout(() => onScanRef.current(no, parsed.fy), 350);
         },
         { preferredCamera: 'environment', maxScansPerSecond: 8, returnDetailedScanResult: true, onDecodeError: () => {} },
       );
@@ -273,7 +274,7 @@ function ManualEntry({ onOpen }: { onOpen: (jobsheetNo: number) => void }) {
 export default function ScanPage() {
   usePageTitle(bi('Scan jobsheet', 'जॉबशीट स्कैन करें'));
   const navigate = useNavigate();
-  const open = (no: number) => navigate(`/j/${no}`);
+  const open = (no: number, fy: string | null = null) => navigate(fy ? `/j/${fy}/${no}` : `/j/${no}`);
   return (
     <div className="page-container max-w-xl space-y-4 pb-6 pt-4 md:py-6">
       <CameraScanner onScan={open} />

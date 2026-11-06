@@ -21,7 +21,6 @@ import {
 } from '@rivoora/shared';
 import { db, type DbOrTx, type Tx } from '../db/client';
 import {
-  counters,
   beamMoves,
   beams,
   warpingJobInputs,
@@ -34,6 +33,7 @@ import {
   yarnQualities,
 } from '../db/schema';
 import { badRequest, conflict, notFound } from '../lib/errors';
+import { currentFy, nextNumber } from '../lib/numbering';
 import { actor, allocateNumbers, balanceG, nowIso, reservedG, systemQualityId, takeStock, type StockScope } from './yarn-ledger';
 
 /**
@@ -445,16 +445,11 @@ const isBeamCodeUnique = (err: unknown) => /beams_beam_code_unique|beams\.beam_c
 async function allocateBeamCodes(tx: Tx, n: number): Promise<string[]> {
   const out: string[] = [];
   for (let guard = 0; out.length < n && guard < n + 10_000; guard++) {
-    const [row] = await tx
-      .insert(counters)
-      .values({ name: BEAM_CODE_COUNTER, value: 1 })
-      .onConflictDoUpdate({ target: counters.name, set: { value: sql`${counters.value} + 1` } })
-      .returning({ value: counters.value });
-    const code = String(row.value);
+    const code = String(await nextNumber(tx, BEAM_CODE_COUNTER));
     const [taken] = await tx
       .select({ id: beams.id })
       .from(beams)
-      .where(sql`lower(COALESCE(${beams.beamCode}, 'BM-' || ${beams.beamNo})) = ${code}`)
+      .where(sql`lower(COALESCE(${beams.beamCode}, 'BM-' || ${beams.beamNo})) = ${code} AND ${beams.fy} = ${currentFy()}`)
       .limit(1);
     if (!taken) out.push(code);
   }

@@ -128,7 +128,7 @@ export async function listGodownOrders(role: RoleKey, q: GodownListQuery): Promi
     .having(hasPostQc);
   const [items, [{ total }]] = await db.batch([
     base
-      .orderBy(sql`CASE WHEN ${unchecked} > 0 THEN 0 ELSE 1 END`, desc(orders.orderNo))
+      .orderBy(sql`CASE WHEN ${unchecked} > 0 THEN 0 ELSE 1 END`, desc(orders.fy), desc(orders.orderNo))
       .limit(parsed.limit)
       .offset((parsed.page - 1) * parsed.limit),
     db

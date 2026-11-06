@@ -12,8 +12,9 @@ import {
   type YarnZone,
 } from '@rivoora/shared';
 import type { DbOrTx, Tx } from '../db/client';
-import { counters, tfoPendingPrograms, warpingPendingJobInputs, warpingPendingJobs, yarnPos, yarnQualities, yarnStockMoves } from '../db/schema';
+import { tfoPendingPrograms, warpingPendingJobInputs, warpingPendingJobs, yarnPos, yarnQualities, yarnStockMoves } from '../db/schema';
 import { badRequest, conflict } from '../lib/errors';
+import { currentFy, nextNumber, nextNumbers } from '../lib/numbering';
 import { currentUserId } from '../lib/request-context';
 
 /**
@@ -184,13 +185,7 @@ export async function takeStock(tx: Tx, m: MoveInput & { qualityName: string; fi
 
 /** The next `n` numbers of a named counter (warping jobs, beams) — never reused. */
 export async function allocateNumbers(tx: Tx, name: string, n = 1): Promise<number[]> {
-  const [row] = await tx
-    .insert(counters)
-    .values({ name, value: n })
-    .onConflictDoUpdate({ target: counters.name, set: { value: sql`${counters.value} + ${n}` } })
-    .returning({ value: counters.value });
-  const first = row.value - n + 1;
-  return Array.from({ length: n }, (_, i) => first + i);
+  return nextNumbers(tx, name, n);
 }
 
 /**
@@ -200,13 +195,10 @@ export async function allocateNumbers(tx: Tx, name: string, n = 1): Promise<numb
  */
 export async function allocateYarnPoNo(tx: Tx): Promise<number> {
   for (let i = 0; i < 10_000; i++) {
-    const [row] = await tx
-      .insert(counters)
-      .values({ name: 'yarn_po_no', value: 1 })
-      .onConflictDoUpdate({ target: counters.name, set: { value: sql`${counters.value} + 1` } })
-      .returning({ value: counters.value });
-    const [taken] = await tx.select({ id: yarnPos.id }).from(yarnPos).where(eq(yarnPos.poNo, row.value)).limit(1);
-    if (!taken) return row.value;
+    const no = await nextNumber(tx, 'yarn_po_no');
+    // Sprint 23: only a number used in the SAME financial year is taken.
+    const [taken] = await tx.select({ id: yarnPos.id }).from(yarnPos).where(and(eq(yarnPos.poNo, no), eq(yarnPos.fy, currentFy()))).limit(1);
+    if (!taken) return no;
   }
   throw new Error('Could not allocate a yarn PO number');
 }

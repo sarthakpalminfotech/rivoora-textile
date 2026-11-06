@@ -1,4 +1,4 @@
-import { and, asc, count, eq, inArray, or, sql, type SQL } from 'drizzle-orm';
+import { and, asc, count, desc, eq, inArray, or, sql, type SQL } from 'drizzle-orm';
 import { currentUserId } from '../lib/request-context';
 import { alias } from 'drizzle-orm/sqlite-core';
 import {
@@ -64,7 +64,6 @@ import {
 } from '@rivoora/shared';
 import { db, type DbOrTx, type Tx } from '../db/client';
 import {
-  counters,
   customers,
   dispatchChallans,
   goodsReturns,
@@ -79,6 +78,7 @@ import {
   takas,
 } from '../db/schema';
 import { badRequest, conflict, notFound } from '../lib/errors';
+import { currentFy, nextNumbers } from '../lib/numbering';
 import { likePattern } from '../lib/http';
 import { mapTaka, sortTakas, TAKA_EVENTS, takaColumns } from './taka-shared';
 import { takaInOrder } from './free-stock';
@@ -164,13 +164,7 @@ async function assertMachines(tx: DbOrTx, ids: number[], keep: number[] = []) {
 
 /** Reserves `n` jobsheet numbers inside the transaction. Numbers are never handed out twice. */
 async function allocateJobsheetNumbers(tx: Tx, n: number): Promise<number[]> {
-  const [row] = await tx
-    .insert(counters)
-    .values({ name: JOBSHEET_COUNTER, value: n })
-    .onConflictDoUpdate({ target: counters.name, set: { value: sql`${counters.value} + ${n}` } })
-    .returning({ value: counters.value });
-  const first = row.value - n + 1;
-  return Array.from({ length: n }, (_, i) => first + i);
+  return nextNumbers(tx, JOBSHEET_COUNTER, n);
 }
 
 interface EventInput {
@@ -330,7 +324,7 @@ async function activeJobsheets(tx: DbOrTx, orderId: number) {
     })
     .from(jobsheets)
     .where(and(eq(jobsheets.orderId, orderId), eq(jobsheets.isDeleted, false), realJobsheet))
-    .orderBy(asc(jobsheets.jobsheetNo));
+    .orderBy(asc(jobsheets.fy), asc(jobsheets.jobsheetNo));
 }
 
 type CoverageSheet = Parameters<typeof orderJobsheetPlan>[1][number];
@@ -499,7 +493,7 @@ export async function listOrderJobsheets(role: RoleKey, orderId: number): Promis
       .leftJoin(machines, eq(machines.id, jobsheetMachines.machineId))
       .leftJoin(runningMachine, eq(runningMachine.id, jobsheets.runningMachineId))
       .where(and(eq(jobsheets.orderId, orderId), eq(jobsheets.isDeleted, false), realJobsheet))
-      .orderBy(asc(jobsheets.jobsheetNo), asc(machines.machineNo)),
+      .orderBy(asc(jobsheets.fy), asc(jobsheets.jobsheetNo), asc(machines.machineNo)),
   ]);
   const order = orderRows[0];
   if (!order || !canRoleSeeStatus(role, order.status)) throw notFound('Order');
@@ -624,7 +618,7 @@ export async function getJobsheet(role: RoleKey, id: number): Promise<JobsheetDe
           realJobsheet,
         ),
       )
-      .orderBy(asc(jobsheets.jobsheetNo)),
+      .orderBy(asc(jobsheets.fy), asc(jobsheets.jobsheetNo)),
     db
       .select({
         id: jobsheetEvents.id,
@@ -643,7 +637,7 @@ export async function getJobsheet(role: RoleKey, id: number): Promise<JobsheetDe
       .select({ id: jobsheets.id, jobsheetNo: jobsheets.jobsheetNo })
       .from(jobsheets)
       .where(and(eq(jobsheets.parentJobsheetId, id), eq(jobsheets.isDeleted, false)))
-      .orderBy(asc(jobsheets.jobsheetNo)),
+      .orderBy(asc(jobsheets.fy), asc(jobsheets.jobsheetNo)),
     db
       .select(takaColumns)
       .from(takas)
@@ -713,23 +707,34 @@ export async function getJobsheet(role: RoleKey, id: number): Promise<JobsheetDe
  * GET /jobsheets/by-no/:no — resolves a jobsheet number (from a scanned QR) to its id.
  * 404 when it doesn't exist, is deleted, or isn't visible for the role (the supervisor never sees Pending ones).
  */
-export async function jobsheetByNo(role: RoleKey, jobsheetNo: number): Promise<JobsheetByNo> {
-  const [r] = await db
+export async function jobsheetByNo(role: RoleKey, jobsheetNo: number, fy?: string): Promise<JobsheetByNo> {
+  const rows = await db
     .select({
       id: jobsheets.id,
       jobsheetNo: jobsheets.jobsheetNo,
+      fy: jobsheets.fy,
       status: jobsheets.status,
       isDeleted: jobsheets.isDeleted,
       isExternal: jobsheets.isExternal,
       orderNo: orders.orderNo,
       orderStatus: orders.status,
+      designCode: sql<string | null>`(SELECT d.code FROM designs d WHERE d.id = "orders"."design_id")`,
     })
     .from(jobsheets)
     .innerJoin(orders, eq(orders.id, jobsheets.orderId))
-    .where(eq(jobsheets.jobsheetNo, jobsheetNo));
-  if (!r || r.isDeleted || r.isExternal || !canRoleSeeJobsheetStatus(role, r.status)) throw notFound('Jobsheet');
-  if (!isRestricted(role) && !canRoleSeeStatus(role, r.orderStatus)) throw notFound('Jobsheet');
-  return { id: r.id, jobsheetNo: r.jobsheetNo, orderNo: r.orderNo };
+    .where(and(eq(jobsheets.jobsheetNo, jobsheetNo), fy ? eq(jobsheets.fy, fy) : undefined))
+    .orderBy(desc(jobsheets.fy), desc(jobsheets.id));
+  const visible = rows.filter((r) => !r.isDeleted && !r.isExternal && canRoleSeeJobsheetStatus(role, r.status) && (isRestricted(role) || canRoleSeeStatus(role, r.orderStatus)));
+  if (!visible.length) throw notFound('Jobsheet');
+  const pick = (r: (typeof visible)[number]): JobsheetByNo => ({ id: r.id, jobsheetNo: r.jobsheetNo, orderNo: r.orderNo, fy: r.fy });
+  if (fy) return pick(visible[0]);
+  // Sprint 23: numbers restart each financial year. The CURRENT FY first; only when nothing matches there the older years —
+  // and when several years match, the picker ("Which one?") gets every match.
+  const now = currentFy();
+  const inCurrent = visible.filter((r) => r.fy === now);
+  if (inCurrent.length) return pick(inCurrent[0]);
+  if (visible.length === 1) return pick(visible[0]);
+  return { ...pick(visible[0]), candidates: visible.map((r) => ({ ...pick(r), designCode: r.designCode })) };
 }
 
 /** Everything the print route needs, in the order the ids were given. */
@@ -739,6 +744,7 @@ export async function printJobsheets(role: RoleKey, ids: number[]): Promise<Jobs
       .select({
         id: jobsheets.id,
         jobsheetNo: jobsheets.jobsheetNo,
+        fy: jobsheets.fy,
         frames: jobsheets.frames,
         meters: jobsheets.meters,
         sections: jobsheets.sections,
@@ -778,6 +784,7 @@ export async function printJobsheets(role: RoleKey, ids: number[]): Promise<Jobs
     items.push({
       id: r.id,
       jobsheetNo: r.jobsheetNo,
+      fy: r.fy,
       orderNo: r.orderNo,
       frames: r.frames,
       meters: r.meters,
@@ -812,7 +819,7 @@ const TAB_STATUS: Record<Exclude<JobsheetListQuery['tab'], 'all'>, JobsheetStatu
 const supervisorOrder = [
   sql`CASE ${jobsheets.status} WHEN 'sent' THEN 0 WHEN 'ongoing' THEN 1 ELSE 2 END`,
   sql`CASE WHEN ${jobsheets.status} = 'completed' THEN ${jobsheets.completedAt} END DESC`,
-  asc(jobsheets.jobsheetNo),
+  asc(jobsheets.fy), asc(jobsheets.jobsheetNo),
 ];
 
 /** The search term without a leading `#` / "order" / "jobsheet". */

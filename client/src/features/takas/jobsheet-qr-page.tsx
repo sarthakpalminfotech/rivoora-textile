@@ -14,13 +14,34 @@ import { useJobsheetByNo } from './api';
  * Taka entry → his taka entry screen, everyone else → their jobsheet details (all live at `/jobsheets/:id`).
  */
 export default function JobsheetQrPage() {
-  const raw = useParams().jobsheetNo ?? '';
+  const params = useParams();
+  const raw = params.jobsheetNo ?? '';
+  const fy = /^\d{4}-\d{2}$/.test(params.fy ?? '') ? (params.fy as string) : null;
   const no = /^\d+$/.test(raw) ? Number(raw) : NaN;
   const bilingual = useBilingual();
   const { role, config } = useRole();
-  const { data, isError, error, refetch } = useJobsheetByNo(no);
+  const { data, isError, error, refetch } = useJobsheetByNo(no, fy);
   usePageTitle(bilingual ? bi(`Jobsheet ${raw}`, `जॉबशीट ${raw}`) : `Jobsheet ${raw}`);
 
+  if (data?.candidates && data.candidates.length > 1) {
+    // Sprint 23: an old QR (no year) matches jobsheets of several financial years — "Which one?"
+    return (
+      <div className="page-container max-w-xl py-6">
+        <h2 className="text-xl font-bold text-slate-900">{bilingual ? bi(`Which jobsheet ${raw}?`, `कौन सी जॉबशीट ${raw}?`) : `Which jobsheet ${raw}?`}</h2>
+        <p className="mb-3 text-sm text-slate-600">{bilingual ? bi('More than one year has this number.', 'इस नंबर की एक से ज़्यादा साल की जॉबशीट हैं।') : 'More than one financial year has a jobsheet with this number.'}</p>
+        <ul className="space-y-2">
+          {data.candidates.map((c) => (
+            <li key={c.id}>
+              <Link to={`/jobsheets/${c.id}`} replace className="flex min-h-14 items-center justify-between gap-3 rounded-xl border border-border bg-white px-4 py-3 hover:border-primary/40 hover:bg-primary-soft/40">
+                <span className="text-lg font-bold tabular-nums text-slate-900">{c.jobsheetNo} · Order #{c.orderNo}</span>
+                <span className="text-sm font-semibold text-slate-600">{c.designCode ? `${c.designCode} · ` : ''}{c.fy}</span>
+              </Link>
+            </li>
+          ))}
+        </ul>
+      </div>
+    );
+  }
   if (data) return <Navigate to={`/jobsheets/${data.id}`} replace />;
 
   const notFound = !Number.isInteger(no) || no < 1 || (isError && error instanceof ApiError && error.status === 404);

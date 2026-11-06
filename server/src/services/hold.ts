@@ -45,7 +45,7 @@ export async function assertOrdersNotClosed(tx: DbOrTx, orderIds: readonly numbe
     .select({ orderNo: orders.orderNo })
     .from(orders)
     .where(and(inArray(orders.id, ids), eq(orders.isClosed, true)))
-    .orderBy(asc(orders.orderNo))
+    .orderBy(asc(orders.fy), asc(orders.orderNo))
     .limit(1);
   if (rows.length) throw conflict(orderClosedMessage(rows[0].orderNo));
 }
@@ -58,7 +58,7 @@ export async function assertOrdersNotOnHold(tx: DbOrTx, orderIds: readonly numbe
     .select({ orderNo: orders.orderNo })
     .from(orders)
     .where(and(inArray(orders.id, ids), eq(orders.isOnHold, true)))
-    .orderBy(asc(orders.orderNo))
+    .orderBy(asc(orders.fy), asc(orders.orderNo))
     .limit(1);
   if (rows.length) throw conflict(orderOnHoldMessage(rows[0].orderNo, role));
 }

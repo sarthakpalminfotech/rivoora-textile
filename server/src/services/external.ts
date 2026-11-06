@@ -83,7 +83,7 @@ export async function outsidePcsPos(tx: DbOrTx, orderId: number): Promise<{ poNo
     .select({ poNo: outsidePos.poNo, quantity: outsidePos.quantity, receivedQty: outsidePos.receivedQty, status: outsidePos.status })
     .from(outsidePos)
     .where(and(eq(outsidePos.orderId, orderId), eq(outsidePos.unit, 'pcs'), sql`${outsidePos.status} <> 'cancelled'`))
-    .orderBy(outsidePos.poNo);
+    .orderBy(outsidePos.fy, outsidePos.poNo);
   return rows.map((r) => ({ poNo: r.poNo, pcs: Math.round(r.status === 'closed' ? r.receivedQty : Math.max(r.quantity, r.receivedQty)) }));
 }
 
@@ -107,6 +107,6 @@ export async function outsideMetersPos(tx: DbOrTx, orderId: number): Promise<{ p
     .select({ poNo: outsidePos.poNo, quantity: outsidePos.quantity, receivedQty: outsidePos.receivedQty, status: outsidePos.status })
     .from(outsidePos)
     .where(and(eq(outsidePos.orderId, orderId), eq(outsidePos.unit, 'meters'), sql`${outsidePos.status} <> 'cancelled'`))
-    .orderBy(outsidePos.poNo);
+    .orderBy(outsidePos.fy, outsidePos.poNo);
   return rows.map((r) => ({ poNo: r.poNo, meters: Math.round((r.status === 'closed' ? r.receivedQty : Math.max(r.quantity, r.receivedQty)) * 100) / 100 }));
 }

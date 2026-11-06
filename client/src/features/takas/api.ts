@@ -36,10 +36,11 @@ export function useTakaJobsheets(tab: TakaTab, search: string) {
 }
 
 /** Jobsheet number (from a QR or typed) → id. */
-export function useJobsheetByNo(no: number) {
+export function useJobsheetByNo(no: number, fy?: string | null) {
   return useQuery({
-    queryKey: ['jobsheets', 'by-no', no],
-    queryFn: ({ signal }) => api.get<JobsheetByNo>(`/jobsheets/by-no/${no}`, undefined, signal),
+    queryKey: ['jobsheets', 'by-no', fy ?? '', no],
+    // Sprint 23: the new QR carries the financial year (`/j/<fy>/<no>`); an old code (`/j/<no>`) looks in the current FY first.
+    queryFn: ({ signal }) => api.get<JobsheetByNo>(fy ? `/jobsheets/by-no/${fy}/${no}` : `/jobsheets/by-no/${no}`, undefined, signal),
     enabled: Number.isInteger(no) && no > 0,
     staleTime: 0,
   });

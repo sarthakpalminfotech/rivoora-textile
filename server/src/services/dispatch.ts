@@ -38,7 +38,6 @@ import {
 } from '@rivoora/shared';
 import { db, type Tx } from '../db/client';
 import {
-  counters,
   customerBrokers,
   customers,
   designs,
@@ -56,6 +55,7 @@ import {
 } from '../db/schema';
 import { badRequest, conflict, notFound } from '../lib/errors';
 import { currentUserId } from '../lib/request-context';
+import { nextNumber } from '../lib/numbering';
 import { likePattern } from '../lib/http';
 import { addNewDamages, assertNewDamages } from './qc-shared';
 import { allocateTakaNumbers, chunk, recomputeOrdersStatus, refreshIsDamaged, writeTakaEvents, type TakaEventInput } from './taka-ops';
@@ -80,12 +80,7 @@ const designImageSql = sql<string | null>`${designs.imageUrl}`;
 /* ------------------------------------------------------------------ */
 
 async function allocateDispatchNo(tx: Tx): Promise<number> {
-  const [row] = await tx
-    .insert(counters)
-    .values({ name: DISPATCH_COUNTER, value: 1 })
-    .onConflictDoUpdate({ target: counters.name, set: { value: sql`${counters.value} + 1` } })
-    .returning({ value: counters.value });
-  return row.value;
+  return nextNumber(tx, DISPATCH_COUNTER);
 }
 
 /** POST /godown/orders/:orderId/dispatch — every taka of the order that is ready for dispatch goes on one new challan. */
@@ -379,7 +374,7 @@ export async function getDispatchedOrder(role: RoleKey, orderId: number): Promis
       })
       .from(dispatchChallans)
       .where(eq(dispatchChallans.orderId, orderId))
-      .orderBy(desc(dispatchChallans.challanNo), desc(dispatchChallans.revision)),
+      .orderBy(desc(dispatchChallans.fy), desc(dispatchChallans.challanNo), desc(dispatchChallans.revision)),
   ]);
   if (!order || challanRows.length === 0) throw notFound('Dispatch');
   const mayReturn = can(role, 'canGoodsReturn');
@@ -584,6 +579,7 @@ export async function createGoodsReturn(role: RoleKey, challanId: number, input:
       .insert(dispatchChallans)
       .values({
         challanNo: challan.challanNo,
+        fy: challan.fy,
         revision,
         parentChallanId: challanId,
         orderId: challan.orderId,

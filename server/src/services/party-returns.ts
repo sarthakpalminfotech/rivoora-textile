@@ -19,7 +19,6 @@ import {
 } from '@rivoora/shared';
 import { db, type DbOrTx, type Tx } from '../db/client';
 import {
-  counters,
   customers,
   damages as damageMaster,
   designs,
@@ -34,6 +33,7 @@ import {
 } from '../db/schema';
 import { badRequest, conflict, notFound } from '../lib/errors';
 import { currentUserId } from '../lib/request-context';
+import { nextNumber } from '../lib/numbering';
 import { likePattern, paginationSchema } from '../lib/http';
 import { ensureExternalJobsheet } from './external';
 import { addNewDamages, type NewDamageInput } from './qc-shared';
@@ -276,11 +276,7 @@ export async function createPartyReturn(role: RoleKey, input: unknown): Promise<
     const prepared = data.receivedAs === 'takas' ? await takaLines(tx, data.customerId, data.takaIds) : [];
     if (data.receivedAs === 'takas') receivedQty = round2(prepared.reduce((s, l) => s + l.qty, 0));
     const at = now();
-    const [c] = await tx
-      .insert(counters)
-      .values({ name: PARTY_RETURN_COUNTER, value: 1 })
-      .onConflictDoUpdate({ target: counters.name, set: { value: sql`${counters.value} + 1` } })
-      .returning({ value: counters.value });
+    const c = { value: await nextNumber(tx, PARTY_RETURN_COUNTER) };
     const [ret] = await tx
       .insert(partyReturns)
       .values({ returnNo: c.value, customerId: data.customerId, receivedDate: data.receivedDate, receivedAs: data.receivedAs, receivedQty, note: data.note, role, userId: currentUserId(), createdAt: at, updatedAt: at })

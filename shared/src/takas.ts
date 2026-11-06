@@ -426,9 +426,13 @@ export function compareTakaNo(a: string, b: string): number {
 /* QR code on the printed jobsheet                                      */
 /* ------------------------------------------------------------------ */
 
-/** `${base}/j/${jobsheetNo}` — the content of the QR code printed on a jobsheet. */
-export function jobsheetQrUrl(baseUrl: string, jobsheetNo: number): string {
-  return `${baseUrl.replace(/\/+$/, '')}/j/${jobsheetNo}`;
+/**
+ * The content of the QR code printed on a jobsheet. Sprint 23: `${base}/j/${fy}/${jobsheetNo}` (e.g. `/j/2026-27/319`) —
+ * numbers restart each financial year, so the year travels in the code. Without `fy` the old form `/j/${no}` is built.
+ */
+export function jobsheetQrUrl(baseUrl: string, jobsheetNo: number, fy?: string | null): string {
+  const base = baseUrl.replace(/\/+$/, '');
+  return fy ? `${base}/j/${fy}/${jobsheetNo}` : `${base}/j/${jobsheetNo}`;
 }
 
 /**
@@ -437,6 +441,14 @@ export function jobsheetQrUrl(baseUrl: string, jobsheetNo: number): string {
  * (an optional trailing slash, query or hash is ignored).
  */
 export function parseJobsheetQr(text: string): number | null {
+  return parseJobsheetQrFull(text)?.no ?? null;
+}
+
+/**
+ * Sprint 23: both QR forms — new `/j/<fy>/<no>` (e.g. `/j/2026-27/319`) and the old `/j/<no>` (the year is then unknown:
+ * the server looks in the current FY first, then older years, and asks "Which one?" if several match).
+ */
+export function parseJobsheetQrFull(text: string): { no: number; fy: string | null } | null {
   let url: URL;
   try {
     url = new URL(text.trim());
@@ -444,10 +456,11 @@ export function parseJobsheetQr(text: string): number | null {
     return null;
   }
   if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
-  const m = /^\/j\/(\d{1,9})\/?$/.exec(url.pathname);
+  const m = /^\/j\/(?:(\d{4}-\d{2})\/)?(\d{1,9})\/?$/.exec(url.pathname);
   if (!m) return null;
-  const n = Number(m[1]);
-  return Number.isSafeInteger(n) && n > 0 ? n : null;
+  const n = Number(m[2]);
+  if (!(Number.isSafeInteger(n) && n > 0)) return null;
+  return { no: n, fy: m[1] ?? null };
 }
 
 /* ------------------------------------------------------------------ */

@@ -289,7 +289,7 @@ function useQrCodes(items: JobsheetPrintItem[] | undefined) {
     const base = qrBaseUrl();
     Promise.all(
       items.map(async (js) => {
-        const svg = await QRCode.toString(jobsheetQrUrl(base, js.jobsheetNo), { type: 'svg', errorCorrectionLevel: 'M', margin: 2 });
+        const svg = await QRCode.toString(jobsheetQrUrl(base, js.jobsheetNo, js.fy), { type: 'svg', errorCorrectionLevel: 'M', margin: 2 });
         return [js.jobsheetNo, svg] as const;
       }),
     ).then(

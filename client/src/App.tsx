@@ -335,6 +335,7 @@ const router = createBrowserRouter([
           { path: 'scan', element: guard('canUseTakaModules', <ScanPage />) },
           // Target of the QR code printed on jobsheets.
           { path: 'j/:jobsheetNo', element: <JobsheetQrPage /> },
+          { path: 'j/:fy/:jobsheetNo', element: <JobsheetQrPage /> },
           { path: '*', element: <NotFoundOrLanding fallback={<NotFoundPage />} /> },
         ],
       },

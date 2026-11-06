@@ -94,6 +94,7 @@ import { takaInOrder, takaOrderId } from './free-stock';
 import { orderNotHeldFor } from './hold';
 import { realJobsheet } from './external';
 import { resolveTakaNumber } from './taka-lookup';
+import { currentFy } from '../lib/numbering';
 import { refreshReceiptTotals } from './outside';
 
 /* ------------------------------------------------------------------ */
@@ -712,7 +713,7 @@ export async function listOrderTakas(role: RoleKey, orderId: number): Promise<Or
       .from(jobsheets)
       .leftJoin(runningMachine, eq(runningMachine.id, jobsheets.runningMachineId))
       .where(and(eq(jobsheets.orderId, orderId), eq(jobsheets.isDeleted, false), realJobsheet))
-      .orderBy(asc(jobsheets.jobsheetNo)),
+      .orderBy(asc(jobsheets.fy), asc(jobsheets.jobsheetNo)),
     db
       .select({ ...takaColumns, jobsheetId: takas.jobsheetId, isExternal: jobsheets.isExternal })
       .from(takas)
@@ -831,7 +832,7 @@ export async function listOrderTakas(role: RoleKey, orderId: number): Promise<Or
       .innerJoin(orders, eq(orders.id, jobsheets.orderId))
       .leftJoin(runningMachine, eq(runningMachine.id, jobsheets.runningMachineId))
       .where(inArray(jobsheets.id, foreign))
-      .orderBy(asc(jobsheets.jobsheetNo));
+      .orderBy(asc(jobsheets.fy), asc(jobsheets.jobsheetNo));
     for (const r of rows) {
       groups.push({
         jobsheetId: r.id,
@@ -875,7 +876,7 @@ export async function checkTakaNo(no: string): Promise<TakaAvailability> {
     .from(takas)
     .innerJoin(jobsheets, eq(jobsheets.id, takas.jobsheetId))
     .innerJoin(orders, eq(orders.id, takaOrderId))
-    .where(and(eq(takas.isDeleted, false), eq(takas.takaNo, value)))
+    .where(and(eq(takas.isDeleted, false), eq(takas.fy, currentFy()), eq(takas.takaNo, value)))
     .limit(1);
   return row ? { available: false, usedBy: { orderNo: row.orderNo, jobsheetNo: row.jobsheetNo } } : { available: true };
 }
@@ -1150,7 +1151,7 @@ export async function listTakaJobsheets(role: RoleKey, q: TakaListQuery): Promis
       ? [
           sql`CASE ${jobsheets.status} WHEN 'completed' THEN 0 WHEN 'ongoing' THEN 1 WHEN 'sent' THEN 2 ELSE 3 END`,
           sql`CASE WHEN ${jobsheets.status} = 'completed' THEN ${jobsheets.completedAt} END DESC`,
-          asc(jobsheets.jobsheetNo),
+          asc(jobsheets.fy), asc(jobsheets.jobsheetNo),
         ]
       : [desc(lastTakaAt), desc(jobsheets.jobsheetNo)];
 

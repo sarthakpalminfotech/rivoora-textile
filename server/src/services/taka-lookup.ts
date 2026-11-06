@@ -2,6 +2,7 @@ import { and, asc, eq, or, sql } from 'drizzle-orm';
 import type { TakaLookupCandidate } from '@rivoora/shared';
 import type { DbOrTx } from '../db/client';
 import { orders, takas, weavers } from '../db/schema';
+import { currentFy } from '../lib/numbering';
 import { takaOrderId } from './free-stock';
 
 /**
@@ -17,6 +18,7 @@ export async function lookupTakas(tx: DbOrTx, no: string): Promise<TakaLookupCan
     .select({
       id: takas.id,
       takaNo: takas.takaNo,
+      fy: takas.fy,
       weaverTakaNo: takas.weaverTakaNo,
       weaverName: weavers.name,
       supplierName: sql<string | null>`(SELECT r.supplier_name FROM outside_receipts r WHERE r.id = "takas"."outside_receipt_id")`,
@@ -29,9 +31,14 @@ export async function lookupTakas(tx: DbOrTx, no: string): Promise<TakaLookupCan
     .where(and(eq(takas.isDeleted, false), or(eq(takas.takaNo, v), eq(takas.weaverTakaNo, v))))
     .orderBy(asc(takas.id))
     .limit(20);
-  return rows
+  const all = rows
     .map(({ supplierName, weaverName, ...r }) => ({ ...r, weaverName: weaverName ?? supplierName, exact: r.takaNo === v }))
-    .sort((a, b) => Number(b.exact) - Number(a.exact) || a.orderNo - b.orderNo);
+    .sort((a, b) => Number(b.exact) - Number(a.exact) || b.fy.localeCompare(a.fy) || a.orderNo - b.orderNo);
+  // Sprint 23: numbers restart each financial year. Look in the CURRENT FY first; only when nothing matches there, in the
+  // older years — and if several match, every match goes to the "Which one?" picker (each carries its FY).
+  const now = currentFy();
+  const current = all.filter((r) => r.fy === now);
+  return current.length ? current : all;
 }
 
 export type TakaResolution = { kind: 'one'; id: number; takaNo: string } | { kind: 'none' } | { kind: 'many'; candidates: TakaLookupCandidate[] };

@@ -1,5 +1,6 @@
 import { and, asc, count, desc, eq, gte, inArray, lte, or, sql, type SQL } from 'drizzle-orm';
 import { currentUserId } from '../lib/request-context';
+import { currentFy } from '../lib/numbering';
 import { z } from 'zod';
 import {
   can,
@@ -178,7 +179,7 @@ export async function listOrders(role: RoleKey, q: OrderListQuery): Promise<Pagi
       .innerJoin(materials, eq(materials.id, orders.materialId))
       .leftJoin(designs, eq(designs.id, orders.designId))
       .where(where)
-      .orderBy(desc(orders.orderNo))
+      .orderBy(desc(orders.fy), desc(orders.orderNo))
       .limit(q.limit)
       .offset((q.page - 1) * q.limit),
     db
@@ -378,6 +379,7 @@ async function resolveOrderRefs(tx: Tx, data: OrderData, keepBrokerId: number | 
 export async function createOrder(role: RoleKey, input: unknown): Promise<{ id: number; orderNo: number }> {
   const data = orderCreateSchema.parse(input);
 
+  const orderFy = currentFy();
   return db.transaction(async (tx) => {
     const { designId } = await resolveOrderRefs(tx, data);
 
@@ -385,7 +387,9 @@ export async function createOrder(role: RoleKey, input: unknown): Promise<{ id: 
     const [order] = await tx
       .insert(orders)
       .values({
-        orderNo: sql`(SELECT COALESCE(MAX(${orders.orderNo}), 0) + 1 FROM ${orders})`,
+        // Sprint 23: order numbers restart each financial year — MAX within THIS FY + 1 (holder orders are negative).
+        orderNo: sql`(SELECT COALESCE(MAX(o3.order_no), 0) + 1 FROM orders o3 WHERE o3.fy = ${orderFy})`,
+        fy: orderFy,
         customerId: data.customerId,
         brokerId: data.brokerId,
         orderType: data.orderType,
@@ -608,10 +612,10 @@ export async function previousDesigns(customerId: number): Promise<PreviousDesig
       and(
         eq(orders.customerId, customerId),
         // keep only the latest order for each design
-        sql`${orders.orderNo} = (SELECT MAX(o2.order_no) FROM ${orders} o2 WHERE o2.customer_id = ${orders.customerId} AND o2.design_id = ${orders.designId})`,
+        sql`${orders.id} = (SELECT MAX(o2.id) FROM ${orders} o2 WHERE o2.customer_id = ${orders.customerId} AND o2.design_id = ${orders.designId})`,
       ),
     )
-    .orderBy(desc(orders.orderNo))
+    .orderBy(desc(orders.id))
     .limit(60);
 
   return rows.map(({ qualitiesJson, ...r }) => ({

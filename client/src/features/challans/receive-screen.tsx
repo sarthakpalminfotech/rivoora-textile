@@ -206,7 +206,7 @@ export function ReceiveTakaNumber({ kind }: { kind: ChallanKind }) {
                   {c.weaverName && <span className="ml-2 text-sm font-medium text-slate-500">W {c.weaverTakaNo} · {c.weaverName}</span>}
                 </span>
                 <span className="shrink-0 text-sm font-semibold text-slate-600">
-                  {formatOrderNo(c.orderNo)} · {takaStageShortLabel(c.stage)}
+                  {formatOrderNo(c.orderNo)}{c.fy ? ` · ${c.fy}` : ''} · {takaStageShortLabel(c.stage)}
                 </span>
               </button>
             </li>

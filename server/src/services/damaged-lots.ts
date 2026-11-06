@@ -12,9 +12,10 @@ import {
   type RoleKey,
 } from '@rivoora/shared';
 import { db } from '../db/client';
-import { counters, damagedLotTakas, damagedLots, damages as damageMaster, designs, materials, orders, takaDamages, takas } from '../db/schema';
+import { damagedLotTakas, damagedLots, damages as damageMaster, designs, materials, orders, takaDamages, takas } from '../db/schema';
 import { conflict, notFound } from '../lib/errors';
 import { currentUserId } from '../lib/request-context';
+import { nextNumber } from '../lib/numbering';
 import { paginationSchema } from '../lib/http';
 import { loadFreeTakas, removeFreeTakas } from './stock-adjust';
 
@@ -84,11 +85,7 @@ export async function sellDamagedLot(role: RoleKey, input: unknown): Promise<{ l
     const notDamaged = rows.filter((r) => !open.has(r.id));
     if (notDamaged.length) throw conflict(`These takas have no open damage: ${notDamaged.slice(0, 10).map((r) => r.takaNo).join(', ')}.`);
     const at = now();
-    const [c] = await tx
-      .insert(counters)
-      .values({ name: DAMAGED_LOT_COUNTER, value: 1 })
-      .onConflictDoUpdate({ target: counters.name, set: { value: sql`${counters.value} + 1` } })
-      .returning({ value: counters.value });
+    const c = { value: await nextNumber(tx, DAMAGED_LOT_COUNTER) };
     const label = damagedLotLabel(c.value);
     const [lot] = await tx
       .insert(damagedLots)

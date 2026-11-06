@@ -16,6 +16,7 @@ import { conflict, notFound } from '../lib/errors';
 import { currentUserId } from '../lib/request-context';
 import { refreshIsDamaged, recomputeOrdersStatus, writeTakaEvents } from './taka-ops';
 import { latestQcRun, type QcRunChanges } from './qc-runs';
+import { resolveTakaNumber } from './taka-lookup';
 
 /**
  * Sprint 21 (C6) — QC corrections (Gaurang, the production supervisor, Jenish: `canUndoQc`).
@@ -71,7 +72,9 @@ function cancelRefinishCheck(t: FoundTaka): QcCorrectionAction {
 
 /** GET /qc-corrections/taka/:no */
 export async function qcCorrectionsByNo(_role: RoleKey, takaNo: string): Promise<QcCorrectionTaka> {
-  const t = await findTaka(db, eq(takas.takaNo, takaNo.trim()));
+  const found = await resolveTakaNumber(db, takaNo);
+  if (found.kind === 'many') throw conflict(`${found.candidates.length} takas have number ${takaNo.trim()} (${found.candidates.map((c) => c.fy).join(', ')}) — type the number from the current year, or pick the right one.`, 'ambiguous');
+  const t = found.kind === 'one' ? await findTaka(db, eq(takas.id, found.id)) : null;
   if (!t) throw notFound('Taka');
   const run = await latestQcRun(db, t.id);
   const runUser = run?.doneByUserId ? ((await db.select({ name: users.name }).from(users).where(eq(users.id, run.doneByUserId)))[0]?.name ?? null) : null;

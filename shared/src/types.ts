@@ -581,6 +581,8 @@ export type SupervisorOrderPage = Paginated<SupervisorOrderItem>;
 export interface JobsheetPrintItem {
   id: number;
   jobsheetNo: number;
+  /** Sprint 23: the financial year — printed in the QR (`/j/<fy>/<no>`), never as text. */
+  fy: string;
   orderNo: number;
   frames: number;
   machineNos: number[];
@@ -850,6 +852,10 @@ export interface JobsheetByNo {
   id: number;
   jobsheetNo: number;
   orderNo: number;
+  /** Sprint 23: the financial year of the jobsheet (numbers restart each FY). */
+  fy: string;
+  /** Sprint 23: set only when an old QR (`/j/<no>`) matches jobsheets of SEVERAL years and none is in the current FY — the "Which one?" picker. */
+  candidates?: { id: number; jobsheetNo: number; orderNo: number; fy: string; designCode: string | null }[];
 }
 
 /* ---------- order dashboard ---------- */
@@ -2042,6 +2048,8 @@ export interface ReceiptResult {
 export interface TakaLookupCandidate {
   id: number;
   takaNo: string;
+  /** Sprint 23: the financial year of the taka (numbers restart each FY) — shown in the "Which one?" picker. */
+  fy?: string;
   weaverTakaNo: string | null;
   weaverName: string | null;
   orderNo: number;

@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { jobsheetListQuerySchema, supervisorOrderListQuerySchema } from '@rivoora/shared';
+import { badRequest } from '../lib/errors';
 import { ah, csv, parseId } from '../lib/http';
 import { requirePermission } from '../middleware/role';
 import {
@@ -59,7 +60,17 @@ jobsheetsRouter.get(
   }),
 );
 
-/** Jobsheet number (from a scanned QR) → id. Any role that can open jobsheets; 404 if not visible for the role. */
+/** Sprint 23: the new QR form `/j/<fy>/<no>` — the year is known, so exactly one jobsheet. */
+jobsheetsRouter.get(
+  '/by-no/:fy/:no',
+  ah(async (req, res) => {
+    const fy = String(req.params.fy);
+    if (!/^\d{4}-\d{2}$/.test(fy)) throw badRequest('Invalid financial year');
+    res.json(await jobsheetByNo(req.role, parseId(req.params.no, 'jobsheet number'), fy));
+  }),
+);
+
+/** Jobsheet number (from a scanned QR) → id. Any role that can open jobsheets; 404 if not visible for the role. Old QR codes: current FY first. */
 jobsheetsRouter.get(
   '/by-no/:no',
   ah(async (req, res) => {

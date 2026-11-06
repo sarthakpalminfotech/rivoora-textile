@@ -48,7 +48,7 @@ export async function holdOrder(role: RoleKey, orderId: number, input: unknown):
       })
       .from(jobsheets)
       .where(and(eq(jobsheets.orderId, orderId), eq(jobsheets.isDeleted, false), eq(jobsheets.status, JOBSHEET_STATUS.ONGOING)))
-      .orderBy(asc(jobsheets.jobsheetNo));
+      .orderBy(asc(jobsheets.fy), asc(jobsheets.jobsheetNo));
 
     const at = new Date().toISOString();
     const created: HoldResult['created'] = [];

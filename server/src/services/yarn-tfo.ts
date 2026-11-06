@@ -29,7 +29,6 @@ import {
 } from '@rivoora/shared';
 import { db, type DbOrTx, type Tx } from '../db/client';
 import {
-  counters,
   tfoMachines,
   tfoPendingPrograms,
   tfoProgramSections,
@@ -42,6 +41,7 @@ import {
   yarnStockMoves,
 } from '../db/schema';
 import { badRequest, conflict, notFound } from '../lib/errors';
+import { currentFy, nextNumber } from '../lib/numbering';
 import { actor, addStock, balanceG, nowIso, qualityNames, reservedG, systemQualityId, takeStock } from './yarn-ledger';
 
 /**
@@ -520,13 +520,9 @@ export async function listPrograms(q: { page: number; limit: number; machineId?:
 async function allocateBoxNos(tx: Tx, n: number): Promise<string[]> {
   const out: string[] = [];
   for (let guard = 0; out.length < n && guard < n + 10_000; guard++) {
-    const [row] = await tx
-      .insert(counters)
-      .values({ name: BOX_NO_COUNTER, value: 1 })
-      .onConflictDoUpdate({ target: counters.name, set: { value: sql`${counters.value} + 1` } })
-      .returning({ value: counters.value });
-    const no = String(row.value);
-    const [taken] = await tx.select({ id: yarnBoxes.id }).from(yarnBoxes).where(sql`lower(${yarnBoxes.boxNo}) = ${no}`).limit(1);
+    const no = String(await nextNumber(tx, BOX_NO_COUNTER));
+    // Sprint 23: boxes restart each financial year — only a number used in this FY is taken.
+    const [taken] = await tx.select({ id: yarnBoxes.id }).from(yarnBoxes).where(sql`lower(${yarnBoxes.boxNo}) = ${no} AND ${yarnBoxes.fy} = ${currentFy()}`).limit(1);
     if (!taken) out.push(no);
   }
   if (out.length < n) throw new Error('Could not allocate box numbers');

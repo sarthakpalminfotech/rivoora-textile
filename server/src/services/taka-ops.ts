@@ -14,8 +14,9 @@ import {
   type TakaStage,
 } from '@rivoora/shared';
 import type { DbOrTx, Tx } from '../db/client';
-import { counters, jobsheets, orders, takaDamages, takaEvents, takas } from '../db/schema';
+import { jobsheets, orders, takaDamages, takaEvents, takas } from '../db/schema';
 import { badRequest } from '../lib/errors';
+import { currentFy, nextNumber, peekNextNumber } from '../lib/numbering';
 import { resolveDamage } from './damages';
 import { recomputeOrderStatus } from './jobsheets';
 
@@ -74,7 +75,7 @@ export async function freeTakasOfClosedOrders(tx: Tx, role: RoleKey, takaIds: re
  * Where each of these taka numbers is used right now (active takas anywhere): number → "#26 (319)" (order number
  * first). `exceptTakaIds` are takas that are part of the same write (an edit may swap / free their numbers).
  */
-export async function usedTakaNumbers(tx: DbOrTx, numbers: readonly string[], exceptTakaIds: readonly number[] = []): Promise<Map<string, string>> {
+export async function usedTakaNumbers(tx: DbOrTx, numbers: readonly string[], exceptTakaIds: readonly number[] = [], fy: string = currentFy()): Promise<Map<string, string>> {
   const used = new Map<string, string>();
   const except = new Set(exceptTakaIds);
   for (const part of chunk([...new Set(numbers.filter(Boolean))])) {
@@ -83,7 +84,7 @@ export async function usedTakaNumbers(tx: DbOrTx, numbers: readonly string[], ex
       .from(takas)
       .innerJoin(jobsheets, eq(jobsheets.id, takas.jobsheetId))
       .innerJoin(orders, eq(orders.id, takas.orderId))
-      .where(and(eq(takas.isDeleted, false), inArray(takas.takaNo, part)));
+      .where(and(eq(takas.isDeleted, false), eq(takas.fy, fy), inArray(takas.takaNo, part)));
     for (const r of rows) if (!except.has(r.id)) used.set(r.takaNo, jobsheetRefShort(r.orderNo, r.jobsheetNo));
   }
   return used;
@@ -95,24 +96,19 @@ const TAKA_COUNTER = 'taka_no';
  * Reserves `n` system-generated taka numbers (11, 12, 13 … never reused) inside the write transaction. Numbers that
  * are already in use (older manual takas) are skipped.
  */
-export async function allocateTakaNumbers(tx: Tx, n: number): Promise<string[]> {
+export async function allocateTakaNumbers(tx: Tx, n: number, fy: string = currentFy()): Promise<string[]> {
   const out: string[] = [];
   while (out.length < n) {
-    const [row] = await tx
-      .insert(counters)
-      .values({ name: TAKA_COUNTER, value: TAKA_NO_START })
-      .onConflictDoUpdate({ target: counters.name, set: { value: sql`${counters.value} + 1` } })
-      .returning({ value: counters.value });
-    const no = String(row.value);
-    if (!(await usedTakaNumbers(tx, [no])).has(no)) out.push(no);
+    // Sprint 23: numbers restart each financial year (the first number of a FY is TAKA_NO_START).
+    const no = String(await nextNumber(tx, TAKA_COUNTER, { fy, first: TAKA_NO_START }));
+    if (!(await usedTakaNumbers(tx, [no], [], fy)).has(no)) out.push(no);
   }
   return out;
 }
 
 /** The next `n` numbers a Taka entry would get right now (read-only; confirmed when the takas are saved). */
 export async function peekTakaNumbers(db: DbOrTx, n: number): Promise<string[]> {
-  const [row] = await db.select({ value: counters.value }).from(counters).where(eq(counters.name, TAKA_COUNTER));
-  let next = row ? row.value + 1 : TAKA_NO_START;
+  let next = await peekNextNumber(db, TAKA_COUNTER, { first: TAKA_NO_START });
   const out: string[] = [];
   while (out.length < n) {
     const window = Array.from({ length: n + 20 }, (_, i) => String(next + i));
@@ -276,12 +272,7 @@ export async function ancestorHasBeenToMill(tx: DbOrTx, parentTakaId: number | n
  */
 export async function nextDummyTakaNo(tx: Tx): Promise<string> {
   for (;;) {
-    const [row] = await tx
-      .insert(counters)
-      .values({ name: DUMMY_TAKA_COUNTER, value: 1 })
-      .onConflictDoUpdate({ target: counters.name, set: { value: sql`${counters.value} + 1` } })
-      .returning({ value: counters.value });
-    const no = formatDummyTakaNo(row.value);
+    const no = formatDummyTakaNo(await nextNumber(tx, DUMMY_TAKA_COUNTER));
     if (!(await usedTakaNumbers(tx, [no])).has(no)) return no;
   }
 }
