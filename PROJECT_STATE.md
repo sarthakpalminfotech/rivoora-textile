@@ -1162,3 +1162,12 @@ Meter free stock, dummy taka numbers (D01 …), manual Add / Remove stock with a
 - Verified on a local file DB: `npm run typecheck` clean, `npm test` 461 passing, `npm run build` OK, `node scripts/check-sprint22.mjs` all checks pass.
 - **Turso**: migration `0023_fuzzy_weapon_omega.sql` (7 new tables, additive) — apply after 0022 (Sprint 21). Export a backup first.
 - Not done: lot print; browser / screenshot pass at 360 / 820 / 1180 / 1440 px.
+
+### Sprint 23 (built on branch `sprint-23`, on top of sprint-22, not deployed) — current as of 2026-11-06
+
+Phase A: every automatic number restarts each financial year (1 April, IST) — live numbering continues unchanged until 1 April 2027; `fy` on the 12 numbered tables, per-FY unique indexes, one number helper, lookups "current year first, then older" with a "Which one?" picker, QR `/j/<fy>/<no>` (old `/j/<no>` still works). Phase B: QC login limits — allowed places + login hours + extra time per QC user, location checked at login and every 5 minutes, automatic logout at the end time, Settings → QC login limits screen, login log and change history. Details: "Sprint 23" in CLAUDE.md and `docs/plans/sprint-23-plan.md`.
+
+- Verified on a local file DB: `npm run typecheck` clean, `npm test` 479 passing, `npm run build` OK; `node scripts/check-sprint23.mjs` all checks pass (QC limits + simulated FY 2027-28 and 2028-29 servers); `check-sprint21`, `check-sprint22` and `check-auth` still pass on the same DB.
+- Bug found and fixed by the FY simulation: Drizzle used the constant `fy` DDL default before the FY function, so new rows would have stayed 2026-27 after April 2027 (fixed once in `server/src/db/client.ts`).
+- **Turso**: migrations `0024_easy_red_hulk.sql` (backfill `fy` + DROP / recreate 13 unique indexes as per-FY) and `0025_tiresome_tarot.sql` (additive) — apply after 0022 and 0023. Export a backup first. Not applied.
+- Not done: real-phone GPS check of the QC login; screenshot pass of the Settings screen at 360 / 820 / 1180 / 1440 px.
