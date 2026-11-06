@@ -14,7 +14,7 @@ import {
 import { cn } from "@/lib/utils";
 import { OrderStepsTag } from "../order-steps-tag";
 import { OutsideOrderTag } from "../outside-order-tag";
-import { OrderTypeTag } from "../order-type-tag";
+import { FgTypeTag, OrderTypeTag } from "../order-type-tag";
 import { BlouseTag } from '../../free-stock/blouse';
 import { HoldButtons, ON_HOLD_HINT, OnHoldBadge } from '../hold/hold-order';
 
@@ -223,6 +223,7 @@ export function OrderHeader({
             <h2 className="text-2xl font-bold leading-tight text-slate-900 md:text-[28px]">
               Order {formatOrderNo(order.orderNo)}
             </h2>
+            <FgTypeTag type={order.fgType} className="text-xs" />
             <OrderTypeTag type={order.orderType} className="text-xs" />
             <BlouseTag option={order.blouseOption} />
             <OrderStepsTag steps={order} />

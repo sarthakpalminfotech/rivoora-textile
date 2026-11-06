@@ -180,3 +180,47 @@ export const canReadyDispatch = (t: Pick<GodownTakaLike, 'stage' | 'checked'>) =
 export function readyDispatchBlockers<T extends GodownTakaLike>(takas: readonly T[]): T[] {
   return takas.filter((t) => !canReadyDispatch(t));
 }
+
+/* ---------- Sprint 21 (CR-08): shrinkage = metres reduced by Dhruvil in the godown ---------- */
+
+export interface OrderShrinkage {
+  /** Takas that have metres (the others are left out of both sides). */
+  takaCount: number;
+  expectedMeters: number;
+  actualMeters: number;
+  /** Σ max(expected − actual, 0) over takas whose actual metres were changed. */
+  shrinkage: number;
+  /** Σ max(actual − expected, 0): an increase is not shrinkage, shown separately. */
+  gain: number;
+  /** shrinkage ÷ expected × 100, one decimal (0 when nothing is expected). */
+  shrinkagePct: number;
+}
+
+/** The order's metres: expected (what taka entry / the receipt wrote) vs actual (corrected in the godown). */
+export function orderShrinkage(takas: readonly { meters?: number | null; actualMeters?: number | null }[]): OrderShrinkage {
+  const r2 = (n: number) => Math.round(n * 100) / 100;
+  let count = 0;
+  let expected = 0;
+  let actual = 0;
+  let shrink = 0;
+  let gain = 0;
+  for (const t of takas) {
+    if (t.meters == null) continue; // no metres: left out of both sides
+    count += 1;
+    expected += t.meters;
+    const a = t.actualMeters ?? t.meters;
+    actual += a;
+    if (t.actualMeters != null) {
+      if (a < t.meters) shrink += t.meters - a;
+      else if (a > t.meters) gain += a - t.meters;
+    }
+  }
+  return {
+    takaCount: count,
+    expectedMeters: r2(expected),
+    actualMeters: r2(actual),
+    shrinkage: r2(shrink),
+    gain: r2(gain),
+    shrinkagePct: expected > 0 ? Math.round((shrink / expected) * 1000) / 10 : 0,
+  };
+}

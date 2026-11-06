@@ -1,4 +1,4 @@
-import { CheckCircle2, ClipboardCheck, PackageCheck, PenLine, Plus, SearchX } from 'lucide-react';
+import { CheckCircle2, ClipboardCheck, PackageCheck, PenLine, Pencil, Plus, SearchX } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { JOBSHEET_STATUS, jobsheetRef, TAKA_TABS, type TakaJobsheetItem, type TakaTab } from '@rivoora/shared';
@@ -16,6 +16,7 @@ import { Bi, bi } from '@/lib/bilingual';
 import { cn } from '@/lib/utils';
 import { FramesValue, machineNumbers } from '../jobsheets/parts';
 import { useTakaJobsheets } from './api';
+import { OwnEditTakasDialog } from './own-edit-takas-dialog';
 
 const TAB_LABEL: Record<TakaTab, { en: string; hi: string }> = {
   pending: { en: 'Taka pending', hi: 'टाका बाकी' },
@@ -54,7 +55,7 @@ function TakaCount({ js }: { js: TakaJobsheetItem }) {
   );
 }
 
-function JobsheetTile({ js, tab, onOpen }: { js: TakaJobsheetItem; tab: TakaTab; onOpen: () => void }) {
+function JobsheetTile({ js, tab, onOpen, onEdit }: { js: TakaJobsheetItem; tab: TakaTab; onOpen: () => void; onEdit: () => void }) {
   return (
     <article
       role="button"
@@ -98,7 +99,21 @@ function JobsheetTile({ js, tab, onOpen }: { js: TakaJobsheetItem; tab: TakaTab;
         {js.takaCount > 0 && <TakaCount js={js} />}
       </div>
 
-      <div className="border-t border-border p-3">
+      <div className="flex flex-col gap-2 border-t border-border p-3">
+        {tab === 'done' && js.editableCount > 0 && (
+          <Button
+            size="lg"
+            variant="secondary"
+            className="h-auto min-h-12 w-full py-1.5"
+            onClick={(e) => {
+              e.stopPropagation();
+              onEdit();
+            }}
+          >
+            <Pencil />
+            <Bi en="Edit takas" hi="टाका बदलें" className="items-start" />
+          </Button>
+        )}
         <Button
           size="lg"
           variant={tab === 'done' ? 'secondary' : 'primary'}
@@ -183,6 +198,7 @@ export default function TakaJobsheetsPage() {
   const tab: TakaTab = isTab(params.get('tab')) ? (params.get('tab') as TakaTab) : 'pending';
   const [searchText, setSearchText] = useState(params.get('q') ?? '');
   const search = useDebounce(searchText, 300).trim();
+  const [editId, setEditId] = useState<number | null>(null);
 
   // Tab + search live in the URL so opening a jobsheet and coming back keeps them.
   useEffect(() => {
@@ -286,7 +302,7 @@ export default function TakaJobsheetsPage() {
           <ul className={cn(GRID, query.isPlaceholderData && 'opacity-60 transition-opacity')}>
             {items.map((js) => (
               <li key={js.id} className="min-w-0">
-                <JobsheetTile js={js} tab={tab} onOpen={() => open(js)} />
+                <JobsheetTile js={js} tab={tab} onOpen={() => open(js)} onEdit={() => setEditId(js.id)} />
               </li>
             ))}
           </ul>
@@ -301,6 +317,7 @@ export default function TakaJobsheetsPage() {
           />
         </>
       )}
+      <OwnEditTakasDialog jobsheetId={editId} onClose={() => setEditId(null)} />
     </div>
   );
 }

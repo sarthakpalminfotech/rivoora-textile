@@ -80,10 +80,10 @@ function DeliveryRow({ c, onOpen }: { c: OrderDeliveryChallan; onOpen: () => voi
       <span
         className={cn(
           'inline-flex w-fit items-center gap-1 rounded-full px-2.5 py-1 text-xs font-bold',
-          revised ? 'bg-slate-200 text-slate-600' : 'bg-green-100 text-green-700',
+          c.status === 'cancelled' ? 'bg-red-100 text-red-700' : revised ? 'bg-slate-200 text-slate-600' : 'bg-green-100 text-green-700',
         )}
       >
-        {revised ? 'Revised' : 'Active'}
+        {c.status === 'cancelled' ? 'Cancelled' : revised ? 'Revised' : 'Active'}
       </span>
     </li>
   );

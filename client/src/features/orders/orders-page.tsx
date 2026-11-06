@@ -5,7 +5,8 @@ import { toast } from 'sonner';
 import { STATUS, type OrderListItem } from '@rivoora/shared';
 import { OrderStepsTag } from './order-steps-tag';
 import { OutsideOrderTag } from './outside-order-tag';
-import { OrderTypeTag } from './order-type-tag';
+import { FgTypeTag, OrderTypeTag } from './order-type-tag';
+import { useOverdueOrderIds } from '../alerts/alerts-page';
 import { usePageTitle } from '@/components/layout/page-title';
 import { ErrorState, Fab, FetchingIndicator, LoadMore, SearchBar } from '@/components/list-parts';
 import { Button } from '@/components/ui/button';
@@ -87,6 +88,7 @@ export default function OrdersPage() {
   usePageTitle('Orders');
   const navigate = useNavigate();
   const { can } = useRole();
+  const overdueIds = useOverdueOrderIds();
   const canAdd = can('canAddOrder');
   const canSend = can('canSendToProduction');
 
@@ -284,6 +286,7 @@ export default function OrdersPage() {
                         <span className="flex min-w-0 flex-wrap items-center justify-end gap-1">
                           <StatusBadge status={o.status} className="min-w-0" />
                           {o.isOnHold && <OnHoldBadge />}
+                          {overdueIds.has(o.id) && <span className="inline-flex items-center rounded-full bg-red-600 px-2 py-0.5 text-[11px] font-bold text-white">Overdue</span>}
                         </span>
                       </div>
                       <div className="mt-3 flex items-center gap-3">
@@ -312,6 +315,7 @@ export default function OrdersPage() {
                         <Field label="Quantity" value={formatQuantity(o.quantity, o.unit)} />
                         <Field label="Date" value={formatDate(o.orderDate)} />
                         <div className="flex flex-wrap items-end gap-1.5 pb-0.5">
+                          <FgTypeTag type={o.fgType} />
                           <OrderTypeTag type={o.orderType} />
                           <BlouseTag option={o.blouseOption} />
                           <OrderStepsTag steps={o} />

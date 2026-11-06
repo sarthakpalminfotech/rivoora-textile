@@ -1,5 +1,6 @@
 import { and, desc, eq, sql, type SQL } from 'drizzle-orm';
 import { buttaListQuerySchema, isMeterOrder, nextTakaStage, qcSubmitSchema, type ButtaListQuery, type QcPendingPage, type QcResult, type RoleKey } from '@rivoora/shared';
+import { recordQcRun, snapshotDamages } from './qc-runs';
 import { db } from '../db/client';
 import { challanTakas, challans, orders, takas } from '../db/schema';
 import { conflict, notFound } from '../lib/errors';
@@ -88,6 +89,7 @@ export async function submitQc(role: RoleKey, takaId: number, input: unknown): P
     }
 
     const at = now();
+    const qcBefore = await snapshotDamages(tx, takaId);
     // Meters / pcs, the decision on every open damage and the new butta damages (+ photos).
     const { events, resolved, kept, added } = await applyQcChanges(
       tx,
@@ -125,6 +127,7 @@ export async function submitQc(role: RoleKey, takaId: number, input: unknown): P
       .set({ qcDoneAt: at, updatedAt: at })
       .where(and(eq(challanTakas.takaId, takaId), eq(challanTakas.kind, 'butta'), eq(challanTakas.isActive, true)));
     events.push({ takaId, event: 'butta_qc_done', note: moved[0].isDamaged ? 'Damaged' : 'Fresh' });
+    await recordQcRun(tx, role, { takaId, kind: 'butta', result: nextStage, before: qcBefore, stageBefore: 'butta_qc', refinishCountBefore: taka.refinishCount });
     // Sprint 16: a taka of a CLOSED order becomes free stock once it is back.
     await freeTakasOfClosedOrders(tx, role, [takaId], at, events);
     await writeTakaEvents(tx, role, events);

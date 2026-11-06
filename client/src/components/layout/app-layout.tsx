@@ -8,6 +8,7 @@ import { Bi } from '@/lib/bilingual';
 import { cn } from '@/lib/utils';
 import { isMasterPath, navItemsFor, type NavItem } from './nav-items';
 import { usePageTitleValue } from './page-title';
+import { AlertsNavBadge } from '@/features/alerts/alerts-page';
 import { ProfileMenu, RoleTag } from './profile-menu';
 import { PageSkeleton } from './page-skeleton';
 
@@ -50,6 +51,7 @@ function Sidebar() {
           >
             <Icon className="size-5 shrink-0" aria-hidden />
             <span className="min-w-0">{hi ? <Bi en={label} hi={hi} hiClassName="text-[13px]" /> : label}</span>
+            {to === '/alerts' && <AlertsNavBadge />}
           </NavLink>
         ))}
       </nav>
@@ -130,6 +132,7 @@ function MoreSheet({ items, open, onOpenChange }: { items: NavItem[]; open: bool
                   <Icon className="size-5" aria-hidden />
                 </span>
                 <span className="flex-1">{label}</span>
+                {to === '/alerts' && <AlertsNavBadge />}
                 <ChevronRight className="size-4 text-slate-400" aria-hidden />
               </Link>
             </li>

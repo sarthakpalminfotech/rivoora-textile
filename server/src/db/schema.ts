@@ -21,6 +21,7 @@ import type {
   JobsheetStatusKey,
   OrderStatusKey,
   OrderType,
+  FgType,
   PoStatus,
   PoUnit,
   ReceiptKind,
@@ -219,6 +220,8 @@ export const orders = sqliteTable(
     brokerId: integer('broker_id').references(() => customerBrokers.id),
     /** `lump` | `pcs_to_pcs` — required on new orders; existing orders were backfilled as `pcs_to_pcs`. */
     orderType: text('order_type').$type<OrderType>().notNull().default('pcs_to_pcs'),
+    /** Sprint 21 (CR-01): `saree` | `suit`; every existing order is a Saree. */
+    fgType: text('fg_type').$type<FgType>().notNull().default('saree'),
     /** Sprint 13: optional blouse option (`with_blouse` | `without_blouse`); null = not set. */
     blouseOption: text('blouse_option').$type<BlouseOption>(),
     /** Sprint 18: "Outside order" — made for another party (typed name, no master). Not Sprint 16's outside production. */
@@ -314,7 +317,7 @@ export const orderEvents = sqliteTable(
     orderId: integer('order_id')
       .notNull()
       .references(() => orders.id, { onDelete: 'cascade' }),
-    event: text('event').$type<'steps_changed' | 'order_closed'>().notNull(),
+    event: text('event').$type<'steps_changed' | 'order_closed' | 'fg_type_changed' | 'dispatch_undone'>().notNull(),
     note: text('note'),
     role: text('role').$type<RoleKey>().notNull(),
     userId: integer('user_id'),
@@ -526,6 +529,8 @@ export const takas = sqliteTable(
     godownCheckedBy: text('godown_checked_by').$type<RoleKey>(),
     /** Sprint 12: how many times the owner sent the taka back to butta cutting. */
     reworkCount: integer('rework_count').notNull().default(0),
+    /** Sprint 21 (CR-09): the stage a taka had before the owner sent it back (butta / mill) — Undo send back returns it there. */
+    stageBeforeRework: text('stage_before_rework').$type<TakaStage>(),
     /** Sprint 12: set when the taka came back from a customer (GR) — and from which dispatch challan. */
     returnedAt: text('returned_at'),
     returnedFromChallanId: integer('returned_from_challan_id'),
@@ -686,6 +691,33 @@ export const takaEvents = sqliteTable(
   (t) => [index('taka_events_taka_idx').on(t.takaId)],
 );
 
+/**
+ * Sprint 21 (C6): what each Butta QC / Mill QC submit changed, so the QC result can be undone exactly (damages added are
+ * deleted, damages resolved are reopened with their old pcs / metres). `changes` = JSON, see services/qc-runs.ts.
+ */
+export const qcRuns = sqliteTable(
+  'qc_runs',
+  {
+    id: id(),
+    takaId: integer('taka_id')
+      .notNull()
+      .references(() => takas.id),
+    kind: text('kind').$type<'butta' | 'mill'>().notNull(),
+    /** The stage the taka moved to: `waiting_mill` | `final` | `refinish`. */
+    result: text('result').$type<TakaStage>().notNull(),
+    changes: text('changes').notNull(),
+    doneByRole: text('done_by_role').$type<RoleKey>().notNull(),
+    doneByUserId: integer('done_by_user_id'),
+    undoneAt: text('undone_at'),
+    undoneByRole: text('undone_by_role').$type<RoleKey>(),
+    undoneByUserId: integer('undone_by_user_id'),
+    undoneReason: text('undone_reason'),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index('qc_runs_taka_idx').on(t.takaId)],
+);
+
 /** Butta parties (outsourced butta cutting). The name is printed as "M/s. …" on the challan. */
 export const buttaParties = sqliteTable(
   'butta_parties',
@@ -734,6 +766,10 @@ export const challans = sqliteTable(
     /** yyyy-MM-dd */
     challanDate: text('challan_date').notNull(),
     ewayNo: text('eway_no'),
+    /** Sprint 21 (C3): transport, vehicle number and notes — editable while the challan is active. */
+    transport: text('transport'),
+    vehicleNo: text('vehicle_no'),
+    notes: text('notes'),
     /** Mill challans: how many takas the godown supervisor counted as received (just a count; the QC finds out which). */
     receivedCount: integer('received_count').notNull().default(0),
     status: text('status').$type<ChallanStatus>().notNull().default('active'),
@@ -748,6 +784,24 @@ export const challans = sqliteTable(
     index('challans_party_idx').on(t.kind, t.partyId),
     index('challans_status_idx').on(t.status),
   ],
+);
+
+/** Sprint 21 (C3/C4): history lines of a butta / mill challan (edited, taka removed, taka lost, lost undone). */
+export const challanEvents = sqliteTable(
+  'challan_events',
+  {
+    id: id(),
+    challanId: integer('challan_id')
+      .notNull()
+      .references(() => challans.id),
+    event: text('event').$type<'edited' | 'taka_removed' | 'taka_lost' | 'lost_undone'>().notNull(),
+    note: text('note'),
+    role: text('role').$type<RoleKey>().notNull(),
+    userId: integer('user_id'),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index('challan_events_challan_idx').on(t.challanId)],
 );
 
 /**
@@ -779,6 +833,9 @@ export const challanTakas = sqliteTable(
     receivedBy: text('received_by').$type<RoleKey>(),
     /** Butta QC completed. */
     qcDoneAt: text('qc_done_at'),
+    /** Sprint 21 (C4): Gaurang marked this taka lost / short at the party — the row is settled, the taka has stage `lost`. */
+    lostAt: text('lost_at'),
+    lostBy: text('lost_by').$type<RoleKey>(),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
@@ -814,8 +871,14 @@ export const dispatchChallans = sqliteTable(
     transport: text('transport'),
     lrNo: text('lr_no'),
     ewayNo: text('eway_no'),
-    /** active = the latest revision · revised = replaced by a later revision (kept for history). */
-    status: text('status').$type<'active' | 'revised'>().notNull().default('active'),
+    /** Sprint 21 (G2): vehicle number and notes — editable on an active challan. */
+    vehicleNo: text('vehicle_no'),
+    notes: text('notes'),
+    /** active = the latest revision · revised = replaced by a later revision (kept for history) · cancelled = dispatch undone (Sprint 21). */
+    status: text('status').$type<'active' | 'revised' | 'cancelled'>().notNull().default('active'),
+    cancelledAt: text('cancelled_at'),
+    cancelledBy: text('cancelled_by').$type<RoleKey>(),
+    cancelledReason: text('cancelled_reason'),
     createdBy: text('created_by').$type<RoleKey>().notNull(),
     createdByUserId: integer('created_by_user_id'),
     createdAt: createdAt(),
@@ -826,6 +889,24 @@ export const dispatchChallans = sqliteTable(
     index('dispatch_challans_order_idx').on(t.orderId),
     index('dispatch_challans_status_idx').on(t.status),
   ],
+);
+
+/** Sprint 21 (G1/G2): history of a delivery challan (edited, dispatch undone). */
+export const dispatchChallanEvents = sqliteTable(
+  'dispatch_challan_events',
+  {
+    id: id(),
+    challanId: integer('challan_id')
+      .notNull()
+      .references(() => dispatchChallans.id),
+    event: text('event').$type<'edited' | 'dispatch_undone'>().notNull(),
+    note: text('note'),
+    role: text('role').$type<RoleKey>().notNull(),
+    userId: integer('user_id'),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index('dispatch_challan_events_challan_idx').on(t.challanId)],
 );
 
 /** The takas of a dispatch challan revision, with the taka number / meters / pcs AT THE TIME of dispatch. */

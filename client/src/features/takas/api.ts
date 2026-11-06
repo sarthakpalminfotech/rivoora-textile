@@ -1,10 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type {
   JobsheetByNo,
+  OrderShrinkage,
   OrderTakas,
   TakaDetail,
   TakaEditInput,
   TakaEditResult,
+  TakaOwnEditData,
+  TakaOwnEditInput,
   TakaEntryInput,
   TakaEntryResult,
   TakaNextNumbers,
@@ -13,6 +16,7 @@ import type {
   TakaJobsheetPage,
   TakaTab,
   SendBackResult,
+  UndoSendBackResult,
 } from '@rivoora/shared';
 import { useInfiniteList } from '@/hooks/useInfiniteList';
 import { api } from '@/lib/api';
@@ -117,6 +121,48 @@ export function useSendBackTakas(orderId: number) {
   return useMutation({
     mutationFn: (data: { takaIds: number[]; target: 'butta' | 'mill'; note?: string }) =>
       api.post<SendBackResult>(`/orders/${orderId}/takas/send-back`, data),
+    onSuccess: () => invalidateAfterWrite(qc, orderId),
+  });
+}
+
+/** Sprint 21 (CR-06): the Taka entry person's own edit — the takas + which are still editable. */
+export function useOwnEditData(jobsheetId: number, enabled: boolean) {
+  return useQuery({
+    queryKey: ['takas', 'own-edit', jobsheetId] as const,
+    queryFn: ({ signal }) => api.get<TakaOwnEditData>(`/jobsheets/${jobsheetId}/takas/entry`, undefined, signal),
+    enabled: enabled && jobsheetId > 0,
+    staleTime: 0,
+    gcTime: 0,
+  });
+}
+
+export function useEditOwnTakas(jobsheetId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    meta: { silentFieldErrors: true },
+    mutationFn: (data: TakaOwnEditInput) => api.put<TakaEditResult>(`/jobsheets/${jobsheetId}/takas/entry`, data),
+    onSuccess: (res) => {
+      invalidateAfterWrite(qc, res.orderId);
+      void qc.invalidateQueries({ queryKey: ['lookup', 'damages'] });
+      void qc.invalidateQueries({ queryKey: ['damages'] });
+    },
+  });
+}
+
+/** Sprint 21 (CR-08): expected vs actual metres of the order (Order details tab). */
+export function useOrderShrinkage(orderId: number, enabled = true) {
+  return useQuery({
+    queryKey: ['takas', 'order', orderId, 'shrinkage'] as const,
+    queryFn: ({ signal }) => api.get<OrderShrinkage>(`/orders/${orderId}/shrinkage`, undefined, signal),
+    enabled: enabled && orderId > 0,
+  });
+}
+
+/** Sprint 21 (CR-09): undo a send back (until the taka is on a challan). */
+export function useUndoSendBack(orderId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { takaIds: number[]; reason: string }) => api.post<UndoSendBackResult>(`/orders/${orderId}/takas/undo-send-back`, data),
     onSuccess: () => invalidateAfterWrite(qc, orderId),
   });
 }

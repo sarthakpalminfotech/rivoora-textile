@@ -85,7 +85,7 @@ into **More**.
 | ORD-05 | Change steps | ✅ | ✅ | ✖ | ✖ | ✖ | ✖ | ✖ |
 | ORD-06 | Send for production | ✅ | ✖ | ✖ | ✖ | ✖ | ✖ | ✖ |
 | ORD-07 | Undo send for production | ✅ | ✖ | ✖ | ✖ | ✖ | ✖ | ✖ |
-| HLD-01, HLD-02 | Hold / release | ✅ | ✖ | ✖ | ✖ | ✖ | ✖ | ✖ |
+| HLD-01, HLD-02 | Hold / release (Sprint 21: Gaurang holds too) | ✅ | ✅ | ✖ | ✖ | ✖ | ✖ | ✖ |
 | HLD-03, HLD-04 | Close order | ✅ | ✅ | ✖ | ✖ | ✖ | ✖ | ✖ |
 
 ### Order details tabs
@@ -228,7 +228,7 @@ Generated from `shared/src/roles.ts` by `scratchpad/roles-matrix.mts` (command i
 | `canMarkFresh` | ✅ | ✅ | · | · | · | · | · |
 | `canSwitchRoles` | ✅ | ✅ | · | · | · | · | · |
 | `canManageUsers` | ✅ | ✅ | · | · | · | · | · |
-| `canHoldOrder` | ✅ | · | · | · | · | · | · |
+| `canHoldOrder` | ✅ | ✅ (Sprint 21) | · | · | · | · | · |
 | `canSeeHeldOrders` | ✅ | ✅ | · | · | · | · | · |
 | `canViewGodownOrders` | · | · | · | · | ✅ | · | · |
 | `canEditOrderSteps` | ✅ | ✅ | · | · | · | · | · |
@@ -249,7 +249,8 @@ The Yarn inventory supervisor (`yarn_supervisor`, Sprint 20) has exactly `canVie
 | `canManageDesigns` | ✅ | ✅ | · | · | · | · | · |
 
 **Notes on the matrix**
-- Gaurang may **Close** an order but not **Hold** it, and may edit an order he can't add or send for production.
+- Sprint 21: Gaurang may now **Hold** too. New permissions: `canEditOwnTakaEntry` (Taka entry), `canUndoQc` (Jenish, Gaurang, Supervisor), `canEditChallan` (Jenish, Gaurang, Godown supervisor), `canMarkLostAtParty` (Gaurang), `canUndoDispatch` (Jenish, Gaurang, Dhruvil), `canViewAlerts` (Jenish, Gaurang, Supervisor).
+- Gaurang may **Close** an order, and may edit an order he can't add or send for production.
 - `canViewTakas` is on for Taka entry, but he only sees takas on his own entry screen (no Orders access).
 - `canUseGodownOrders` is on for Jenish / Gaurang, but the godown Orders item is hidden from their nav (`hideWith: canViewOrders`).
 - QC has no list of pending work (the pending endpoints exist but the screen was removed).

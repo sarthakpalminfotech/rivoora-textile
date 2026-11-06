@@ -3,6 +3,7 @@ import { MAX_PASSWORD_LENGTH, MIN_PASSWORD_LENGTH } from './auth';
 import { ROLE_KEYS } from './roles';
 import { normalizeCode } from './codes';
 import { ORDER_TYPES } from './orderTypes';
+import { FG_TYPES } from './fgTypes';
 import { BLOUSE_FILTERS, BLOUSE_OPTIONS, CHOOSABLE_DAMAGE_TYPES } from './freeStock';
 import { UNITS } from './units';
 import { workFilterQueryFields } from './workFilters';
@@ -178,6 +179,8 @@ const orderBaseShape = {
       required_error: 'Pick the order type',
       invalid_type_error: 'Pick the order type',
     }),
+    /** Sprint 21 (CR-01): Saree | Suit. An old client that sends none gets Saree. */
+    fgType: z.enum(FG_TYPES, { invalid_type_error: 'Pick Saree or Suit' }).default('saree'),
     /** Sprint 13: optional blouse option; null = not set. */
     blouseOption: z.enum(BLOUSE_OPTIONS).nullish().transform((v) => v ?? null),
     /** Sprint 18: Outside order — made for another party; the party name is then required (typed, no master). */
@@ -234,6 +237,8 @@ export type OrderCreateInput = z.input<typeof orderCreateSchema>;
 export const orderUpdateSchema = z
   .object({
     ...orderBaseShape,
+    /** Sprint 21: omitted = keep the order's current FG type. */
+    fgType: z.enum(FG_TYPES, { invalid_type_error: 'Pick Saree or Suit' }).optional(),
     hasProduction: stepFlag.optional(),
     hasButta: stepFlag.optional(),
     hasMill: stepFlag.optional(),
@@ -258,6 +263,7 @@ const ongoingEntry = z
 /** POST /orders/:id/close — an optional note + "Frames completed" for every jobsheet on the loom (like Hold). */
 export const orderCloseSchema = z.object({
   note: optText(300),
+  /** Sprint 21: ignored (a close needs no loom jobsheet any more); old clients may still send it. */
   ongoing: z.array(ongoingEntry).max(500).default([]),
 });
 export type OrderCloseInput = z.input<typeof orderCloseSchema>;
@@ -387,9 +393,8 @@ const metersDone = z
 export const jobsheetStartSchema = z.object({ machineId });
 export type JobsheetStartInput = z.input<typeof jobsheetStartSchema>;
 
-export const jobsheetCompleteSchema = z
-  .object({ completedFrames: framesDone.optional(), completedMeters: metersDone.optional() })
-  .refine((v) => v.completedFrames !== undefined || v.completedMeters !== undefined, { message: 'Enter the frames completed', path: ['completedFrames'] });
+/** Sprint 21: Complete takes no quantity any more (frames come from the taka entry); old clients' fields are ignored. */
+export const jobsheetCompleteSchema = z.object({ completedFrames: framesDone.optional(), completedMeters: metersDone.optional() });
 export type JobsheetCompleteInput = z.input<typeof jobsheetCompleteSchema>;
 
 export const jobsheetChangeMachineSchema = z
@@ -563,6 +568,25 @@ export const takaEditSchema = z.object({
   receiptId: z.number().int().positive().optional(),
 });
 export type TakaEditInput = z.input<typeof takaEditSchema>;
+
+/**
+ * PUT /jobsheets/:id/takas/entry (Sprint 21, the Taka entry person): like Edit takas but with no taka number — existing
+ * takas keep theirs, new rows get the next automatic numbers.
+ */
+export const takaOwnEditSchema = z.object({
+  takas: z
+    .array(
+      z.object({
+        id: z.number().int().positive().optional(),
+        meters: takaMeters,
+        pcs: takaPcs.nullish().transform((v) => v ?? null),
+        damages: z.array(takaEditDamage).max(MAX_DAMAGES_PER_TAKA, `At most ${MAX_DAMAGES_PER_TAKA} damages per taka`).default([]),
+      }),
+    )
+    .max(MAX_TAKAS_PER_JOBSHEET, `At most ${MAX_TAKAS_PER_JOBSHEET} takas per jobsheet`),
+  note: takaNote,
+});
+export type TakaOwnEditInput = z.input<typeof takaOwnEditSchema>;
 
 export const TAKA_TABS = ['pending', 'done'] as const;
 export type TakaTab = (typeof TAKA_TABS)[number];
@@ -838,6 +862,19 @@ const takaIdList = (what: string) =>
     .max(2000)
     .transform((ids) => [...new Set(ids)]);
 
+/** Sprint 21: the reason every undo / remove / lost action asks for (min 3, max 300 characters). */
+export const REASON_MIN = 3;
+export const REASON_MAX = 300;
+export const reasonField = z
+  .string({ required_error: 'Write the reason' })
+  .trim()
+  .min(REASON_MIN, `Write at least ${REASON_MIN} characters`)
+  .max(REASON_MAX, `At most ${REASON_MAX} characters`);
+
+/** POST /orders/:id/takas/undo-send-back (Sprint 21, CR-09) */
+export const undoSendBackSchema = z.object({ takaIds: takaIdList('taka'), reason: reasonField });
+export type UndoSendBackInput = z.input<typeof undoSendBackSchema>;
+
 /** POST /orders/:id/takas/send-back */
 export const sendBackSchema = z.object({
   takaIds: takaIdList('taka'),
@@ -952,12 +989,14 @@ const receiptDamage = qcNewDamageSchema;
 
 /** One received taka: the weaver's / supplier's number (required), OUR number (optional), pcs, meters, damages. */
 export const receiptRowSchema = z.object({
+  /** Sprint 21: optional — our own number is automatic. '' = none typed. */
   weaverTakaNo: z
-    .string({ required_error: 'Enter the weaver taka number' })
+    .string()
     .trim()
-    .min(1, 'Enter the weaver taka number')
     .max(TAKA_NO_MAX_LENGTH - 4, 'Too long')
-    .regex(WEAVER_TAKA_NO_REGEX, 'Use digits, - or / only'),
+    .refine((v) => v === '' || WEAVER_TAKA_NO_REGEX.test(v), 'Use digits, - or / only')
+    .nullish()
+    .transform((v) => v ?? ''),
   ourTakaNo: z
     .string()
     .trim()
@@ -1012,3 +1051,36 @@ export const dispatchedListQuerySchema = z.object({
   status: z.enum(DISPATCHED_STATUS_FILTERS).optional().catch(undefined),
 });
 export type DispatchedListQuery = z.infer<typeof dispatchedListQuerySchema>;
+
+/** POST /qc-corrections/:takaId/undo-qc and /cancel-refinish (Sprint 21) */
+export const reasonOnlySchema = z.object({ reason: reasonField });
+export type ReasonOnlyInput = z.input<typeof reasonOnlySchema>;
+
+/** PUT /butta|mill/challans/:id (Sprint 21, C3) — header fields of an active challan. */
+export const challanEditSchema = z.object({
+  partyId: z.number({ required_error: 'Select the party', invalid_type_error: 'Select the party' }).int().positive('Select the party'),
+  challanDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date'),
+  ewayNo: optText(40),
+  transport: optText(80),
+  vehicleNo: optText(40),
+  notes: optText(300),
+});
+export type ChallanEditInput = z.input<typeof challanEditSchema>;
+
+/** POST /butta|mill/challans/:id/remove-taka and /mark-lost and /undo-lost (Sprint 21, C3/C4) */
+export const challanTakaReasonSchema = z.object({
+  takaId: z.number().int().positive('Pick the taka'),
+  reason: reasonField,
+});
+export type ChallanTakaReasonInput = z.input<typeof challanTakaReasonSchema>;
+
+/** PUT /dispatch/challans/:id (Sprint 21, C7) — header fields of an active delivery challan; no new revision. */
+export const dispatchChallanEditSchema = z.object({
+  challanDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date'),
+  transport: optText(80),
+  lrNo: optText(40),
+  ewayNo: optText(40),
+  vehicleNo: optText(40),
+  notes: optText(300),
+});
+export type DispatchChallanEditInput = z.input<typeof dispatchChallanEditSchema>;

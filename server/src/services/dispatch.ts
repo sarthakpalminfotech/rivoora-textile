@@ -2,6 +2,10 @@ import { and, asc, desc, eq, inArray, sql, type SQL } from 'drizzle-orm';
 import {
   can,
   compareTakaNo,
+  dispatchChallanEditSchema,
+  reasonOnlySchema,
+  ROLES,
+  type UndoDispatchResult,
   DISPATCH_COUNTER,
   dispatchChallanLabel,
   dispatchedListQuerySchema,
@@ -38,14 +42,17 @@ import {
   customerBrokers,
   customers,
   designs,
+  dispatchChallanEvents,
   dispatchChallanTakas,
   dispatchChallans,
   goodsReturnTakas,
   goodsReturns,
   jobsheets,
   materials,
+  orderEvents,
   orders,
   takas,
+  users,
 } from '../db/schema';
 import { badRequest, conflict, notFound } from '../lib/errors';
 import { currentUserId } from '../lib/request-context';
@@ -156,6 +163,10 @@ export async function getDispatchChallan(id: number): Promise<DispatchChallanDet
         transport: dispatchChallans.transport,
         lrNo: dispatchChallans.lrNo,
         ewayNo: dispatchChallans.ewayNo,
+        vehicleNo: dispatchChallans.vehicleNo,
+        notes: dispatchChallans.notes,
+        cancelledAt: dispatchChallans.cancelledAt,
+        cancelledReason: dispatchChallans.cancelledReason,
         createdAt: dispatchChallans.createdAt,
         orderId: orders.id,
         orderNo: orders.orderNo,
@@ -209,6 +220,16 @@ export async function getDispatchChallan(id: number): Promise<DispatchChallanDet
     transport: row.transport,
     lrNo: row.lrNo,
     ewayNo: row.ewayNo,
+    vehicleNo: row.vehicleNo,
+    notes: row.notes,
+    cancelledAt: row.cancelledAt,
+    cancelledReason: row.cancelledReason,
+    history: await db
+      .select({ id: dispatchChallanEvents.id, event: dispatchChallanEvents.event, note: dispatchChallanEvents.note, role: dispatchChallanEvents.role, userName: users.name, createdAt: dispatchChallanEvents.createdAt })
+      .from(dispatchChallanEvents)
+      .leftJoin(users, eq(users.id, dispatchChallanEvents.userId))
+      .where(eq(dispatchChallanEvents.challanId, id))
+      .orderBy(asc(dispatchChallanEvents.id)),
     order: {
       orderId: row.orderId,
       orderNo: row.orderNo,
@@ -362,6 +383,8 @@ export async function getDispatchedOrder(role: RoleKey, orderId: number): Promis
   ]);
   if (!order || challanRows.length === 0) throw notFound('Dispatch');
   const mayReturn = can(role, 'canGoodsReturn');
+  const mayUndo = can(role, 'canUndoDispatch');
+  const returnedChallans = await challansWithGoodsReturn(challanRows.map((c) => c.id));
   const challans: DispatchChallanListItem[] = challanRows.map((c) => ({
     id: c.id,
     challanNo: c.challanNo,
@@ -373,6 +396,7 @@ export async function getDispatchedOrder(role: RoleKey, orderId: number): Promis
     pcs: Number(c.pcs),
     meters: round2(Number(c.meters)),
     canGoodsReturn: mayReturn && c.status === 'active' && Number(c.pcs) > 0,
+    canUndo: mayUndo && c.status === 'active' && !returnedChallans.has(c.id) && Number(c.takas) > 0,
   }));
   return { ...order, status: order.status as OrderStatusKey, dispatchedPcs: Number(order.dispatchedPcs), challans, returned: await getOrderReturnSummary(orderId) };
 }
@@ -607,5 +631,91 @@ export async function createGoodsReturn(role: RoleKey, challanId: number, input:
       damagedPcs,
       orderId: challan.orderId,
     };
+  });
+}
+
+/* ------------------------------------------------------------------ */
+/* Sprint 21: undo a dispatch · edit a delivery challan                 */
+/* ------------------------------------------------------------------ */
+
+/** Challans a goods return exists against (as the one returned against, or the revision it created). */
+async function challansWithGoodsReturn(ids: readonly number[]): Promise<Set<number>> {
+  if (!ids.length) return new Set();
+  const rows = await db.select({ a: goodsReturns.challanId, b: goodsReturns.newChallanId }).from(goodsReturns).where(inArray(goodsReturns.challanId, [...ids]));
+  const rows2 = await db.select({ a: goodsReturns.challanId, b: goodsReturns.newChallanId }).from(goodsReturns).where(inArray(goodsReturns.newChallanId, [...ids]));
+  const out = new Set<number>();
+  for (const r of [...rows, ...rows2]) {
+    out.add(r.a);
+    if (r.b !== null) out.add(r.b);
+  }
+  return out;
+}
+
+/**
+ * POST /dispatch/challans/:id/undo — Dhruvil, Gaurang, Jenish. Undoes the WHOLE latest active delivery challan (reason
+ * required, not once a goods return exists against it): every taka on it goes back to `ready_dispatch`, the challan is
+ * marked `cancelled` (the row, its revisions and its number stay — never reused), events are written and the order
+ * status recomputed (back from Dispatched).
+ */
+export async function undoDispatch(role: RoleKey, challanId: number, input: unknown): Promise<UndoDispatchResult> {
+  const data = reasonOnlySchema.parse(input);
+  return db.transaction(async (tx) => {
+    const [c] = await tx.select().from(dispatchChallans).where(eq(dispatchChallans.id, challanId));
+    if (!c) throw notFound('Dispatch challan');
+    const label = dispatchChallanLabel(c.challanNo, c.revision);
+    if (c.status === 'cancelled') throw conflict(`${label} is already cancelled.`);
+    if (c.status !== 'active') throw conflict(`${label} was replaced by a newer revision — undo the latest one.`);
+    const gr = await tx
+      .select({ id: goodsReturns.id })
+      .from(goodsReturns)
+      .where(sql`${goodsReturns.challanId} = ${challanId} OR ${goodsReturns.newChallanId} = ${challanId}`)
+      .limit(1);
+    if (gr.length) throw conflict("Goods have come back on this challan — it can't be undone.");
+    const rows = await tx.select({ takaId: dispatchChallanTakas.takaId, takaNo: dispatchChallanTakas.takaNo, pcs: dispatchChallanTakas.pcs }).from(dispatchChallanTakas).where(eq(dispatchChallanTakas.challanId, challanId));
+    const at = now();
+    for (const part of chunk(rows.map((r) => r.takaId))) {
+      const moved = await tx
+        .update(takas)
+        .set({ stage: 'ready_dispatch' })
+        .where(and(inArray(takas.id, part), eq(takas.stage, 'dispatched')))
+        .returning({ id: takas.id });
+      if (moved.length !== part.length) throw conflict('Some takas on this challan are no longer dispatched. Refresh and try again.');
+    }
+    await tx.update(dispatchChallans).set({ status: 'cancelled', cancelledAt: at, cancelledBy: role, cancelledReason: data.reason, updatedAt: at }).where(eq(dispatchChallans.id, challanId));
+    await writeTakaEvents(
+      tx,
+      role,
+      rows.map((r): TakaEventInput => ({ takaId: r.takaId, event: 'dispatch_undone', dispatchChallanId: challanId, note: `${label} cancelled → ready for dispatch · ${data.reason}` })),
+    );
+    await tx.insert(dispatchChallanEvents).values({ challanId, event: 'dispatch_undone', note: `Dispatch undone by ${ROLES[role].name} · ${data.reason}`, role, userId: currentUserId(), createdAt: at, updatedAt: at });
+    await tx.insert(orderEvents).values({ orderId: c.orderId, event: 'dispatch_undone', note: `${label} cancelled · ${rows.length} takas back to Ready for dispatch · ${data.reason}`, role, userId: currentUserId(), createdAt: at, updatedAt: at });
+    await recomputeOrdersStatus(tx, role, [c.orderId]);
+    return { challanId, label, orderId: c.orderId, takas: rows.length, pcs: rows.reduce((s, r) => s + (r.pcs ?? 0), 0) };
+  });
+}
+
+/** PUT /dispatch/challans/:id — transport, LR no, vehicle, e-way no, date, notes of an ACTIVE challan (no new revision). */
+export async function editDispatchChallan(role: RoleKey, challanId: number, input: unknown): Promise<{ challanId: number; changed: number }> {
+  const data = dispatchChallanEditSchema.parse(input);
+  return db.transaction(async (tx) => {
+    const [c] = await tx.select().from(dispatchChallans).where(eq(dispatchChallans.id, challanId));
+    if (!c) throw notFound('Dispatch challan');
+    if (c.status !== 'active') throw conflict(`${dispatchChallanLabel(c.challanNo, c.revision)} is ${c.status} — only an active challan can be edited.`);
+    const show = (v: string | null) => (v && v.trim() ? v : '–');
+    const lines: string[] = [];
+    if (data.challanDate !== c.challanDate) lines.push(`date ${c.challanDate} → ${data.challanDate}`);
+    if ((data.transport ?? null) !== (c.transport ?? null)) lines.push(`transport ${show(c.transport)} → ${show(data.transport)}`);
+    if ((data.lrNo ?? null) !== (c.lrNo ?? null)) lines.push(`LR no ${show(c.lrNo)} → ${show(data.lrNo)}`);
+    if ((data.ewayNo ?? null) !== (c.ewayNo ?? null)) lines.push(`e-way no ${show(c.ewayNo)} → ${show(data.ewayNo)}`);
+    if ((data.vehicleNo ?? null) !== (c.vehicleNo ?? null)) lines.push(`vehicle ${show(c.vehicleNo)} → ${show(data.vehicleNo)}`);
+    if ((data.notes ?? null) !== (c.notes ?? null)) lines.push('notes changed');
+    if (!lines.length) return { challanId, changed: 0 };
+    const at = now();
+    await tx
+      .update(dispatchChallans)
+      .set({ challanDate: data.challanDate, transport: data.transport, lrNo: data.lrNo, ewayNo: data.ewayNo, vehicleNo: data.vehicleNo, notes: data.notes, updatedAt: at })
+      .where(eq(dispatchChallans.id, challanId));
+    await tx.insert(dispatchChallanEvents).values({ challanId, event: 'edited', note: `Edited by ${ROLES[role].name}: ${lines.join(', ')}`, role, userId: currentUserId(), createdAt: at, updatedAt: at });
+    return { challanId, changed: lines.length };
   });
 }

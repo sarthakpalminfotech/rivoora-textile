@@ -42,6 +42,8 @@ const CSS = `
 .chp-sheet { position: relative; display: flex; flex-direction: column; width: ${PAGE_W_MM - 2 * MARGIN_MM}mm; height: ${PAGE_H_MM - 2 * MARGIN_MM}mm;
   border: 1.5px solid var(--ink); font-weight: 700; }
 .chp-row { border-bottom: 1.2px solid var(--ink); }
+.chp-watermark-cancelled { font-size: 96pt; color: rgb(220 38 38 / 0.18) !important; }
+.chp-cancel-note { position: absolute; left: 12mm; right: 12mm; bottom: 4mm; z-index: 3; font-size: 9pt; font-weight: 700; color: #b91c1c; text-align: center; }
 .chp-watermark { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; pointer-events: none; z-index: 2;
   font-size: 110pt; font-weight: 800; letter-spacing: 0.08em; color: rgb(0 0 0 / 0.07); transform: rotate(-24deg); }
 
@@ -395,6 +397,7 @@ export default function DispatchPrintPage() {
           <p className="min-w-0 flex-1 truncate text-sm font-medium text-slate-600">
             {data ? `${data.label} · ${lump ? `${totals.takas} ${totals.takas === 1 ? 'taka' : 'takas'}` : `${totals.pcs} pcs`} · ${pageCount} A4 page${pageCount === 1 ? '' : 's'}` : 'Challan'}
             {data?.status === 'revised' && <span className="ml-2 inline-flex items-center rounded-full bg-slate-200 px-2 py-0.5 text-xs font-bold text-slate-600">Revised</span>}
+            {data?.status === 'cancelled' && <span className="ml-2 inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-xs font-bold text-red-700">Cancelled</span>}
           </p>
           <Button onClick={() => window.print()} disabled={!data}>
             {data ? <Printer /> : <Loader2 className="animate-spin" />}
@@ -437,12 +440,16 @@ export default function DispatchPrintPage() {
                     <div key={p.page} className="chp-page">
                       <LumpSheet data={data} page={p} pcsOf={pcsOf} totals={totals} />
                       {data.status === 'revised' && <div className="chp-watermark">REVISED</div>}
+                      {data.status === 'cancelled' && <div className="chp-watermark chp-watermark-cancelled">CANCELLED</div>}
+                      {data.status === 'cancelled' && data.cancelledReason && <div className="chp-cancel-note">Cancelled: {data.cancelledReason}</div>}
                     </div>
                   ))
                 ) : (
                   <div className="chp-page">
                     <PcsSheet data={data} />
                     {data.status === 'revised' && <div className="chp-watermark">REVISED</div>}
+                    {data.status === 'cancelled' && <div className="chp-watermark chp-watermark-cancelled">CANCELLED</div>}
+                    {data.status === 'cancelled' && data.cancelledReason && <div className="chp-cancel-note">Cancelled: {data.cancelledReason}</div>}
                   </div>
                 )}
               </div>

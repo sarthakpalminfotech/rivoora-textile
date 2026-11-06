@@ -1,6 +1,6 @@
 import { X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ORDER_KIND_LABEL, ORDER_KINDS, ORDER_TYPE_LABEL, ORDER_TYPES, OUTSIDE_ORDER_FILTERS, type LookupItem, type OrderStatusKey } from '@rivoora/shared';
+import { FG_TYPE_LABEL, FG_TYPES, ORDER_KIND_LABEL, ORDER_KINDS, ORDER_TYPE_LABEL, ORDER_TYPES, OUTSIDE_ORDER_FILTERS, type LookupItem, type OrderStatusKey } from '@rivoora/shared';
 import { Button } from '@/components/ui/button';
 import { DateRangePicker } from '@/components/ui/date-picker';
 import { Field } from '@/components/ui/field';
@@ -15,7 +15,7 @@ import { useCustomerLookup, useMaterialLookup } from '../masters/api';
 import { DATE_PRESETS, type OrderFilters } from './filters';
 
 type Draft = Omit<OrderFilters, 'search'>;
-const EMPTY_DRAFT: Draft = { statuses: [], materials: [], parties: [], types: [], kinds: [], outside: [], from: undefined, to: undefined };
+const EMPTY_DRAFT: Draft = { statuses: [], materials: [], parties: [], types: [], fgTypes: [], kinds: [], outside: [], from: undefined, to: undefined };
 
 /** Sprint 18: the Outside order filter's two options. */
 const OUTSIDE_LABEL = { yes: 'Outside order', no: 'Not outside order' } as const;
@@ -52,7 +52,7 @@ export function OrderFiltersDialog({ open, onOpenChange, value, onApply }: Order
 
   useEffect(() => {
     if (open) {
-      setDraft({ statuses: value.statuses, materials: value.materials, parties: value.parties, types: value.types, kinds: value.kinds, outside: value.outside, from: value.from, to: value.to });
+      setDraft({ statuses: value.statuses, materials: value.materials, parties: value.parties, types: value.types, fgTypes: value.fgTypes, kinds: value.kinds, outside: value.outside, from: value.from, to: value.to });
     }
   }, [open, value]);
 
@@ -127,6 +127,27 @@ export function OrderFiltersDialog({ open, onOpenChange, value, onApply }: Order
             />
           </Field>
         )}
+        <Field label="FG type">
+          <div className="flex flex-wrap gap-2" role="group" aria-label="FG type">
+            {FG_TYPES.map((t) => {
+              const on = draft.fgTypes.includes(t);
+              return (
+                <button
+                  key={t}
+                  type="button"
+                  aria-pressed={on}
+                  onClick={() => setDraft((d) => ({ ...d, fgTypes: on ? d.fgTypes.filter((x) => x !== t) : [...d.fgTypes, t] }))}
+                  className={cn(
+                    'min-h-9 rounded-full border px-3.5 text-sm font-medium transition-colors',
+                    on ? 'border-primary bg-primary-soft text-primary' : 'border-input bg-white text-slate-700 hover:bg-muted',
+                  )}
+                >
+                  {FG_TYPE_LABEL[t]}
+                </button>
+              );
+            })}
+          </div>
+        </Field>
         <Field label="Order type">
           <div className="flex flex-wrap gap-2" role="group" aria-label="Order type">
             {ORDER_TYPES.map((t) => {
@@ -264,6 +285,11 @@ export function FilterChips({ filters, onChange }: FilterChipsProps) {
       key: `t-${t}`,
       label: ORDER_TYPE_LABEL[t],
       remove: () => onChange({ types: filters.types.filter((x) => x !== t) }),
+    })),
+    ...filters.fgTypes.map((t) => ({
+      key: `fg-${t}`,
+      label: FG_TYPE_LABEL[t],
+      remove: () => onChange({ fgTypes: filters.fgTypes.filter((x) => x !== t) }),
     })),
     ...filters.kinds.map((k) => ({
       key: `k-${k}`,

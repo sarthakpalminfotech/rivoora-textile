@@ -1,6 +1,8 @@
 import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import type {
   DispatchChallanDetail,
+  DispatchChallanEditInput,
+  UndoDispatchResult,
   DispatchedOrderCard,
   DispatchedOrderDetail,
   DispatchInput,
@@ -62,6 +64,25 @@ export function useGoodsReturn(challanId: number) {
   return useMutation({
     meta: { silentFieldErrors: true },
     mutationFn: (data: GoodsReturnInput) => api.post<GoodsReturnResult>(`/dispatch/challans/${challanId}/goods-return`, data),
+    onSuccess: () => invalidateAfterDispatch(qc),
+  });
+}
+
+/** Sprint 21 (CR-10): undo a dispatch — the whole latest challan, with a reason. */
+export function useUndoDispatch(challanId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { reason: string }) => api.post<UndoDispatchResult>(`/dispatch/challans/${challanId}/undo`, data),
+    onSuccess: () => invalidateAfterDispatch(qc),
+  });
+}
+
+/** Sprint 21 (C7): edit transport / LR / vehicle / e-way / date / notes of an active delivery challan. */
+export function useEditDispatchChallan(challanId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    meta: { silentFieldErrors: true },
+    mutationFn: (data: DispatchChallanEditInput) => api.put<{ challanId: number; changed: number }>(`/dispatch/challans/${challanId}`, data),
     onSuccess: () => invalidateAfterDispatch(qc),
   });
 }

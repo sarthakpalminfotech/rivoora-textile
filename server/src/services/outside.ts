@@ -12,7 +12,7 @@ import {
   outsidePoInputSchema,
   outsidePoTotals,
   outsideReceiptSchema,
-  outsideTakaNumber,
+  validateWeaverTakaNos,
   poCanEdit,
   poIsOpen,
   poLabel,
@@ -21,7 +21,6 @@ import {
   receiptLabel,
   receivedLot,
   receivedQtyOf,
-  validateOutsideRows,
   type DamageRecordedAt,
   type OrderOutside,
   type OrderSteps,
@@ -47,7 +46,7 @@ import { ensureExternalJobsheet } from './external';
 import { recomputeOrderStatus } from './jobsheets';
 import { orderNotHeldFor } from './hold';
 import { addNewDamages, assertNewDamages, type NewDamageInput } from './qc-shared';
-import { allocateTakaNumbers, chunk, initialStageForOrder, refreshIsDamaged, usedMessage, usedTakaNumbers, writeTakaEvents, type TakaEventInput } from './taka-ops';
+import { allocateTakaNumbers, chunk, initialStageForOrder, refreshIsDamaged, writeTakaEvents, type TakaEventInput } from './taka-ops';
 
 /**
  * Sprint 16 â€” outside production and direct FG purchases.
@@ -522,7 +521,9 @@ interface ReceiveContext {
  * number (ours, else prefix + weaver number) unique system-wide, damages within the pcs. On the external jobsheet.
  */
 async function saveReceivedTakas(tx: Tx, role: RoleKey, ctx: ReceiveContext, rows: ReceiptRow[], at: string) {
-  const parsed = rows.map((r) => ({ ...r, weaverTakaNo: r.weaverTakaNo.trim(), ourTakaNo: r.ourTakaNo?.trim() || null }));
+  // Sprint 21 (CR-07): OUR number is always the next automatic one (the same counter as taka entry); the weaver's own
+  // number is optional. A typed "our number" from an old client is ignored.
+  const parsed = rows.map((r) => ({ ...r, weaverTakaNo: r.weaverTakaNo.trim(), ourTakaNo: null as string | null }));
   // Weaver numbers already used by this weaver (the same weaver can't send 1101 twice).
   const usedWeaverNos = new Set<string>();
   if (ctx.weaverId !== null) {
@@ -534,20 +535,12 @@ async function saveReceivedTakas(tx: Tx, role: RoleKey, ctx: ReceiveContext, row
       for (const f of found) if (f.no) usedWeaverNos.add(f.no);
     }
   }
-  const systemNos = parsed.map((r) => outsideTakaNumber(ctx.prefix, r.weaverTakaNo, r.ourTakaNo));
-  const used = await usedTakaNumbers(tx, systemNos);
-  const errors = validateOutsideRows(parsed, ctx.prefix, { usedWeaverNos, usedSystemNos: new Set(used.keys()) });
+  const errors = validateWeaverTakaNos(parsed, { usedWeaverNos });
   const bad = errors.findIndex((e) => e !== null);
   if (bad >= 0) {
-    const err = errors[bad]!;
-    // A used system number is fixed by typing OUR number for the taka — point the form at that column.
-    const field = err.startsWith('own') || err === 'system_used' ? 'ourTakaNo' : 'weaverTakaNo';
-    const message =
-      err === 'system_used'
-        ? `${usedMessage(systemNos[bad], used.get(systemNos[bad]))}${parsed[bad].ourTakaNo ? '' : ' â€” type our number for this taka'}`
-        : `Taka ${parsed[bad].weaverTakaNo || bad + 1}: ${OUTSIDE_ROW_ERROR_TEXT[err]}`;
-    throw badRequest(message, `rows.${bad}.${field}`);
+    throw badRequest(`Taka ${parsed[bad].weaverTakaNo || bad + 1}: ${OUTSIDE_ROW_ERROR_TEXT[errors[bad]!]}`, `rows.${bad}.weaverTakaNo`);
   }
+  const systemNos = await allocateTakaNumbers(tx, parsed.length);
   parsed.forEach((r, i) => {
     if (ctx.meterOrder) {
       if (r.meters == null) throw badRequest('Enter the metres', `rows.${i}.meters`);
@@ -584,9 +577,9 @@ async function saveReceivedTakas(tx: Tx, role: RoleKey, ctx: ReceiveContext, row
             isDamaged: r.damages.length > 0,
             stage: ctx.stage,
             source: ctx.source,
-            weaverTakaNo: r.weaverTakaNo,
+            weaverTakaNo: r.weaverTakaNo || null,
             weaverId: ctx.weaverId,
-            hasOwnNumber: !!r.ourTakaNo,
+            hasOwnNumber: true,
             outsideReceiptId: ctx.receiptId,
             enteredBy: role,
             createdAt: at,

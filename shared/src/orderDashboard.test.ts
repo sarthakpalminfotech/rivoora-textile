@@ -35,7 +35,7 @@ const bar = (d: ReturnType<typeof buildOrderDashboard>, key: string) => d.bar.fi
 
 describe('pipeline config', () => {
   it('maps every taka stage to a main stage', () => {
-    expect(TAKA_STAGES.map(takaStageMain)).toEqual(['production', 'butta', 'butta', 'mill', 'mill', 'mill', 'ready', 'mill', 'ready', 'butta', 'ready']);
+    expect(TAKA_STAGES.map(takaStageMain)).toEqual(['production', 'butta', 'butta', 'mill', 'mill', 'mill', 'ready', 'mill', 'ready', 'butta', 'ready', 'mill']);
   });
 
   it('jobsheet sub-stage rules', () => {

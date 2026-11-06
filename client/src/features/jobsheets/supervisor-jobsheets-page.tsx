@@ -14,6 +14,7 @@ import {
   type SupervisorOrderItem,
   EMPTY_WORK_FILTERS,
   WORK_FILTER_PARAM_KEYS,
+  FG_TYPE_LABEL,
 } from '@rivoora/shared';
 import { usePageTitle } from '@/components/layout/page-title';
 import { ErrorState, FetchingIndicator, LoadMore, SearchBar } from '@/components/list-parts';
@@ -135,7 +136,7 @@ function JobsheetTile({ js, now, onOpen, onAction }: { js: SupervisorJobsheetIte
               <JobsheetRef orderNo={js.orderNo} jobsheetNo={js.jobsheetNo} />
             </p>
             <p className="truncate text-sm text-slate-500">
-              {js.designCode ? `Design ${js.designCode}` : 'No design'} · {js.quality}
+              {js.designCode ? `Design ${js.designCode}` : 'No design'} · {js.quality} · {FG_TYPE_LABEL[js.fgType]}
             </p>
             <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
               <StatusBadge kind="jobsheet" status={js.status} className="text-[13px]" />

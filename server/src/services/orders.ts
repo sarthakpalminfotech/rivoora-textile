@@ -6,6 +6,8 @@ import {
   canRoleSeeStatus,
   isOrderKind,
   isOrderType,
+  isFgType,
+  FG_TYPE_LABEL,
   isOutsideOrderFilter,
   isStatusKey,
   orderKind,
@@ -65,6 +67,8 @@ export const orderListQuerySchema = paginationSchema.extend({
   party: z.string().optional().transform((v) => parseIdList(v)),
   /** Order type filter: `type=lump,pcs_to_pcs`. */
   type: z.string().optional().transform((v) => parseKeyList(v, isOrderType)),
+  /** Sprint 21: FG type filter: `fgType=saree,suit`. */
+  fgType: z.string().optional().transform((v) => parseKeyList(v, isFgType)),
   /** Sprint 16: order kind filter: `kind=in_house,outside_production,fg_purchase`. */
   kind: z.string().optional().transform((v) => parseKeyList(v, isOrderKind)),
   /** Sprint 18: Outside order filter: `outside=yes` / `outside=no` (only honoured for roles that see the client). */
@@ -108,6 +112,7 @@ export async function listOrders(role: RoleKey, q: OrderListQuery): Promise<Pagi
   if (q.to) conditions.push(lte(orders.orderDate, q.to));
   if (q.material.length) conditions.push(inArray(orders.materialId, q.material));
   if (q.type.length) conditions.push(inArray(orders.orderType, q.type));
+  if (q.fgType.length) conditions.push(inArray(orders.fgType, q.fgType));
   if (q.party.length && can(role, 'canSeeClient')) conditions.push(inArray(orders.customerId, q.party));
   if (q.outside.length === 1 && can(role, 'canSeeClient')) conditions.push(eq(orders.isOutsideOrder, q.outside[0] === 'yes'));
   if (q.search) {
@@ -150,6 +155,7 @@ export async function listOrders(role: RoleKey, q: OrderListQuery): Promise<Pagi
         quantity: orders.quantity,
         unit: orders.unit,
         orderType: orders.orderType,
+        fgType: orders.fgType,
         blouseOption: orders.blouseOption,
         brokerName: customerBrokers.name,
         status: orders.status,
@@ -196,6 +202,7 @@ export async function getOrder(role: RoleKey, id: number): Promise<OrderDetail> 
         orderNo: orders.orderNo,
         status: orders.status,
         orderType: orders.orderType,
+        fgType: orders.fgType,
         blouseOption: orders.blouseOption,
         quantity: orders.quantity,
         unit: orders.unit,
@@ -269,6 +276,7 @@ export async function getOrder(role: RoleKey, id: number): Promise<OrderDetail> 
     orderNo: r.orderNo,
     status: r.status,
     orderType: r.orderType,
+    fgType: r.fgType,
     blouseOption: r.blouseOption,
     quantity: r.quantity,
     unit: r.unit,
@@ -379,6 +387,7 @@ export async function createOrder(role: RoleKey, input: unknown): Promise<{ id: 
         customerId: data.customerId,
         brokerId: data.brokerId,
         orderType: data.orderType,
+        fgType: data.fgType,
         blouseOption: data.blouseOption,
         isOutsideOrder: data.isOutsideOrder,
         outsidePartyName: data.isOutsideOrder ? data.outsidePartyName : null,
@@ -437,6 +446,7 @@ export async function updateOrder(role: RoleKey, id: number, input: unknown): Pr
       .select({
         status: orders.status,
         unit: orders.unit,
+        fgType: orders.fgType,
         rate: orders.rate,
         brokerId: orders.brokerId,
         hasProduction: orders.hasProduction,
@@ -459,12 +469,26 @@ export async function updateOrder(role: RoleKey, id: number, input: unknown): Pr
     }
 
     const { designId } = await resolveOrderRefs(tx, data, current.brokerId);
+    const nextFg = data.fgType ?? current.fgType;
+    if (nextFg !== current.fgType) {
+      const at = new Date().toISOString();
+      await tx.insert(orderEvents).values({
+        orderId: id,
+        event: 'fg_type_changed',
+        note: `FG type ${FG_TYPE_LABEL[current.fgType]} → ${FG_TYPE_LABEL[nextFg]}`,
+        role,
+        userId: currentUserId(),
+        createdAt: at,
+        updatedAt: at,
+      });
+    }
     await tx
       .update(orders)
       .set({
         customerId: data.customerId,
         brokerId: data.brokerId,
         orderType: data.orderType,
+        fgType: nextFg,
         blouseOption: data.blouseOption,
         isOutsideOrder: data.isOutsideOrder,
         outsidePartyName: data.isOutsideOrder ? data.outsidePartyName : null,

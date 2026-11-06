@@ -2,7 +2,7 @@ import { ArrowLeft, CalendarClock, Check, ImageOff, PackageCheck, Send, X as XIc
 import { useState, type ReactNode } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
-import { isMeterOrder, isReadyOrLater, ORDER_TYPE_LABEL, STEP_KEYS, STEP_LABEL, returnedSummary, stepOn, STATUS, type OrderDetail } from '@rivoora/shared';
+import { FG_TYPE_LABEL, isMeterOrder, isReadyOrLater, ORDER_TYPE_LABEL, STEP_KEYS, STEP_LABEL, returnedSummary, stepOn, STATUS, type OrderDetail } from '@rivoora/shared';
 import { usePageTitle } from '@/components/layout/page-title';
 import { ErrorState } from '@/components/list-parts';
 import { Button } from '@/components/ui/button';
@@ -29,6 +29,8 @@ import { OutsideOrderTag } from './outside-order-tag';
 import { BlouseTag } from '../free-stock/blouse';
 import { CloseOrderDialog } from './close/close-order-dialog';
 import { HistoryTab } from './history-tab';
+import { useOrderShrinkage } from '../takas/api';
+import { OverdueBanner } from '../alerts/alerts-page';
 import { HoldOrderDialog, OnHoldBanner, ReleaseHoldDialog } from './hold/hold-order';
 
 function Card({ title, children, action, className }: { title: string; children: ReactNode; action?: ReactNode; className?: string }) {
@@ -53,6 +55,28 @@ function Item({ label, children, className }: { label: string; children: ReactNo
 }
 
 /** Order details tab: notes, dates and the design (the header holds the main fields). */
+/** Sprint 21 (CR-08): expected vs actual metres and the shrinkage Dhruvil's corrections lead to. */
+function MetresBlock({ orderId }: { orderId: number }) {
+  const q = useOrderShrinkage(orderId);
+  const s = q.data;
+  if (!s || s.takaCount === 0) return null;
+  const fmt = (n: number) => n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return (
+    <Card title="Metres">
+      <dl className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+        <Item label="Expected">{fmt(s.expectedMeters)} m</Item>
+        <Item label="Actual">{fmt(s.actualMeters)} m</Item>
+        <Item label="Shrinkage">
+          <span className={s.shrinkage > 0 ? 'text-amber-700' : undefined}>
+            {fmt(s.shrinkage)} m ({s.shrinkagePct.toLocaleString('en-IN', { maximumFractionDigits: 1 })} %)
+          </span>
+        </Item>
+        {s.gain > 0 && <Item label="Gain">{fmt(s.gain)} m</Item>}
+      </dl>
+    </Card>
+  );
+}
+
 function DetailsTab({ order }: { order: OrderDetail }) {
   const { can } = useRole();
   const image = order.design;
@@ -62,6 +86,7 @@ function DetailsTab({ order }: { order: OrderDetail }) {
       <div className="min-w-0 space-y-4">
         <Card title="Order">
           <dl className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+            <Item label="FG type">{FG_TYPE_LABEL[order.fgType]}</Item>
             <Item label="Order type">{ORDER_TYPE_LABEL[order.orderType]}</Item>
             <Item label="Blouse">{order.blouseOption ? <BlouseTag option={order.blouseOption} /> : <span className="font-normal text-slate-400">Not set</span>}</Item>
             {isMeterOrder(order) && (
@@ -93,6 +118,8 @@ function DetailsTab({ order }: { order: OrderDetail }) {
             </Item>
           </dl>
         </Card>
+
+        {can('canViewTakas') && <MetresBlock orderId={order.id} />}
 
         {order.returned && (
           <p className="rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-[14px] font-medium text-sky-900">
@@ -290,7 +317,8 @@ export default function OrderDetailsPage() {
           </div>
         </div>
       )}
-      {order.isOnHold && <OnHoldBanner note={order.holdNote} canRelease={can('canHoldOrder')} />}
+      {can('canViewAlerts') && <OverdueBanner orderId={order.id} />}
+      {order.isOnHold && <OnHoldBanner note={order.holdNote} canRelease={can('canHoldOrder')} heldBy={[...order.holdEvents].reverse().find((e) => e.event === 'held') ?? null} />}
 
       <OrderHeader
         order={order}

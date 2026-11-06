@@ -2,7 +2,7 @@ import { AlertTriangle, Loader2, Printer, X } from 'lucide-react';
 import { useEffect, useLayoutEffect, useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import QRCode from 'qrcode';
-import { BLOUSE_PRINT_LABEL, formatQty, jobsheetQrUrl, jobsheetRefShort, ORDER_TYPE_LABEL, type JobsheetPrintItem } from '@rivoora/shared';
+import { BLOUSE_PRINT_LABEL, formatQty, jobsheetQrUrl, jobsheetRefShort, FG_TYPE_LABEL, ORDER_TYPE_LABEL, type JobsheetPrintItem } from '@rivoora/shared';
 import { usePageTitle } from '@/components/layout/page-title';
 import { ErrorState } from '@/components/list-parts';
 import { Button } from '@/components/ui/button';
@@ -142,7 +142,11 @@ function FrontPage({ js, qrSvg }: { js: JobsheetPrintItem; qrSvg: string | undef
             <div className="jsp-idrow">
               <span className="jsp-lbl">Design no:</span>
               <div className="jsp-vbox jsp-val">{js.designCode ?? ''}</div>
-              <span className="jsp-otype">{ORDER_TYPE_LABEL[js.orderType]}</span>
+              <span className="jsp-otype">
+                {ORDER_TYPE_LABEL[js.orderType]}
+                <br />
+                FG: {FG_TYPE_LABEL[js.fgType]}
+              </span>
               {js.blouseOption && <span className="jsp-blouse">{BLOUSE_PRINT_LABEL[js.blouseOption]}</span>}
             </div>
           </div>

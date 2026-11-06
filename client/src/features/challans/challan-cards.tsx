@@ -15,8 +15,8 @@ import { challanDetailsPath } from './kind';
 /** One challan card: GSM-173 / MIL-12, party, date, totals and "8 / 20 received" with a thin progress bar. */
 export function ChallanCard({ challan, onOpen, counter }: { challan: ChallanListItem; onOpen: () => void; counter?: boolean }) {
   const cancelled = challan.status === 'cancelled';
-  const done = challan.totalTakas > 0 && challan.receivedCount >= challan.totalTakas;
-  const share = challan.totalTakas > 0 ? challan.receivedCount / challan.totalTakas : 0;
+  const done = challan.totalTakas > 0 && challan.receivedCount + challan.lostCount >= challan.totalTakas;
+  const share = challan.totalTakas > 0 ? (challan.receivedCount + challan.lostCount) / challan.totalTakas : 0;
   return (
     <article
       role="button"
@@ -80,6 +80,9 @@ export function ChallanCard({ challan, onOpen, counter }: { challan: ChallanList
             <p className="text-sm font-semibold text-amber-700">
               Sent {challan.totalTakas} {challan.totalTakas === 1 ? 'taka' : 'takas'} · Received {challan.receivedCount}
             </p>
+          )}
+          {challan.lostCount > 0 && (
+            <span className="inline-flex rounded-full bg-red-100 px-2.5 py-0.5 text-xs font-bold text-red-700">{challan.lostCount} lost</span>
           )}
         </div>
       )}

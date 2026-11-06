@@ -238,7 +238,7 @@ function TakaRow({
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
               <DropdownMenuItem onSelect={onEditPcs}>
-                <Pencil className="size-4 text-slate-600" /> {meterOrder ? 'Edit metres' : 'Edit pcs'}
+                <Pencil className="size-4 text-slate-600" /> Edit taka
               </DropdownMenuItem>
               {(meterOrder ? (actual ?? 0) > 0 : (actual ?? 0) >= 2) && (
                 <DropdownMenuItem onSelect={onSplit}>
@@ -269,7 +269,10 @@ function TakaRow({
   );
 }
 
-/** ⋯ → Edit pcs / Edit metres: the actual quantity of one taka (the only place it can be changed). */
+/**
+ * ⋯ → Edit taka (Sprint 21, CR-08): the actual pcs (pcs orders) and the actual METRES (every order) of one taka — the
+ * only place they change. Metres are corrected here by Dhruvil at the end; the order's shrinkage is worked out from them.
+ */
 function EditPcsDialog({
   taka,
   onClose,
@@ -278,43 +281,64 @@ function EditPcsDialog({
 }: {
   taka: GodownTaka | null;
   onClose: () => void;
-  onSave: (actual: number) => Promise<unknown>;
+  onSave: (patch: { actualPcs?: number; actualMeters?: number }) => Promise<unknown>;
   meterOrder?: boolean;
 }) {
-  const [text, setText] = useState('');
-  const [error, setError] = useState<string | null>(null);
+  const [pcsText, setPcsText] = useState('');
+  const [metersText, setMetersText] = useState('');
+  const [error, setError] = useState<{ field: 'pcs' | 'meters' | 'other'; message: string } | null>(null);
   const [saving, setSaving] = useState(false);
-  const actual = taka ? (meterOrder ? takaActualMeters(taka) : takaActualPcs(taka)) : null;
+  const actualPcs = taka ? takaActualPcs(taka) : null;
+  const actualMeters = taka ? takaActualMeters(taka) : null;
   useEffect(() => {
     if (!taka) return;
-    setText(actual != null ? String(actual) : '');
+    setPcsText(actualPcs != null ? String(actualPcs) : '');
+    setMetersText(actualMeters != null ? String(actualMeters) : '');
     setError(null);
     // reset only when another taka is opened
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [taka?.id]);
 
   const save = async () => {
-    const n = meterOrder ? Number(text) : /^\d+$/.test(text) ? Number(text) : NaN;
-    if (!Number.isFinite(n) || n <= 0) return setError(meterOrder ? 'Enter the metres (more than 0)' : 'Enter the pcs (at least 1)');
-    const rounded = meterOrder ? Math.round(n * 100) / 100 : n;
-    if (rounded === actual) return onClose();
+    const patch: { actualPcs?: number; actualMeters?: number } = {};
+    if (!meterOrder) {
+      const n = /^d+$/.test(pcsText) ? Number(pcsText) : NaN;
+      if (!Number.isFinite(n) || n <= 0) return setError({ field: 'pcs', message: 'Enter the pcs (at least 1)' });
+      if (n !== actualPcs) patch.actualPcs = n;
+    }
+    // Metres: optional on a pcs order whose taka never had metres; otherwise more than 0.
+    if (metersText.trim() !== '' || meterOrder) {
+      const n = Number(metersText);
+      if (!Number.isFinite(n) || n <= 0) return setError({ field: 'meters', message: 'Enter the metres (more than 0)' });
+      const rounded = Math.round(n * 100) / 100;
+      if (rounded !== actualMeters) patch.actualMeters = rounded;
+    }
+    if (patch.actualPcs === undefined && patch.actualMeters === undefined) return onClose();
     setSaving(true);
     try {
-      await onSave(rounded);
-      toast.success(`Taka ${taka!.takaNo}: ${rounded.toLocaleString('en-IN')} ${meterOrder ? 'm' : 'pcs'}`);
+      await onSave(patch);
+      toast.success(
+        `Taka ${taka!.takaNo} saved${patch.actualPcs !== undefined ? ` · ${patch.actualPcs.toLocaleString('en-IN')} pcs` : ''}${patch.actualMeters !== undefined ? ` · ${patch.actualMeters.toLocaleString('en-IN')} m` : ''}`,
+      );
       onClose();
     } catch (err) {
-      setError(errorMessage(err));
+      setError({ field: 'other', message: errorMessage(err) });
     } finally {
       setSaving(false);
     }
   };
 
+  const box = (invalid: boolean) =>
+    cn(
+      'h-14 w-full rounded-xl border bg-white px-3 text-center text-2xl font-bold tabular-nums text-slate-900 focus:outline-none focus:ring-2',
+      invalid ? 'border-destructive focus:ring-destructive/20' : 'border-input focus:border-primary focus:ring-primary/15',
+    );
+
   return (
     <ResponsiveModal
       open={taka !== null}
       onOpenChange={(o) => !o && !saving && onClose()}
-      title={taka ? `${meterOrder ? 'Edit metres' : 'Edit pcs'} · Taka ${taka.takaNo}` : meterOrder ? 'Edit metres' : 'Edit pcs'}
+      title={taka ? `Edit taka · ${taka.takaNo}` : 'Edit taka'}
       desktopVariant="center"
       mobileVariant="bottom"
       size="sm"
@@ -331,34 +355,55 @@ function EditPcsDialog({
       }
     >
       <form
-        className="space-y-2 pb-1"
+        className="space-y-4 pb-1"
         onSubmit={(e) => {
           e.preventDefault();
           void save();
         }}
       >
-        <label htmlFor="edit-actual-pcs" className="block text-sm font-semibold text-slate-600">
-          {meterOrder ? 'Actual metres' : 'Actual pcs'}
-        </label>
-        <input
-          id="edit-actual-pcs"
-          value={text}
-          onChange={(e) => {
-            setText(meterOrder ? cleanMeters(e.target.value) : cleanPcs(e.target.value));
-            setError(null);
-          }}
-          inputMode={meterOrder ? 'decimal' : 'numeric'}
-          autoComplete="off"
-          autoFocus
-          aria-invalid={!!error || undefined}
-          className={cn(
-            'h-14 w-full rounded-xl border bg-white px-3 text-center text-2xl font-bold tabular-nums text-slate-900 focus:outline-none focus:ring-2',
-            error ? 'border-destructive focus:ring-destructive/20' : 'border-input focus:border-primary focus:ring-primary/15',
+        <div className={cn('grid gap-3', !meterOrder && 'sm:grid-cols-2')}>
+          {!meterOrder && (
+            <div className="space-y-1.5">
+              <label htmlFor="edit-actual-pcs" className="block text-sm font-semibold text-slate-600">
+                Actual pcs{taka?.pcs != null && <span className="ml-1 font-normal text-slate-400">(expected {taka.pcs})</span>}
+              </label>
+              <input
+                id="edit-actual-pcs"
+                value={pcsText}
+                onChange={(e) => {
+                  setPcsText(cleanPcs(e.target.value));
+                  setError(null);
+                }}
+                inputMode="numeric"
+                autoComplete="off"
+                autoFocus
+                aria-invalid={error?.field === 'pcs' || undefined}
+                className={box(error?.field === 'pcs')}
+              />
+            </div>
           )}
-        />
+          <div className="space-y-1.5">
+            <label htmlFor="edit-actual-meters" className="block text-sm font-semibold text-slate-600">
+              Actual meters{taka?.meters != null && <span className="ml-1 font-normal text-slate-400">(expected {taka.meters})</span>}
+            </label>
+            <input
+              id="edit-actual-meters"
+              value={metersText}
+              onChange={(e) => {
+                setMetersText(cleanMeters(e.target.value));
+                setError(null);
+              }}
+              inputMode="decimal"
+              autoComplete="off"
+              autoFocus={meterOrder}
+              aria-invalid={error?.field === 'meters' || undefined}
+              className={box(error?.field === 'meters')}
+            />
+          </div>
+        </div>
         {error && (
           <p role="alert" className="text-sm font-semibold text-destructive">
-            {error}
+            {error.message}
           </p>
         )}
       </form>
@@ -601,7 +646,7 @@ function FinalTakasTab({ order }: { order: GodownOrder }) {
         taka={pcsFor}
         meterOrder={meterOrder}
         onClose={() => setPcsFor(null)}
-        onSave={(actual) => patch.mutateAsync(meterOrder ? { id: pcsFor!.id, actualMeters: actual } : { id: pcsFor!.id, actualPcs: actual })}
+        onSave={(p) => patch.mutateAsync({ id: pcsFor!.id, ...p })}
       />
 
       <DamageDialog

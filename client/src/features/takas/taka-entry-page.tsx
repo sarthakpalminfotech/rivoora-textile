@@ -20,6 +20,7 @@ import {
   totalPcs,
   type JobsheetDetail,
   type Taka,
+  FG_TYPE_LABEL,
 } from '@rivoora/shared';
 import { usePageTitle } from '@/components/layout/page-title';
 import { Button } from '@/components/ui/button';
@@ -102,7 +103,12 @@ function IdentityCard({ js }: { js: JobsheetDetail }) {
           <h2 className="text-4xl font-extrabold leading-none tracking-tight text-slate-900 md:text-5xl">
             <JobsheetRef orderNo={js.orderNo} jobsheetNo={js.jobsheetNo} variant="short" bracketClassName="text-[0.55em] font-bold" />
           </h2>
-          <p className="mt-2 truncate text-xl font-bold text-primary">{js.design?.code ?? 'No design'}</p>
+          <p className="mt-2 truncate text-xl font-bold text-primary">
+            {js.design?.code ?? 'No design'}
+            <span className="ml-2 text-sm font-semibold text-slate-500">
+              {bi(FG_TYPE_LABEL[js.fgType], js.fgType === 'suit' ? 'सूट' : 'साड़ी')}
+            </span>
+          </p>
           <BlouseTag option={js.blouseOption} hindi className="mt-1.5" />
         </div>
       </div>

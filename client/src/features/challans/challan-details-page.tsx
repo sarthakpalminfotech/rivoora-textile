@@ -1,4 +1,4 @@
-import { AlertTriangle, ArrowLeft, Ban, CheckCircle2, Printer, SearchX } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, Ban, CheckCircle2, MinusCircle, PackageX, Pencil, Printer, SearchX, Undo2 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
@@ -18,6 +18,8 @@ import { ErrorState } from '@/components/list-parts';
 import { Button } from '@/components/ui/button';
 import { TickBox as Checkbox } from '@/components/ui/tick-box';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { ReasonDialog } from '@/components/ui/reason-dialog';
+import { EditChallanDialog } from './challan-edit';
 import { RefinishTag } from '@/features/takas/taka-tags';
 import { EmptyState } from '@/components/ui/empty-state';
 import { ImageThumb } from '@/components/ui/image-thumb';
@@ -27,9 +29,11 @@ import { ApiError, errorMessage } from '@/lib/api';
 import { formatDate, formatDateTime, formatOrderNo } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { StatTile } from '../jobsheets/parts';
-import { useCancelChallan, useChallan, useReceive } from './api';
+import { useCancelChallan, useChallan, useChallanTakaAction, useReceive } from './api';
 import { ReceivedCountControl } from './received-count';
 import { challanPrintPath, kindPermission, sentListPath } from './kind';
+
+type RowAction = 'remove-taka' | 'mark-lost' | 'undo-lost';
 
 function OrderSection({
   kind,
@@ -38,6 +42,7 @@ function OrderSection({
   canReceive,
   onToggle,
   onToggleAll,
+  onAction,
 }: {
   kind: ChallanKind;
   group: ChallanOrderGroup;
@@ -45,6 +50,7 @@ function OrderSection({
   canReceive: boolean;
   onToggle: (id: number, on: boolean) => void;
   onToggleAll: (ids: number[], on: boolean) => void;
+  onAction?: (a: RowAction, taka: ChallanTakaRow) => void;
 }) {
   const pendingRows = group.takas.filter((t) => t.receivedAt === null);
   const allTicked = pendingRows.length > 0 && pendingRows.every((t) => ticked.has(t.id));
@@ -83,7 +89,7 @@ function OrderSection({
       )}
       <ul className="divide-y divide-border rounded-lg border border-border">
         {group.takas.map((t) => (
-          <TakaRowItem key={t.id} kind={kind} taka={t} ticked={ticked.has(t.id)} canReceive={canReceive} onToggle={(on) => onToggle(t.id, on)} />
+          <TakaRowItem key={t.id} kind={kind} taka={t} ticked={ticked.has(t.id)} canReceive={canReceive} onToggle={(on) => onToggle(t.id, on)} onAction={onAction} />
         ))}
       </ul>
     </section>
@@ -96,17 +102,21 @@ function TakaRowItem({
   ticked,
   canReceive,
   onToggle,
+  onAction,
 }: {
   kind: ChallanKind;
   taka: ChallanTakaRow;
   ticked: boolean;
   canReceive: boolean;
   onToggle: (on: boolean) => void;
+  onAction?: (a: RowAction, taka: ChallanTakaRow) => void;
 }) {
+  const { can } = useRole();
   const received = taka.receivedAt !== null;
+  const lost = taka.lostAt !== null;
   return (
     <li className={cn('flex min-h-14 flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2', received ? 'bg-green-50/50' : ticked ? 'bg-primary-soft/40' : '')}>
-      {canReceive && !received ? (
+      {canReceive && !received && !lost ? (
         <Checkbox size="lg" checked={ticked} onCheckedChange={onToggle} aria-label={`Select taka ${taka.takaNo}`} />
       ) : (
         <span className="size-7 shrink-0" aria-hidden />
@@ -122,7 +132,18 @@ function TakaRowItem({
         </span>
       )}
       <span className="ml-auto flex flex-wrap items-center gap-1.5">
-        {received ? (
+        {lost ? (
+          <>
+            <span className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2.5 py-1 text-xs font-bold text-red-800">
+              <PackageX className="size-3.5" aria-hidden /> Lost / short · {formatDateTime(taka.lostAt)}
+            </span>
+            {onAction && can('canMarkLostAtParty') && (
+              <Button variant="ghost" size="sm" className="h-9" onClick={() => onAction('undo-lost', taka)}>
+                <Undo2 /> Undo lost
+              </Button>
+            )}
+          </>
+        ) : received ? (
           <>
             <span className="inline-flex items-center gap-1 rounded-full bg-green-100 px-2.5 py-1 text-xs font-bold text-green-800">
               <CheckCircle2 className="size-3.5" aria-hidden /> Received · {formatDateTime(taka.receivedAt)}
@@ -130,7 +151,19 @@ function TakaRowItem({
             {taka.qcDone && <span className="rounded-full bg-sky-100 px-2.5 py-1 text-xs font-bold text-sky-800">QC done</span>}
           </>
         ) : (
-          <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-bold text-amber-800">{CHALLAN_KIND_CONFIG[kind].inLabel}</span>
+          <>
+            <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-bold text-amber-800">{CHALLAN_KIND_CONFIG[kind].inLabel}</span>
+            {onAction && can('canEditChallan') && (
+              <Button variant="ghost" size="sm" className="h-9" onClick={() => onAction('remove-taka', taka)} aria-label={`Remove taka ${taka.takaNo} from challan`}>
+                <MinusCircle /> Remove
+              </Button>
+            )}
+            {onAction && can('canMarkLostAtParty') && (
+              <Button variant="ghost" size="sm" className="h-9 text-destructive" onClick={() => onAction('mark-lost', taka)} aria-label={`Mark taka ${taka.takaNo} lost or short`}>
+                <PackageX /> Lost / short
+              </Button>
+            )}
+          </>
         )}
       </span>
     </li>
@@ -146,6 +179,10 @@ function Body({ challan }: { challan: ChallanDetail }) {
   const cancel = useCancelChallan(kind);
   const [ticked, setTicked] = useState<Set<number>>(new Set());
   const [confirmCancel, setConfirmCancel] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const [rowAction, setRowAction] = useState<{ action: RowAction; taka: ChallanTakaRow } | null>(null);
+  const [rowError, setRowError] = useState<string | null>(null);
+  const takaAction = useChallanTakaAction(kind, challan.id, rowAction?.action ?? 'remove-taka');
   const cancelled = challan.status === 'cancelled';
   // Butta cutting ticks takas off; the mill is counted (just a number) and the Mill QC finds out which takas came.
   const canReceive = kind === 'butta' && can(kindPermission(kind)) && !cancelled;
@@ -218,6 +255,11 @@ function Body({ challan }: { challan: ChallanDetail }) {
                 <Printer /> Print
               </Link>
             </Button>
+            {can('canEditChallan') && !cancelled && (
+              <Button variant="secondary" size="lg" className="h-12" onClick={() => setEditOpen(true)}>
+                <Pencil /> Edit
+              </Button>
+            )}
             {can('canCancelChallan') && challan.canCancel && (
               <Button variant="secondary" size="lg" className="h-12 text-destructive hover:bg-destructive-soft" onClick={() => setConfirmCancel(true)}>
                 <Ban /> Cancel challan
@@ -234,6 +276,18 @@ function Body({ challan }: { challan: ChallanDetail }) {
             <dt className="text-[13px] text-muted-foreground">Eway no</dt>
             <dd className="text-[15px] font-semibold text-slate-900">{challan.ewayNo ?? '—'}</dd>
           </div>
+          {(challan.transport || challan.vehicleNo) && (
+            <div>
+              <dt className="text-[13px] text-muted-foreground">Transport / vehicle</dt>
+              <dd className="text-[15px] font-semibold text-slate-900">{[challan.transport, challan.vehicleNo].filter(Boolean).join(' · ')}</dd>
+            </div>
+          )}
+          {challan.notes && (
+            <div className="col-span-2">
+              <dt className="text-[13px] text-muted-foreground">Notes</dt>
+              <dd className="text-[15px] font-semibold text-slate-900">{challan.notes}</dd>
+            </div>
+          )}
           <div>
             <dt className="text-[13px] text-muted-foreground">Created by</dt>
             <dd className="text-[15px] font-semibold text-slate-900">{ROLES[challan.createdBy]?.name ?? challan.createdBy}</dd>
@@ -258,6 +312,7 @@ function Body({ challan }: { challan: ChallanDetail }) {
           }
         />
         <StatTile label="Pending" value={<span className={cn(challan.pendingCount > 0 && 'text-amber-700')}>{challan.pendingCount}</span>} />
+        {challan.lostCount > 0 && <StatTile label="Lost / short" value={<span className="text-red-700">{challan.lostCount}</span>} />}
       </div>
 
       {canCount && (
@@ -288,7 +343,16 @@ function Body({ challan }: { challan: ChallanDetail }) {
       {/* Order-wise taka lists */}
       <div className="space-y-4">
         {challan.orders.map((g) => (
-          <OrderSection key={g.orderId} kind={kind} group={g} ticked={ticked} canReceive={canReceive} onToggle={setOne} onToggleAll={setMany} />
+          <OrderSection
+            key={g.orderId}
+            kind={kind}
+            group={g}
+            ticked={ticked}
+            canReceive={canReceive}
+            onToggle={setOne}
+            onToggleAll={setMany}
+            onAction={cancelled ? undefined : (action, taka) => { setRowError(null); setRowAction({ action, taka }); }}
+          />
         ))}
       </div>
 
@@ -305,6 +369,53 @@ function Body({ challan }: { challan: ChallanDetail }) {
           </div>
         </div>
       )}
+
+      {challan.history.length > 0 && (
+        <section className="rounded-xl border border-border bg-white p-4 shadow-soft md:p-5">
+          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">History</h2>
+          <ol className="space-y-2">
+            {challan.history.map((h) => (
+              <li key={h.id} className="border-l-2 border-slate-200 pl-3">
+                <p className="text-sm font-medium text-slate-800">{h.note}</p>
+                <p className="text-xs text-slate-400">
+                  {formatDateTime(h.createdAt)} · {h.userName ?? ROLES[h.role]?.name ?? h.role}
+                </p>
+              </li>
+            ))}
+          </ol>
+        </section>
+      )}
+
+      {can('canEditChallan') && <EditChallanDialog challan={challan} open={editOpen} onOpenChange={setEditOpen} />}
+      <ReasonDialog
+        open={rowAction !== null}
+        onOpenChange={(o) => !o && setRowAction(null)}
+        title={
+          rowAction?.action === 'remove-taka' ? `Remove taka ${rowAction.taka.takaNo} from the challan` : rowAction?.action === 'mark-lost' ? `Mark taka ${rowAction?.taka.takaNo} lost / short` : `Undo lost · taka ${rowAction?.taka.takaNo}`
+        }
+        confirmLabel={rowAction?.action === 'remove-taka' ? 'Remove from challan' : rowAction?.action === 'mark-lost' ? 'Mark lost / short' : 'Undo lost'}
+        destructive={rowAction?.action === 'mark-lost'}
+        loading={takaAction.isPending}
+        error={rowError}
+        onConfirm={(reason) =>
+          takaAction.mutate(
+            { takaId: rowAction!.taka.id, reason },
+            {
+              onSuccess: (res) => {
+                toast.success(res.challanCancelled ? `Taka ${res.takaNo} removed — the challan is cancelled (no takas left)` : `Taka ${res.takaNo} updated`);
+                setRowAction(null);
+              },
+              onError: (err) => setRowError(errorMessage(err)),
+            },
+          )
+        }
+      >
+        {rowAction?.action === 'remove-taka'
+          ? 'The taka goes back to waiting to be sent. It is no longer on this challan or its print.'
+          : rowAction?.action === 'mark-lost'
+            ? 'The taka is settled as lost / short at the party and leaves every pending list. Gaurang can undo this.'
+            : 'The taka is back with the party on this challan.'}
+      </ReasonDialog>
 
       <ConfirmDialog
         open={confirmCancel}

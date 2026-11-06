@@ -1,6 +1,8 @@
-import { ArrowLeft, Printer, SearchX, Undo2 } from 'lucide-react';
+import { ArrowLeft, Pencil, Printer, SearchX, Undo2, XCircle } from 'lucide-react';
+import { useState } from 'react';
+import { toast } from 'sonner';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { ORDER_TYPE_LABEL, returnedSummary } from '@rivoora/shared';
+import { ORDER_TYPE_LABEL, returnedSummary, type DispatchChallanListItem } from '@rivoora/shared';
 import { usePageTitle } from '@/components/layout/page-title';
 import { ErrorState } from '@/components/list-parts';
 import { Button } from '@/components/ui/button';
@@ -8,10 +10,12 @@ import { EmptyState } from '@/components/ui/empty-state';
 import { ImageThumb } from '@/components/ui/image-thumb';
 import { Skeleton } from '@/components/ui/skeleton';
 import { StatusBadge } from '@/components/ui/status-badge';
-import { ApiError } from '@/lib/api';
+import { ApiError, errorMessage } from '@/lib/api';
+import { ReasonDialog } from '@/components/ui/reason-dialog';
 import { formatDate, formatOrderNo } from '@/lib/format';
 import { cn } from '@/lib/utils';
-import { useDispatchedOrder } from './api';
+import { useDispatchedOrder, useUndoDispatch } from './api';
+import { EditDispatchChallanDialog } from './edit-challan-dialog';
 import { BlouseTag } from '../free-stock/blouse';
 import { OnHoldBadge } from '../orders/hold/hold-order';
 
@@ -22,6 +26,10 @@ export default function DispatchedOrderPage() {
   const query = useDispatchedOrder(orderId);
   usePageTitle(query.data ? `Dispatched · Order ${formatOrderNo(query.data.orderNo)}` : 'Dispatched');
   const o = query.data;
+  const [undoFor, setUndoFor] = useState<DispatchChallanListItem | null>(null);
+  const [undoError, setUndoError] = useState<string | null>(null);
+  const [editFor, setEditFor] = useState<DispatchChallanListItem | null>(null);
+  const undo = useUndoDispatch(undoFor?.id ?? 0);
 
   return (
     <div className="page-container space-y-4 pb-6 pt-3 md:pt-5">
@@ -80,10 +88,10 @@ export default function DispatchedOrderPage() {
                       <span
                         className={cn(
                           'rounded-full px-2 py-0.5 text-[11px] font-bold',
-                          c.status === 'active' ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200 text-slate-600',
+                          c.status === 'active' ? 'bg-emerald-100 text-emerald-800' : c.status === 'cancelled' ? 'bg-red-100 text-red-700' : 'bg-slate-200 text-slate-600',
                         )}
                       >
-                        {c.status === 'active' ? 'Active' : 'Revised'}
+                        {c.status === 'active' ? 'Active' : c.status === 'cancelled' ? 'Cancelled' : 'Revised'}
                       </span>
                     </p>
                     <p className="text-sm tabular-nums text-slate-500">{formatDate(c.challanDate)}</p>
@@ -95,6 +103,23 @@ export default function DispatchedOrderPage() {
                     <Button variant="secondary" size="icon" className="size-11" aria-label={`Print ${c.label}`} onClick={() => navigate(`/print/dispatch-challan/${c.id}`)}>
                       <Printer />
                     </Button>
+                    {c.canUndo && (
+                      <Button variant="secondary" size="icon" className="size-11" aria-label={`Edit ${c.label}`} onClick={() => setEditFor(c)}>
+                        <Pencil />
+                      </Button>
+                    )}
+                    {c.canUndo && (
+                      <Button
+                        variant="secondary"
+                        className="h-11 text-destructive hover:bg-destructive-soft"
+                        onClick={() => {
+                          setUndoError(null);
+                          setUndoFor(c);
+                        }}
+                      >
+                        <XCircle /> Undo dispatch
+                      </Button>
+                    )}
                     {c.canGoodsReturn && (
                       <Button variant="secondary" className="h-11" onClick={() => navigate(`/dispatched/${o.orderId}/challans/${c.id}/gr`)}>
                         <Undo2 /> GR
@@ -107,6 +132,30 @@ export default function DispatchedOrderPage() {
           </section>
         </>
       )}
+      <EditDispatchChallanDialog challan={editFor} open={editFor !== null} onOpenChange={(o) => !o && setEditFor(null)} />
+      <ReasonDialog
+        open={undoFor !== null}
+        onOpenChange={(o) => !o && setUndoFor(null)}
+        title={`Undo dispatch ${undoFor?.label ?? ''}`}
+        confirmLabel="Undo dispatch"
+        destructive
+        loading={undo.isPending}
+        error={undoError}
+        onConfirm={(reason) =>
+          undo.mutate(
+            { reason },
+            {
+              onSuccess: (r) => {
+                toast.success(`${r.label} cancelled · ${r.takas} takas back to Ready for dispatch`);
+                setUndoFor(null);
+              },
+              onError: (err) => setUndoError(errorMessage(err)),
+            },
+          )
+        }
+      >
+        {undoFor?.takas} {undoFor?.takas === 1 ? 'taka goes' : 'takas go'} back to Ready for dispatch · {undoFor?.label} will be marked Cancelled (its number is never reused).
+      </ReasonDialog>
     </div>
   );
 }

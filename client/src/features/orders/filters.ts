@@ -1,7 +1,7 @@
 import { endOfMonth, startOfMonth, subDays } from 'date-fns';
 import { useCallback, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { isOrderKind, isOrderType, isOutsideOrderFilter, isStatusKey, type OrderKind, type OrderStatusKey, type OrderType, type OutsideOrderFilter } from '@rivoora/shared';
+import { isFgType, type FgType, isOrderKind, isOrderType, isOutsideOrderFilter, isStatusKey, type OrderKind, type OrderStatusKey, type OrderType, type OutsideOrderFilter } from '@rivoora/shared';
 import { toApiDate } from '@/lib/format';
 
 export interface OrderFilters {
@@ -12,6 +12,8 @@ export interface OrderFilters {
   parties: number[];
   /** Order type (Lump / Pcs to pcs). */
   types: OrderType[];
+  /** Sprint 21: FG type (Saree / Suit). */
+  fgTypes: FgType[];
   /** Sprint 16: order kind (In-house / Outside production / FG purchase). */
   kinds: OrderKind[];
   /** Sprint 18: Outside order yes / no (only for roles that see the client). */
@@ -36,6 +38,7 @@ export function useOrderFilters() {
       materials: list('material').map(Number).filter((n) => Number.isInteger(n) && n > 0),
       parties: list('party').map(Number).filter((n) => Number.isInteger(n) && n > 0),
       types: list('type').filter(isOrderType),
+      fgTypes: list('fgType').filter(isFgType),
       kinds: list('kind').filter(isOrderKind),
       outside: list('outside').filter(isOutsideOrderFilter),
       from: DATE_RE.test(from) ? from : undefined,
@@ -54,6 +57,7 @@ export function useOrderFilters() {
           if ('materials' in patch) set('material', patch.materials?.join(','));
           if ('parties' in patch) set('party', patch.parties?.join(','));
           if ('types' in patch) set('type', patch.types?.join(','));
+          if ('fgTypes' in patch) set('fgType', patch.fgTypes?.join(','));
           if ('kinds' in patch) set('kind', patch.kinds?.join(','));
           if ('outside' in patch) set('outside', patch.outside?.join(','));
           if ('from' in patch) set('from', patch.from);
@@ -71,6 +75,7 @@ export function useOrderFilters() {
     filters.materials.length +
     filters.parties.length +
     filters.types.length +
+    filters.fgTypes.length +
     filters.kinds.length +
     filters.outside.length +
     (filters.from || filters.to ? 1 : 0);

@@ -1,11 +1,9 @@
-import { Info, Printer } from 'lucide-react';
+import { Printer } from 'lucide-react';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import {
   changeMachineSummary,
-  completedFramesNote,
-  completedMetersNote,
   formatQty,
   jobsheetRef,
   jobsheetRefShort,
@@ -221,28 +219,17 @@ function StartDialog({ js, open, onOpenChange }: { js: RunJobsheet; open: boolea
 /* ------------------------------------------------------------------ */
 
 function CompleteDialog({ js, open, onOpenChange }: { js: RunJobsheet; open: boolean; onOpenChange: (o: boolean) => void }) {
-  const meterOrder = js.meters !== null;
   const complete = useCompleteJobsheet();
-  const [text, setText] = useState(() => (meterOrder ? String(js.meters) : String(js.frames)));
-  const [error, setError] = useState<string | null>(null);
-  const value = meterOrder ? parseDecimalOrNull(text) ?? (text.trim() === '0' ? 0 : null) : /^\d+$/.test(text.trim()) ? Number(text.trim()) : null;
-  const note = value !== null ? (meterOrder ? completedMetersNote(js.meters!, value) : completedFramesNote(js.frames, value)) : null;
+  const meterOrder = js.meters !== null;
 
+  // Sprint 21 (CR-05): nothing to enter — the frames (or metres) are worked out from the taka entry.
   const submit = () => {
-    if (value === null) {
-      setError(meterOrder ? 'Enter the metres completed (0 or more).' : 'Enter the frames completed (0 or more).');
-      return;
-    }
-    setError(null);
     complete.mutate(
-      meterOrder ? { id: js.id, completedMeters: value } : { id: js.id, completedFrames: value },
+      { id: js.id },
       {
         onSuccess: (res) => {
-          toast.success(`${jobsheetRefShort(res.orderNo, res.jobsheetNo)} completed (${meterOrder ? formatQty(value, 'meters') : fr(value)})`);
+          toast.success(`${jobsheetRefShort(res.orderNo, res.jobsheetNo)} completed`);
           onOpenChange(false);
-        },
-        onError: (err) => {
-          if (err instanceof ApiError && err.field) setError(err.message);
         },
       },
     );
@@ -260,7 +247,7 @@ function CompleteDialog({ js, open, onOpenChange }: { js: RunJobsheet; open: boo
           <Button variant="secondary" size="lg" onClick={() => onOpenChange(false)} disabled={complete.isPending}>
             Cancel
           </Button>
-          <Button size="lg" onClick={submit} disabled={value === null} loading={complete.isPending}>
+          <Button size="lg" onClick={submit} loading={complete.isPending}>
             Complete
           </Button>
         </>
@@ -268,25 +255,10 @@ function CompleteDialog({ js, open, onOpenChange }: { js: RunJobsheet; open: boo
     >
       <div className="space-y-5">
         <JobsheetHeader js={js} />
-        <Field label={meterOrder ? 'Metres completed' : 'Frames completed'} htmlFor="complete-qty" required error={error ?? undefined}>
-          <NumberInput
-            id="complete-qty"
-            inputMode={meterOrder ? 'decimal' : 'numeric'}
-            autoFocus
-            autoComplete="off"
-            value={text}
-            onChange={(e) => setText(meterOrder ? e.target.value.replace(/[^\d.]/g, '') : e.target.value.replace(/[^\d]/g, ''))}
-            invalid={!!error}
-            suffix={meterOrder ? <span className="pr-1.5 text-sm text-slate-400">m</span> : undefined}
-            className="h-14 text-center text-2xl font-bold tabular-nums"
-          />
-        </Field>
-        {note && (
-          <p className="flex items-start gap-2 rounded-[10px] border border-amber-200 bg-amber-50 px-3.5 py-2.5 text-sm font-medium text-amber-900" role="status">
-            <Info className="mt-0.5 size-4 shrink-0 text-amber-500" aria-hidden />
-            {note}
-          </p>
-        )}
+        <p className="text-[15px] leading-relaxed text-slate-700">
+          Mark {jobsheetRef(js.orderNo, js.jobsheetNo)} complete{js.runningMachine ? ` on loom ${js.runningMachine.machineNo}` : ''}?{' '}
+          {meterOrder ? 'Metres' : 'Frames'} will be taken from the taka entry.
+        </p>
       </div>
     </DialogShell>
   );

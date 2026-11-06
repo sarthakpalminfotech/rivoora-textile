@@ -101,25 +101,30 @@ interface Rule {
 
 /**
  * Writes. NOT listed on purpose: orders hold / release, the receive endpoints (butta / mill receive, the mill received
- * count, undo receive, Sprint 16: goods received from an outside weaver / an FG supplier), Close order is listed (a held
- * order is released first).
+ * count, undo receive, Sprint 16: goods received from an outside weaver / an FG supplier), Close order (Sprint 21: a held order
+ * can be closed — the close ends the hold).
  */
 const WRITE_RULES: Rule[] = [
   { methods: ['PUT', 'DELETE'], pattern: /^\/jobsheets\/(\d+)$/, resolve: ofJobsheet },
-  { methods: ['POST', 'PUT'], pattern: /^\/jobsheets\/(\d+)\/(?:pull-back|start|complete|change-machine|takas)$/, resolve: ofJobsheet },
+  { methods: ['POST', 'PUT'], pattern: /^\/jobsheets\/(\d+)\/(?:pull-back|start|complete|change-machine|takas|takas\/entry)$/, resolve: ofJobsheet },
   { methods: ['PUT'], pattern: /^\/orders\/(\d+)(?:\/steps)?$/, resolve: ofOrder },
   {
     methods: ['POST'],
-    pattern: /^\/orders\/(\d+)\/(?:jobsheets|jobsheets\/generate|jobsheets\/send|undo-production|takas\/move-to-inventory|takas\/add-from-free-stock|takas\/send-back|outside-pos|close)$/,
+    pattern: /^\/orders\/(\d+)\/(?:jobsheets|jobsheets\/generate|jobsheets\/send|undo-production|takas\/move-to-inventory|takas\/add-from-free-stock|takas\/send-back|takas\/undo-send-back|outside-pos)$/,
     resolve: ofOrder,
   },
   { methods: ['POST'], pattern: /^\/orders\/send-to-production$/, resolve: ofBodyOrderIds },
   { methods: ['POST'], pattern: /^\/(?:butta|mill)\/challans$/, resolve: ofBodyTakaIds },
   { methods: ['POST'], pattern: /^\/(?:butta|mill)\/challans\/(\d+)\/cancel$/, resolve: ofChallanTakas },
+  { methods: ['PUT'], pattern: /^\/(?:butta|mill)\/challans\/(\d+)$/, resolve: ofChallanTakas },
+  { methods: ['POST'], pattern: /^\/(?:butta|mill)\/challans\/(\d+)\/(?:remove-taka|mark-lost|undo-lost)$/, resolve: ofChallanTakas },
   { methods: ['POST'], pattern: /^\/(?:butta-qc|mill-qc)\/(\d+)$/, resolve: ofTaka, allowClosed: true },
+  { methods: ['POST'], pattern: /^\/qc-corrections\/(\d+)\/(?:undo-qc|cancel-refinish)$/, resolve: ofTaka },
   { methods: ['PATCH', 'POST'], pattern: /^\/godown\/takas\/(\d+)(?:\/[a-z-]+)?$/, resolve: ofTaka },
   { methods: ['POST'], pattern: /^\/godown\/orders\/(\d+)\/(?:ready-dispatch|dispatch)$/, resolve: ofOrder },
   { methods: ['POST'], pattern: /^\/dispatch\/challans\/(\d+)\/goods-return$/, resolve: ofDispatchChallan, allowClosed: true },
+  { methods: ['POST'], pattern: /^\/dispatch\/challans\/(\d+)\/undo$/, resolve: ofDispatchChallan },
+  { methods: ['PUT'], pattern: /^\/dispatch\/challans\/(\d+)$/, resolve: ofDispatchChallan },
   { methods: ['POST'], pattern: /^\/inventory\/takas\/(\d+)\/mark-fresh$/, resolve: ofTaka },
   // Sprint 16: outside POs (receiving against a PO is a receive endpoint — not listed).
   { methods: ['PUT'], pattern: /^\/outside-pos\/(\d+)$/, resolve: ofOutsidePo },

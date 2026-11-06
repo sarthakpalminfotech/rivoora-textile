@@ -2,6 +2,7 @@ import type { RoleKey } from './roles';
 import type { JobsheetStatusKey, OrderStatusKey } from './statuses';
 import type { Unit } from './units';
 import type { OrderType } from './orderTypes';
+import type { FgType } from './fgTypes';
 import type { Coverage, CoverageWarning, MetersCoverage } from './jobsheets';
 import type { ChallanFilter, JobsheetTab, TakaTab } from './schemas';
 import type { DamageType, SubStageKey, TakaStage } from './pipeline';
@@ -129,6 +130,8 @@ export interface OrderListItem {
   quantity: number;
   unit: Unit;
   orderType: OrderType;
+  /** Sprint 21: Saree | Suit. */
+  fgType: FgType;
   /** Sprint 13: the order's blouse option (null = not set). */
   blouseOption: BlouseOption | null;
   brokerName: string | null;
@@ -152,7 +155,7 @@ export interface OrderListItem {
 /** Sprint 16: a "Steps changed: …" / "Order closed" entry of the History tab. */
 export interface OrderEventEntry {
   id: number;
-  event: 'steps_changed' | 'order_closed';
+  event: 'steps_changed' | 'order_closed' | 'fg_type_changed' | 'dispatch_undone';
   note: string | null;
   role: RoleKey;
   userName: string | null;
@@ -198,6 +201,7 @@ export interface OrderDetail {
   orderNo: number;
   status: OrderStatusKey;
   orderType: OrderType;
+  fgType: FgType;
   /** Sprint 13: the order's blouse option (null = not set). */
   blouseOption: BlouseOption | null;
   quantity: number;
@@ -446,6 +450,7 @@ export interface JobsheetDetail {
   orderNo: number;
   /** Sprint 13: the order's blouse option (null = not set). */
   blouseOption: BlouseOption | null;
+  fgType: FgType;
   /** Sprint 16: the order's steps (the damage types at taka entry follow them). */
   orderSteps: OrderSteps;
   design: JobsheetDesign | null;
@@ -530,6 +535,7 @@ export interface SupervisorJobsheetItem {
   quality: string;
   /** Sprint 13: the order's blouse option (null = not set). */
   blouseOption: BlouseOption | null;
+  fgType: FgType;
   designCode: string | null;
   thumbUrl: string | null;
   imageUrl: string | null;
@@ -590,6 +596,7 @@ export interface JobsheetPrintItem {
   orderType: OrderType;
   /** Sprint 13: the order's blouse option (null = not set). */
   blouseOption: BlouseOption | null;
+  fgType: FgType;
 }
 
 /* ---------- machine view ---------- */
@@ -798,6 +805,18 @@ export interface TakaEditResult {
   takas: Taka[];
 }
 
+/** Sprint 21: GET /jobsheets/:id/takas/entry — the jobsheet's takas with what the Taka entry person may still change. */
+export interface TakaOwnEditData {
+  jobsheetId: number;
+  jobsheetNo: number;
+  orderNo: number;
+  takaNote: string | null;
+  takas: (Taka & { editable: boolean })[];
+  /** New rows may be added only while every taka is still editable. */
+  canAdd: boolean;
+  meterOrder: boolean;
+}
+
 /** One card of the Taka entry Jobsheets list. */
 export interface TakaJobsheetItem {
   id: number;
@@ -808,6 +827,7 @@ export interface TakaJobsheetItem {
   orderNo: number;
   /** Sprint 13: the order's blouse option (null = not set). */
   blouseOption: BlouseOption | null;
+  fgType: FgType;
   designCode: string | null;
   thumbUrl: string | null;
   imageUrl: string | null;
@@ -816,6 +836,8 @@ export interface TakaJobsheetItem {
   completedAt: string | null;
   takaCount: number;
   damagedCount: number;
+  /** Sprint 21: takas the Taka entry person may still edit (first stage of the route). */
+  editableCount: number;
   lastTakaAt: string | null;
 }
 
@@ -933,6 +955,14 @@ export const TAKA_EVENT_KINDS = [
   // Sprint 16
   'received_outside',
   'received_fg',
+  // Sprint 21
+  'rework_undone',
+  'qc_undone',
+  'refinish_cancelled',
+  'removed_from_challan',
+  'marked_lost',
+  'lost_undone',
+  'dispatch_undone',
 ] as const;
 export type TakaEventKind = (typeof TAKA_EVENT_KINDS)[number];
 
@@ -989,6 +1019,7 @@ export interface TakaDetail {
   quality: string | null;
   /** Sprint 13: the order's blouse option (null = not set). */
   blouseOption: BlouseOption | null;
+  fgType: FgType;
   /** Sprint 13: the taka is free stock (no order; `orderNo` is the order it was made for). */
   isFreeStock: boolean;
   /** Sprint 16: where it came from + the weaver's number; the order's steps; where it has been (damage types follow). */
@@ -1148,6 +1179,8 @@ export interface ChallanListItem {
   totalTakas: number;
   totalMeters: number;
   receivedCount: number;
+  /** Sprint 21: takas marked lost / short at the party (settled, not received). */
+  lostCount: number;
   /** Sprint 15: a mill challan whose takas are ALL refinish trips ("For refinish"). Never mixed with normal takas. */
   isRefinish: boolean;
   createdAt: string;
@@ -1164,6 +1197,8 @@ export interface ChallanTakaRow {
   meters: number | null;
   pcs: number | null;
   receivedAt: string | null;
+  /** Sprint 21: marked lost / short at the party. */
+  lostAt: string | null;
   /** Butta QC done. */
   qcDone: boolean;
   isDamaged: boolean;
@@ -1191,13 +1226,20 @@ export interface ChallanDetail {
   party: { id: number; name: string; address: string | null; mobile: string | null; gstin: string | null };
   challanDate: string;
   ewayNo: string | null;
+  /** Sprint 21 (C3) */
+  transport: string | null;
+  vehicleNo: string | null;
+  notes: string | null;
   createdBy: RoleKey;
   createdAt: string;
   cancelledAt: string | null;
   totalTakas: number;
   totalMeters: number;
   receivedCount: number;
+  lostCount: number;
   pendingCount: number;
+  /** Sprint 21: edits / removals / lost marks, oldest first. */
+  history: ChallanHistoryEntry[];
   /** Sprint 15: all takas are refinish trips (mill challans only). */
   isRefinish: boolean;
   /** Cancel is allowed while nothing was received (and the challan is active). */
@@ -1308,7 +1350,7 @@ export interface OrderDeliveryChallan {
   /** `DC-12` / `DC-12 R1` */
   label: string;
   /** active = the latest revision · revised = replaced by a later one. */
-  status: 'active' | 'revised';
+  status: 'active' | 'revised' | 'cancelled';
   challanDate: string;
   takas: number;
   pcs: number;
@@ -1606,6 +1648,12 @@ export interface AuthSession {
 
 /* ---------- Rework (Sprint 12) ---------- */
 
+/** POST /orders/:id/takas/undo-send-back (Sprint 21) */
+export interface UndoSendBackResult {
+  orderId: number;
+  undone: number;
+}
+
 /** POST /orders/:id/takas/send-back */
 export interface SendBackResult {
   orderId: number;
@@ -1645,11 +1693,17 @@ export interface DispatchChallanDetail {
   label: string;
   /** Revisions: "DC-12" (the label of the revision it replaces). */
   replacesLabel: string | null;
-  status: 'active' | 'revised';
+  status: 'active' | 'revised' | 'cancelled';
   challanDate: string;
   transport: string | null;
   lrNo: string | null;
   ewayNo: string | null;
+  /** Sprint 21 */
+  vehicleNo: string | null;
+  notes: string | null;
+  cancelledAt: string | null;
+  cancelledReason: string | null;
+  history: { id: number; event: 'edited' | 'dispatch_undone'; note: string | null; role: RoleKey; userName: string | null; createdAt: string }[];
   order: {
     orderId: number;
     orderNo: number;
@@ -1678,13 +1732,15 @@ export interface DispatchChallanListItem {
   challanNo: number;
   revision: number;
   label: string;
-  status: 'active' | 'revised';
+  status: 'active' | 'revised' | 'cancelled';
   challanDate: string;
   takas: number;
   pcs: number;
   meters: number;
   /** A GR can still be made (active revision with something on it). */
   canGoodsReturn: boolean;
+  /** Sprint 21: Undo dispatch / Edit are available (active revision, no goods return against it). */
+  canUndo: boolean;
 }
 
 /** One order card of the Dispatched list. */
@@ -1989,30 +2045,81 @@ export interface TakaLookupCandidate {
 export interface CloseOrderResult {
   orderId: number;
   orderNo: number;
-  /** Ongoing jobsheets completed with the frames entered. */
-  completed: number;
-  /** Pending / Sent jobsheets cancelled. */
+  /** Pending jobsheets cancelled. */
   cancelled: number;
-  /** Open outside POs closed. */
-  closedPos: number;
   /** Takas with us that became free stock (and their pcs). */
   freeTakas: number;
   freePcs: number;
   /** Sprint 19: the meter twin of `freePcs`, for a meter order. */
   freeMeters: number;
-  /** Takas still at butta cutting / the mill (they become free stock when they come back). */
-  outTakas: number;
 }
 
 /** What Close order will do (GET /orders/:id/close-preview) — the summary of the confirm dialog. */
 export interface ClosePreview {
-  /** Sprint 19: `meters` is set instead of `frames` for a meter order's ongoing jobsheet. */
-  ongoing: { id: number; jobsheetNo: number; frames: number; meters: number | null; machineNo: number | null }[];
+  /** Sprint 21: while any exists, Close is blocked (409). */
+  blockers: import('./closeBlockers').CloseBlocker[];
   pendingJobsheets: number;
-  openPos: number;
   freeTakas: number;
   freePcs: number;
   freeMeters: number;
-  outTakas: number;
   dispatchedTakas: number;
+}
+
+/* ---------- Sprint 21 (C6): QC corrections ---------- */
+
+export interface QcCorrectionAction {
+  allowed: boolean;
+  /** Why not (shown as a grey note). */
+  reason: string | null;
+}
+
+/** GET /qc-corrections/taka/:no */
+export interface QcCorrectionTaka {
+  id: number;
+  takaNo: string;
+  orderNo: number;
+  designCode: string | null;
+  stage: TakaStage;
+  pcs: number | null;
+  meters: number | null;
+  /** The last QC result (not yet undone). */
+  lastQc: { kind: 'butta' | 'mill'; result: TakaStage; at: string; byName: string | null; byRole: RoleKey } | null;
+  damages: { id: number; label: string; status: DamageStatus }[];
+  undoQc: QcCorrectionAction;
+  cancelRefinish: QcCorrectionAction;
+  events: { id: number; event: TakaEventKind; note: string | null; createdAt: string }[];
+}
+
+export interface QcCorrectionResult {
+  takaId: number;
+  takaNo: string;
+  stage: TakaStage;
+}
+
+/** A history line of a challan (Sprint 21). */
+export interface ChallanHistoryEntry {
+  id: number;
+  event: 'edited' | 'taka_removed' | 'taka_lost' | 'lost_undone';
+  note: string | null;
+  role: RoleKey;
+  userName: string | null;
+  createdAt: string;
+}
+
+/** POST /butta|mill/challans/:id/remove-taka | mark-lost | undo-lost */
+export interface ChallanTakaActionResult {
+  challanId: number;
+  takaId: number;
+  takaNo: string;
+  /** The challan was cancelled because its last taka was removed. */
+  challanCancelled: boolean;
+}
+
+/** POST /dispatch/challans/:id/undo (Sprint 21, CR-10) */
+export interface UndoDispatchResult {
+  challanId: number;
+  label: string;
+  orderId: number;
+  takas: number;
+  pcs: number;
 }

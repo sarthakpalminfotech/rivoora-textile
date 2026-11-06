@@ -21,7 +21,7 @@ export function parseDispatchChallanNo(text: string): { no: number; revision: nu
   return no > 0 ? { no, revision: m[2] ? Number(m[2]) : null } : null;
 }
 
-export type DispatchChallanState = 'active' | 'revised';
+export type DispatchChallanState = 'active' | 'revised' | 'cancelled';
 
 /* ------------------------------------------------------------------ */
 /* Dispatch                                                             */

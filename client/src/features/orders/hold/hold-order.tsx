@@ -8,6 +8,8 @@ import {
   jobsheetRef,
   planHold,
   planHoldMeters,
+  ROLES,
+  type OrderHoldEvent,
   type HoldJobsheetEntry,
   type HoldMetersJobsheetEntry,
   type JobsheetListItem,
@@ -19,7 +21,7 @@ import { JobsheetRef } from '@/components/ui/jobsheet-ref';
 import { ResponsiveModal } from '@/components/ui/modal';
 import { useNow } from '@/hooks/useNow';
 import { errorMessage } from '@/lib/api';
-import { formatElapsed, formatOrderNo } from '@/lib/format';
+import { formatDateTime, formatElapsed, formatOrderNo } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { useOrderJobsheets } from '../../jobsheets/api';
 import { useHoldOrder, useReleaseOrder } from './api';
@@ -43,7 +45,7 @@ export function OnHoldBadge({ className }: { className?: string }) {
 }
 
 /** Banner on the order details page while the order is on hold. */
-export function OnHoldBanner({ note, canRelease }: { note: string | null; canRelease: boolean }) {
+export function OnHoldBanner({ note, canRelease, heldBy }: { note: string | null; canRelease: boolean; heldBy?: OrderHoldEvent | null }) {
   return (
     <div role="status" className="flex items-start gap-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-amber-950">
       <PauseCircle className="mt-0.5 size-5 shrink-0 text-amber-600" aria-hidden />
@@ -51,9 +53,15 @@ export function OnHoldBanner({ note, canRelease }: { note: string | null; canRel
         <p className="font-bold">This order is on hold</p>
         <p className="text-amber-900/90">
           Work has stopped and it is hidden from production, QC, godown and dispatch.{' '}
-          {canRelease ? 'Release it to continue.' : 'Only Jenish can release it.'}
+          {canRelease ? 'Release it to continue.' : 'Only Jenish or Gaurang can release it.'}
         </p>
-        {note && <p className="mt-1 font-medium">Note: {note}</p>}
+        {heldBy && (
+          <p className="mt-1 font-medium">
+            Held by {heldBy.userName ?? ROLES[heldBy.role].name} · {formatDateTime(heldBy.createdAt)}
+            {(heldBy.note ?? note) ? ` · ${heldBy.note ?? note}` : ''}
+          </p>
+        )}
+        {!heldBy && note && <p className="mt-1 font-medium">Note: {note}</p>}
       </div>
     </div>
   );

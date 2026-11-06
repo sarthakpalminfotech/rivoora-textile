@@ -68,6 +68,8 @@ export const TAKA_STAGES = [
   // Sprint 12: sent back to butta cutting by the owner · handed to the client on a dispatch challan.
   'rework_butta',
   'dispatched',
+  // Sprint 21 (C4): lost / short at a butta / mill party (Gaurang marks it, with a reason).
+  'lost',
 ] as const;
 export type TakaStage = (typeof TAKA_STAGES)[number];
 export const DEFAULT_TAKA_STAGE: TakaStage = 'entered';
@@ -96,6 +98,8 @@ export const SUB_STAGE_KEYS = [
   'ready_dispatch',
   'rework_butta',
   'dispatched',
+  // Sprint 21 (C4): lost / short at a butta / mill party (shown as a small card; not part of the pcs bar).
+  'lost',
   // Sprint 16: outside POs (no taka stage — counted from the POs).
   'outside_po',
   'at_weaver',
@@ -143,6 +147,8 @@ export const SUB_STAGES: readonly SubStageConfig[] = [
   { key: 'ready_dispatch', label: 'Ready for dispatch', shortLabel: 'Ready for dispatch', mainStage: 'ready', unit: 'takas', colour: '#059669', connected: true, takaStages: ['ready_dispatch'] },
   // Sprint 12: dispatched to the client on a dispatch challan (DC-n).
   { key: 'dispatched', label: 'Dispatched', shortLabel: 'Dispatched', mainStage: 'ready', unit: 'takas', colour: '#0F766E', connected: true, takaStages: ['dispatched'] },
+  // Sprint 21 (C4): Gaurang marked these takas lost / short at the party. They leave the totals and the bar.
+  { key: 'lost', label: 'Lost at party', shortLabel: 'Lost at party', mainStage: 'mill', unit: 'takas', colour: '#DC2626', connected: true, takaStages: ['lost'] },
 ];
 
 const subByKey = new Map<string, SubStageConfig>(SUB_STAGES.map((s) => [s.key, s]));
@@ -287,6 +293,7 @@ export const TAKA_STAGE_STATUS_TEXT: Record<TakaStage, string> = {
   ready_dispatch: 'Ready for dispatch',
   rework_butta: 'Sent back to butta cutting',
   dispatched: 'Dispatched',
+  lost: 'Lost at party',
 };
 
 export function takaStageStatusText(stage: string): string {
