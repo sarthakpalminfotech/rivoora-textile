@@ -1190,3 +1190,13 @@ Insight dashboards: Owner (Jenish, 35 cards), Production partner (Gaurang, 19), 
 - Built in one go at the owner's request (the prompt asked for a design review with screenshots first and approval after each phase).
 - Not done: screenshots at 1280 / 1440 / 1920 / 820 / 1180 / 360 px (the Chrome extension was not connected); real-tablet check.
 
+
+### Sprint 26 (built on branch `sprint-26`, on top of main = Sprint 25, not deployed) — current as of 2026-11-12
+
+Demo database + dashboard review + fixes. `npm run demo:seed` builds a guarded local `server/.data/demo.db` with 14 months of realistic data (every order status, every alert type, all three dashboards' 79 cards with data); `npm run demo:dev` runs the app on it with a DEMO DATA ribbon. The dashboards were reviewed at 1920 / 1440 / 1280 (+125 %) / 1180 touch / 820 touch / 768 touch / 390 and fixed: column charts showed no bars (and caused a horizontal scroll), rows had holes, figures were not aligned, labels were truncated, tables scrolled sideways, touch targets were small. Details: "Sprint 26" in CLAUDE.md, `docs/plans/sprint-26-plan.md`, `docs/plans/sprint-26-findings.md`.
+
+- Verified: `npm run typecheck` clean, `npm test` 513 passing, `npm run build` OK, `npm run demo:seed` (0 status corrections, 79 cards checked), `node scripts/check-demo-guard.mjs` (7 refusals), `npm run test:dashboard-ui` (18 dashboard × size checks pass).
+- **Turso was never touched**: no migration in this sprint; every demo command is pinned to the local demo file and the seed refuses any other URL before connecting.
+- Review done with Playwright in the installed Chrome (the Claude in Chrome extension did not connect in this session).
+- Waiting for a decision: F17 / F18 ("Completed short" with machine-changed jobsheets and whole-frame rounding), F19 (drawers on partner / supervisor figures), F20 (sidebar at 1180 touch).
+- Not done: real-tablet check (drag handles, bottom sheet drag, pull to refresh) — emulated touch only.
