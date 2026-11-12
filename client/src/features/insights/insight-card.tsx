@@ -139,7 +139,7 @@ function FigureView({ b, href, actions, title }: { b: FigureBody; href: string |
 
 export function SplitView({ items, actions, dense }: { items: SplitItem[]; actions: CardActions; dense?: boolean }) {
   return (
-    <div className={cn('grid gap-x-4 gap-y-4', items.length >= 4 ? 'grid-cols-2 sm:grid-cols-3' : 'grid-cols-2', items.length === 5 && !dense && 'xl:grid-cols-5', items.length === 3 && 'sm:grid-cols-3', items.length === 4 && 'xl:grid-cols-4')}>
+    <div className={cn('grid gap-x-4 gap-y-4', items.length >= 4 ? 'grid-cols-2 sm:grid-cols-3' : 'grid-cols-2', items.length === 5 && !dense && 'xl:grid-cols-3', items.length === 3 && 'sm:grid-cols-3', items.length === 4 && 'xl:grid-cols-4')}>
       {items.map((it) => (
         <Tap key={it.label} onTap={tapOf(actions, it.drawer, it.href)} label={`${it.label}: ${formatValue(it.value, it.unit)}`} className="min-w-0">
           <p className="line-clamp-2 text-xs font-medium leading-snug text-slate-500">{it.label}</p>
@@ -156,11 +156,11 @@ export function SplitView({ items, actions, dense }: { items: SplitItem[]; actio
 function BarsView({ b, mode, actions }: { b: BarsBody; mode: DashboardMode; actions: CardActions }) {
   const touch = mode !== 'desktop';
   return (
-    <div>
+    <div className="flex flex-1 flex-col">
       {b.horizontal ? (
         <BarRows points={b.points} unit={b.unit} series={b.series} large={touch} />
       ) : (
-        <ColumnChart points={b.points} unit={b.unit} series={b.series} maxVisible={touch ? 6 : undefined} large={touch} onPick={(p) => p.href && actions.go(p.href)} />
+        <ColumnChart fill points={b.points} unit={b.unit} series={b.series} maxVisible={touch ? 6 : undefined} large={touch} onPick={(p) => p.href && actions.go(p.href)} />
       )}
       {(b.change || b.summary) && (
         <p className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
@@ -326,15 +326,10 @@ export const InsightCard = forwardRef<
     arrange?: ArrangeProps | null;
     /** Pinned Needs attention panel styling. */
     panel?: boolean;
-    /**
-     * Sprint 26 (desktop): the card's four parts (header · answer · switch · body) sit on the row's shared grid lines
-     * (CSS subgrid), so every figure of a row starts at the same height.
-     */
-    subgrid?: boolean;
     className?: string;
     style?: CSSProperties;
   }
->(function InsightCard({ dashboard, def, payload: batchPayload, loading, mode, actions, onRetry, arrange, panel, subgrid, className, style }, ref) {
+>(function InsightCard({ dashboard, def, payload: batchPayload, loading, mode, actions, onRetry, arrange, panel, className, style }, ref) {
   const [ownPeriod, setOwnPeriod] = useState<PeriodKey | null>(null);
   const own = useCardWithPeriod(dashboard, def.id, ownPeriod);
   const payload = ownPeriod ? (own.data?.cards[def.id] ?? batchPayload) : batchPayload;
@@ -360,8 +355,7 @@ export const InsightCard = forwardRef<
       onDragOver={arrange?.onDragOver}
       onDrop={arrange?.onDrop}
       className={cn(
-        'group/card min-w-0 rounded-xl border bg-white p-4 transition-[box-shadow,opacity,border-color] duration-200 lg:p-5',
-        subgrid ? 'row-span-4 grid grid-rows-subgrid gap-0' : 'flex h-full flex-col',
+        'group/card flex h-full min-w-0 flex-col rounded-xl border bg-white p-4 transition-[box-shadow,opacity,border-color] duration-200 lg:p-5',
         panel ? (tone === 'red' ? 'border-rose-200 bg-rose-50/40' : tone === 'amber' ? 'border-amber-200 bg-amber-50/40' : 'border-emerald-200 bg-emerald-50/30') : 'border-border',
         !touch && !arrange && 'hover:shadow-soft',
         arrange && 'outline-none focus-visible:ring-2 focus-visible:ring-primary/40',
@@ -421,9 +415,10 @@ export const InsightCard = forwardRef<
       </header>
       {/* 2 · answer line */}
       <p className="mt-0.5 text-xs leading-snug text-slate-500">{def.answer}</p>
-      {/* switch (Pcs | m, Butta | Mill | Weavers …) */}
-      <div className={cn(ok?.switch && !arrange && 'mt-3')}>
-        {ok?.switch && !arrange && (
+      {/* 3 · switch (Pcs | m, Butta | Mill | Weavers …) + body + footer + Arrange controls — one part, it fills the card */}
+      <div className="flex min-w-0 flex-1 flex-col">
+      {ok?.switch && !arrange && (
+        <div className="mt-3">
           <Segmented
             fit
             size={touch ? 'lg' : 'md'}
@@ -433,11 +428,9 @@ export const InsightCard = forwardRef<
             aria-label={`${def.title} — show`}
             className={cn('w-full', !touch && 'sm:w-auto')}
           />
-        )}
-      </div>
-      {/* 3 · body (+ footer, Arrange controls) */}
-      <div className="flex min-w-0 flex-1 flex-col">
-      <div className="mt-4 min-w-0 flex-1">
+        </div>
+      )}
+      <div className="mt-4 flex min-w-0 flex-1 flex-col">
         {arrange ? (
           <p className="text-xs text-slate-400">{arrange.hidden ? 'Hidden on the dashboard' : 'Shown'} · {arrange.wide ? 'wide' : 'normal'}</p>
         ) : loading && !payload ? (

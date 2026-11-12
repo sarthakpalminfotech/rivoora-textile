@@ -54,11 +54,24 @@ const SPAN: Record<DashboardMode, Record<CardWidth, number>> = {
   phone: { small: 1, normal: 1, wide: 1, full: 1 },
 };
 const COLS: Record<DashboardMode, number> = { desktop: 12, tablet3: 3, tablet2: 2, phone: 1 };
-/** Sprint 26: desktop and tablet rows use subgrid (row gap 0 — each card keeps its own bottom margin), so figures share a baseline. */
 const GRID: Record<DashboardMode, string> = {
-  desktop: 'grid grid-cols-12 gap-x-5 gap-y-0',
-  tablet3: 'grid grid-cols-3 gap-x-4 gap-y-0',
-  tablet2: 'grid grid-cols-2 gap-x-4 gap-y-0',
+  desktop: 'grid grid-cols-12 gap-5',
+  tablet3: 'grid grid-cols-3 gap-4',
+  tablet2: 'grid grid-cols-2 gap-4',
+  phone: 'grid grid-cols-1 gap-3',
+};
+/**
+ * Sprint 26 follow-up — desktop / tablet sections are a MEASURED masonry: every card keeps its own (natural) height and
+ * spans that many 4 px grid rows, and `dense` lets the next cards move up into the space. Equal-height rows stretched a
+ * one-figure card to the height of a 10-row table beside it (up to 560 px of empty card). Columns still come from
+ * `packRows`, so every row of cards reaches the right edge.
+ */
+const ROW_UNIT = 4;
+const ROW_GAP: Record<DashboardMode, number> = { desktop: 20, tablet3: 16, tablet2: 16, phone: 12 };
+const MASONRY: Record<DashboardMode, string> = {
+  desktop: 'grid grid-cols-12 gap-x-5',
+  tablet3: 'grid grid-cols-3 gap-x-4',
+  tablet2: 'grid grid-cols-2 gap-x-4',
   phone: 'grid grid-cols-1 gap-3',
 };
 const STRIP_GRID: Record<DashboardMode, string> = {
@@ -183,6 +196,34 @@ function Dashboard({ dashboard }: { dashboard: DashboardKey }) {
   const [overId, setOverId] = useState<string | null>(null);
   const [confirmReset, setConfirmReset] = useState(false);
   const cardEls = useRef(new Map<string, HTMLElement>());
+  // masonry: the natural height of every card (ResizeObserver — it re-measures when a card's content changes)
+  const [heights, setHeights] = useState<Record<string, number>>({});
+  const sizer = useRef<ResizeObserver | null>(null);
+  const idOfEl = useRef(new WeakMap<Element, string>());
+  useEffect(() => () => sizer.current?.disconnect(), []);
+  const measureCard = (id: string, el: HTMLElement | null) => {
+    if (!sizer.current)
+      sizer.current = new ResizeObserver((entries) =>
+        setHeights((h) => {
+          let next = h;
+          for (const e of entries) {
+            const key = idOfEl.current.get(e.target);
+            const v = Math.ceil((e.target as HTMLElement).offsetHeight);
+            if (key && h[key] !== v) {
+              if (next === h) next = { ...h };
+              next[key] = v;
+            }
+          }
+          return next;
+        }),
+      );
+    const old = cardEls.current.get(id);
+    if (old && old !== el) sizer.current.unobserve(old);
+    if (el) {
+      idOfEl.current.set(el, id);
+      sizer.current.observe(el);
+    }
+  };
   const startArrange = () => layoutQ.data && setDraft(layoutQ.data.layout);
   const cancelArrange = () => setDraft(null);
   const saveArrange = () => {
@@ -250,6 +291,7 @@ function Dashboard({ dashboard }: { dashboard: DashboardKey }) {
     const list = s.cards.filter((c) => allowed(defs.get(c.id)) && (arranging || !c.hidden));
     if (!list.length && !arranging) return null;
     const sdef = def.sections.find((x) => x.key === s.key);
+    const masonry = !arranging && mode !== 'phone';
     return (
       <section
         key={s.key}
@@ -287,15 +329,18 @@ function Dashboard({ dashboard }: { dashboard: DashboardKey }) {
         {list.length === 0 ? (
           <p className="rounded-xl border border-dashed border-border px-4 py-6 text-center text-sm text-slate-400">Drop a card here, or move one with ↑ ↓</p>
         ) : (
-          <div className={GRID[mode]}>
+          <div className={masonry ? MASONRY[mode] : GRID[mode]} style={masonry ? { gridAutoRows: `${ROW_UNIT}px`, gridAutoFlow: 'row dense' } : undefined}>
             {/* rows without holes: Arrange order, a later card may move up to fill a row, short rows are stretched */}
             {(arranging ? list.map((_, index) => ({ index, span: SPAN[mode][list[index].width] })) : packRows(list.map((c) => SPAN[mode][c.width]), COLS[mode]).flat()).map(({ index, span }) => {
               const c = list[index];
               const cdef = defs.get(c.id)!;
+              const cols = arranging ? Math.min(span, COLS[mode]) : span;
+              const h = heights[c.id];
               return (
                 <InsightCard
                   key={c.id}
                   ref={(el) => {
+                    if (masonry || !el) measureCard(c.id, el);
                     if (el) cardEls.current.set(c.id, el);
                     else cardEls.current.delete(c.id);
                   }}
@@ -306,9 +351,11 @@ function Dashboard({ dashboard }: { dashboard: DashboardKey }) {
                   mode={mode}
                   actions={actions}
                   onRetry={refresh}
-                  subgrid={mode !== 'phone'}
-                  className={cn(mode === 'desktop' ? 'mb-5' : mode !== 'phone' && 'mb-4')}
-                  style={{ gridColumn: `span ${arranging ? Math.min(span, COLS[mode]) : span} / span ${arranging ? Math.min(span, COLS[mode]) : span}` }}
+                  style={{
+                    gridColumn: `span ${cols} / span ${cols}`,
+                    // height auto: the card's own h-full would follow the grid area and grow with every measurement
+                    ...(masonry ? { alignSelf: 'start', height: 'auto', gridRow: h ? `span ${Math.ceil((h + ROW_GAP[mode]) / ROW_UNIT)}` : 'span 60' } : {}),
+                  }}
                   arrange={
                     draft
                       ? {

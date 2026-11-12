@@ -4,7 +4,8 @@
  * "chrome" — no browser download).
  *
  *   npm run test:dashboard-ui              → the check: 6 sizes × 3 dashboards; fails on horizontal scroll, anything
- *                                             overflowing its card, console errors, the wrong layout (tablet at 1180
+ *                                             overflowing its card, > 72 px of empty space inside a card, console
+ *                                             errors, the wrong layout (tablet at 1180
  *                                             touch, desktop at 1280); screenshots → docs/screenshots/sprint-26/after/
  *   node scripts/dashboard-ui.mjs --review → every size of the spec (incl. 1280 at 125 % and 390 phone), every section,
  *                                             a drawer / sheet, Arrange; screenshots → …/before/ + metrics JSON
@@ -69,7 +70,7 @@ async function ensureApp() {
 /** Everything measured on the current screen (runs in the page). */
 function measure() {
   const vw = window.innerWidth;
-  const out = { hscroll: document.documentElement.scrollWidth > vw + 1, mode: document.querySelector('[data-dashboard-mode]')?.getAttribute('data-dashboard-mode') ?? (document.querySelector('nav[aria-label="Sections"]') ? 'tablet' : 'desktop'), overflow: [], cut: [], unequal: [], holes: [], baseline: [], small: [], scrollers: [] };
+  const out = { hscroll: document.documentElement.scrollWidth > vw + 1, mode: document.querySelector('[data-dashboard-mode]')?.getAttribute('data-dashboard-mode') ?? (document.querySelector('nav[aria-label="Sections"]') ? 'tablet' : 'desktop'), overflow: [], cut: [], voids: [], unequal: [], holes: [], baseline: [], small: [], scrollers: [] };
   const visible = (el) => {
     const r = el.getBoundingClientRect();
     return r.width > 0 && r.height > 0;
@@ -78,6 +79,13 @@ function measure() {
   for (const card of cards) {
     const cr = card.getBoundingClientRect();
     const name = card.getAttribute('aria-label');
+    // empty space inside the card: the body area below its content (Sprint 26 follow-up — cards stretched to a tall neighbour)
+    const bodyArea = card.querySelector(':scope > div.flex-1 > div.mt-4');
+    const content = bodyArea?.firstElementChild;
+    if (bodyArea && content) {
+      const gap = bodyArea.getBoundingClientRect().bottom - content.getBoundingClientRect().bottom;
+      if (gap > 72) out.voids.push(`${name}: ${Math.round(gap)} px empty`);
+    }
     for (const el of card.querySelectorAll('*')) {
       if (!visible(el)) continue;
       // inside a horizontal scroller the content may be wider (it scrolls) — reported separately
@@ -235,6 +243,8 @@ try {
       if (all.some((x) => x.hscroll)) problems.push('horizontal scroll');
       const over = [...new Set(all.flatMap((x) => x.overflow))];
       if (over.length) problems.push(`overflow: ${over.slice(0, 5).join(' | ')}`);
+      const voids = [...new Set(all.flatMap((x) => x.voids))];
+      if (voids.length) problems.push(`empty space inside cards: ${voids.slice(0, 5).join(' | ')}`);
       if (errors.length) problems.push(`console: ${errors.slice(0, 3).join(' | ')}`);
       const modeOk = size.expect === 'phone' || (size.expect === 'tablet' ? m.mode.startsWith('tablet') : m.mode === 'desktop');
       if (!modeOk) problems.push(`layout ${m.mode}, expected ${size.expect}`);

@@ -60,7 +60,8 @@ export function ColumnChart({
   series,
   maxVisible,
   large,
-  height = 140,
+  height: fixedHeight = 140,
+  fill,
   onPick,
 }: {
   points: BarPoint[];
@@ -70,9 +71,26 @@ export function ColumnChart({
   /** Larger value labels (tablet). */
   large?: boolean;
   height?: number;
+  /**
+   * Sprint 26: grow into the height the card gives it (a short chart beside a long list left an empty half card). The
+   * plot is positioned absolutely inside a measured area, so it never makes the card taller itself.
+   */
+  fill?: boolean;
   onPick?: (p: BarPoint) => void;
 }) {
   const { active, setActive, ref } = useTipState();
+  const area = useRef<HTMLDivElement>(null);
+  const [areaH, setAreaH] = useState(0);
+  useLayoutEffect(() => {
+    const el = area.current;
+    if (!fill || !el) return;
+    const ro = new ResizeObserver(() => setAreaH(el.clientHeight));
+    ro.observe(el);
+    setAreaH(el.clientHeight);
+    return () => ro.disconnect();
+  }, [fill]);
+  // the axis labels take ~26 px under the plot; between 140 and 300 px of bars
+  const height = fill && areaH ? Math.max(fixedHeight, Math.min(300, areaH - 26)) : fixedHeight;
   const scroller = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
   useLayoutEffect(() => {
@@ -98,7 +116,7 @@ export function ColumnChart({
   const two = series.length > 1;
 
   return (
-    <div ref={ref} className="relative">
+    <div ref={ref} className={cn('relative', fill && 'flex flex-1 flex-col')}>
       {two && (
         <div className="mb-2 flex flex-wrap gap-3 text-xs text-slate-600" aria-hidden>
           {series.map((s, i) => (
@@ -108,6 +126,8 @@ export function ColumnChart({
           ))}
         </div>
       )}
+      <div ref={area} className={cn(fill && 'relative min-h-[166px] flex-1')}>
+      <div className={cn(fill && 'absolute inset-x-0 bottom-0')}>
       <div ref={scroller} className={cn('scrollbar-none', scrolls && 'snap-x overflow-x-auto overscroll-x-contain')}>
         <div className="flex items-end border-b border-slate-200" style={{ height, width: scrolls ? `${(points.length / visible!) * 100}%` : '100%' }} role="list">
           {points.map((p, i) => {
@@ -162,6 +182,8 @@ export function ColumnChart({
             </span>
           ))}
         </div>
+      </div>
+      </div>
       </div>
     </div>
   );

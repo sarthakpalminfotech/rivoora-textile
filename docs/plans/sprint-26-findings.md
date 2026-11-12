@@ -39,6 +39,8 @@ outside the dashboards).
 | F21 | owner | 390 | Needs attention table | Four columns on a phone wrap "Overdue" under the dot; usable | owner-390-tab-0-overview.png | minor | ⏸ phone = sanity only |
 | F22 | owner | all | Needs attention → "Sent short 41" | Demo data: meter orders lost 1–4 % to shrinkage and a −1 pc correction landed on exact orders, so 41 orders looked sent short | owner-1440-top.png | data | ✅ demo seed fixed (meter orders woven a little long); now ≈ 11 |
 | F23 | all | all | console | No console errors or React warnings at any size | metrics.json | — | ✅ |
+| F25 | all | laptop (owner's screenshots) + every desktop / tablet size | Business at a glance, Order value booked, On-time delivery, Damage % / money, TFO machines, Late POs … | Big empty space inside cards: equal-height rows stretched a short card to its tall neighbour (On-time delivery 566 px empty next to the 10-row Oldest open orders); the subgrid's shared switch row added an empty band under the description of cards without a switch | (owner's laptop screenshots) | ugly | ✅ measured masonry (each card its natural height, the next card moves up), switch inside the body; 0 cards with > 72 px empty at all 24 dashboard × size combinations, now asserted by the UI test |
+| F07b | all | desktop | section grids | F07's aligned figures are given up for F25: cards in a "row" no longer share a top line exactly, and a section can end lower in one column | — | trade-off | ✅ chosen (no empty space inside cards matters more) |
 | F24 | all | 1180 touch | layout mode | 1180 × 820 with touch uses the 3-column tablet layout, 1280 without touch the desktop one | metrics.json | — | ✅ (asserted by `npm run test:dashboard-ui`) |
 
 ## Content checks
