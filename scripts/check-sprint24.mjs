@@ -145,7 +145,57 @@ check(typeof summary.tfo.onHold === 'number' && typeof summary.tfo.boxPending ==
 const history = await ok('jemish', 'GET', '/yarn/tfo/programs?limit=100');
 check(!history.items.some((p) => p.status === 'system'), 'C: the system program never shows in the history');
 
-// @@PHASE-D@@
+// ---------------------------------------------------------------- B2 · program-wise boxes (zone data carries kind / program)
+const tfoZone = await zone('tfo');
+const p1Boxes = tfoZone.boxes.filter((b) => b.programId === p1.id);
+check(p1Boxes.length === 4 && p1Boxes.every((b) => b.kind === 'tfo' && b.fy) && tfoZone.programs.some((p) => p.id === p1.id), 'B2: TFO zone boxes carry kind + FY and their program', p1Boxes.length);
+const p2Box = tfoZone.boxes.find((b) => b.programId === p2.id);
+const [p1a, p1b] = p1Boxes;
+await ok('yarn', 'POST', '/yarn/transfers', { what: 'twisted', from: 'tfo', to: 'warping', boxIds: [p1a.id, p1b.id, p2Box.id] });
+
+// ---------------------------------------------------------------- D · CR-24 warping: denier at start, kg used / remaining
+const job1Pending = await ok('jemish', 'POST', '/yarn/warping/pending', {
+  inputs: [
+    { kind: 'box', boxId: p1a.id, qtyKg: p1a.netG / KG },
+    { kind: 'box', boxId: p2Box.id, qtyKg: p2Box.netG / KG },
+  ],
+  taar: 100,
+  panna: 50,
+  meters: 1000,
+});
+check((await call('yarn', 'POST', `/yarn/warping/pending/${job1Pending.id}/start`, {})).status === 400, 'D: start needs the denier');
+const job1 = await ok('yarn', 'POST', `/yarn/warping/pending/${job1Pending.id}/start`, { denier: 75 });
+check(job1.denier === 75, 'D: the denier is kept on the job');
+const issued1 = p1a.netG + p2Box.netG;
+const used1 = Math.round(((1000 * 75 * 100) / 9_000_000) * KG);
+const done1 = await ok('yarn', 'POST', `/yarn/warping/jobs/${job1.id}/done`, { beams: [{ warpingQualityId: p1a.warpingQuality.id, taar: 100, panna: 50, meters: 1000 }] });
+const rem1 = issued1 - used1;
+check(done1.usedG === used1 && done1.issuedG === issued1 && done1.leftoverG === rem1 && done1.overG === 0, 'D: kg used = m × denier × taar ÷ 9,000,000; remaining = issued − used', done1);
+check(
+  done1.leftover.length === 2 && done1.leftover[0].label === `Remaining · P-${p2.id}` && done1.leftover[0].g === rem1 - Math.floor(rem1 / 2) && done1.leftover[1].label === `Remaining · P-${p1.id}` && done1.leftover[1].g === Math.floor(rem1 / 2),
+  'D: remaining split half / half over the last two programs (latest stop first)',
+  done1.leftover,
+);
+const warpZone = await zone('warping');
+const remainingRows = warpZone.boxes.filter((b) => b.kind === 'remaining' && done1.leftover.some((l) => l.boxId === b.id));
+check(remainingRows.length === 2 && remainingRows.every((b) => b.rolls === 0 && b.grossG === b.netG && b.remainingG === b.netG), 'D: the remaining kg are box rows in Warping (rolls 0, gross = net)');
+check(remainingRows.some((b) => b.programId === p1.id) && remainingRows.some((b) => b.programId === p2.id), 'D: each remaining row sits under its program');
+// raw only → back to the lot
+const rawBefore = await lotAvail('warping', q75.id, existing.lot.id);
+const job2Pending = await ok('jemish', 'POST', '/yarn/warping/pending', { inputs: [{ kind: 'raw', qualityId: q75.id, lotId: existing.lot.id, qtyKg: 20 }], taar: 100, panna: 40, meters: 1000 });
+const job2 = await ok('yarn', 'POST', `/yarn/warping/pending/${job2Pending.id}/start`, { denier: 75 });
+const done2 = await ok('yarn', 'POST', `/yarn/warping/jobs/${job2.id}/done`, { beams: [{ warpingQualityId: p1a.warpingQuality.id, taar: 100, panna: 40, meters: 1000 }] });
+check(done2.leftoverG === 20 * KG - used1 && done2.leftover.length === 1 && /lot/.test(done2.leftover[0].label), 'D: raw only → the remaining kg go back to the input lot', done2.leftover);
+check((await lotAvail('warping', q75.id, existing.lot.id)) === rawBefore - used1, 'D: the lot is down by exactly the kg used');
+// used more than issued → warning, nothing back
+const job3Pending = await ok('jemish', 'POST', '/yarn/warping/pending', { inputs: [{ kind: 'raw', qualityId: q75.id, lotId: existing.lot.id, qtyKg: 1 }], taar: 2000, panna: 40, meters: 5000 });
+const job3 = await ok('yarn', 'POST', `/yarn/warping/pending/${job3Pending.id}/start`, { denier: 75 });
+const done3 = await ok('yarn', 'POST', `/yarn/warping/jobs/${job3.id}/done`, { beams: [{ warpingQualityId: p1a.warpingQuality.id, taar: 2000, panna: 40, meters: 5000 }] });
+check(done3.overG > 0 && done3.leftoverG === 0 && done3.leftover.length === 0, 'D: used more than issued → over kg, remaining 0', done3);
+const jobList = await ok('jemish', 'GET', '/yarn/warping/jobs?status=done&limit=50');
+check(jobList.items.find((j) => j.id === job1.id)?.leftover.length === 2, 'D: the done job lists where its remaining kg went');
+
+// @@PHASE-E@@
 
 console.log(failed ? `\n${failed} check(s) FAILED` : '\nAll Sprint 24 checks passed');
 process.exit(failed ? 1 : 0);

@@ -586,8 +586,11 @@ export async function listPrograms(q: { page: number; limit: number; machineId?:
 /* stop                                                                 */
 /* ------------------------------------------------------------------ */
 
-/** The next `n` free box numbers ("1", "2", …): counter `yarn_box_no`, skipping numbers already used by any box. */
-async function allocateBoxNos(tx: Tx, n: number): Promise<string[]> {
+/**
+ * The next `n` free box numbers ("1", "2", …): counter `yarn_box_no`, skipping numbers already used by any box. Sprint 24:
+ * also used by warping "remaining" rows and Palti boxes (one box counter).
+ */
+export async function allocateBoxNos(tx: Tx, n: number): Promise<string[]> {
   const out: string[] = [];
   for (let guard = 0; out.length < n && guard < n + 10_000; guard++) {
     const no = String(await nextNumber(tx, BOX_NO_COUNTER));

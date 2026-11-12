@@ -314,7 +314,7 @@ yarnRouter.post(
 yarnRouter.post(
   '/warping/pending/:id/start',
   ah(async (req, res) => {
-    res.status(201).json(await startPendingJob(req.role, parseId(req.params.id)));
+    res.status(201).json(await startPendingJob(req.role, parseId(req.params.id), req.body));
   }),
 );
 

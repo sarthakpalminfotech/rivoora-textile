@@ -27,6 +27,7 @@ import type {
   NoBoxStock,
   WarpingQuality,
   WarpingQualityInput,
+  WarpingStartInput,
   WarpingStatus,
   WithdrawPurpose,
   YarnBox,
@@ -350,7 +351,9 @@ export const useCreatePendingJob = () => useYarnMutation((data: WarpingPendingJo
 export const useUpdatePendingJob = (id: number) =>
   useYarnMutation((data: WarpingPendingJobInput) => api.put<WarpingPendingJob>(`/yarn/warping/pending/${id}`, data), { silentFieldErrors: true });
 export const useCancelPendingJob = () => useYarnMutation((id: number) => api.post<{ id: number }>(`/yarn/warping/pending/${id}/cancel`));
-export const useStartPendingJob = () => useYarnMutation((id: number) => api.post<WarpingJob>(`/yarn/warping/pending/${id}/start`));
+/** Sprint 24 (CR-24): the denier is entered at start. */
+export const useStartPendingJob = () =>
+  useYarnMutation(({ id, data }: { id: number; data: WarpingStartInput }) => api.post<WarpingJob>(`/yarn/warping/pending/${id}/start`, data), { silentFieldErrors: true });
 
 /** Sprint 20 — live "beam no. is free" check on Mark done. */
 export const useFinishWarping = (id: number) =>

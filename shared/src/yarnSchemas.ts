@@ -572,8 +572,22 @@ export const warpingPendingJobSchema = z
   .transform((v) => (v.fullMeter ? { ...v, meters: null } : v));
 export type WarpingPendingJobInput = z.input<typeof warpingPendingJobSchema>;
 
-/** POST /yarn/warping/jobs/:id/done — one or more beams: typed beam no. (unique across all beams), warping quality, … */
+/** Sprint 24 (CR-24): the denier of the yarn — required number > 0, one per job. */
+const denierField = z
+  .number({ required_error: 'Enter the denier', invalid_type_error: 'Enter the denier' })
+  .positive('Enter the denier')
+  .max(100_000, 'Denier is too high');
+
+/** POST /yarn/warping/pending/:id/start — Sprint 24: the denier is entered when the job starts. */
+export const warpingStartSchema = z.object({ denier: denierField });
+export type WarpingStartInput = z.input<typeof warpingStartSchema>;
+
+/**
+ * POST /yarn/warping/jobs/:id/done — one or more beams (auto numbers, kept in Warping). Sprint 24: `denier` only for jobs
+ * started before it was asked at start.
+ */
 export const warpingJobDoneSchema = z.object({
+  denier: denierField.nullish().transform((v) => v ?? null),
   beams: z
     .array(
       z.object({

@@ -4,7 +4,12 @@ import {
   BEAM_COUNTER,
   formatKg,
   kgToGrams,
+  NO_BOX_LABEL,
+  NO_LOT_LABEL,
+  tfoProgramLabel,
   WARPING_JOB_COUNTER,
+  warpingLeftover,
+  warpingStartSchema,
   warpingJobDoneSchema,
   warpingJobLabel,
   warpingPendingJobSchema,
@@ -27,14 +32,17 @@ import {
   warpingJobs,
   warpingPendingJobInputs,
   warpingPendingJobs,
+  tfoPrograms,
   warpingQualities,
   yarnBoxes,
   yarnLots,
   yarnQualities,
+  yarnStockMoves,
 } from '../db/schema';
 import { badRequest, conflict, notFound } from '../lib/errors';
 import { currentFy, nextNumber } from '../lib/numbering';
-import { actor, allocateNumbers, balanceG, nowIso, reservedG, systemQualityId, takeStock, type StockScope } from './yarn-ledger';
+import { actor, addStock, allocateNumbers, balanceG, nowIso, reservedG, systemQualityId, takeStock, type StockScope } from './yarn-ledger';
+import { allocateBoxNos } from './yarn-tfo';
 
 /**
  * Sprint 17 → 20 — Warping: Pending → In process → Done.
@@ -45,6 +53,9 @@ import { actor, allocateNumbers, balanceG, nowIso, reservedG, systemQualityId, t
  * - Mark done: one or more beams — warping quality, taar, panna, meters (pre-filled from the job; required per beam
  *   with Full meter), optional remark. Sprint 20c: the beam no. is given by the system ("1", "2", … skipping numbers
  *   already used; old beams keep "BM-<n>" / typed codes) and every beam stays in Warping (moved later by Transfer).
+ * - Sprint 24 (CR-24): the denier is entered at Start. At Mark done kg used = meters × denier × taar ÷ 9,000,000; the
+ *   remaining kg (issued − used) go half and half to the last two TFO programs whose boxes were inputs, as "Remaining"
+ *   box rows in Warping (`yarn_boxes.kind = 'remaining'`), or — no program — back to the inputs by their kg.
  */
 
 /* ------------------------------------------------------------------ */
@@ -156,11 +167,15 @@ async function inputsOf(tx: DbOrTx, table: InputTable, jobIds: number[]): Promis
       boxNo: yarnBoxes.boxNo,
       warpingQualityId: table.warpingQualityId,
       warpingQualityName: warpingQualities.name,
+      boxKind: yarnBoxes.kind,
+      programId: yarnBoxes.programId,
+      programStoppedAt: tfoPrograms.stoppedAt,
     })
     .from(table)
     .innerJoin(yarnQualities, eq(yarnQualities.id, table.qualityId))
     .leftJoin(yarnLots, eq(yarnLots.id, table.lotId))
     .leftJoin(yarnBoxes, eq(yarnBoxes.id, table.boxId))
+    .leftJoin(tfoPrograms, eq(tfoPrograms.id, yarnBoxes.programId))
     .leftJoin(warpingQualities, eq(warpingQualities.id, table.warpingQualityId))
     .where(inArray(table.jobId, jobIds))
     .orderBy(asc(table.id));
@@ -175,16 +190,55 @@ async function inputsOf(tx: DbOrTx, table: InputTable, jobIds: number[]): Promis
     box: r.boxId !== null ? { id: r.boxId, boxNo: r.boxNo ?? '—' } : null,
     qualityId: r.isSystem ? null : r.qualityId,
     warpingQualityId: r.warpingQualityId,
+    // Palti boxes point at the system program — they have no program.
+    program: r.boxId !== null && r.programId !== null && r.boxKind !== 'palti' ? { id: r.programId, stoppedAt: r.programStoppedAt } : null,
   }));
 }
 
 const uName = (col: 'started_by_user_id' | 'done_by_user_id') =>
   sql<string | null>`(SELECT u.name FROM users u WHERE u.id = "warping_jobs".${sql.raw(`"${col}"`)})`;
 
+/** Sprint 24: where each job's remaining kg went (its `warping_leftover` ledger rows) — "Remaining · P-12", "Lot 245", "No box …". */
+async function leftoverRows(tx: DbOrTx, jobIds: number[]): Promise<{ jobId: number; label: string; g: number; boxId: number | null }[]> {
+  if (!jobIds.length) return [];
+  const rows = await tx
+    .select({
+      jobId: yarnStockMoves.refId,
+      g: yarnStockMoves.qtyG,
+      boxId: yarnStockMoves.boxId,
+      boxNo: yarnBoxes.boxNo,
+      boxKind: yarnBoxes.kind,
+      programId: yarnBoxes.programId,
+      lotNo: yarnLots.lotNo,
+      item: yarnStockMoves.item,
+      qualityName: sql<string>`COALESCE(${warpingQualities.name}, ${yarnQualities.name})`,
+    })
+    .from(yarnStockMoves)
+    .innerJoin(yarnQualities, eq(yarnQualities.id, yarnStockMoves.qualityId))
+    .leftJoin(warpingQualities, eq(warpingQualities.id, yarnStockMoves.warpingQualityId))
+    .leftJoin(yarnBoxes, eq(yarnBoxes.id, yarnStockMoves.boxId))
+    .leftJoin(yarnLots, eq(yarnLots.id, yarnStockMoves.lotId))
+    .where(and(eq(yarnStockMoves.kind, 'warping_leftover'), eq(yarnStockMoves.refType, 'job'), inArray(yarnStockMoves.refId, jobIds)))
+    .orderBy(asc(yarnStockMoves.id));
+  return rows.map((r) => ({
+    jobId: Number(r.jobId),
+    g: r.g,
+    boxId: r.boxId,
+    label:
+      r.boxId !== null
+        ? r.boxKind === 'remaining'
+          ? `Remaining · ${tfoProgramLabel(r.programId!)}`
+          : `Box ${r.boxNo}`
+        : r.item === 'raw'
+          ? `${r.qualityName} · ${r.lotNo ? `lot ${r.lotNo}` : NO_LOT_LABEL}`
+          : `${r.qualityName} · ${NO_BOX_LABEL}`,
+  }));
+}
+
 async function jobsWithDetails(tx: DbOrTx, rows: { id: number }[]): Promise<WarpingJob[]> {
   const ids = rows.map((r) => r.id);
   if (!ids.length) return [];
-  const [jobs, inputs, jobBeams] = await Promise.all([
+  const [jobs, inputs, jobBeams, leftovers] = await Promise.all([
     tx
       .select({
         id: warpingJobs.id,
@@ -201,6 +255,9 @@ async function jobsWithDetails(tx: DbOrTx, rows: { id: number }[]): Promise<Warp
         panna: warpingPendingJobs.panna,
         meters: warpingPendingJobs.meters,
         fullMeter: warpingPendingJobs.fullMeter,
+        denier: warpingJobs.denier,
+        usedG: warpingJobs.usedG,
+        leftoverG: warpingJobs.leftoverG,
       })
       .from(warpingJobs)
       .leftJoin(warpingPendingJobs, eq(warpingPendingJobs.id, warpingJobs.pendingJobId))
@@ -224,6 +281,7 @@ async function jobsWithDetails(tx: DbOrTx, rows: { id: number }[]): Promise<Warp
       .leftJoin(warpingQualities, eq(warpingQualities.id, beams.warpingQualityId))
       .where(inArray(beams.warpingJobId, ids))
       .orderBy(beams.id),
+    leftoverRows(tx, ids),
   ]);
   return ids.flatMap((id): WarpingJob[] => {
     const j = jobs.find((x) => x.id === id);
@@ -246,6 +304,10 @@ async function jobsWithDetails(tx: DbOrTx, rows: { id: number }[]): Promise<Warp
         doneAt: j.doneAt,
         doneBy: j.doneAt ? { role: j.doneRole, userName: j.doneByName } : null,
         beams: jobBeams.filter((b) => b.jobId === id).map(({ jobId: _jobId, ...b }) => b),
+        denier: j.denier,
+        usedG: j.usedG,
+        leftoverG: j.leftoverG,
+        leftover: leftovers.filter((l) => l.jobId === id).map(({ jobId: _j, ...l }) => l),
       },
     ];
   });
@@ -380,7 +442,8 @@ export async function cancelPendingJob(role: RoleKey, id: number): Promise<{ id:
  * POST /yarn/warping/pending/:id/start — WJ-n In process. The pending row is marked started FIRST (its reservation
  * ends), then every input leaves Warping stock (`warping_issue`); a box at 0 becomes Used.
  */
-export async function startPendingJob(role: RoleKey, id: number): Promise<WarpingJob> {
+export async function startPendingJob(role: RoleKey, id: number, input: unknown): Promise<WarpingJob> {
+  const { denier } = warpingStartSchema.parse(input ?? {});
   return db.transaction(async (tx) => {
     const [pending] = await pendingJobs(tx, eq(warpingPendingJobs.id, id));
     if (!pending) throw notFound('Warping job');
@@ -389,7 +452,7 @@ export async function startPendingJob(role: RoleKey, id: number): Promise<Warpin
     const who = actor(role);
     const [job] = await tx
       .insert(warpingJobs)
-      .values({ jobNo, status: 'in_process', note: pending.note, startedAt: at, startedByUserId: who.userId, startedRole: role, pendingJobId: id })
+      .values({ jobNo, status: 'in_process', note: pending.note, startedAt: at, startedByUserId: who.userId, startedRole: role, pendingJobId: id, denier })
       .returning({ id: warpingJobs.id });
     const started = await tx
       .update(warpingPendingJobs)
@@ -457,23 +520,92 @@ async function allocateBeamCodes(tx: Tx, n: number): Promise<string[]> {
   return out;
 }
 
+/**
+ * Sprint 24 (CR-24) — the remaining kg into Warping stock: a program's share becomes a "Remaining" box row (rolls 0, gross =
+ * net, number from the box counter, the program's lot and the warping quality of its boxes in this job); without a program
+ * each input gets its share back (raw → its lot, no-box → its bucket, a Palti box → that box again). Ledger kind
+ * `warping_leftover`, ref = the job.
+ */
+async function putLeftoverBack(tx: Tx, jobId: number, inputs: WarpingJobInput[], splits: ReturnType<typeof warpingLeftover>['splits'], role: RoleKey, at: string) {
+  if (!splits.length) return;
+  const sysQ = await systemQualityId(tx);
+  const who = actor(role);
+  const common = { zone: 'warping' as const, kind: 'warping_leftover' as const, refType: 'job' as const, refId: jobId, role, createdAt: at };
+  const programSplits = splits.filter((s) => s.kind === 'program');
+  const nos = await allocateBoxNos(tx, programSplits.length);
+  let n = 0;
+  for (const split of splits) {
+    if (split.kind === 'program') {
+      const input = inputs.find((i) => i.program?.id === split.programId)!;
+      const [prog] = await tx.select({ lotId: tfoPrograms.lotId }).from(tfoPrograms).where(eq(tfoPrograms.id, split.programId));
+      const [row] = await tx
+        .insert(yarnBoxes)
+        .values({
+          boxNo: nos[n++],
+          programId: split.programId,
+          lotId: prog?.lotId ?? null,
+          warpingQualityId: input.warpingQualityId!,
+          rolls: 0,
+          grossG: split.g,
+          netG: split.g,
+          avgG: 0,
+          zone: 'warping',
+          status: 'in_stock',
+          kind: 'remaining',
+          sourceJobId: jobId,
+          createdByUserId: who.userId,
+        })
+        .returning({ id: yarnBoxes.id });
+      await addStock(tx, { ...common, item: 'twisted', qualityId: sysQ, boxId: row.id, warpingQualityId: input.warpingQualityId, qtyG: split.g, note: `Remaining · ${tfoProgramLabel(split.programId)}` });
+      continue;
+    }
+    const input = inputs[split.index];
+    if (input.item === 'raw') {
+      await addStock(tx, { ...common, item: 'raw', qualityId: input.qualityId!, lotId: input.lot?.id ?? null, qtyG: split.g });
+    } else if (input.box) {
+      await addStock(tx, { ...common, item: 'twisted', qualityId: sysQ, boxId: input.box.id, warpingQualityId: input.warpingQualityId, qtyG: split.g });
+      await tx.update(yarnBoxes).set({ status: 'in_stock', updatedAt: at }).where(eq(yarnBoxes.id, input.box.id));
+    } else {
+      await addStock(tx, { ...common, item: 'twisted', qualityId: input.warpingQualityId !== null ? sysQ : input.qualityId!, boxId: null, warpingQualityId: input.warpingQualityId, qtyG: split.g });
+    }
+  }
+}
+
 /** POST /yarn/warping/jobs/:id/done — creates the beams (auto numbers, kept in Warping); the job is Done. */
 export async function finishWarpingJob(role: RoleKey, id: number, input: unknown): Promise<WarpingDoneResult> {
   const data = warpingJobDoneSchema.parse(input);
   try {
     return await db.transaction(async (tx) => {
-      const [job] = await tx.select({ id: warpingJobs.id, jobNo: warpingJobs.jobNo, status: warpingJobs.status }).from(warpingJobs).where(eq(warpingJobs.id, id));
+      const [job] = await tx
+        .select({ id: warpingJobs.id, jobNo: warpingJobs.jobNo, status: warpingJobs.status, denier: warpingJobs.denier, taar: warpingPendingJobs.taar })
+        .from(warpingJobs)
+        .leftJoin(warpingPendingJobs, eq(warpingPendingJobs.id, warpingJobs.pendingJobId))
+        .where(eq(warpingJobs.id, id));
       if (!job) throw notFound('Warping job');
       if (job.status !== 'in_process') throw conflict(`${warpingJobLabel(job.jobNo)} is already done.`);
+      // Sprint 24: jobs started before the denier was asked at Start give it now.
+      const denier = job.denier ?? data.denier;
+      if (!denier) throw badRequest('Enter the denier', 'denier');
       const wqIds = [...new Set(data.beams.map((b) => b.warpingQualityId))];
       const wqs = await tx.select({ id: warpingQualities.id }).from(warpingQualities).where(and(inArray(warpingQualities.id, wqIds), eq(warpingQualities.isDeleted, false)));
       const missing = data.beams.findIndex((b) => !wqs.some((w) => w.id === b.warpingQualityId));
       if (missing >= 0) throw badRequest('That warping quality no longer exists — pick another', `beams.${missing}.warpingQualityId`);
       const who = actor(role);
       const at = nowIso();
+      // Sprint 24 (CR-24): kg used and remaining.
+      const inputs = await inputsOf(tx, warpingJobInputs, [id]);
+      const issuedG = inputs.reduce((s, i) => s + i.qtyG, 0);
+      const left = warpingLeftover({
+        meters: data.beams.reduce((s, b) => s + b.meters, 0),
+        denier,
+        taar: job.taar ?? data.beams[0].taar,
+        issuedG,
+        programs: inputs.flatMap((i) => (i.program ? [i.program] : [])),
+        inputs: inputs.map((i) => ({ g: i.qtyG })),
+      });
       const done = await tx
         .update(warpingJobs)
-        .set({ status: 'done', doneAt: at, doneByUserId: who.userId, doneRole: role, doneNote: data.note })
+        .set({ status: 'done', doneAt: at, doneByUserId: who.userId, doneRole: role, doneNote: data.note, denier, usedG: left.usedG, leftoverG: left.remainingG })
         .where(and(eq(warpingJobs.id, id), eq(warpingJobs.status, 'in_process')))
         .returning({ id: warpingJobs.id });
       if (!done.length) throw conflict('The job changed meanwhile — refresh and try again.');
@@ -503,7 +635,17 @@ export async function finishWarpingJob(role: RoleKey, id: number, input: unknown
       await tx.insert(beamMoves).values(
         created.map((b) => ({ beamId: b.id, kind: 'beam_created' as const, zone: b.zone, refType: 'job' as const, refId: id, note: data.note, ...who, createdAt: at })),
       );
-      return { jobId: id, beams: created.map((b) => ({ id: b.id, beamCode: b.beamCode!, zone: b.zone })) };
+      await putLeftoverBack(tx, id, inputs, left.splits, role, at);
+      const [after] = await jobsWithDetails(tx, [{ id }]);
+      return {
+        jobId: id,
+        beams: created.map((b) => ({ id: b.id, beamCode: b.beamCode!, zone: b.zone })),
+        usedG: left.usedG,
+        issuedG,
+        leftoverG: left.remainingG,
+        overG: left.overG,
+        leftover: after?.leftover ?? [],
+      };
     });
   } catch (err) {
     if (isBeamCodeUnique(err)) throw conflict('A beam no. on this job is already used — refresh and try again.', 'beams');

@@ -499,6 +499,8 @@ export interface WarpingJobInput {
   /** Raw yarn quality id (raw / old no-box) or null. */
   qualityId: number | null;
   warpingQualityId: number | null;
+  /** Sprint 24: a box input's TFO program (null for raw / no-box / Palti boxes) — the leftover goes to the last two. */
+  program: { id: number; stoppedAt: string | null } | null;
 }
 
 /** Sprint 20 — a warping job waiting to start (its inputs reserved in Warping stock). */
@@ -532,9 +534,22 @@ export interface WarpingJob {
   doneAt: string | null;
   doneBy: YarnActor | null;
   beams: { id: number; beamNo: number; beamCode: string; zone: BeamZone; quality: string; taar: number; panna: number; meters: number; status: BeamStatus }[];
+  /** Sprint 24 (CR-24): entered at start (older jobs: at Mark done). */
+  denier: number | null;
+  /** Sprint 24: worked out at Mark done — kg used (meters × denier × taar ÷ 9,000,000) and what was left. */
+  usedG: number | null;
+  leftoverG: number | null;
+  /** Where the remaining kg went: "Remaining · P-12" boxes, or back to an input ("Lot 245", "No box 75D"). */
+  leftover: { label: string; g: number; boxId: number | null }[];
 }
 
 export interface WarpingDoneResult {
   jobId: number;
   beams: { id: number; beamCode: string; zone: BeamZone }[];
+  /** Sprint 24 (CR-24). */
+  usedG: number;
+  issuedG: number;
+  leftoverG: number;
+  overG: number;
+  leftover: { label: string; g: number; boxId: number | null }[];
 }

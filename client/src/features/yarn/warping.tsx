@@ -13,12 +13,15 @@ import {
   parseKgText,
   prefillBeamQuality,
   TAKE_ERROR_TEXT,
+  tfoProgramLabel,
   validateBeam,
   validateWarpingJob,
   WARPING_INPUT_KIND_LABEL,
   WARPING_JOB_ERROR_TEXT,
+  warpingFormulaText,
   warpingInputsSummary,
   warpingJobLabel,
+  warpingLeftover,
   YARN_ZONE_CONFIG,
   type WarpingInputInput,
   type WarpingInputKind,
@@ -104,6 +107,13 @@ function JobCard({ job, onDone }: { job: WarpingJob; onDone?: () => void }) {
               {job.beams.length} beam{job.beams.length === 1 ? '' : 's'}: {job.beams.map((b) => b.beamCode).join(', ')} · {formatDateTime(job.doneAt)}
             </p>
           )}
+          {job.status === 'done' && job.usedG !== null && (
+            <p className="truncate text-xs text-slate-600">
+              Denier {job.denier} · used <Kg g={job.usedG} /> of <Kg g={job.totalG} />
+              {job.leftover.length ? ` · ${job.leftover.map((l) => `${l.label}: ${formatKg(l.g)}`).join(' · ')}` : job.usedG > job.totalG ? ' · used more than issued' : ''}
+            </p>
+          )}
+          {job.status === 'in_process' && job.denier !== null && <p className="truncate text-xs text-slate-500">Denier {job.denier}</p>}
         </div>
         {onDone && (
           <Button onClick={onDone} className="w-full md:w-auto">
@@ -141,6 +151,45 @@ function PendingJobCard({ job, onStart, onEdit, onCancel }: { job: WarpingPendin
         </Button>
       </div>
     </li>
+  );
+}
+
+/** Sprint 24 (CR-24) — Start a pending job: the denier (required, > 0); the inputs leave Warping stock now. */
+function StartJobDialog({ job, busy, onOpenChange, onStart }: { job: WarpingPendingJob | null; busy: boolean; onOpenChange: (o: boolean) => void; onStart: (denier: number) => void }) {
+  const [denier, setDenier] = useState('');
+  const [tried, setTried] = useState(false);
+  useEffect(() => {
+    setDenier('');
+    setTried(false);
+  }, [job]);
+  if (!job) return null;
+  const value = numOrNull(denier);
+  const err = value === null || !(value > 0) ? 'Enter the denier' : null;
+  return (
+    <YarnDialog
+      open
+      onOpenChange={onOpenChange}
+      title="Start this warping job?"
+      description={`${job.inputs.map(inputText).join(' · ')} — taken out of Warping stock now.`}
+      busy={busy}
+      footer={<DialogButtons onCancel={() => onOpenChange(false)} busy={busy} label="Start job" form="warp-start-form" />}
+    >
+      <form
+        id="warp-start-form"
+        noValidate
+        onSubmit={(e) => {
+          e.preventDefault();
+          setTried(true);
+          if (!err) onStart(value!);
+        }}
+        className="grid gap-3"
+      >
+        <Field label="Denier" htmlFor="warp-denier" required error={tried ? (err ?? undefined) : undefined} hint="Used at Mark done: kg used = meters × denier × taar ÷ 9,000,000" className="md:max-w-xs">
+          <Input id="warp-denier" inputMode="decimal" autoFocus autoComplete="off" value={denier} onChange={(e) => setDenier(cleanDecimal(e.target.value, 4, 6))} invalid={tried && !!err} className="h-12 text-right text-lg tabular-nums" />
+        </Field>
+        {sizeText(job) && <p className="text-sm text-slate-600">{sizeText(job)}</p>}
+      </form>
+    </YarnDialog>
   );
 }
 
@@ -192,23 +241,23 @@ export function WarpingJobsSection({ tab, onTab }: { tab: JobsTab; onTab: (t: Jo
       )}
       <WarpingJobDialog open={!!editFor} onOpenChange={(o) => !o && setEditFor(null)} job={editFor} />
       <MarkDoneDialog job={doneFor} onOpenChange={(o) => !o && setDoneFor(null)} />
-      <ConfirmDialog
-        open={!!startFor}
+      <StartJobDialog
+        job={startFor}
+        busy={start.isPending}
         onOpenChange={(o) => !o && setStartFor(null)}
-        title="Start this warping job?"
-        description={startFor ? `${startFor.inputs.map(inputText).join(' · ')} — taken out of Warping stock now.` : undefined}
-        confirmLabel="Start job"
-        loading={start.isPending}
-        onConfirm={() =>
+        onStart={(denier) =>
           startFor &&
-          start.mutate(startFor.id, {
-            onSuccess: (j) => {
-              toast.success(`${warpingJobLabel(j.jobNo)} started · ${warpingInputsSummary(j.inputs)}`);
-              setStartFor(null);
-              onTab('in_process');
+          start.mutate(
+            { id: startFor.id, data: { denier } },
+            {
+              onSuccess: (j) => {
+                toast.success(`${warpingJobLabel(j.jobNo)} started · ${warpingInputsSummary(j.inputs)} · denier ${j.denier}`);
+                setStartFor(null);
+                onTab('in_process');
+              },
+              onError: (err) => toast.error(errorMessage(err)),
             },
-            onError: (err) => toast.error(errorMessage(err)),
-          })
+          )
         }
       />
       <ConfirmDialog
@@ -531,6 +580,62 @@ const newBeam = (job: WarpingJob | null, prev?: BeamRow): BeamRow => {
 };
 
 /**
+ * Sprint 24 (CR-24) — the Mark done summary card: meters · denier · taar · kg used (with the formula) · kg issued ·
+ * remaining → where it goes ("P-12: 3.25 kg · P-11: 3.25 kg", or back to the input lots). Amber when more was used than
+ * issued. The same shared `warpingLeftover` the server uses.
+ */
+function LeftoverSummary({ job, beams, denier }: { job: WarpingJob; beams: { meters: number; taar: number }[]; denier: number | null }) {
+  const meters = beams.reduce((s, b) => s + (Number.isFinite(b.meters) ? b.meters : 0), 0);
+  const taar = job.taar ?? (beams[0]?.taar || 0);
+  const ready = meters > 0 && !!denier && taar > 0;
+  const left = ready
+    ? warpingLeftover({ meters, denier: denier!, taar, issuedG: job.totalG, programs: job.inputs.flatMap((i) => (i.program ? [i.program] : [])), inputs: job.inputs.map((i) => ({ g: i.qtyG })) })
+    : null;
+  const Row = ({ label, children, strong }: { label: string; children: React.ReactNode; strong?: boolean }) => (
+    <div className="flex items-baseline justify-between gap-2 py-1">
+      <dt className="text-slate-500">{label}</dt>
+      <dd className={cn('text-right tabular-nums', strong ? 'font-bold text-slate-900' : 'font-medium text-slate-800')}>{children}</dd>
+    </div>
+  );
+  return (
+    <section aria-label="Kg used and remaining" className="rounded-xl border p-3 text-sm" style={{ borderColor: ACCENT.border, backgroundColor: ACCENT.soft }}>
+      <h3 className="mb-1 text-xs font-bold uppercase tracking-wide" style={{ color: ACCENT.text }}>
+        Kg used · remaining
+      </h3>
+      <dl className="divide-y divide-amber-200/60">
+        <Row label="Meters">{meters ? meters.toLocaleString('en-IN', { maximumFractionDigits: 4 }) : '—'}</Row>
+        <Row label="Denier">{denier ?? '—'}</Row>
+        <Row label="Taar">{taar || '—'}</Row>
+        <Row label="Kg used">{left ? <Kg g={left.usedG} /> : '—'}</Row>
+        <Row label="Kg issued">
+          <Kg g={job.totalG} />
+        </Row>
+        <Row label="Remaining" strong>
+          {left ? <Kg g={left.remainingG} /> : '—'}
+        </Row>
+      </dl>
+      {ready && <p className="mt-1 text-[11px] leading-snug text-slate-500">{warpingFormulaText(meters, denier!, taar)}</p>}
+      {left && left.overG > 0 && (
+        <p className="mt-2 rounded-lg bg-amber-100 px-2 py-1.5 text-xs font-semibold text-amber-900">Used more than issued by {formatKg(left.overG)} — check denier / taar / meters</p>
+      )}
+      {left && left.splits.length > 0 && (
+        <p className="mt-2 text-xs font-semibold text-slate-800">
+          →{' '}
+          {left.splits
+            .map((s) => {
+              if (s.kind === 'program') return `${tfoProgramLabel(s.programId)}: ${formatKg(s.g)}`;
+              const i = job.inputs[s.index];
+              return `${i.kind === 'raw' ? (i.lot ? `Lot ${i.lot.lotNo}` : NO_LOT_LABEL) : i.box ? `Box ${i.box.boxNo}` : i.quality.name}: ${formatKg(s.g)}`;
+            })
+            .join(' · ')}
+        </p>
+      )}
+      {!ready && <p className="mt-2 text-xs text-slate-500">Enter the beams’ meters{job.denier === null ? ' and the denier' : ''} to see the kg used.</p>}
+    </section>
+  );
+}
+
+/**
  * Mark done (wide dialog): one or more beams — Warping quality · Taar · Panna · Meters · Remark — one table row each
  * from 768px, cards on phones. Sprint 20c: beam numbers are given by the system and every beam stays in Warping
  * (move it later with Transfer). Taar / panna / meters come from the job (meters empty with Full meter).
@@ -540,12 +645,14 @@ export function MarkDoneDialog({ job, onOpenChange }: { job: WarpingJob | null; 
   const finish = useFinishWarping(job?.id ?? 0);
   const [rows, setRows] = useState<BeamRow[]>(() => [newBeam(null)]);
   const [note, setNote] = useState('');
+  const [denierText, setDenierText] = useState('');
   const [tried, setTried] = useState(false);
   const [serverErr, setServerErr] = useState<{ field: string; message: string } | null>(null);
   useEffect(() => {
     if (open) {
       setRows([newBeam(job)]);
       setNote('');
+      setDenierText('');
       setTried(false);
       setServerErr(null);
     }
@@ -556,16 +663,21 @@ export function MarkDoneDialog({ job, onOpenChange }: { job: WarpingJob | null; 
     const e = validateBeam(b);
     return e ? BEAM_INPUT_ERROR_TEXT[e] : null;
   });
+  // Sprint 24 (CR-24): jobs started before the denier was asked at Start give it here.
+  const askDenier = !!job && job.denier === null;
+  const denier = job?.denier ?? numOrNull(denierText);
+  const denierErr = askDenier && !(denier !== null && denier > 0) ? 'Enter the denier' : null;
   const set = (key: number, patch: Partial<BeamRow>) => setRows((rs) => rs.map((r) => (r.key === key ? { ...r, ...patch } : r)));
   const submit = () => {
     setTried(true);
     setServerErr(null);
-    if (errs.some(Boolean)) return;
+    if (errs.some(Boolean) || denierErr) return;
     finish.mutate(
-      { beams: parsed, note: note.trim() || null },
+      { beams: parsed, note: note.trim() || null, denier: askDenier ? denier : null },
       {
         onSuccess: (res) => {
-          toast.success(`${job ? warpingJobLabel(job.jobNo) : 'Job'} done · beam${res.beams.length === 1 ? '' : 's'} ${res.beams.map((b) => b.beamCode).join(', ')} in Warping`);
+          const rest = res.leftover.length ? ` · remaining ${res.leftover.map((l) => `${l.label} ${formatKg(l.g)}`).join(', ')}` : '';
+          toast.success(`${job ? warpingJobLabel(job.jobNo) : 'Job'} done · beam${res.beams.length === 1 ? '' : 's'} ${res.beams.map((b) => b.beamCode).join(', ')} in Warping${rest}`);
           onOpenChange(false);
         },
         onError: (err) => {
@@ -575,7 +687,9 @@ export function MarkDoneDialog({ job, onOpenChange }: { job: WarpingJob | null; 
       },
     );
   };
-  const GRID = 'md:grid-cols-[minmax(0,1.6fr)_4.75rem_4.75rem_6.25rem_minmax(0,1.2fr)_2.5rem]';
+  // One line per beam on desktop; cards (3 columns) on phones and next to the summary card on tablets.
+  const GRID = 'lg:grid-cols-[minmax(0,1.6fr)_4.75rem_4.75rem_6.25rem_minmax(0,1.2fr)_2.5rem]';
+  const summary = job ? <LeftoverSummary job={job} beams={parsed} denier={denier} /> : null;
 
   return (
     <YarnDialog
@@ -599,7 +713,14 @@ export function MarkDoneDialog({ job, onOpenChange }: { job: WarpingJob | null; 
       >
         {serverErr && <p className="rounded-xl bg-rose-50 px-3 py-2 text-sm font-medium text-rose-700">{serverErr.message}</p>}
         {job?.fullMeter && <p className="rounded-xl bg-amber-50 px-3 py-2 text-sm font-medium text-amber-900">Full meter job — enter the meters of each beam.</p>}
-        <div className={cn('hidden gap-x-2 border-b border-border pb-2 text-xs font-semibold uppercase tracking-wide text-slate-500 md:grid', GRID)}>
+        {askDenier && (
+          <Field label="Denier" htmlFor="warp-done-denier" required error={tried ? (denierErr ?? (serverErr?.field === 'denier' ? serverErr.message : undefined)) : undefined} hint="This job started before the denier was asked at Start" className="md:max-w-xs">
+            <Input id="warp-done-denier" inputMode="decimal" autoComplete="off" value={denierText} onChange={(e) => setDenierText(cleanDecimal(e.target.value, 4, 6))} invalid={tried && !!denierErr} className="text-right tabular-nums" />
+          </Field>
+        )}
+        <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_15rem] md:items-start">
+        <div className="grid min-w-0 gap-4">
+        <div className={cn('hidden gap-x-2 border-b border-border pb-2 text-xs font-semibold uppercase tracking-wide text-slate-500 lg:grid', GRID)}>
           <span>Warping quality *</span>
           <span className="text-right">Taar *</span>
           <span className="text-right">Panna *</span>
@@ -607,25 +728,25 @@ export function MarkDoneDialog({ job, onOpenChange }: { job: WarpingJob | null; 
           <span>Remark</span>
           <span />
         </div>
-        <ol className="space-y-3 md:-mt-4 md:space-y-0">
+        <ol className="space-y-3 lg:-mt-4 lg:space-y-0">
           {rows.map((r, i) => {
             const err = tried ? errs[i] : null;
             return (
-              <li key={r.key} className={cn('grid grid-cols-3 gap-3 rounded-xl border border-border p-3 md:items-start md:gap-2 md:rounded-none md:border-0 md:border-b md:px-0 md:py-2.5', GRID)}>
-                <p className="col-span-3 text-xs font-bold uppercase tracking-wide text-slate-500 md:hidden">Beam {i + 1}</p>
-                <div className="col-span-3 min-w-0 md:col-span-1">
+              <li key={r.key} className={cn('grid grid-cols-3 gap-3 rounded-xl border border-border p-3 lg:items-start lg:gap-2 lg:rounded-none lg:border-0 lg:border-b lg:px-0 lg:py-2.5', GRID)}>
+                <p className="col-span-3 text-xs font-bold uppercase tracking-wide text-slate-500 lg:hidden">Beam {i + 1}</p>
+                <div className="col-span-3 min-w-0 lg:col-span-1">
                   <WarpingQualitySelect value={r.wqId} selectedLabel={r.wqName} onChange={(id, name) => set(r.key, { wqId: id, wqName: name })} invalid={!!err && !r.wqId} />
                 </div>
                 <Input inputMode="numeric" autoComplete="off" placeholder="Taar" value={r.taar} onChange={(e) => set(r.key, { taar: cleanDecimal(e.target.value, 0, 7) })} className="text-right tabular-nums" aria-label={`Beam ${i + 1} taar`} />
                 <Input inputMode="decimal" autoComplete="off" placeholder="Panna" value={r.panna} onChange={(e) => set(r.key, { panna: cleanDecimal(e.target.value, 4, 6) })} className="text-right tabular-nums" aria-label={`Beam ${i + 1} panna`} />
                 <Input inputMode="decimal" autoComplete="off" placeholder="Meters" value={r.meters} onChange={(e) => set(r.key, { meters: cleanDecimal(e.target.value, 4, 8) })} className="text-right tabular-nums" aria-label={`Beam ${i + 1} meters`} />
-                <div className="col-span-2 min-w-0 md:col-span-1">
+                <div className="col-span-2 min-w-0 lg:col-span-1">
                   <Input autoComplete="off" placeholder="Remark" maxLength={BEAM_REMARK_MAX_LENGTH} value={r.remark} onChange={(e) => set(r.key, { remark: e.target.value })} aria-label={`Beam ${i + 1} remark`} />
                 </div>
                 <Button variant="ghost" size="icon" className="justify-self-end text-slate-400 hover:text-destructive" disabled={rows.length === 1} onClick={() => setRows((rs) => rs.filter((x) => x.key !== r.key))} aria-label={`Remove beam ${i + 1}`}>
                   <Trash2 />
                 </Button>
-                {err && <p className="col-span-3 text-[13px] font-medium text-destructive md:col-span-6">{err}</p>}
+                {err && <p className="col-span-3 text-[13px] font-medium text-destructive lg:col-span-6">{err}</p>}
               </li>
             );
           })}
@@ -635,6 +756,10 @@ export function MarkDoneDialog({ job, onOpenChange }: { job: WarpingJob | null; 
             <Plus /> Add beam
           </Button>
         )}
+        </div>
+        {/* Tablet / desktop: the summary beside the beams; phones: at the bottom, above the Save bar. */}
+        <div className="order-last md:order-none md:sticky md:top-0">{summary}</div>
+        </div>
         <Field label="Note" htmlFor="warp-done-note">
           <Textarea id="warp-done-note" rows={2} maxLength={1000} value={note} onChange={(e) => setNote(e.target.value)} className="min-h-[64px]" />
         </Field>
