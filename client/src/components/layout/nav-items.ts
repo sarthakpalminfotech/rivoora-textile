@@ -6,6 +6,7 @@ import {
   ClipboardCheck,
   ClipboardList,
   Factory,
+  Gauge,
   FlaskConical,
   BadgeCheck,
   LayoutGrid,
@@ -46,6 +47,8 @@ export interface NavItem {
 }
 
 export const NAV_ITEMS: NavItem[] = [
+  // Sprint 25: the insight dashboards — first for Jenish (owner) and Gaurang (partner); landings stay as they are.
+  { to: '/dashboard', label: 'Dashboard', icon: Gauge, permission: 'canViewOwnerDashboard', group: 'main', phoneOrder: 0 },
   { to: '/orders', label: 'Orders', icon: ClipboardList, permission: 'canViewOrders', group: 'main', phoneOrder: 1 },
   // The supervisor's Orders: the orders in production, view only (no client or money).
   { to: '/orders', label: 'Orders', icon: ClipboardList, permission: 'canViewProductionOrders', group: 'main' },
@@ -54,12 +57,16 @@ export const NAV_ITEMS: NavItem[] = [
   { to: '/scan', label: 'Scan jobsheet', hi: 'जॉबशीट स्कैन करें', icon: ScanLine, permission: 'canUseTakaModules', group: 'main' },
   // Same path, different module: the supervisor's list or the Taka entry list (a role only ever has one).
   { to: '/jobsheets', label: 'Jobsheets', icon: ClipboardCheck, permission: 'canViewJobsheetsModule', group: 'main' },
+  // Sprint 25: the supervisor's Dashboard, next to Jobsheets (owners already have the item above).
+  { to: '/dashboard', label: 'Dashboard', icon: Gauge, permission: 'canViewSupervisorDashboard', group: 'main', hideWith: 'canViewOwnerDashboard' },
   { to: '/jobsheets', label: 'Jobsheets', hi: 'जॉबशीट', icon: ClipboardCheck, permission: 'canUseTakaModules', group: 'main' },
   { to: '/machine-view', label: 'Machine view', icon: LayoutGrid, permission: 'canViewMachineView', group: 'main', phoneOrder: 2 },
   // Butta cutting: Jenish, Gaurang and the Godown supervisor. Butta QC: the QC role (bilingual).
   { to: '/butta', label: 'Butta cutting', icon: Scissors, permission: 'canUseButtaModule', group: 'main' },
   { to: '/mill', label: 'Mill', icon: FlaskConical, permission: 'canUseMillModule', group: 'main' },
   { to: '/settings/qc-login', label: 'QC login limits', icon: ShieldCheck, permission: 'canManageLoginLimits', group: 'masters' },
+  // Sprint 25: working hours per day (loom utilisation).
+  { to: '/settings/dashboard', label: 'Dashboard settings', icon: Gauge, permission: 'canArrangeDashboards', group: 'masters' },
   { to: '/alerts', label: 'Alerts', icon: BellRing, permission: 'canViewAlerts', group: 'main' },
   { to: '/qc-corrections', label: 'QC corrections', icon: Undo2, permission: 'canUndoQc', group: 'main' },
   { to: '/qc', label: 'QC', hi: 'क्यूसी', icon: BadgeCheck, permission: 'canButtaQc', group: 'main' },

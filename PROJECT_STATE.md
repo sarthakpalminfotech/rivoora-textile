@@ -1181,3 +1181,12 @@ Yarn changes CR-16 … CR-25 (CR-22 was already built): the same lot received on
 - Built in one go at the owner's request (the prompt asked to stop after the plan and after each phase); one commit per phase (E and F share a commit).
 - Not done: screenshot pass at 360 / 820 / 1180 / 1440 px; a real thermal-printer test of the 50 × 25 mm sticker; real-tablet check of the floor screens (Hold / Made part / Palti).
 
+### Sprint 25 (built on branch `sprint-25`, on top of main = Sprint 24, not deployed) — current as of 2026-11-12
+
+Insight dashboards: Owner (Jenish, 35 cards), Production partner (Gaurang, 19), Supervisor (11), each with a Today strip; the owner has the pinned Needs attention panel. Every figure taps through (drawer / bottom sheet with the top 20, or the filtered list). Jenish / Gaurang Arrange any dashboard (show / hide, move, wide, rename a section, Reset) — saved for everyone. New optional fields: promised date (orders), due date (outside POs), minimum kg (yarn qualities); Settings → Dashboard = working hours per day. Details: "Sprint 25" in CLAUDE.md and `docs/plans/sprint-25-plan.md`.
+
+- Verified on a local file DB: `npm run typecheck` clean, `npm test` 510 passing, `npm run build` OK; `node scripts/check-sprint-25.mjs` 90 checks pass (every card of every dashboard for every period, batches 20–60 ms, permissions, no ₹ / client for the supervisor, layout save / reset, ±10 %, new fields).
+- **Turso**: migration `0027_sprint25_dashboards.sql` (additive) — apply after 0026. Export a backup first. Not applied.
+- Built in one go at the owner's request (the prompt asked for a design review with screenshots first and approval after each phase).
+- Not done: screenshots at 1280 / 1440 / 1920 / 820 / 1180 / 360 px (the Chrome extension was not connected); real-tablet check.
+

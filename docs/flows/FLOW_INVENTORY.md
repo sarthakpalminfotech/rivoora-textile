@@ -722,3 +722,17 @@ whose forms need it (see `COVERAGE_CHECK.md`).
 | 34 UPL | Forms | Images on designs, notes, damages |
 | 35 LKP | Masters | Dropdowns |
 | 36 GRD | Order hold / close flags | Every write and work list |
+
+## Sprint 25 · Insight dashboards (`DSH`)
+
+**Purpose.** Morning dashboards that answer one question per card. **Who:** Jenish, Gaurang (all three), the supervisor (his own).
+
+| ID | Operation | Who | Starts from | Preconditions / blocks | What happens | Next / shows up | Evidence |
+|---|---|---|---|---|---|---|---|
+| DSH-01 | Open a dashboard | J, G, S | Nav → Dashboard (`/dashboard` → own); the switch at the top | `canView…Dashboard` (403 otherwise) | One batch of cards for the period (URL `?period=`); Today strip; Needs attention (owner) | Tap a figure → drawer / bottom sheet (top 20) → Open full list | `GET /api/dashboard/:key/layout`, `GET /api/dashboard/:key/cards?ids=&period=` · `insights/dashboard-page.tsx` |
+| DSH-02 | Card period | J, G, S | Card ⋯ → Period of this card | Periodic cards only | That card alone reloads with its own period | — | same endpoint, one id |
+| DSH-03 | Arrange | J, G | Arrange (not on phones) | `canArrangeDashboards` | Show / hide, move (drag, Shift+arrows, ↑ ↓ across sections), wide / normal, rename a section → Save — applies to everyone | — | `PUT /api/dashboard/:key/layout` · `insights/arrange.ts` |
+| DSH-04 | Reset to default | J, G | Arrange → Reset (ConfirmDialog) | — | The prompt's order, widths and names come back | — | `DELETE /api/dashboard/:key/layout` |
+| DSH-05 | Working hours per day | J, G | Masters → Dashboard settings | 1–24, whole / half hours | Loom utilisation / Looms idle use it | — | `GET|PUT /api/dashboard-settings` · `insights/settings-page.tsx` |
+| DSH-06 | Promised date / PO due date / yarn minimum kg | J (G edits orders) | Add / Edit order · PO form · Yarn quality form | Not before the order / PO date | Feed On-time delivery, Late POs, Low yarn | Dashboards | `orders.promised_date`, `outside_pos.due_date`, `yarn_qualities.min_g` |
+

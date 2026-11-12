@@ -89,6 +89,9 @@ const YarnZonePage = lazy(() => import('@/features/yarn/zone-page'));
 const YarnStockPage = lazy(() => import('@/features/yarn/stock-page'));
 const YarnMovementsPage = lazy(() => import('@/features/yarn/zone-page').then((m) => ({ default: m.YarnMovementsPage })));
 const YarnPaltiPage = lazy(() => import('@/features/yarn/palti-page'));
+const DashboardPage = lazy(() => import('@/features/insights/dashboard-page'));
+const DashboardHome = lazy(() => import('@/features/insights/dashboard-page').then((m) => ({ default: m.DashboardHome })));
+const DashboardSettingsPage = lazy(() => import('@/features/insights/settings-page'));
 const BoxStickerPrintPage = lazy(() => import('@/features/yarn/box-sticker-print-page'));
 const YarnBoxRedirectPage = lazy(() => import('@/features/yarn/box-sticker-print-page').then((m) => ({ default: m.YarnBoxRedirectPage })));
 const LoginPage = lazy(() => import('@/features/auth/login-page'));
@@ -298,6 +301,10 @@ const router = createBrowserRouter([
           // One QC home for the QC role; the old home paths lead there.
           { path: 'qc', element: guard('canButtaQc', <QcHomePage />) },
           { path: 'settings/qc-login', element: guard('canManageLoginLimits', <LoginLimitsPage />) },
+          // Sprint 25: insight dashboards (owner / partner / supervisor) + their settings.
+          { path: 'dashboard', element: guard(['canViewOwnerDashboard', 'canViewPartnerDashboard', 'canViewSupervisorDashboard'], <DashboardHome />) },
+          { path: 'dashboard/:key', element: guard(['canViewOwnerDashboard', 'canViewPartnerDashboard', 'canViewSupervisorDashboard'], <DashboardPage />) },
+          { path: 'settings/dashboard', element: guard('canArrangeDashboards', <DashboardSettingsPage />) },
           { path: 'alerts', element: guard('canViewAlerts', <AlertsPage />) },
           { path: 'qc-corrections', element: guard('canUndoQc', <QcCorrectionsPage />) },
           { path: 'butta-qc', element: <Navigate to="/qc" replace /> },

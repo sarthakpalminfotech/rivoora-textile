@@ -178,6 +178,14 @@ Sprint 20: **Y** = Yarn inventory supervisor (same yarn rights as S, nothing els
 | YRN-33 | Sprint 24: Palti — list + New Palti box | ✅ | ✅ | ✅ | ✅ | ✖ | ✖ | ✖ | ✖ |
 | YRN-34 | Sprint 24: box stickers (print) and the sticker QR | ✅ | ✅ | ✅ | ✅ | ✖ | ✖ | ✖ | ✖ |
 
+### Insight dashboards (Sprint 25)
+| Op | Description | J | G | S | Y | T | Q | GS | D |
+|---|---|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
+| DSH-01 | Owner dashboard (₹ and clients shown) | ✅ | ✅ | ✖ | ✖ | ✖ | ✖ | ✖ | ✖ |
+| DSH-02 | Production partner dashboard | ✅ | ✅ | ✖ | ✖ | ✖ | ✖ | ✖ | ✖ |
+| DSH-03 | Supervisor dashboard (order numbers only, no ₹ / clients) | ✅ | ✅ | ✅ | ✖ | ✖ | ✖ | ✖ | ✖ |
+| DSH-04 | Arrange / Reset a dashboard layout (for everyone) · Settings → Dashboard | ✅ | ✅ | ✖ | ✖ | ✖ | ✖ | ✖ | ✖ |
+
 ### Other
 | Op | Description | J | G | S | T | Q | GS | D |
 |---|---|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
