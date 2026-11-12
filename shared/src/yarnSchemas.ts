@@ -484,6 +484,52 @@ export const tfoProgramStopSchema = z
   });
 export type TfoProgramStopInput = z.input<typeof tfoProgramStopSchema>;
 
+/** A reason / note typed in the shared reason box (min 3, max 300) — optional here. */
+const optReason = z
+  .string()
+  .trim()
+  .max(300, 'Must be at most 300 characters')
+  .nullish()
+  .transform((v) => (v ? v : null))
+  .refine((v) => v === null || v.length >= 3, 'Write at least 3 characters');
+
+/**
+ * Sprint 24 (CR-20) — POST /yarn/tfo/programs/:id/hold: rolls made so far + rolls left (= rolls started; required when the
+ * program has rolls), optional reason. The sections are freed.
+ */
+export const tfoProgramHoldSchema = z.object({
+  rollsMade: z.number({ invalid_type_error: 'Enter the rolls made' }).int('Use a whole number').min(0, 'Cannot be negative').max(1_000_000).nullish().transform((v) => v ?? null),
+  rollsLeft: z.number({ invalid_type_error: 'Enter the rolls left' }).int('Use a whole number').min(0, 'Cannot be negative').max(1_000_000).nullish().transform((v) => v ?? null),
+  reason: optReason,
+});
+export type TfoProgramHoldInput = z.input<typeof tfoProgramHoldSchema>;
+
+/** Sprint 24 — POST /yarn/tfo/programs/:id/resume: idle sections (any machines), like Start (`rolls` is not used here). */
+export const tfoProgramResumeSchema = tfoPendingStartSchema;
+export type TfoProgramResumeInput = z.input<typeof tfoProgramResumeSchema>;
+
+/**
+ * Sprint 24 (CR-20) — POST /yarn/tfo/programs/:id/part: "Complete made part" — boxes for the rolls already made (same box
+ * form as Stop, no raw returned); the program keeps going with the rest.
+ */
+export const tfoProgramPartSchema = z
+  .object({
+    rollWeightKg: kg('Enter the roll weight', { allowZero: true }),
+    boxes: z.array(stopBoxInput, { required_error: 'Add at least one box' }).min(1, 'Add at least one box').max(MAX_BOXES_PER_STOP, `At most ${MAX_BOXES_PER_STOP} boxes`),
+    twistedMeters: optNumber(100_000_000),
+    note: optText(1000),
+  })
+  .superRefine((v, ctx) => {
+    v.boxes.forEach((b, i) => {
+      if (!(b.grossKg - v.rollWeightKg * b.rolls > 1e-9)) ctx.addIssue({ code: 'custom', path: ['boxes', i, 'grossKg'], message: 'Gross kg must be more than roll weight × rolls' });
+    });
+  });
+export type TfoProgramPartInput = z.input<typeof tfoProgramPartSchema>;
+
+/** Sprint 24 (CR-21) — POST /yarn/tfo/programs/:id/stop-later: stop now, enter the boxes later ("Box details pending"). */
+export const tfoProgramStopLaterSchema = z.object({ note: optText(1000) });
+export type TfoProgramStopLaterInput = z.input<typeof tfoProgramStopLaterSchema>;
+
 
 export const tfoProgramsQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),

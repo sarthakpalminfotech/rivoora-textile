@@ -1,5 +1,6 @@
-import { Plus, Trash2 } from 'lucide-react';
+import { Plus, Printer, Trash2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import {
   boxNetG,
@@ -8,11 +9,13 @@ import {
   MAX_BOXES_PER_STOP,
   NO_LOT_LABEL,
   parseKgText,
+  partRollsLimit,
   PROGRAM_STOP_ERROR_TEXT,
   programSectionsLabel,
   STOP_BOX_ERROR_TEXT,
   stopTotals,
   tfoOutputQualityName,
+  tfoProgramLabel,
   TWIST_DIRECTION_LABEL,
   validateProgramStop,
   validateStopBox,
@@ -28,15 +31,18 @@ import { useNow } from '@/hooks/useNow';
 import { ApiError, errorMessage } from '@/lib/api';
 import { formatDateTime, formatElapsed } from '@/lib/format';
 import { cn } from '@/lib/utils';
-import { useStopProgram } from './api';
+import { usePartProgram, useSaveProgramBoxes, useStopProgram, useStopProgramLater } from './api';
 import { DialogButtons, YarnDialog } from './dialog';
 import { actorText, cleanDecimal, Kg, KgInput, numOrNull, Toggle2 } from './parts';
 
 /**
- * Sprint 20b — Stop a running program. One roll weight for the stop; per box: rolls, gross kg, (optional) avg kg and —
- * for S + Z programs — S or Z. Net = gross − roll weight × rolls (calculated); box numbers and the output quality
- * ("75/36 Poly 75D-600-S") are given by the system; every box stays in TFO. A table-like grid from 768px, cards on
- * phones; the totals sit in the always-visible footer. Raw returned goes back with the program's lot.
+ * Sprint 20b → 24 — the box form of a TFO program, in three modes:
+ * - `stop`  (Running / On hold): boxes + raw returned → Completed. CR-21: or "Stop · enter boxes later" → Box details pending.
+ * - `part`  (Running / On hold): CR-20 "Complete made part" — boxes for the rolls already made; the program goes on.
+ * - `boxes` (Box details pending): CR-21 — the normal box form → Completed.
+ * One roll weight; per box: rolls, gross kg, (optional) avg kg and — for S + Z programs — S or Z. Net = gross − roll weight ×
+ * rolls (calculated); box numbers and the output quality ("75/36 Poly 75D-600-S") are given by the system; every box stays
+ * in TFO. A table-like grid from 768px (one line per box), cards on phones; the totals sit in the always-visible footer.
  */
 
 const ACCENT = YARN_ZONE_CONFIG.tfo.accent;
@@ -44,6 +50,8 @@ const SZ_OPTIONS = [
   { value: 'S' as const, label: 'S' },
   { value: 'Z' as const, label: 'Z' },
 ];
+
+export type BoxFormMode = 'stop' | 'part' | 'boxes';
 
 interface BoxRow {
   key: number;
@@ -65,9 +73,30 @@ function Fact({ label, children, className }: { label: string; children: React.R
   );
 }
 
-export function StopProgramDialog({ program, onOpenChange }: { program: TfoProgram | null; onOpenChange: (o: boolean) => void }) {
+/** The boxes the last save made (its stop / part event) — for "Print stickers". */
+export const lastSavedBoxIds = (p: TfoProgram) => {
+  const ev = [...p.events].reverse().find((e) => e.kind === 'stopped' || e.kind === 'boxes_saved' || e.kind === 'part_done');
+  return ev ? p.boxes.filter((b) => b.eventId === ev.id).map((b) => b.id) : [];
+};
+
+/** "Print stickers" after a save (toast action) — opens the sticker print for the new boxes. */
+export function usePrintStickersToast() {
+  const navigate = useNavigate();
+  return (message: string, boxIds: number[]) =>
+    toast.success(message, boxIds.length ? { action: { label: 'Print stickers', onClick: () => navigate(`/print/yarn-boxes?ids=${boxIds.join(',')}`) }, duration: 10_000 } : undefined);
+}
+
+const TITLE: Record<BoxFormMode, string> = { stop: 'Stop program', part: 'Complete made part', boxes: 'Enter boxes' };
+
+export function StopProgramDialog({ program, onOpenChange, mode = 'stop' }: { program: TfoProgram | null; onOpenChange: (o: boolean) => void; mode?: BoxFormMode }) {
   const open = !!program;
-  const stop = useStopProgram(program?.id ?? 0);
+  const id = program?.id ?? 0;
+  const stop = useStopProgram(id);
+  const part = usePartProgram(id);
+  const saveBoxes = useSaveProgramBoxes(id);
+  const later = useStopProgramLater(id);
+  const save = mode === 'part' ? part : mode === 'boxes' ? saveBoxes : stop;
+  const printToast = usePrintStickersToast();
   const now = useNow(30_000);
   const [rollWeight, setRollWeight] = useState('');
   const [boxes, setBoxes] = useState<BoxRow[]>(() => [newBox()]);
@@ -76,23 +105,26 @@ export function StopProgramDialog({ program, onOpenChange }: { program: TfoProgr
   const [note, setNote] = useState('');
   const [tried, setTried] = useState(false);
   const [confirm, setConfirm] = useState(false);
+  const [confirmLater, setConfirmLater] = useState(false);
   const [serverErr, setServerErr] = useState<{ field: string; message: string } | null>(null);
   useEffect(() => {
     if (open) {
-      setRollWeight('');
+      setRollWeight(program?.rollWeightG ? String(gramsToKg(program.rollWeightG)) : '');
       setBoxes([newBox()]);
       setReturned('');
       setMeters('');
       setNote('');
       setTried(false);
       setConfirm(false);
+      setConfirmLater(false);
       setServerErr(null);
     }
-  }, [open, program?.id]);
+  }, [open, program?.id, mode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!program) return null;
   const label = programSectionsLabel(program.sections);
   const sz = program.direction === 'SZ';
+  const priorG = program.twistedG ?? 0;
   const rollWeightG = parseKgText(rollWeight);
   const rw = rollWeightG ?? 0;
   const rows = boxes.map((b) => ({ rolls: b.rolls ? Number(b.rolls) : NaN, grossG: parseKgText(b.gross) ?? 0, avgG: parseKgText(b.avg), direction: sz ? b.direction : program.direction }));
@@ -103,41 +135,72 @@ export function StopProgramDialog({ program, onOpenChange }: { program: TfoProgr
     if (b.avgG === null && boxes[i].avg.trim()) return { field: 'avg' as const, message: 'Use at most 4 decimals' };
     return null;
   });
-  const returnedG = returned.trim() ? parseKgText(returned) : 0;
-  const stopErr = returnedG === null ? 'Use at most 4 decimals' : validateProgramStop({ rawG: program.rawG, twistedG: totals.netG, returnedG });
+  const limit = mode === 'part' ? partRollsLimit(program) : null;
+  const rollsErr = limit !== null && totals.rolls > limit ? `Only ${limit} roll${limit === 1 ? '' : 's'} ${program.status === 'on_hold' ? 'made' : 'started'} are not in boxes yet` : null;
+  const returnedG = mode === 'part' ? 0 : returned.trim() ? parseKgText(returned) : 0;
+  // Boxes already saved by part completions let the program stop without new boxes.
+  const stopErr =
+    mode === 'part'
+      ? null
+      : returnedG === null
+        ? 'Use at most 4 decimals'
+        : validateProgramStop({ rawG: program.rawG, twistedG: totals.netG > 0 || (returnedG ?? 0) > 0 ? priorG + totals.netG : priorG, returnedG });
   const returnedErr = stopErr === 'returned_too_much' ? `${PROGRAM_STOP_ERROR_TEXT.returned_too_much} (${formatKg(program.rawG)})` : stopErr === 'Use at most 4 decimals' ? stopErr : undefined;
   const rollWeightErr = rollWeightG === null ? 'Enter the roll weight' : undefined;
+  const minBoxes = mode === 'part' || priorG === 0 ? 1 : 0;
   const set = (key: number, patch: Partial<BoxRow>) => setBoxes((bs) => bs.map((b) => (b.key === key ? { ...b, ...patch } : b)));
   const serverBoxErr = (i: number, f: string) => (serverErr?.field === `boxes.${i}.${f}` ? serverErr.message : undefined);
   // The output qualities the boxes get (one per direction).
   const qualityOf = (dir: 'S' | 'Z') => tfoOutputQualityName({ denierFilament: program.denierFilament, rawQualityName: program.rawQuality.name, tpm: program.tpm, direction: dir });
   const directions = [...new Set(rows.map((r) => r.direction).filter((d): d is 'S' | 'Z' => d === 'S' || d === 'Z'))];
 
-  const valid = () => !rollWeightErr && !boxErrors.some(Boolean) && !returnedErr && (boxes.length > 0 || (returnedG ?? 0) > 0);
+  const valid = () => !rollWeightErr && !boxErrors.some(Boolean) && !returnedErr && !rollsErr && boxes.length >= minBoxes && (stopErr === null || stopErr === undefined);
   const submit = () => {
     setTried(true);
     setServerErr(null);
     if (!valid()) return;
     setConfirm(true);
   };
-  const save = () =>
-    stop.mutate(
+  const onError = (err: unknown) => {
+    setConfirm(false);
+    if (err instanceof ApiError && err.field) setServerErr({ field: err.field, message: err.message });
+    toast.error(errorMessage(err));
+  };
+  const boxesBody = () => ({
+    rollWeightKg: gramsToKg(rw),
+    boxes: rows.map((b) => ({ rolls: b.rolls, grossKg: gramsToKg(b.grossG), avgKg: b.avgG ? gramsToKg(b.avgG) : null, direction: sz ? (b.direction as 'S' | 'Z') : null })),
+    twistedMeters: numOrNull(meters),
+    note: note.trim() || null,
+  });
+  const doSave = () => {
+    const done = (p: TfoProgram) => {
+      const ids = lastSavedBoxIds(p);
+      const what = `${ids.length} box${ids.length === 1 ? '' : 'es'} · ${formatKg(totals.netG)} twisted in TFO`;
+      printToast(
+        mode === 'part'
+          ? p.status === 'completed'
+            ? `Every roll is in boxes — ${tfoProgramLabel(p.id)} completed · ${what}`
+            : `Made part completed · ${what}`
+          : `${tfoProgramLabel(p.id)} completed · ${what}`,
+        ids,
+      );
+      setConfirm(false);
+      onOpenChange(false);
+    };
+    if (mode === 'part') part.mutate(boxesBody(), { onSuccess: done, onError });
+    else (mode === 'boxes' ? saveBoxes : stop).mutate({ ...boxesBody(), returnedRawKg: gramsToKg(returnedG ?? 0) }, { onSuccess: done, onError });
+  };
+  const doLater = () =>
+    later.mutate(
+      { note: note.trim() || null },
       {
-        rollWeightKg: gramsToKg(rw),
-        boxes: rows.map((b) => ({ rolls: b.rolls, grossKg: gramsToKg(b.grossG), avgKg: b.avgG ? gramsToKg(b.avgG) : null, direction: sz ? (b.direction as 'S' | 'Z') : null })),
-        twistedMeters: numOrNull(meters),
-        returnedRawKg: gramsToKg(returnedG ?? 0),
-        note: note.trim() || null,
-      },
-      {
-        onSuccess: (p) => {
-          toast.success(`${label} stopped · ${p.boxes.length} box${p.boxes.length === 1 ? '' : 'es'} · ${formatKg(p.twistedG ?? 0)} twisted in TFO`);
-          setConfirm(false);
+        onSuccess: () => {
+          toast.success(`${label} stopped · boxes pending — enter them from Box details pending`);
+          setConfirmLater(false);
           onOpenChange(false);
         },
         onError: (err) => {
-          setConfirm(false);
-          if (err instanceof ApiError && err.field) setServerErr({ field: err.field, message: err.message });
+          setConfirmLater(false);
           toast.error(errorMessage(err));
         },
       },
@@ -146,16 +209,22 @@ export function StopProgramDialog({ program, onOpenChange }: { program: TfoProgr
   const GRID = sz
     ? 'md:grid md:grid-cols-[3.25rem_5rem_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_6.5rem_2.75rem] md:items-start md:gap-2'
     : 'md:grid md:grid-cols-[3.25rem_5rem_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_2.75rem] md:items-start md:gap-2';
+  const busy = save.isPending || later.isPending;
+  const title = `${TITLE[mode]} · ${mode === 'boxes' ? tfoProgramLabel(program.id) : label}`;
+  const description =
+    mode === 'boxes'
+      ? `Stopped ${formatDateTime(program.stoppedAt)} · ${formatKg(program.rawG)} issued · boxes pending`
+      : `Running for ${formatElapsed(program.startedAt, now)} · started ${formatDateTime(program.startedAt)}${actorText(program.startedBy) ? ` by ${actorText(program.startedBy)}` : ''}`;
 
   return (
     <YarnDialog
       open={open}
       onOpenChange={onOpenChange}
       layout="wide"
-      title={`Stop program · ${label}`}
-      description={`Running for ${formatElapsed(program.startedAt, now)} · started ${formatDateTime(program.startedAt)}${actorText(program.startedBy) ? ` by ${actorText(program.startedBy)}` : ''}`}
-      busy={stop.isPending}
-      dirty={boxes.some((b) => b.gross || b.rolls) || !!returned || !!rollWeight}
+      title={title}
+      description={description}
+      busy={busy}
+      dirty={boxes.some((b) => b.gross || b.rolls) || !!returned}
       footer={
         <div className="flex w-full flex-wrap items-center gap-x-4 gap-y-2">
           <dl className="mr-auto flex flex-wrap gap-x-4 gap-y-0.5 text-sm text-slate-600" aria-label="Totals">
@@ -165,7 +234,10 @@ export function StopProgramDialog({ program, onOpenChange }: { program: TfoProgr
             </div>
             <div>
               <dt className="inline">Rolls </dt>
-              <dd className="inline font-semibold tabular-nums text-slate-900">{totals.rolls || 0}</dd>
+              <dd className={cn('inline font-semibold tabular-nums', rollsErr ? 'text-destructive' : 'text-slate-900')}>
+                {totals.rolls || 0}
+                {limit !== null ? ` / ${limit}` : ''}
+              </dd>
             </div>
             <div>
               <dt className="inline">Gross </dt>
@@ -180,7 +252,12 @@ export function StopProgramDialog({ program, onOpenChange }: { program: TfoProgr
               </dd>
             </div>
           </dl>
-          <DialogButtons onCancel={() => onOpenChange(false)} busy={stop.isPending} label="Stop program" form="tfo-stop-form" />
+          {mode === 'stop' && (
+            <Button variant="secondary" onClick={() => setConfirmLater(true)} disabled={busy}>
+              Stop · enter boxes later
+            </Button>
+          )}
+          <DialogButtons onCancel={() => onOpenChange(false)} busy={save.isPending} label={mode === 'part' ? 'Save made part' : mode === 'boxes' ? 'Save boxes' : 'Stop program'} form="tfo-stop-form" />
         </div>
       }
     >
@@ -194,7 +271,9 @@ export function StopProgramDialog({ program, onOpenChange }: { program: TfoProgr
         className="grid gap-5"
       >
         <div className="grid grid-cols-2 gap-4 rounded-xl p-4 md:grid-cols-4" style={{ backgroundColor: ACCENT.soft }}>
-          <Fact label="Machine / sections">{label}</Fact>
+          <Fact label="Program / sections">
+            {tfoProgramLabel(program.id)} · {label}
+          </Fact>
           <Fact label="Raw quality">{program.rawQuality.name}</Fact>
           <Fact label="Lot">{program.lot ? program.lot.lotNo : NO_LOT_LABEL}</Fact>
           <Fact label="Raw issued">
@@ -204,11 +283,24 @@ export function StopProgramDialog({ program, onOpenChange }: { program: TfoProgr
           <Fact label="TPM · direction">
             {program.tpm} · {TWIST_DIRECTION_LABEL[program.direction]}
           </Fact>
-          <Fact label="Denier / Filament">{program.denierFilament ?? '—'}</Fact>
+          <Fact label={program.rollsDone ? 'Already in boxes' : 'Denier / Filament'}>
+            {program.rollsDone ? (
+              <>
+                {program.rollsDone} rolls · <Kg g={priorG} />
+              </>
+            ) : (
+              (program.denierFilament ?? '—')
+            )}
+          </Fact>
           <Fact label="Output quality" className="col-span-2 md:col-span-1">
             <span className="whitespace-normal text-sm">{directions.length ? directions.map(qualityOf).join(' · ') : sz ? 'Pick S / Z per box' : qualityOf(program.direction as 'S' | 'Z')}</span>
           </Fact>
         </div>
+        {mode === 'part' && (
+          <p className="rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-900">
+            Boxes for the rolls already made{limit !== null ? ` — up to ${limit} roll${limit === 1 ? '' : 's'}` : ''}. They get numbers now; the program keeps going with the rest.
+          </p>
+        )}
 
         <Field
           label="Roll weight"
@@ -223,10 +315,14 @@ export function StopProgramDialog({ program, onOpenChange }: { program: TfoProgr
         <section aria-label="Boxes" className="grid gap-2">
           <div className="flex flex-wrap items-center gap-2">
             <h3 className="mr-auto text-sm font-bold text-slate-800">Boxes</h3>
-            <span className="text-xs text-slate-500">Box numbers are given on save · all boxes stay in TFO</span>
+            <span className="text-xs text-slate-500">
+              <Printer className="mr-1 inline size-3.5 align-text-bottom" aria-hidden />
+              Box numbers are given on save (stickers can be printed then) · all boxes stay in TFO
+            </span>
           </div>
-          {tried && serverErr?.field === 'boxes' && <p className="text-[13px] font-medium text-destructive">{serverErr.message}</p>}
-          <div className={cn('hidden px-1 text-xs font-semibold uppercase tracking-wide text-slate-500', GRID)} aria-hidden>
+          {tried && (serverErr?.field === 'boxes' || rollsErr) && <p className="text-[13px] font-medium text-destructive">{rollsErr ?? serverErr?.message}</p>}
+          {boxes.length === 0 && <p className="rounded-xl border border-dashed border-border px-3 py-3 text-sm text-slate-500">No new boxes — the boxes saved earlier stay as they are.</p>}
+          <div className={cn('hidden px-1 text-xs font-semibold uppercase tracking-wide text-slate-500', boxes.length ? GRID : 'md:hidden')} aria-hidden>
             <span>Box</span>
             <span className="text-right">Rolls *</span>
             <span className="text-right">Gross kg *</span>
@@ -269,7 +365,7 @@ export function StopProgramDialog({ program, onOpenChange }: { program: TfoProgr
                     </Field>
                   )}
                   <div className="col-span-2 flex justify-end md:col-span-1 md:pt-0.5">
-                    <Button variant="ghost" size="icon" disabled={boxes.length === 1} onClick={() => setBoxes((bs) => bs.filter((x) => x.key !== b.key))} aria-label={`Remove box ${i + 1}`} className="text-slate-500">
+                    <Button variant="ghost" size="icon" disabled={boxes.length <= minBoxes} onClick={() => setBoxes((bs) => bs.filter((x) => x.key !== b.key))} aria-label={`Remove box ${i + 1}`} className="text-slate-500">
                       <Trash2 className="!size-4" />
                     </Button>
                   </div>
@@ -285,13 +381,15 @@ export function StopProgramDialog({ program, onOpenChange }: { program: TfoProgr
         </section>
 
         <div className="grid grid-cols-2 gap-4 md:grid-cols-3">
-          <Field label="Raw yarn returned" error={tried ? (returnedErr ?? (serverErr?.field === 'returnedRawKg' ? serverErr.message : undefined)) : undefined} hint={`Back to TFO raw stock · ${program.lot ? `lot ${program.lot.lotNo}` : NO_LOT_LABEL}`}>
-            <KgInput value={returned} onValueChange={setReturned} invalid={tried && !!returnedErr} />
-          </Field>
+          {mode !== 'part' && (
+            <Field label="Raw yarn returned" error={tried ? (returnedErr ?? (serverErr?.field === 'returnedRawKg' ? serverErr.message : undefined)) : undefined} hint={`Back to TFO raw stock · ${program.lot ? `lot ${program.lot.lotNo}` : NO_LOT_LABEL}`}>
+              <KgInput value={returned} onValueChange={setReturned} invalid={tried && !!returnedErr} />
+            </Field>
+          )}
           <Field label="Twisted meters" htmlFor="tfo-m">
             <Input id="tfo-m" inputMode="decimal" autoComplete="off" value={meters} onChange={(e) => setMeters(cleanDecimal(e.target.value, 4, 9))} className="text-right tabular-nums" />
           </Field>
-          <Field label="Note" htmlFor="tfo-stop-note" className="col-span-2 md:col-span-1">
+          <Field label="Note" htmlFor="tfo-stop-note" className={cn('col-span-2', mode === 'part' ? 'md:col-span-2' : 'md:col-span-1')}>
             <Textarea id="tfo-stop-note" rows={1} maxLength={1000} value={note} onChange={(e) => setNote(e.target.value)} className="min-h-11" />
           </Field>
         </div>
@@ -299,16 +397,26 @@ export function StopProgramDialog({ program, onOpenChange }: { program: TfoProgr
       <ConfirmDialog
         open={confirm}
         onOpenChange={setConfirm}
-        title={`Stop ${label}?`}
+        title={mode === 'part' ? 'Save the made part?' : mode === 'boxes' ? `Save the boxes of ${tfoProgramLabel(program.id)}?` : `Stop ${label}?`}
         description={[
-          `${totals.boxes} box${totals.boxes === 1 ? '' : 'es'} · ${formatKg(totals.netG)} net into TFO as ${directions.map(qualityOf).join(' and ') || '—'}.`,
+          totals.boxes ? `${totals.boxes} box${totals.boxes === 1 ? '' : 'es'} · ${formatKg(totals.netG)} net into TFO as ${directions.map(qualityOf).join(' and ') || '—'}.` : 'No new boxes.',
           (returnedG ?? 0) > 0 ? `${formatKg(returnedG ?? 0)} raw back to TFO.` : null,
+          mode === 'part' ? 'The program keeps going with the rest.' : 'The program is completed.',
         ]
           .filter(Boolean)
           .join(' ')}
-        confirmLabel="Stop program"
-        loading={stop.isPending}
-        onConfirm={save}
+        confirmLabel={mode === 'part' ? 'Save made part' : mode === 'boxes' ? 'Save boxes' : 'Stop program'}
+        loading={save.isPending}
+        onConfirm={doSave}
+      />
+      <ConfirmDialog
+        open={confirmLater}
+        onOpenChange={setConfirmLater}
+        title={`Stop ${label} and enter the boxes later?`}
+        description={`The sections become free now. ${formatKg(program.rawG)} raw was issued; nothing goes into twisted stock until the boxes are entered from Box details pending.`}
+        confirmLabel="Stop · boxes later"
+        loading={later.isPending}
+        onConfirm={doLater}
       />
     </YarnDialog>
   );

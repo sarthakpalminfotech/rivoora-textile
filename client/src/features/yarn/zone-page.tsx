@@ -15,15 +15,18 @@ import { MachineViewDialog, TfoProgramsSection } from './tfo-board';
 import { WarpingJobsSection } from './warping';
 import { ZoneActionDialogs, zoneHasExtraWithdraw, zoneMainAction, type ZoneAction } from './zone-actions';
 
-type ZoneTab = 'running' | 'pending' | 'in_process' | 'done';
+type ZoneTab = 'running' | 'on_hold' | 'box_pending' | 'pending' | 'in_process' | 'done';
 
 /**
  * The tabs of each zone screen: TFO Running | Pending · Warping In process | Pending | Done · Direct none. Sprint 20c:
  * Stock (and Beams) moved to their own screen, `/yarn/:zone/stock`, opened from the Stock card.
  */
 const ZONE_TABS: Record<YarnZone, { key: ZoneTab; label: string }[]> = {
+  // Sprint 24 (CR-20/21): + On hold and Box details pending.
   tfo: [
     { key: 'running', label: 'Running' },
+    { key: 'on_hold', label: 'On hold' },
+    { key: 'box_pending', label: 'Box details pending' },
     { key: 'pending', label: 'Pending' },
   ],
   warping: [
@@ -118,6 +121,8 @@ export default function YarnZonePage() {
   const sum = summary.data;
   const counts: Partial<Record<ZoneTab, number | undefined>> = {
     running: zone === 'tfo' ? sum?.tfo.runningSections : undefined,
+    on_hold: zone === 'tfo' ? sum?.tfo.onHold : undefined,
+    box_pending: zone === 'tfo' ? sum?.tfo.boxPending : undefined,
     pending: zone === 'tfo' ? sum?.tfo.pending : zone === 'warping' ? sum?.warping.pending : undefined,
     in_process: sum?.warping.inProcess,
   };
@@ -202,17 +207,26 @@ export default function YarnZonePage() {
                 aria-selected={tab === t.key}
                 onClick={() => setTab(t.key)}
                 className={cn(
-                  'min-h-11 rounded-full border px-4 text-sm font-semibold transition-colors',
+                  'min-h-12 rounded-full border px-4 text-sm font-semibold transition-colors',
                   tab === t.key ? 'border-transparent text-white' : 'border-input bg-white text-slate-700 hover:bg-muted',
                 )}
                 style={tab === t.key ? { backgroundColor: c.accent.solid } : undefined}
               >
                 {t.label}
-                {counts[t.key] !== undefined && <span className={cn('ml-1.5 tabular-nums', tab === t.key ? 'text-white/80' : 'text-slate-400')}>{counts[t.key]}</span>}
+                {counts[t.key] !== undefined && (
+                  <span
+                    className={cn(
+                      'ml-1.5 tabular-nums',
+                      tab === t.key ? 'text-white/80' : t.key === 'box_pending' && counts[t.key] ? 'rounded-full bg-sky-600 px-1.5 text-white' : 'text-slate-400',
+                    )}
+                  >
+                    {counts[t.key]}
+                  </span>
+                )}
               </button>
             ))}
           </div>
-          {zone === 'tfo' && (tab === 'running' || tab === 'pending') ? (
+          {zone === 'tfo' && (tab === 'running' || tab === 'on_hold' || tab === 'box_pending' || tab === 'pending') ? (
             <TfoProgramsSection tab={tab} />
           ) : zone === 'warping' && (tab === 'in_process' || tab === 'pending' || tab === 'done') ? (
             <WarpingJobsSection tab={tab} onTab={setTab} />

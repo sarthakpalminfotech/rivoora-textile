@@ -105,7 +105,47 @@ check(supRow?.withdrawal?.ratePaise === null && supRow.withdrawal.rateEntered ==
 const inHouse = await ok('jemish', 'GET', '/yarn/moves?purpose=in_house&limit=50');
 check(inHouse.items.length > 0 && inHouse.items.every((m) => m.withdrawal?.purpose === 'in_house'), 'B1: the In-house filter lists in-house withdrawals');
 
-// @@PHASE-C@@
+// ---------------------------------------------------------------- C · CR-20 hold / resume / complete made part · CR-21 stop · boxes later
+const tfoLot = existing.lot.id;
+const tfoBefore = await lotAvail('tfo', q75.id, tfoLot);
+const [pend1] = await ok('jemish', 'POST', '/yarn/tfo/pending', { programs: [{ rawQualityId: q75.id, lotId: tfoLot, rolls: 12, windingKg: 10, tpm: 600, direction: 'S', denierFilament: '75/36' }] });
+const p1 = await ok('yarn', 'POST', `/yarn/tfo/pending/${pend1.id}/start`, { sections: [{ machineId: m1.id, section: 'A' }] });
+check(p1.status === 'running' && (await lotAvail('tfo', q75.id, tfoLot)) === tfoBefore - 120 * KG, 'C: program started (120 kg issued)');
+check((await call('yarn', 'POST', `/yarn/tfo/programs/${p1.id}/hold`, { rollsMade: 6, rollsLeft: 5 })).status === 400, 'C: hold refuses made + left ≠ rolls started');
+check((await call('yarn', 'POST', `/yarn/tfo/programs/${p1.id}/hold`, {})).status === 400, 'C: hold needs the rolls made');
+const held = await ok('yarn', 'POST', `/yarn/tfo/programs/${p1.id}/hold`, { rollsMade: 6, rollsLeft: 6, reason: 'power cut' });
+check(held.status === 'on_hold' && held.rollsMade === 6 && held.events.some((e) => e.kind === 'hold' && e.rollsLeft === 6 && e.note === 'power cut'), 'C: On hold with 6 made / 6 left, logged', held.events);
+let board = await ok('jemish', 'GET', '/yarn/tfo/board');
+check(board.onHold.some((p) => p.id === p1.id), 'C: the board lists it under On hold');
+check(board.machines.find((m) => m.id === m1.id)?.sections.find((s) => s.section === 'A')?.program === null, 'C: its section 1A is idle again');
+const [pend2] = await ok('jemish', 'POST', '/yarn/tfo/pending', { programs: [{ rawQualityId: q75.id, lotId: tfoLot, rolls: 2, windingKg: 5, tpm: 500, direction: 'Z' }] });
+const p2 = await ok('supervisor', 'POST', `/yarn/tfo/pending/${pend2.id}/start`, { sections: [{ machineId: m1.id, section: 'A' }] });
+check(p2.status === 'running', 'C: another program runs on the freed section');
+check((await call('yarn', 'POST', `/yarn/tfo/programs/${p1.id}/resume`, { sections: [{ machineId: m1.id, section: 'A' }] })).status === 409, 'C: resume refuses a busy section');
+const resumed = await ok('yarn', 'POST', `/yarn/tfo/programs/${p1.id}/resume`, { sections: [{ machineId: m2.id, section: 'A' }, { machineId: m2.id, section: 'B' }] });
+check(resumed.status === 'running' && resumed.sections.length === 2 && resumed.sections.every((s) => s.machineId === m2.id), 'C: resumed on other sections (2A, 2B)', resumed.sections);
+const box2 = (rolls, gross) => ({ rolls, grossKg: gross, avgKg: null, direction: null });
+const part = await ok('yarn', 'POST', `/yarn/tfo/programs/${p1.id}/part`, { rollWeightKg: 0.5, boxes: [box2(3, 31), box2(3, 31)], note: 'made part' });
+const partBoxes = part.boxes.filter((b) => b.eventId === part.events.find((e) => e.kind === 'part_done')?.id);
+check(part.status === 'running' && part.rollsDone === 6 && partBoxes.length === 2 && part.twistedG === 59 * KG, 'C: Complete made part → 2 boxes (59 kg), still running', { status: part.status, rollsDone: part.rollsDone, twistedG: part.twistedG });
+check(partBoxes.every((b) => typeof b.fy === 'string' && b.currentZone === 'tfo'), 'C: part boxes are in TFO with an FY');
+check((await call('yarn', 'POST', `/yarn/tfo/programs/${p1.id}/part`, { rollWeightKg: 0.5, boxes: [box2(7, 70)] })).status === 400, 'C: a part can’t box more rolls than are left');
+const later = await ok('yarn', 'POST', `/yarn/tfo/programs/${p1.id}/stop-later`, { note: 'boxes tomorrow' });
+check(later.status === 'box_pending' && later.stoppedAt, 'C: Stop · enter boxes later → Box details pending');
+board = await ok('jemish', 'GET', '/yarn/tfo/board');
+check(board.boxPending.some((p) => p.id === p1.id) && !board.machines.find((m) => m.id === m2.id).sections.some((s) => s.program), 'C: listed under Box details pending, 2A / 2B free');
+check((await call('yarn', 'POST', `/yarn/tfo/programs/${p1.id}/stop`, { rollWeightKg: 0.5, boxes: [box2(6, 61)] })).status === 409, 'C: a box-pending program is not stopped again');
+const saved = await ok('supervisor', 'POST', `/yarn/tfo/programs/${p1.id}/boxes`, { rollWeightKg: 0.5, boxes: [box2(3, 31), box2(3, 30.5)], returnedRawKg: 1 });
+check(saved.status === 'completed' && saved.boxes.length === 4 && saved.twistedG === (59 + 29.5 + 29) * KG && saved.returnedRawG === 1 * KG, 'C: Save boxes → Completed (4 boxes in all, raw returned)', { status: saved.status, boxes: saved.boxes.length, twistedG: saved.twistedG });
+const heldP2 = await ok('yarn', 'POST', `/yarn/tfo/programs/${p2.id}/hold`, { rollsMade: 1, rollsLeft: 1 });
+const stoppedP2 = await ok('yarn', 'POST', `/yarn/tfo/programs/${p2.id}/stop`, { rollWeightKg: 0.2, boxes: [box2(2, 9)] });
+check(heldP2.status === 'on_hold' && stoppedP2.status === 'completed', 'C: a held program can be stopped directly');
+const summary = await ok('jemish', 'GET', '/yarn/summary');
+check(typeof summary.tfo.onHold === 'number' && typeof summary.tfo.boxPending === 'number', 'C: summary counts On hold / Box details pending');
+const history = await ok('jemish', 'GET', '/yarn/tfo/programs?limit=100');
+check(!history.items.some((p) => p.status === 'system'), 'C: the system program never shows in the history');
+
+// @@PHASE-D@@
 
 console.log(failed ? `\n${failed} check(s) FAILED` : '\nAll Sprint 24 checks passed');
 process.exit(failed ? 1 : 0);

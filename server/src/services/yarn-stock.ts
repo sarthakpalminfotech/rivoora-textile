@@ -103,7 +103,7 @@ async function zoneStocks(tx: DbOrTx): Promise<YarnZoneStock[]> {
 }
 
 export async function yarnSummary(showRate = false): Promise<YarnSummary> {
-  const [zones, [tfo], [machines], [jobs], [tfoPending], [jobsPending], recent] = await Promise.all([
+  const [zones, [tfo], [machines], [jobs], [tfoPending], [jobsPending], recent, [held]] = await Promise.all([
     zoneStocks(db),
     db.select({ n: sql<number>`COUNT(*)` }).from(tfoProgramSections).where(eq(tfoProgramSections.isRunning, true)),
     db.select({ n: sql<number>`COUNT(*)` }).from(tfoMachines).where(and(eq(tfoMachines.isDeleted, false), eq(tfoMachines.isActive, true))),
@@ -111,6 +111,13 @@ export async function yarnSummary(showRate = false): Promise<YarnSummary> {
     db.select({ n: sql<number>`COUNT(*)` }).from(tfoPendingPrograms).where(eq(tfoPendingPrograms.status, 'pending')),
     db.select({ n: sql<number>`COUNT(*)` }).from(warpingPendingJobs).where(eq(warpingPendingJobs.status, 'pending')),
     listMoves({ page: 1, limit: 10, kind: [], quality: [] }, { showRate }),
+    db
+      .select({
+        onHold: sql<number>`COALESCE(SUM(CASE WHEN ${tfoPrograms.status} = 'on_hold' THEN 1 ELSE 0 END), 0)`,
+        boxPending: sql<number>`COALESCE(SUM(CASE WHEN ${tfoPrograms.status} = 'box_pending' THEN 1 ELSE 0 END), 0)`,
+      })
+      .from(tfoPrograms)
+      .where(inArray(tfoPrograms.status, ['on_hold', 'box_pending'])),
   ]);
   return {
     totals: {
@@ -119,7 +126,13 @@ export async function yarnSummary(showRate = false): Promise<YarnSummary> {
       beams: zones.reduce((s, z) => s + z.beams, 0),
     },
     zones,
-    tfo: { runningSections: Number(tfo?.n ?? 0), activeMachines: Number(machines?.n ?? 0), pending: Number(tfoPending?.n ?? 0) },
+    tfo: {
+      runningSections: Number(tfo?.n ?? 0),
+      activeMachines: Number(machines?.n ?? 0),
+      pending: Number(tfoPending?.n ?? 0),
+      onHold: Number(held?.onHold ?? 0),
+      boxPending: Number(held?.boxPending ?? 0),
+    },
     warping: { inProcess: Number(jobs?.n ?? 0), pending: Number(jobsPending?.n ?? 0) },
     recent: recent.items,
   };

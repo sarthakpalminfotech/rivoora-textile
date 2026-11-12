@@ -17,12 +17,17 @@ import { requirePermission } from '../middleware/role';
 import { checkLotNo, createTransfer, listNoBoxStock, manualAdd, manualRemove, createWithdrawal, listBeams, listBoxStock, listLotStock, listMoves, yarnSummary, yarnZone } from '../services/yarn-stock';
 import {
   cancelPendingProgram,
+  completeMadePart,
   createPendingPrograms,
   getProgram,
+  holdProgram,
   listPendingPrograms,
   listPrograms,
+  resumeProgram,
+  saveProgramBoxes,
   startPendingProgram,
   stopProgram,
+  stopProgramLater,
   tfoBoard,
   updatePendingProgram,
 } from '../services/yarn-tfo';
@@ -216,6 +221,43 @@ yarnRouter.post(
   '/tfo/programs/:id/stop',
   ah(async (req, res) => {
     res.json(await stopProgram(req.role, parseId(req.params.id), req.body));
+  }),
+);
+
+/* Sprint 24 (CR-20/21) — hold / resume / complete made part / stop · enter boxes later / save boxes (the floor roles). */
+
+yarnRouter.post(
+  '/tfo/programs/:id/hold',
+  ah(async (req, res) => {
+    res.json(await holdProgram(req.role, parseId(req.params.id), req.body));
+  }),
+);
+
+yarnRouter.post(
+  '/tfo/programs/:id/resume',
+  ah(async (req, res) => {
+    res.json(await resumeProgram(req.role, parseId(req.params.id), req.body));
+  }),
+);
+
+yarnRouter.post(
+  '/tfo/programs/:id/part',
+  ah(async (req, res) => {
+    res.json(await completeMadePart(req.role, parseId(req.params.id), req.body));
+  }),
+);
+
+yarnRouter.post(
+  '/tfo/programs/:id/stop-later',
+  ah(async (req, res) => {
+    res.json(await stopProgramLater(req.role, parseId(req.params.id), req.body));
+  }),
+);
+
+yarnRouter.post(
+  '/tfo/programs/:id/boxes',
+  ah(async (req, res) => {
+    res.json(await saveProgramBoxes(req.role, parseId(req.params.id), req.body));
   }),
 );
 

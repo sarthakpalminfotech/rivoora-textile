@@ -13,7 +13,11 @@ import type {
   TfoPendingProgramsCreateInput,
   TfoPendingStartInput,
   TfoProgram,
+  TfoProgramHoldInput,
+  TfoProgramPartInput,
+  TfoProgramResumeInput,
   TfoProgramStopInput,
+  TfoProgramStopLaterInput,
   TfoSection,
   WarpingDoneResult,
   WarpingJob,
@@ -318,6 +322,17 @@ export const useStartPendingProgram = () =>
 
 export const useStopProgram = (id: number) =>
   useYarnMutation((data: TfoProgramStopInput) => api.post<TfoProgram>(`/yarn/tfo/programs/${id}/stop`, data), { silentFieldErrors: true });
+
+/** Sprint 24 (CR-20/21) — hold / resume / complete made part / stop · boxes later / save boxes. */
+export const useHoldProgram = (id: number) =>
+  useYarnMutation((data: TfoProgramHoldInput) => api.post<TfoProgram>(`/yarn/tfo/programs/${id}/hold`, data), { silentFieldErrors: true });
+export const useResumeProgram = () =>
+  useYarnMutation(({ id, data }: { id: number; data: TfoProgramResumeInput }) => api.post<TfoProgram>(`/yarn/tfo/programs/${id}/resume`, data), { silentFieldErrors: true });
+export const usePartProgram = (id: number) =>
+  useYarnMutation((data: TfoProgramPartInput) => api.post<TfoProgram>(`/yarn/tfo/programs/${id}/part`, data), { silentFieldErrors: true });
+export const useStopProgramLater = (id: number) => useYarnMutation((data: TfoProgramStopLaterInput) => api.post<TfoProgram>(`/yarn/tfo/programs/${id}/stop-later`, data));
+export const useSaveProgramBoxes = (id: number) =>
+  useYarnMutation((data: TfoProgramStopInput) => api.post<TfoProgram>(`/yarn/tfo/programs/${id}/boxes`, data), { silentFieldErrors: true });
 
 /* ---------- warping ---------- */
 

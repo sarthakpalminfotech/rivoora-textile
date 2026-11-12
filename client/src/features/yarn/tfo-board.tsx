@@ -1,11 +1,17 @@
-import { Ban, Pencil, Play, Plus, RotateCw, Square, Trash2 } from 'lucide-react';
+import { Ban, PackageCheck, Pause, Pencil, Play, Plus, RotateCw, Square, Trash2 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
 import {
+  checkHoldRolls,
   checkStartRolls,
   checkTake,
   formatKg,
+  HOLD_ROLLS_ERROR_TEXT,
+  holdRollsText,
+  REASON_MAX,
+  REASON_MIN,
+  tfoProgramLabel,
   MAX_PENDING_PROGRAMS,
   NO_LOT_LABEL,
   parseKgText,
@@ -32,7 +38,7 @@ import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Field } from '@/components/ui/field';
-import { Input } from '@/components/ui/input';
+import { Input, Textarea } from '@/components/ui/input';
 import { Modal } from '@/components/ui/modal';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useNow } from '@/hooks/useNow';
@@ -40,7 +46,7 @@ import { useRole } from '@/hooks/useRole';
 import { ApiError, errorMessage } from '@/lib/api';
 import { formatDateTime, formatElapsed } from '@/lib/format';
 import { cn } from '@/lib/utils';
-import { useCancelPendingProgram, useCreatePendingPrograms, useStartPendingProgram, useTfoBoard, useUpdatePendingProgram } from './api';
+import { useCancelPendingProgram, useCreatePendingPrograms, useHoldProgram, useResumeProgram, useStartPendingProgram, useTfoBoard, useUpdatePendingProgram } from './api';
 import { DialogButtons, YarnDialog } from './dialog';
 import { actorText, cleanDecimal, Kg, KgInput, LotSelect, numOrNull, QualitySelect, Toggle2 } from './parts';
 import { StopProgramDialog } from './tfo-stop';
@@ -477,24 +483,198 @@ function StartProgramDialog({ program, onOpenChange }: { program: TfoPendingProg
           </div>
         )}
         <p className="mb-3 text-sm text-slate-600">Tap one or more idle sections (any machines). The raw kg leave TFO stock when the program starts.</p>
-        {board.isPending ? (
-          <Skeleton className="h-40 w-full rounded-2xl" />
-        ) : machines.length === 0 ? (
-          <EmptyState icon={RotateCw} title="No active TFO machines" className="py-8" />
-        ) : (
-          <div role="group" aria-label="Machine sections" className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
-            {machines.map((m) => (
-              <div key={m.id} className="overflow-hidden rounded-xl border border-border">
-                <p className="truncate border-b border-border bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-500">Machine {m.machineNo}{m.name ? ` · ${m.name}` : ''}</p>
-                <div className="divide-y divide-border">
-                  {m.sections.map((s) => (
-                    <SectionTile key={s.section} machine={m} section={s.section} program={s.program} selected={isPicked(m.id, s.section)} onPick={() => toggle(m.id, s.section)} />
-                  ))}
-                </div>
-              </div>
+        <SectionPicker loading={board.isPending} machines={machines} isPicked={isPicked} onToggle={toggle} />
+      </form>
+    </YarnDialog>
+  );
+}
+
+/** Machines as cards (A on top, B below); idle sections are tappable (Start, Resume). */
+function SectionPicker({
+  loading,
+  machines,
+  isPicked,
+  onToggle,
+}: {
+  loading: boolean;
+  machines: TfoBoardMachine[];
+  isPicked: (machineId: number, section: TfoSection) => boolean;
+  onToggle: (machineId: number, section: TfoSection) => void;
+}) {
+  if (loading) return <Skeleton className="h-40 w-full rounded-2xl" />;
+  if (machines.length === 0) return <EmptyState icon={RotateCw} title="No active TFO machines" className="py-8" />;
+  return (
+    <div role="group" aria-label="Machine sections" className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
+      {machines.map((m) => (
+        <div key={m.id} className="overflow-hidden rounded-xl border border-border">
+          <p className="truncate border-b border-border bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-500">
+            Machine {m.machineNo}
+            {m.name ? ` · ${m.name}` : ''}
+          </p>
+          <div className="divide-y divide-border">
+            {m.sections.map((s) => (
+              <SectionTile key={s.section} machine={m} section={s.section} program={s.program} selected={isPicked(m.id, s.section)} onPick={() => onToggle(m.id, s.section)} />
             ))}
           </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** Sprint 24 (CR-20) — Resume a held program on idle sections (any machines, like Start). */
+function ResumeProgramDialog({ program, onOpenChange }: { program: TfoProgram | null; onOpenChange: (o: boolean) => void }) {
+  const board = useTfoBoard();
+  const resume = useResumeProgram();
+  const [picked, setPicked] = useState<{ machineId: number; section: TfoSection }[]>([]);
+  useEffect(() => setPicked([]), [program]);
+  if (!program) return null;
+  const machines = board.data?.machines ?? [];
+  const isPicked = (machineId: number, section: TfoSection) => picked.some((x) => x.machineId === machineId && x.section === section);
+  const toggle = (machineId: number, section: TfoSection) =>
+    setPicked((xs) => (isPicked(machineId, section) ? xs.filter((x) => !(x.machineId === machineId && x.section === section)) : [...xs, { machineId, section }]));
+  const pickedLabel = programSectionsLabel(picked.map((x) => ({ machineNo: machines.find((m) => m.id === x.machineId)?.machineNo ?? 0, section: x.section })));
+  const rolls = holdRollsText(program);
+  const submit = () => {
+    if (!picked.length) return;
+    resume.mutate(
+      { id: program.id, data: { sections: picked } },
+      {
+        onSuccess: (p) => {
+          toast.success(`${tfoProgramLabel(p.id)} running again on ${programSectionsLabel(p.sections)}`);
+          onOpenChange(false);
+        },
+        onError: (err) => toast.error(errorMessage(err)),
+      },
+    );
+  };
+  return (
+    <YarnDialog
+      open
+      onOpenChange={onOpenChange}
+      layout="wide"
+      title={`Resume ${tfoProgramLabel(program.id)}`}
+      description={`${program.rawQuality.name} · ${lotText(program.lot)} · TPM ${program.tpm} · ${TWIST_DIRECTION_LABEL[program.direction]}${rolls ? ` · ${rolls}` : ''}`}
+      busy={resume.isPending}
+      footer={<DialogButtons onCancel={() => onOpenChange(false)} busy={resume.isPending} label={picked.length ? `Resume on ${pickedLabel}` : 'Pick sections'} disabled={!picked.length} form="tfo-resume-form" />}
+    >
+      <form
+        id="tfo-resume-form"
+        noValidate
+        onSubmit={(e) => {
+          e.preventDefault();
+          submit();
+        }}
+      >
+        <p className="mb-3 text-sm text-slate-600">Tap one or more idle sections (any machines) to run the rolls left.</p>
+        <SectionPicker loading={board.isPending} machines={machines} isPicked={isPicked} onToggle={toggle} />
+      </form>
+    </YarnDialog>
+  );
+}
+
+/**
+ * Sprint 24 (CR-20) — Hold a running program: rolls made (so far) + rolls left (prefilled = started − made, editable;
+ * made + left = started), optional reason (3–300 characters). The sections become idle.
+ */
+function HoldProgramDialog({ program, onOpenChange }: { program: TfoProgram | null; onOpenChange: (o: boolean) => void }) {
+  const hold = useHoldProgram(program?.id ?? 0);
+  const [made, setMade] = useState('');
+  const [left, setLeft] = useState('');
+  const [leftTouched, setLeftTouched] = useState(false);
+  const [reason, setReason] = useState('');
+  const [tried, setTried] = useState(false);
+  const [serverErr, setServerErr] = useState<{ field: string; message: string } | null>(null);
+  useEffect(() => {
+    setMade('');
+    setLeft('');
+    setLeftTouched(false);
+    setReason('');
+    setTried(false);
+    setServerErr(null);
+  }, [program]);
+  if (!program) return null;
+  const hasRolls = program.rolls !== null;
+  const madeN = numOrNull(made);
+  const leftN = leftTouched ? numOrNull(left) : madeN !== null && hasRolls ? program.rolls! - madeN : null;
+  const rollsErr = !hasRolls
+    ? null
+    : madeN === null
+      ? 'Enter the rolls made'
+      : leftN === null
+        ? 'Enter the rolls left'
+        : checkHoldRolls({ started: program.rolls!, done: program.rollsDone, made: madeN, left: leftN })
+          ? HOLD_ROLLS_ERROR_TEXT[checkHoldRolls({ started: program.rolls!, done: program.rollsDone, made: madeN, left: leftN })!]
+          : null;
+  const reasonErr = reason.trim() && reason.trim().length < REASON_MIN ? `Write at least ${REASON_MIN} characters` : null;
+  const label = programSectionsLabel(program.sections);
+  const submit = () => {
+    setTried(true);
+    setServerErr(null);
+    if (rollsErr || reasonErr) return;
+    hold.mutate(
+      { rollsMade: hasRolls ? madeN : null, rollsLeft: hasRolls ? leftN : null, reason: reason.trim() || null },
+      {
+        onSuccess: (p) => {
+          toast.success(`${tfoProgramLabel(p.id)} on hold${holdRollsText(p) ? ` · ${holdRollsText(p)}` : ''} · ${label} free`);
+          onOpenChange(false);
+        },
+        onError: (err) => {
+          if (err instanceof ApiError && err.field) setServerErr({ field: err.field, message: err.message });
+          toast.error(errorMessage(err));
+        },
+      },
+    );
+  };
+  return (
+    <YarnDialog
+      open
+      onOpenChange={onOpenChange}
+      title={`Hold ${tfoProgramLabel(program.id)} · ${label}`}
+      description={`${program.rawQuality.name} · ${formatKg(program.rawG)} issued${program.rolls ? ` · ${program.rolls} rolls started` : ''}. Its sections become free; resume it later on any idle sections.`}
+      busy={hold.isPending}
+      dirty={!!made || !!reason}
+      footer={<DialogButtons onCancel={() => onOpenChange(false)} busy={hold.isPending} label="Put on hold" form="tfo-hold-form" />}
+    >
+      <form
+        id="tfo-hold-form"
+        noValidate
+        onSubmit={(e) => {
+          e.preventDefault();
+          submit();
+        }}
+        className="grid gap-4"
+      >
+        {hasRolls ? (
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+            <Field label="Rolls made" htmlFor="hold-made" required error={tried && (madeN === null || rollsErr?.includes('made')) ? (rollsErr ?? undefined) : serverErr?.field === 'rollsMade' ? serverErr.message : undefined}>
+              <Input id="hold-made" inputMode="numeric" autoFocus autoComplete="off" value={made} onChange={(e) => setMade(cleanDecimal(e.target.value, 0, 6))} invalid={tried && !!rollsErr} className="h-12 text-right text-lg tabular-nums" />
+            </Field>
+            <Field label="Rolls left" htmlFor="hold-left" required error={tried && rollsErr && !rollsErr.includes('made') ? rollsErr : serverErr?.field === 'rollsLeft' ? serverErr.message : undefined}>
+              <Input
+                id="hold-left"
+                inputMode="numeric"
+                autoComplete="off"
+                value={leftTouched ? left : leftN !== null ? String(leftN) : ''}
+                onChange={(e) => {
+                  setLeftTouched(true);
+                  setLeft(cleanDecimal(e.target.value, 0, 6));
+                }}
+                invalid={tried && !!rollsErr}
+                className="h-12 text-right text-lg tabular-nums"
+              />
+            </Field>
+            <p className="col-span-2 self-center text-sm text-slate-600 md:col-span-1">
+              of <b className="tabular-nums text-slate-900">{program.rolls}</b> rolls started
+              {program.rollsDone ? <span className="block text-xs text-slate-500">{program.rollsDone} already in boxes</span> : null}
+            </p>
+          </div>
+        ) : (
+          <p className="rounded-xl bg-slate-50 px-3 py-2 text-sm text-slate-600">This older program has no rolls — it is put on hold as it is.</p>
         )}
+        <Field label="Reason" htmlFor="hold-reason" hint={`Optional · ${REASON_MIN}–${REASON_MAX} characters`} error={tried && reasonErr ? reasonErr : undefined}>
+          <Textarea id="hold-reason" rows={2} maxLength={REASON_MAX} value={reason} onChange={(e) => setReason(e.target.value)} className="min-h-[64px]" />
+        </Field>
       </form>
     </YarnDialog>
   );
@@ -580,9 +760,12 @@ function PickPendingDialog({ target, onOpenChange, onCreate }: { target: { machi
 /* lists                                                                */
 /* ------------------------------------------------------------------ */
 
-function RunningRow({ p, now, onStop }: { p: TfoProgram; now: number; onStop: () => void }) {
+/** Sprint 24 — the actions of a running / held / box-pending program (list rows and the Machine view). */
+export type ProgramAction = 'stop' | 'hold' | 'part' | 'resume' | 'boxes';
+
+function RunningRow({ p, now, onAction }: { p: TfoProgram; now: number; onAction: (a: ProgramAction) => void }) {
   return (
-    <li className="grid grid-cols-[3.75rem_minmax(0,1fr)] items-center gap-x-3 gap-y-2 rounded-xl border border-border bg-white p-3 md:grid-cols-[4.5rem_minmax(0,1fr)_9.5rem_auto]">
+    <li className="grid grid-cols-[3.75rem_minmax(0,1fr)] items-center gap-x-3 gap-y-2 rounded-xl border border-border bg-white p-3 md:grid-cols-[4.5rem_minmax(0,1fr)_9.5rem] xl:grid-cols-[4.5rem_minmax(0,1fr)_9.5rem_auto]">
       <span
         className="flex min-h-12 items-center justify-center rounded-lg px-1 text-center font-extrabold leading-tight tabular-nums"
         style={{ backgroundColor: ACCENT.soft, color: ACCENT.text, fontSize: p.sections.length > 2 ? '0.8rem' : p.sections.length > 1 ? '0.95rem' : '1.25rem' }}
@@ -600,12 +783,97 @@ function RunningRow({ p, now, onStop }: { p: TfoProgram; now: number; onStop: ()
         <Kg g={p.rawG} className="font-semibold text-slate-900" />
         <span className="block truncate text-xs text-slate-500">
           {formatElapsed(p.startedAt, now)} ago{actorText(p.startedBy) ? ` · ${actorText(p.startedBy)}` : ''}
+          {p.rollsDone ? ` · ${p.rollsDone} rolls in boxes` : ''}
         </span>
       </p>
-      <Button onClick={onStop} className="col-span-2 md:col-span-1">
-        <Square /> Stop
+      <div className="col-span-2 grid grid-cols-3 gap-2 md:col-span-3 xl:col-span-1 xl:flex">
+        <Button variant="secondary" className="min-h-12" onClick={() => onAction('hold')}>
+          <Pause /> Hold
+        </Button>
+        <Button variant="secondary" className="min-h-12" onClick={() => onAction('part')}>
+          <PackageCheck /> <span className="truncate">Made part</span>
+        </Button>
+        <Button className="min-h-12" onClick={() => onAction('stop')}>
+          <Square /> Stop
+        </Button>
+      </div>
+    </li>
+  );
+}
+
+/** Sprint 24 (CR-20) — a program on hold: "6 / 12 rolls made · 6 left", Resume · Complete made part · Stop. */
+function OnHoldCard({ p, onAction }: { p: TfoProgram; onAction: (a: ProgramAction) => void }) {
+  const rolls = holdRollsText(p);
+  const hold = [...p.events].reverse().find((e) => e.kind === 'hold');
+  return (
+    <li className="flex flex-col gap-3 rounded-xl border border-amber-200 bg-white p-3">
+      <div className="flex items-start gap-3">
+        <span className="flex min-h-12 min-w-14 items-center justify-center rounded-lg bg-amber-50 px-2 text-sm font-extrabold tabular-nums text-amber-800">{tfoProgramLabel(p.id)}</span>
+        <div className="min-w-0 flex-1">
+          <p className="truncate font-semibold text-slate-900">{p.rawQuality.name}</p>
+          <p className="truncate text-sm text-slate-600">
+            {lotText(p.lot)} · TPM {p.tpm} · {TWIST_DIRECTION_LABEL[p.direction]} · <Kg g={p.rawG} /> issued
+          </p>
+          <p className="truncate text-sm font-semibold text-amber-800">{rolls ?? 'On hold'}</p>
+          <p className="truncate text-xs text-slate-500">
+            Held {formatDateTime(p.heldAt)}
+            {hold?.sections ? ` · was on ${hold.sections}` : ''}
+            {hold?.note ? ` · ${hold.note}` : ''}
+            {p.rollsDone ? ` · ${p.rollsDone} rolls in boxes` : ''}
+          </p>
+        </div>
+      </div>
+      <div className="grid grid-cols-3 gap-2">
+        <Button className="min-h-12" onClick={() => onAction('resume')}>
+          <Play /> Resume
+        </Button>
+        <Button variant="secondary" className="min-h-12" onClick={() => onAction('part')}>
+          <PackageCheck /> <span className="truncate">Made part</span>
+        </Button>
+        <Button variant="secondary" className="min-h-12" onClick={() => onAction('stop')}>
+          <Square /> Stop
+        </Button>
+      </div>
+    </li>
+  );
+}
+
+/** Sprint 24 (CR-21) — stopped, boxes not entered yet: "300 kg issued · boxes pending" → Enter boxes. */
+function BoxPendingCard({ p, onAction }: { p: TfoProgram; onAction: (a: ProgramAction) => void }) {
+  return (
+    <li className="flex flex-col gap-3 rounded-xl border border-sky-200 bg-white p-3">
+      <div className="flex items-start gap-3">
+        <span className="flex min-h-12 min-w-14 items-center justify-center rounded-lg bg-sky-50 px-2 text-sm font-extrabold tabular-nums text-sky-800">{tfoProgramLabel(p.id)}</span>
+        <div className="min-w-0 flex-1">
+          <p className="truncate font-semibold text-slate-900">{p.rawQuality.name}</p>
+          <p className="truncate text-sm font-semibold text-sky-800">
+            <Kg g={p.rawG} /> issued · boxes pending
+          </p>
+          <p className="truncate text-xs text-slate-500">
+            Stopped {formatDateTime(p.stoppedAt)}
+            {actorText(p.stoppedBy) ? ` by ${actorText(p.stoppedBy)}` : ''} · {lotText(p.lot)} · TPM {p.tpm} · {TWIST_DIRECTION_LABEL[p.direction]}
+            {p.rollsDone ? ` · ${p.rollsDone} rolls already in boxes` : ''}
+          </p>
+        </div>
+      </div>
+      <Button className="min-h-12" onClick={() => onAction('boxes')}>
+        <PackageCheck /> Enter boxes
       </Button>
     </li>
+  );
+}
+
+/** Opens the dialog of a program action (shared by the lists and the Machine view). */
+export function ProgramActionDialogs({ target, onClose }: { target: { program: TfoProgram; action: ProgramAction } | null; onClose: () => void }) {
+  const close = (o: boolean) => !o && onClose();
+  const p = target?.program ?? null;
+  const a = target?.action;
+  return (
+    <>
+      <StopProgramDialog program={a === 'stop' || a === 'part' || a === 'boxes' ? p : null} mode={a === 'part' ? 'part' : a === 'boxes' ? 'boxes' : 'stop'} onOpenChange={close} />
+      <HoldProgramDialog program={a === 'hold' ? p : null} onOpenChange={close} />
+      <ResumeProgramDialog program={a === 'resume' ? p : null} onOpenChange={close} />
+    </>
   );
 }
 
@@ -642,11 +910,17 @@ function PendingRow({ p, onStart, onEdit, onCancel }: { p: TfoPendingProgram; on
   );
 }
 
-/** The TFO zone's programs (the zone screen's Running / Pending tab): rows with Stop / Start · Edit · Cancel. */
-export function TfoProgramsSection({ tab }: { tab: 'running' | 'pending' }) {
+export type TfoTab = 'running' | 'on_hold' | 'box_pending' | 'pending';
+
+/**
+ * The TFO zone's programs (the zone screen's tabs Running · On hold · Box details pending · Pending): Running rows with
+ * Hold / Made part / Stop; On hold cards with Resume / Made part / Stop; Box details pending cards with Enter boxes;
+ * Pending rows with Start · Edit · Cancel. Cards are 2 columns from 768px.
+ */
+export function TfoProgramsSection({ tab }: { tab: TfoTab }) {
   const board = useTfoBoard();
   const now = useNow(30_000);
-  const [stopFor, setStopFor] = useState<TfoProgram | null>(null);
+  const [act, setAct] = useState<{ program: TfoProgram; action: ProgramAction } | null>(null);
   const [startFor, setStartFor] = useState<TfoPendingProgram | null>(null);
   const [editFor, setEditFor] = useState<TfoPendingProgram | null>(null);
   const [cancelFor, setCancelFor] = useState<TfoPendingProgram | null>(null);
@@ -660,6 +934,9 @@ export function TfoProgramsSection({ tab }: { tab: 'running' | 'pending' }) {
     [board.data],
   );
   const pending = board.data?.pending ?? [];
+  const onHold = board.data?.onHold ?? [];
+  const boxPending = board.data?.boxPending ?? [];
+  const onAction = (program: TfoProgram) => (action: ProgramAction) => setAct({ program, action });
 
   return (
     <div>
@@ -673,7 +950,27 @@ export function TfoProgramsSection({ tab }: { tab: 'running' | 'pending' }) {
         ) : (
           <ul className="grid gap-2.5 2xl:grid-cols-2">
             {running.map((p) => (
-              <RunningRow key={p.id} p={p} now={now} onStop={() => setStopFor(p)} />
+              <RunningRow key={p.id} p={p} now={now} onAction={onAction(p)} />
+            ))}
+          </ul>
+        )
+      ) : tab === 'on_hold' ? (
+        onHold.length === 0 ? (
+          <EmptyState icon={Pause} title="Nothing on hold" description="Hold a running program to free its sections; resume it later on any idle sections." className="py-10" />
+        ) : (
+          <ul className="grid gap-2.5 md:grid-cols-2 2xl:grid-cols-3">
+            {onHold.map((p) => (
+              <OnHoldCard key={p.id} p={p} onAction={onAction(p)} />
+            ))}
+          </ul>
+        )
+      ) : tab === 'box_pending' ? (
+        boxPending.length === 0 ? (
+          <EmptyState icon={PackageCheck} title="No box details pending" description="Programs stopped with “enter boxes later” wait here for their boxes." className="py-10" />
+        ) : (
+          <ul className="grid gap-2.5 md:grid-cols-2 2xl:grid-cols-3">
+            {boxPending.map((p) => (
+              <BoxPendingCard key={p.id} p={p} onAction={onAction(p)} />
             ))}
           </ul>
         )
@@ -694,7 +991,7 @@ export function TfoProgramsSection({ tab }: { tab: 'running' | 'pending' }) {
 
       <EditPendingDialog program={editFor} onOpenChange={(o) => !o && setEditFor(null)} />
       <StartProgramDialog program={startFor} onOpenChange={(o) => !o && setStartFor(null)} />
-      <StopProgramDialog program={stopFor} onOpenChange={(o) => !o && setStopFor(null)} />
+      <ProgramActionDialogs target={act} onClose={() => setAct(null)} />
       <ConfirmDialog
         open={!!cancelFor}
         onOpenChange={(o) => !o && setCancelFor(null)}
@@ -774,7 +1071,8 @@ export function MachineViewDialog({ open, onOpenChange, onCreate }: { open: bool
   const board = useTfoBoard();
   const now = useNow(30_000);
   const { can } = useRole();
-  const [stopFor, setStopFor] = useState<TfoProgram | null>(null);
+  const [chooseFor, setChooseFor] = useState<TfoProgram | null>(null);
+  const [act, setAct] = useState<{ program: TfoProgram; action: ProgramAction } | null>(null);
   const [startAt, setStartAt] = useState<{ machine: TfoBoardMachine; section: TfoSection } | null>(null);
   return (
     <Modal
@@ -838,7 +1136,7 @@ export function MachineViewDialog({ open, onOpenChange, onCreate }: { open: bool
                 </div>
                 <div className="divide-y divide-border">
                   {m.sections.map((s) => (
-                    <BoardSection key={s.section} machine={m} section={s.section} program={s.program} now={now} onOpen={() => (s.program ? setStopFor(s.program) : setStartAt({ machine: m, section: s.section }))} />
+                    <BoardSection key={s.section} machine={m} section={s.section} program={s.program} now={now} onOpen={() => (s.program ? setChooseFor(s.program) : setStartAt({ machine: m, section: s.section }))} />
                   ))}
                 </div>
               </div>
@@ -846,7 +1144,35 @@ export function MachineViewDialog({ open, onOpenChange, onCreate }: { open: bool
           })}
         </div>
       )}
-      <StopProgramDialog program={stopFor} onOpenChange={(o) => !o && setStopFor(null)} />
+      <YarnDialog
+        open={!!chooseFor}
+        onOpenChange={(o) => !o && setChooseFor(null)}
+        title={chooseFor ? `${tfoProgramLabel(chooseFor.id)} · ${programSectionsLabel(chooseFor.sections)}` : ''}
+        description={chooseFor ? `${chooseFor.rawQuality.name} · ${lotText(chooseFor.lot)} · ${formatKg(chooseFor.rawG)} issued` : undefined}
+      >
+        <div className="grid gap-2 sm:grid-cols-3">
+          {(
+            [
+              ['hold', 'Hold', Pause],
+              ['part', 'Complete made part', PackageCheck],
+              ['stop', 'Stop', Square],
+            ] as const
+          ).map(([a, text, Icon]) => (
+            <Button
+              key={a}
+              variant={a === 'stop' ? 'primary' : 'secondary'}
+              className="min-h-14"
+              onClick={() => {
+                if (chooseFor) setAct({ program: chooseFor, action: a });
+                setChooseFor(null);
+              }}
+            >
+              <Icon /> {text}
+            </Button>
+          ))}
+        </div>
+      </YarnDialog>
+      <ProgramActionDialogs target={act} onClose={() => setAct(null)} />
       <PickPendingDialog
         target={startAt}
         onOpenChange={(o) => !o && setStartAt(null)}

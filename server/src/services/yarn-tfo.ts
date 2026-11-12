@@ -1,9 +1,16 @@
-import { and, asc, count, desc, eq, inArray, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, inArray, ne, sql } from 'drizzle-orm';
 import {
   availableAfterReserved,
   BOX_NO_COUNTER,
   boxNetG,
+  checkHoldRolls,
   checkStartRolls,
+  HOLD_ROLLS_ERROR_TEXT,
+  partRollsLimit,
+  tfoProgramHoldSchema,
+  tfoProgramPartSchema,
+  tfoProgramResumeSchema,
+  tfoProgramStopLaterSchema,
   START_ROLLS_ERROR_TEXT,
   formatKg,
   gramsToKg,
@@ -25,6 +32,7 @@ import {
   type TfoBoard,
   type TfoPendingProgram,
   type TfoProgram,
+  type TfoProgramEvent,
   type TfoProgramStatus,
   type TfoSection,
 } from '@rivoora/shared';
@@ -32,6 +40,7 @@ import { db, type DbOrTx, type Tx } from '../db/client';
 import {
   tfoMachines,
   tfoPendingPrograms,
+  tfoProgramEvents,
   tfoProgramSections,
   tfoPrograms,
   warpingQualities,
@@ -40,6 +49,7 @@ import {
   yarnParties,
   yarnQualities,
   yarnStockMoves,
+  users,
 } from '../db/schema';
 import { badRequest, conflict, notFound } from '../lib/errors';
 import { currentFy, nextNumber } from '../lib/numbering';
@@ -55,6 +65,9 @@ import { actor, addStock, balanceG, nowIso, qualityNames, reservedG, systemQuali
  *   an output quality named from the program (`tfoOutputQualityName`; S + Z programs: S or Z per box) that is found or
  *   created in the Warping qualities master. Every box stays in TFO (`tfo_output`); moving them is a normal transfer.
  *   Raw returned goes back with the program's lot (`tfo_return`).
+ * - Sprint 24 (CR-20/21): Hold (rolls made / left; sections freed) ⇄ Resume (new idle sections); "Complete made part" =
+ *   boxes for the rolls already made while the program goes on (it completes by itself once every roll is boxed); Stop ·
+ *   enter boxes later → Box details pending → Save boxes → Completed. Every step is logged in `tfo_program_events`.
  */
 
 const uName = (col: 'started_by_user_id' | 'stopped_by_user_id') =>
@@ -88,6 +101,9 @@ const programColumns = {
   rollWeightG: tfoPrograms.rollWeightG,
   stopNote: tfoPrograms.stopNote,
   lotId: tfoPrograms.lotId,
+  rollsMade: tfoPrograms.rollsMade,
+  rollsDone: tfoPrograms.rollsDone,
+  heldAt: tfoPrograms.heldAt,
 };
 
 const programsFrom = (tx: DbOrTx) => tx.select(programColumns).from(tfoPrograms).innerJoin(tfoMachines, eq(tfoMachines.id, tfoPrograms.machineId));
@@ -114,11 +130,38 @@ async function toPrograms(tx: DbOrTx, rows: ProgramRow[]): Promise<TfoProgram[]>
   );
   const sections = ids.length
     ? await tx
-        .select({ programId: tfoProgramSections.programId, machineId: tfoProgramSections.machineId, machineNo: tfoMachines.machineNo, section: tfoProgramSections.section })
+        .select({
+          programId: tfoProgramSections.programId,
+          machineId: tfoProgramSections.machineId,
+          machineNo: tfoMachines.machineNo,
+          section: tfoProgramSections.section,
+          isRunning: tfoProgramSections.isRunning,
+        })
         .from(tfoProgramSections)
         .innerJoin(tfoMachines, eq(tfoMachines.id, tfoProgramSections.machineId))
         .where(inArray(tfoProgramSections.programId, ids))
         .orderBy(asc(tfoMachines.machineNo), asc(tfoProgramSections.section))
+    : [];
+  const events = ids.length
+    ? await tx
+        .select({
+          id: tfoProgramEvents.id,
+          programId: tfoProgramEvents.programId,
+          kind: tfoProgramEvents.kind,
+          rollsMade: tfoProgramEvents.rollsMade,
+          rollsLeft: tfoProgramEvents.rollsLeft,
+          rolls: tfoProgramEvents.rolls,
+          twistedG: tfoProgramEvents.twistedG,
+          sections: tfoProgramEvents.sections,
+          note: tfoProgramEvents.note,
+          role: tfoProgramEvents.role,
+          userName: users.name,
+          createdAt: tfoProgramEvents.createdAt,
+        })
+        .from(tfoProgramEvents)
+        .leftJoin(users, eq(users.id, tfoProgramEvents.userId))
+        .where(inArray(tfoProgramEvents.programId, ids))
+        .orderBy(asc(tfoProgramEvents.id))
     : [];
   const boxes = ids.length
     ? await tx
@@ -133,15 +176,20 @@ async function toPrograms(tx: DbOrTx, rows: ProgramRow[]): Promise<TfoProgram[]>
           zone: yarnBoxes.zone,
           warpingQualityId: yarnBoxes.warpingQualityId,
           warpingQualityName: warpingQualities.name,
+          fy: yarnBoxes.fy,
+          eventId: yarnBoxes.programEventId,
         })
         .from(yarnBoxes)
         .innerJoin(warpingQualities, eq(warpingQualities.id, yarnBoxes.warpingQualityId))
-        .where(inArray(yarnBoxes.programId, ids))
+        // Sprint 24: only the boxes made by the program (not warping "remaining" rows linked to it).
+        .where(and(inArray(yarnBoxes.programId, ids), eq(yarnBoxes.kind, 'tfo')))
         .orderBy(asc(yarnBoxes.id))
     : [];
   return rows.map((r) => {
     const own = boxes.filter((b) => b.programId === r.id);
-    const ownSections = sections.filter((s) => s.programId === r.id).map(({ programId: _p, ...s }) => s);
+    // Sprint 24: a running program shows the sections it runs on now; otherwise every section it ran on (once each).
+    const mine = sections.filter((s) => s.programId === r.id && (r.status !== 'running' || s.isRunning));
+    const ownSections = [...new Map(mine.map((s) => [`${s.machineId}|${s.section}`, { machineId: s.machineId, machineNo: s.machineNo, section: s.section }])).values()];
     const wqs = new Map(own.map((b) => [b.warpingQualityId, { id: b.warpingQualityId, name: b.warpingQualityName }]));
     return {
       id: r.id,
@@ -179,7 +227,13 @@ async function toPrograms(tx: DbOrTx, rows: ProgramRow[]): Promise<TfoProgram[]>
         avgG: b.avgG > 0 ? b.avgG : null,
         warpingQuality: { id: b.warpingQualityId, name: b.warpingQualityName },
         currentZone: b.zone,
+        fy: b.fy,
+        eventId: b.eventId,
       })),
+      rollsMade: r.rollsMade,
+      rollsDone: r.rollsDone,
+      heldAt: r.heldAt,
+      events: events.filter((e) => e.programId === r.id).map(({ programId: _p, ...e }) => e),
     };
   });
 }
@@ -354,6 +408,36 @@ export async function cancelPendingProgram(role: RoleKey, id: number): Promise<{
   });
 }
 
+type SectionPick = { machineId: number; section: TfoSection };
+
+/**
+ * The picked sections must be on active machines and idle (no running program on them); returns the first one (lowest
+ * machine no., then A before B) — `tfo_programs.machine_id / section` keep it — and the "3A, 5B" label.
+ */
+async function idleSections(tx: Tx, picked: SectionPick[]): Promise<{ first: SectionPick; label: string }> {
+  const machineIds = [...new Set(picked.map((s) => s.machineId))];
+  const machines = await tx
+    .select({ id: tfoMachines.id, machineNo: tfoMachines.machineNo, isActive: tfoMachines.isActive })
+    .from(tfoMachines)
+    .where(and(inArray(tfoMachines.id, machineIds), eq(tfoMachines.isDeleted, false)));
+  for (const mid of machineIds) {
+    const m = machines.find((x) => x.id === mid);
+    if (!m) throw notFound('TFO machine');
+    if (!m.isActive) throw conflict(`TFO machine ${m.machineNo} is inactive.`, 'sections');
+  }
+  const busy = await tx
+    .select({ machineId: tfoProgramSections.machineId, section: tfoProgramSections.section })
+    .from(tfoProgramSections)
+    .where(and(inArray(tfoProgramSections.machineId, machineIds), eq(tfoProgramSections.isRunning, true)));
+  const clash = picked.find((s) => busy.some((b) => b.machineId === s.machineId && b.section === s.section));
+  if (clash) {
+    throw conflict(`A program is already running on ${tfoSectionLabel(machines.find((m) => m.id === clash.machineId)!.machineNo, clash.section)}.`, 'sections');
+  }
+  const noOf = (id: number) => machines.find((m) => m.id === id)!.machineNo;
+  const first = [...picked].sort((a, b) => noOf(a.machineId) - noOf(b.machineId) || a.section.localeCompare(b.section))[0];
+  return { first, label: programSectionsLabel(picked.map((s) => ({ machineNo: noOf(s.machineId), section: s.section }))) };
+}
+
 const isRunningUnique = (err: unknown) => /tfo_program_sections_running_unique|tfo_programs_running_unique|tfo_program_sections\.machine_id|tfo_programs\.machine_id/i.test(String((err as Error)?.message ?? err));
 
 /**
@@ -372,29 +456,7 @@ export async function startPendingProgram(role: RoleKey, pendingId: number, inpu
       const partial = data.rolls !== null && pending.rolls !== null && data.rolls < pending.rolls;
       const startRolls = partial ? data.rolls! : pending.rolls;
       const startRawG = partial ? rawFromRolls(data.rolls!, pending.windingG!) : pending.rawG;
-      const machineIds = [...new Set(data.sections.map((s) => s.machineId))];
-      const machines = await tx
-        .select({ id: tfoMachines.id, machineNo: tfoMachines.machineNo, isActive: tfoMachines.isActive })
-        .from(tfoMachines)
-        .where(and(inArray(tfoMachines.id, machineIds), eq(tfoMachines.isDeleted, false)));
-      for (const mid of machineIds) {
-        const m = machines.find((x) => x.id === mid);
-        if (!m) throw notFound('TFO machine');
-        if (!m.isActive) throw conflict(`TFO machine ${m.machineNo} is inactive.`, 'sections');
-      }
-      const busy = await tx
-        .select({ machineId: tfoProgramSections.machineId, section: tfoProgramSections.section })
-        .from(tfoProgramSections)
-        .where(and(inArray(tfoProgramSections.machineId, machineIds), eq(tfoProgramSections.isRunning, true)));
-      const clash = data.sections.find((s) => busy.some((b) => b.machineId === s.machineId && b.section === s.section));
-      if (clash) {
-        throw conflict(`A program is already running on ${tfoSectionLabel(machines.find((m) => m.id === clash.machineId)!.machineNo, clash.section)}.`, 'sections');
-      }
-      const first = [...data.sections].sort((a, b) => {
-        const ma = machines.find((m) => m.id === a.machineId)!.machineNo;
-        const mb = machines.find((m) => m.id === b.machineId)!.machineNo;
-        return ma - mb || a.section.localeCompare(b.section);
-      })[0];
+      const { first } = await idleSections(tx, data.sections);
       const who = actor(role);
       const at = nowIso();
       const [p] = await tx
@@ -463,7 +525,7 @@ export async function tfoBoard(): Promise<TfoBoard> {
       .from(tfoMachines)
       .where(and(eq(tfoMachines.isDeleted, false), eq(tfoMachines.isActive, true)))
       .orderBy(asc(tfoMachines.machineNo)),
-    programsFrom(db).where(eq(tfoPrograms.status, 'running')),
+    programsFrom(db).where(inArray(tfoPrograms.status, ['running', 'on_hold', 'box_pending'])),
     listPendingPrograms(db),
     db
       .select({
@@ -484,12 +546,15 @@ export async function tfoBoard(): Promise<TfoBoard> {
       .where(eq(tfoPendingPrograms.status, 'pending'))
       .groupBy(tfoPendingPrograms.rawQualityId),
   ]);
-  const programs = await toPrograms(db, runningRows);
+  const open = await toPrograms(db, runningRows);
+  const programs = open.filter((p) => p.status === 'running');
   const onSection = (machineId: number, section: TfoSection) => programs.find((p) => p.sections.some((s) => s.machineId === machineId && s.section === section)) ?? null;
   const sections = machines.map((m) => ({ ...m, sections: TFO_SECTIONS.map((section) => ({ section, program: onSection(m.id, section) })) }));
   return {
     machines: sections,
     runningSections: sections.reduce((n, m) => n + m.sections.filter((s) => s.program).length, 0),
+    onHold: open.filter((p) => p.status === 'on_hold').sort((a, b) => (a.heldAt ?? '').localeCompare(b.heldAt ?? '')),
+    boxPending: open.filter((p) => p.status === 'box_pending').sort((a, b) => (a.stoppedAt ?? '').localeCompare(b.stoppedAt ?? '')),
     pending,
     rawStock: stock
       .map((s) => {
@@ -503,9 +568,13 @@ export async function tfoBoard(): Promise<TfoBoard> {
 
 /** GET /yarn/tfo/programs?machineId=&section= — program history of a section (any of its sections), newest first. */
 export async function listPrograms(q: { page: number; limit: number; machineId?: number; section?: TfoSection }): Promise<Paginated<TfoProgram>> {
-  const where = q.machineId
-    ? sql`EXISTS (SELECT 1 FROM tfo_program_sections ps WHERE ps.program_id = ${tfoPrograms.id} AND ps.machine_id = ${q.machineId}${q.section ? sql` AND ps.section = ${q.section}` : sql``})`
-    : undefined;
+  // Sprint 24: the one `system` row (Palti boxes) is never listed.
+  const where = and(
+    ne(tfoPrograms.status, 'system'),
+    q.machineId
+      ? sql`EXISTS (SELECT 1 FROM tfo_program_sections ps WHERE ps.program_id = ${tfoPrograms.id} AND ps.machine_id = ${q.machineId}${q.section ? sql` AND ps.section = ${q.section}` : sql``})`
+      : undefined,
+  );
   const [rows, [{ total }]] = await Promise.all([
     programsFrom(db).where(where).orderBy(desc(tfoPrograms.startedAt), desc(tfoPrograms.id)).limit(q.limit).offset((q.page - 1) * q.limit),
     db.select({ total: count() }).from(tfoPrograms).where(where),
@@ -545,28 +614,105 @@ async function findOrCreateWarpingQuality(tx: Tx, name: string): Promise<{ id: n
   return row;
 }
 
+type BoxesInput = { rollWeightKg: number; boxes: { rolls: number; grossKg: number; avgKg: number | null; direction: 'S' | 'Z' | null }[] };
+
+/** Box rows of a stop / part completion: net = gross − roll weight × rolls (> 0); S / Z per box for S + Z programs. */
+function boxRows(p: TfoProgram, data: BoxesInput) {
+  const rollWeightG = kgToGrams(data.rollWeightKg);
+  const boxes = data.boxes.map((b, i) => {
+    const grossG = kgToGrams(b.grossKg);
+    const netG = boxNetG(grossG, rollWeightG, b.rolls);
+    if (!(netG > 0)) throw badRequest('Gross kg must be more than roll weight × rolls', `boxes.${i}.grossKg`);
+    const direction = p.direction === 'SZ' ? b.direction : p.direction;
+    if (direction !== 'S' && direction !== 'Z') throw badRequest('Pick S or Z for this box', `boxes.${i}.direction`);
+    return { rolls: b.rolls, grossG, netG, avgG: b.avgKg ? kgToGrams(b.avgKg) : 0, direction };
+  });
+  return { rollWeightG, boxes, twistedG: boxes.reduce((s, b) => s + b.netG, 0), rolls: boxes.reduce((s, b) => s + b.rolls, 0) };
+}
+
 /**
- * POST /yarn/tfo/programs/:id/stop — Completed; every section is free again. Boxes (system numbers, net = gross − roll
- * weight × rolls) go into TFO stock (`tfo_output`) under their output quality; returned raw goes back with the lot.
+ * Creates the boxes (system numbers, output quality per direction found / created in the Warping qualities master) in TFO
+ * stock (`tfo_output`), linked to the stop / part completion event.
  */
-export async function stopProgram(role: RoleKey, id: number, input: unknown): Promise<TfoProgram> {
+async function createProgramBoxes(tx: Tx, p: TfoProgram, rows: ReturnType<typeof boxRows>['boxes'], eventId: number, role: RoleKey, at: string, note: string | null) {
+  // One output quality per direction ("75/36 Poly 75D-600-S"), found or created in the Warping qualities master.
+  const qualityOf = new Map<string, { id: number; name: string }>();
+  for (const dir of [...new Set(rows.map((b) => b.direction))]) {
+    const name = tfoOutputQualityName({ denierFilament: p.denierFilament, rawQualityName: p.rawQuality.name, tpm: p.tpm, direction: dir });
+    qualityOf.set(dir, await findOrCreateWarpingQuality(tx, name));
+  }
+  const sysQ = await systemQualityId(tx);
+  const nos = await allocateBoxNos(tx, rows.length);
+  const who = actor(role);
+  for (const [i, b] of rows.entries()) {
+    const wq = qualityOf.get(b.direction)!;
+    const [row] = await tx
+      .insert(yarnBoxes)
+      .values({
+        boxNo: nos[i],
+        programId: p.id,
+        lotId: p.lot?.id ?? null,
+        warpingQualityId: wq.id,
+        rolls: b.rolls,
+        grossG: b.grossG,
+        netG: b.netG,
+        avgG: b.avgG,
+        zone: 'tfo',
+        status: 'in_stock',
+        kind: 'tfo',
+        programEventId: eventId,
+        createdByUserId: who.userId,
+      })
+      .returning({ id: yarnBoxes.id });
+    await addStock(tx, { zone: 'tfo', item: 'twisted', qualityId: sysQ, boxId: row.id, warpingQualityId: wq.id, qtyG: b.netG, kind: 'tfo_output', refType: 'program', refId: p.id, note, role, createdAt: at });
+  }
+}
+
+async function writeEvent(
+  tx: Tx,
+  programId: number,
+  kind: TfoProgramEvent['kind'],
+  role: RoleKey,
+  at: string,
+  extra: Partial<Pick<TfoProgramEvent, 'rollsMade' | 'rollsLeft' | 'rolls' | 'twistedG' | 'sections' | 'note'>> = {},
+): Promise<number> {
+  const [row] = await tx
+    .insert(tfoProgramEvents)
+    .values({ programId, kind, role, userId: actor(role).userId, createdAt: at, ...extra })
+    .returning({ id: tfoProgramEvents.id });
+  return row.id;
+}
+
+const freeSections = (tx: Tx, id: number) => tx.update(tfoProgramSections).set({ isRunning: false }).where(eq(tfoProgramSections.programId, id));
+
+/**
+ * Stop (from Running or On hold) and Save boxes (from Box details pending) — the program is Completed and every section is
+ * free. Boxes (system numbers, net = gross − roll weight × rolls) go into TFO stock under their output quality; returned raw
+ * goes back with the lot. Boxes of earlier part completions count in the program's twisted kg.
+ */
+async function completeProgram(role: RoleKey, id: number, input: unknown, mode: 'stop' | 'boxes'): Promise<TfoProgram> {
   const data = tfoProgramStopSchema.parse(input);
   return db.transaction(async (tx) => {
     const p = await getProgram(id, tx);
     const label = programSectionsLabel(p.sections);
-    if (p.status !== 'running') throw conflict(`The program on ${label} is already stopped.`);
-    const rollWeightG = kgToGrams(data.rollWeightKg);
-    const boxes = data.boxes.map((b, i) => {
-      const grossG = kgToGrams(b.grossKg);
-      const netG = boxNetG(grossG, rollWeightG, b.rolls);
-      if (!(netG > 0)) throw badRequest('Gross kg must be more than roll weight × rolls', `boxes.${i}.grossKg`);
-      const direction = p.direction === 'SZ' ? b.direction : p.direction;
-      if (direction !== 'S' && direction !== 'Z') throw badRequest('Pick S or Z for this box', `boxes.${i}.direction`);
-      return { rolls: b.rolls, grossG, netG, avgG: b.avgKg ? kgToGrams(b.avgKg) : 0, direction };
-    });
-    const twistedG = boxes.reduce((s, b) => s + b.netG, 0);
+    const from: TfoProgramStatus[] = mode === 'stop' ? ['running', 'on_hold'] : ['box_pending'];
+    if (!from.includes(p.status)) {
+      throw conflict(
+        mode === 'stop'
+          ? p.status === 'box_pending'
+            ? 'This program is already stopped — enter its boxes.'
+            : `The program on ${label} is already stopped.`
+          : p.status === 'completed'
+            ? 'The boxes of this program are already saved.'
+            : 'This program is not waiting for its boxes.',
+      );
+    }
+    const { rollWeightG, boxes, twistedG: thisG, rolls } = boxRows(p, data);
+    const priorG = p.twistedG ?? 0;
+    const twistedG = priorG + thisG;
     const returnedG = kgToGrams(data.returnedRawKg ?? 0);
-    const err = validateProgramStop({ rawG: p.rawG, twistedG, returnedG });
+    // Boxes already saved by part completions are enough to stop without new boxes.
+    const err = validateProgramStop({ rawG: p.rawG, twistedG: thisG > 0 || returnedG > 0 ? twistedG : priorG > 0 ? priorG : 0, returnedG });
     if (err) {
       throw badRequest(
         err === 'returned_too_much' ? `${PROGRAM_STOP_ERROR_TEXT[err]} (${gramsToKg(p.rawG)} kg)` : PROGRAM_STOP_ERROR_TEXT[err],
@@ -579,61 +725,23 @@ export async function stopProgram(role: RoleKey, id: number, input: unknown): Pr
       .update(tfoPrograms)
       .set({
         status: 'completed',
-        stoppedAt: at,
-        stoppedByUserId: who.userId,
-        stoppedRole: role,
+        stoppedAt: p.stoppedAt ?? at,
+        stoppedByUserId: mode === 'stop' ? who.userId : sql`COALESCE(${tfoPrograms.stoppedByUserId}, ${who.userId})`,
+        stoppedRole: mode === 'stop' ? role : sql`COALESCE(${tfoPrograms.stoppedRole}, ${role})`,
         twistedG,
-        twistedMeters: data.twistedMeters,
+        twistedMeters: data.twistedMeters ?? p.twistedMeters,
         returnedRawG: returnedG,
         rollWeightG,
-        stopNote: data.note,
+        rollsDone: p.rollsDone + rolls,
+        stopNote: data.note ?? p.stopNote,
+        updatedAt: at,
       })
-      .where(and(eq(tfoPrograms.id, id), eq(tfoPrograms.status, 'running')))
+      .where(and(eq(tfoPrograms.id, id), inArray(tfoPrograms.status, from)))
       .returning({ id: tfoPrograms.id });
     if (!done.length) throw conflict('The program changed meanwhile — refresh and try again.');
-    await tx.update(tfoProgramSections).set({ isRunning: false }).where(eq(tfoProgramSections.programId, id));
-
-    // One output quality per direction ("75/36 Poly 75D-600-S"), found or created in the Warping qualities master.
-    const qualityOf = new Map<string, { id: number; name: string }>();
-    for (const dir of [...new Set(boxes.map((b) => b.direction))]) {
-      const name = tfoOutputQualityName({ denierFilament: p.denierFilament, rawQualityName: p.rawQuality.name, tpm: p.tpm, direction: dir });
-      qualityOf.set(dir, await findOrCreateWarpingQuality(tx, name));
-    }
-    const sysQ = await systemQualityId(tx);
-    const nos = await allocateBoxNos(tx, boxes.length);
-    for (const [i, b] of boxes.entries()) {
-      const wq = qualityOf.get(b.direction)!;
-      const [row] = await tx
-        .insert(yarnBoxes)
-        .values({
-          boxNo: nos[i],
-          programId: id,
-          lotId: p.lot?.id ?? null,
-          warpingQualityId: wq.id,
-          rolls: b.rolls,
-          grossG: b.grossG,
-          netG: b.netG,
-          avgG: b.avgG,
-          zone: 'tfo',
-          status: 'in_stock',
-          createdByUserId: who.userId,
-        })
-        .returning({ id: yarnBoxes.id });
-      await addStock(tx, {
-        zone: 'tfo',
-        item: 'twisted',
-        qualityId: sysQ,
-        boxId: row.id,
-        warpingQualityId: wq.id,
-        qtyG: b.netG,
-        kind: 'tfo_output',
-        refType: 'program',
-        refId: id,
-        note: data.note,
-        role,
-        createdAt: at,
-      });
-    }
+    await freeSections(tx, id);
+    const eventId = await writeEvent(tx, id, mode === 'stop' ? 'stopped' : 'boxes_saved', role, at, { rolls, twistedG: thisG, note: data.note });
+    if (boxes.length) await createProgramBoxes(tx, p, boxes, eventId, role, at, data.note);
     if (returnedG > 0) {
       await addStock(tx, {
         zone: 'tfo',
@@ -649,6 +757,133 @@ export async function stopProgram(role: RoleKey, id: number, input: unknown): Pr
         createdAt: at,
       });
     }
+    return getProgram(id, tx);
+  });
+}
+
+/** POST /yarn/tfo/programs/:id/stop — Running or On hold → Completed (boxes now). */
+export const stopProgram = (role: RoleKey, id: number, input: unknown) => completeProgram(role, id, input, 'stop');
+
+/** POST /yarn/tfo/programs/:id/boxes — Sprint 24 (CR-21): Box details pending → Completed (same rules as Stop). */
+export const saveProgramBoxes = (role: RoleKey, id: number, input: unknown) => completeProgram(role, id, input, 'boxes');
+
+/**
+ * POST /yarn/tfo/programs/:id/stop-later — Sprint 24 (CR-21): Running / On hold → Box details pending. The sections are
+ * free now; nothing goes into twisted stock until the boxes are saved (the raw yarn already left at start).
+ */
+export async function stopProgramLater(role: RoleKey, id: number, input: unknown): Promise<TfoProgram> {
+  const data = tfoProgramStopLaterSchema.parse(input ?? {});
+  return db.transaction(async (tx) => {
+    const p = await getProgram(id, tx);
+    if (p.status !== 'running' && p.status !== 'on_hold') throw conflict('Only a running or held program can be stopped.');
+    const who = actor(role);
+    const at = nowIso();
+    const done = await tx
+      .update(tfoPrograms)
+      .set({ status: 'box_pending', stoppedAt: at, stoppedByUserId: who.userId, stoppedRole: role, stopNote: data.note, updatedAt: at })
+      .where(and(eq(tfoPrograms.id, id), inArray(tfoPrograms.status, ['running', 'on_hold'])))
+      .returning({ id: tfoPrograms.id });
+    if (!done.length) throw conflict('The program changed meanwhile — refresh and try again.');
+    await freeSections(tx, id);
+    await writeEvent(tx, id, 'stop_later', role, at, { sections: programSectionsLabel(p.sections), note: data.note });
+    return getProgram(id, tx);
+  });
+}
+
+/**
+ * POST /yarn/tfo/programs/:id/hold — Sprint 24 (CR-20): Running → On hold with rolls made / left (made + left = rolls
+ * started); the sections are free again (idle).
+ */
+export async function holdProgram(role: RoleKey, id: number, input: unknown): Promise<TfoProgram> {
+  const data = tfoProgramHoldSchema.parse(input ?? {});
+  return db.transaction(async (tx) => {
+    const p = await getProgram(id, tx);
+    if (p.status !== 'running') throw conflict(p.status === 'on_hold' ? 'This program is already on hold.' : 'Only a running program can be put on hold.');
+    let made: number | null = null;
+    let left: number | null = null;
+    if (p.rolls !== null) {
+      if (data.rollsMade === null) throw badRequest('Enter the rolls made', 'rollsMade');
+      made = data.rollsMade;
+      left = data.rollsLeft ?? p.rolls - made;
+      const err = checkHoldRolls({ started: p.rolls, done: p.rollsDone, made, left });
+      if (err) throw badRequest(HOLD_ROLLS_ERROR_TEXT[err], err === 'sum' ? 'rollsLeft' : 'rollsMade');
+    }
+    const at = nowIso();
+    const done = await tx
+      .update(tfoPrograms)
+      .set({ status: 'on_hold', heldAt: at, rollsMade: made, updatedAt: at })
+      .where(and(eq(tfoPrograms.id, id), eq(tfoPrograms.status, 'running')))
+      .returning({ id: tfoPrograms.id });
+    if (!done.length) throw conflict('The program changed meanwhile — refresh and try again.');
+    await freeSections(tx, id);
+    await writeEvent(tx, id, 'hold', role, at, { rollsMade: made, rollsLeft: left, sections: programSectionsLabel(p.sections), note: data.reason });
+    return getProgram(id, tx);
+  });
+}
+
+/** POST /yarn/tfo/programs/:id/resume — Sprint 24 (CR-20): On hold → Running on idle sections (any machines, like Start). */
+export async function resumeProgram(role: RoleKey, id: number, input: unknown): Promise<TfoProgram> {
+  const data = tfoProgramResumeSchema.parse(input);
+  try {
+    return await db.transaction(async (tx) => {
+      const p = await getProgram(id, tx);
+      if (p.status !== 'on_hold') throw conflict('Only a program on hold can be resumed.');
+      const { first, label } = await idleSections(tx, data.sections);
+      const at = nowIso();
+      // The running unique index sits on the program's FIRST section — it moves to the first new one.
+      const done = await tx
+        .update(tfoPrograms)
+        .set({ status: 'running', machineId: first.machineId, section: first.section, updatedAt: at })
+        .where(and(eq(tfoPrograms.id, id), eq(tfoPrograms.status, 'on_hold')))
+        .returning({ id: tfoPrograms.id });
+      if (!done.length) throw conflict('The program changed meanwhile — refresh and try again.');
+      await tx.insert(tfoProgramSections).values(data.sections.map((s) => ({ programId: id, machineId: s.machineId, section: s.section, isRunning: true, createdAt: at })));
+      const left = p.rolls !== null && p.rollsMade !== null ? p.rolls - p.rollsMade : null;
+      await writeEvent(tx, id, 'resume', role, at, { rollsLeft: left, sections: label });
+      return getProgram(id, tx);
+    });
+  } catch (err) {
+    if (isRunningUnique(err)) throw conflict('A program is already running on one of these sections.', 'sections');
+    throw err;
+  }
+}
+
+/**
+ * POST /yarn/tfo/programs/:id/part — Sprint 24 (CR-20): "Complete made part" (Running or On hold): boxes for the rolls
+ * already made are created now (automatic numbers, into TFO stock); the program keeps going with the rest. Rolls in the
+ * boxes ≤ rolls made − already boxed (On hold) / started − already boxed (Running). Once every started roll is boxed the
+ * program is Completed (sections freed).
+ */
+export async function completeMadePart(role: RoleKey, id: number, input: unknown): Promise<TfoProgram> {
+  const data = tfoProgramPartSchema.parse(input);
+  return db.transaction(async (tx) => {
+    const p = await getProgram(id, tx);
+    if (p.status !== 'running' && p.status !== 'on_hold') throw conflict('Only a running or held program can complete a made part.');
+    const { boxes, twistedG, rolls } = boxRows(p, data);
+    const limit = partRollsLimit(p);
+    if (limit !== null && rolls > limit) {
+      throw badRequest(`Only ${limit} roll${limit === 1 ? '' : 's'} ${p.status === 'on_hold' ? 'made' : 'started'} are not in boxes yet`, 'boxes');
+    }
+    const at = nowIso();
+    const rollsDone = p.rollsDone + rolls;
+    const allBoxed = p.rolls !== null && rollsDone >= p.rolls;
+    const who = actor(role);
+    const done = await tx
+      .update(tfoPrograms)
+      .set({
+        twistedG: (p.twistedG ?? 0) + twistedG,
+        rollsDone,
+        rollWeightG: kgToGrams(data.rollWeightKg),
+        twistedMeters: data.twistedMeters ?? p.twistedMeters,
+        updatedAt: at,
+        ...(allBoxed ? { status: 'completed' as const, stoppedAt: at, stoppedByUserId: who.userId, stoppedRole: role, returnedRawG: 0, stopNote: data.note } : {}),
+      })
+      .where(and(eq(tfoPrograms.id, id), eq(tfoPrograms.status, p.status), eq(tfoPrograms.rollsDone, p.rollsDone)))
+      .returning({ id: tfoPrograms.id });
+    if (!done.length) throw conflict('The program changed meanwhile — refresh and try again.');
+    if (allBoxed) await freeSections(tx, id);
+    const eventId = await writeEvent(tx, id, 'part_done', role, at, { rolls, twistedG, note: data.note });
+    await createProgramBoxes(tx, p, boxes, eventId, role, at, data.note);
     return getProgram(id, tx);
   });
 }

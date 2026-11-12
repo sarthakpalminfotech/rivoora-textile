@@ -3,6 +3,7 @@ import type {
   BeamZone,
   BoxStatus,
   MoveKind,
+  TfoProgramEventKind,
   TfoProgramStatus,
   TfoSection,
   TwistDirection,
@@ -291,7 +292,8 @@ export interface YarnBox {
 export interface YarnSummary {
   totals: { rawG: number; twistedG: number; beams: number };
   zones: YarnZoneStock[];
-  tfo: { runningSections: number; activeMachines: number; pending: number };
+  /** Sprint 24: + programs on hold and with box details pending. */
+  tfo: { runningSections: number; activeMachines: number; pending: number; onHold: number; boxPending: number };
   warping: { inProcess: number; pending: number };
   recent: YarnMove[];
 }
@@ -396,8 +398,28 @@ export interface TfoProgram {
   lot: { id: number; lotNo: string; partyName: string } | null;
   /** Sprint 20: the output qualities of the boxes (one per direction for S + Z). */
   warpingQualities: { id: number; name: string }[];
-  /** Sprint 20: boxes recorded at stop (empty for older programs / while running). */
+  /** Sprint 20: boxes recorded at stop (empty for older programs / while running). Sprint 24: + part completions. */
   boxes: TfoProgramBox[];
+  /** Sprint 24 (CR-20): rolls made so far as entered at the last Hold (null = never held / no rolls). */
+  rollsMade: number | null;
+  /** Sprint 24: rolls already completed with boxes ("Complete made part"). */
+  rollsDone: number;
+  heldAt: string | null;
+  /** Sprint 24: hold / resume / part completions / stop, oldest first. */
+  events: TfoProgramEvent[];
+}
+
+/** Sprint 24 — one line of a program's activity (`tfo_program_events`). */
+export interface TfoProgramEvent extends YarnActor {
+  id: number;
+  kind: TfoProgramEventKind;
+  rollsMade: number | null;
+  rollsLeft: number | null;
+  rolls: number | null;
+  twistedG: number | null;
+  sections: string | null;
+  note: string | null;
+  createdAt: string;
 }
 
 /** Sprint 20 — one box recorded at a program's stop (`currentZone` = where it is now). */
@@ -411,6 +433,9 @@ export interface TfoProgramBox {
   avgG: number | null;
   warpingQuality: { id: number; name: string };
   currentZone: YarnZone;
+  /** Sprint 24: the FY of its number ("15 (26-27)") and the stop / part completion that made it. */
+  fy: string;
+  eventId: number | null;
 }
 
 /** Sprint 20 — a TFO program waiting for a section (its raw kg reserved on its lot). */
@@ -440,6 +465,10 @@ export interface TfoBoardMachine {
 export interface TfoBoard {
   machines: TfoBoardMachine[];
   runningSections: number;
+  /** Sprint 24 (CR-20): programs on hold (sections free), oldest hold first. */
+  onHold: TfoProgram[];
+  /** Sprint 24 (CR-21): stopped programs whose boxes are still to be entered, oldest first. */
+  boxPending: TfoProgram[];
   /** Sprint 20: programs waiting for a section, oldest first. */
   pending: TfoPendingProgram[];
   /** Raw stock in the TFO zone per quality (for the Create program form): balance, reserved by pending programs, available. */
