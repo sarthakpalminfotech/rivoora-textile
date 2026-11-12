@@ -19,10 +19,12 @@
     "db:s18-report": "npm run db:s18-report -w server",
     "demo:seed": "node scripts/demo.mjs seed",
     "demo:dev": "node scripts/demo.mjs dev",
+    "test:dashboard-ui": "node scripts/dashboard-ui.mjs",
     "test": "npm run test -w shared"
   },
   "devDependencies": {
     "concurrently": "^10.0.5",
+    "playwright-core": "^1.49.1",
     "typescript": "^5.9.3"
   }
 }

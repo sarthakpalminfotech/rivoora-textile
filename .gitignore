@@ -19,3 +19,6 @@ server/uploads/*
 # Sprint 26: the local demo database (never committed) and the demo images it generates
 server/.data/
 *.db-journal
+
+# Sprint 26: dashboard review screenshots (demo data) — only the chosen pairs are force-added
+docs/screenshots/sprint-26/**

@@ -1,0 +1,3133 @@
+[
+  {
+    "dashboard": "owner",
+    "size": "1920",
+    "expect": "desktop",
+    "hscroll": true,
+    "mode": "desktop",
+    "overflow": [
+      "Orders booked per month: <div> 1.4k",
+      "Orders booked per month: <button> ",
+      "Orders booked per month: <span> 1.4k",
+      "Orders booked per month: <div> 2.9k",
+      "Orders booked per month: <button> ",
+      "Orders booked per month: <span> 2.9k",
+      "Orders booked per month: <div> 5.2k",
+      "Orders booked per month: <button> ",
+      "Orders booked per month: <span> 5.2k",
+      "Orders booked per month: <div> 3.3k",
+      "Orders booked per month: <button> ",
+      "Orders booked per month: <span> 3.3k",
+      "Orders booked per month: <div> 6.3k",
+      "Orders booked per month: <button> ",
+      "Orders booked per month: <span> 6.3k",
+      "Orders booked per month: <div> 1.7k",
+      "Orders booked per month: <button> ",
+      "Orders booked per month: <span> 1.7k",
+      "Orders booked per month: <div> 6.1k",
+      "Orders booked per month: <button> ",
+      "Orders booked per month: <span> 6.1k",
+      "Orders booked per month: <div> 1.3k",
+      "Orders booked per month: <button> ",
+      "Orders booked per month: <span> 1.3k",
+      "Order value booked: <div> ",
+      "Order value booked: <button> ",
+      "Order value booked: <div> ",
+      "Order value booked: <button> ",
+      "Order value booked: <div> ",
+      "Order value booked: <button> ",
+      "Order value booked: <div> ",
+      "Order value booked: <button> ",
+      "Order value booked: <div> ",
+      "Order value booked: <button> ",
+      "Order value booked: <div> ",
+      "Order value booked: <button> ",
+      "Order value booked: <div> ₹2.2 Cr",
+      "Order value booked: <button> ",
+      "Order value booked: <span> ₹2.2 Cr",
+      "Order value booked: <div> ₹40.7 L",
+      "Order value booked: <button> ",
+      "Order value booked: <span> ₹40.7 L",
+      "Goods returned by month: <div> ",
+      "Goods returned by month: <button> ",
+      "Goods returned by month: <div> ",
+      "Goods returned by month: <button> ",
+      "Goods returned by month: <div> ",
+      "Goods returned by month: <button> ",
+      "Goods returned by month: <div> ",
+      "Goods returned by month: <button> ",
+      "Goods returned by month: <div> ",
+      "Goods returned by month: <button> ",
+      "Goods returned by month: <div> 56",
+      "Goods returned by month: <button> ",
+      "Goods returned by month: <span> 56",
+      "Goods returned by month: <div> ",
+      "Goods returned by month: <button> ",
+      "Goods returned by month: <div> 61",
+      "Goods returned by month: <button> ",
+      "Goods returned by month: <span> 61",
+      "Work done twice: <div> ",
+      "Work done twice: <button> ",
+      "Work done twice: <div> ",
+      "Work done twice: <button> ",
+      "Work done twice: <div> ",
+      "Work done twice: <button> ",
+      "Work done twice: <div> ",
+      "Work done twice: <button> ",
+      "Work done twice: <div> ",
+      "Work done twice: <button> ",
+      "Work done twice: <div> 29",
+      "Work done twice: <button> ",
+      "Work done twice: <span> 29",
+      "Work done twice: <div> ",
+      "Work done twice: <button> ",
+      "Work done twice: <div> 1",
+      "Work done twice: <button> ",
+      "Work done twice: <span> 1",
+      "Frames woven per month: <div> 1.5k",
+      "Frames woven per month: <button> ",
+      "Frames woven per month: <span> 1.5k",
+      "Frames woven per month: <div> 2.1k",
+      "Frames woven per month: <button> ",
+      "Frames woven per month: <span> 2.1k",
+      "Frames woven per month: <div> 2.3k",
+      "Frames woven per month: <button> ",
+      "Frames woven per month: <span> 2.3k",
+      "Frames woven per month: <div> 3k",
+      "Frames woven per month: <button> ",
+      "Frames woven per month: <span> 3k",
+      "Frames woven per month: <div> 2.6k",
+      "Frames woven per month: <button> ",
+      "Frames woven per month: <span> 2.6k",
+      "Frames woven per month: <div> 2.6k",
+      "Frames woven per month: <button> ",
+      "Frames woven per month: <span> 2.6k",
+      "Frames woven per month: <div> 1.4k",
+      "Frames woven per month: <button> ",
+      "Frames woven per month: <span> 1.4k",
+      "Frames woven per month: <div> 966",
+      "Frames woven per month: <button> ",
+      "Frames woven per month: <span> 966",
+      "Yarn bought vs used: <div> ",
+      "Yarn bought vs used: <button> ",
+      "Yarn bought vs used: <div> ",
+      "Yarn bought vs used: <button> ",
+      "Yarn bought vs used: <div> ",
+      "Yarn bought vs used: <button> ",
+      "Yarn bought vs used: <div> ",
+      "Yarn bought vs used: <button> ",
+      "Yarn bought vs used: <div> ",
+      "Yarn bought vs used: <button> ",
+      "Yarn bought vs used: <div> ",
+      "Yarn bought vs used: <button> ",
+      "Yarn bought vs used: <div> ",
+      "Yarn bought vs used: <button> ",
+      "Yarn bought vs used: <div> ",
+      "Yarn bought vs used: <button> "
+    ],
+    "cut": [
+      "Business at a glance: \"Dispatched this month\"",
+      "Orders booked per month: \"All-over (m)\"",
+      "Business by broker: \"Pcs\"",
+      "Business by broker: \"Shree Ambica Saree Emporium and Wholesale Textile \"",
+      "Business by broker: \"Shree Ambica Saree Emporium and Wholesale Textile \"",
+      "Quality demand: \"All-over (m)\"",
+      "Goods returned by month: \"All-over (m)\"",
+      "Returns by client: \"All-over (m)\"",
+      "Job-work parties: \"Butta cutting\"",
+      "Job-work parties: \"Outside weavers\"",
+      "Our goods lying outside: \"Shree Ganesh Butta Cutting and Hand Finishing Work\"",
+      "Frames woven per month: \"Frames (pcs)\"",
+      "Dispatch expected next 4 weeks: \"All-over (m)\""
+    ],
+    "unequal": [],
+    "holes": [
+      "Business pulse: row 2 leaves 460 px empty",
+      "Speed: row 1 leaves 230 px empty",
+      "Speed: row 2 leaves 230 px empty",
+      "Quality & damage: row 2 leaves 460 px empty",
+      "Returns & rework: row 1 leaves 230 px empty",
+      "Returns & rework: row 2 leaves 920 px empty",
+      "Vendors: row 1 leaves 230 px empty",
+      "Vendors: row 2 leaves 920 px empty",
+      "Looms & yarn: row 1 leaves 230 px empty",
+      "Looms & yarn: row 2 leaves 230 px empty",
+      "Attention & team: row 1 leaves 230 px empty",
+      "Attention & team: row 2 leaves 690 px empty"
+    ],
+    "baseline": [
+      "Business pulse: row 1 figures start at 0 / 58 px",
+      "Clients: row 1 figures start at 14 / 0 px",
+      "Brokers & designs: row 1 figures start at 58 / 0 / 58 px",
+      "Vendors: row 1 figures start at 58 / 0 px",
+      "Looms & yarn: row 1 figures start at 0 / 58 px",
+      "Attention & team: row 1 figures start at 0 / 58 px"
+    ],
+    "small": [],
+    "scrollers": [],
+    "contentWidth": 1440,
+    "sections": [],
+    "errors": [],
+    "shots": [
+      "owner-1920-top.png",
+      "owner-1920-full.png",
+      "owner-1920-section-0-business-pulse.png",
+      "owner-1920-section-1-clients.png",
+      "owner-1920-section-2-brokers-designs.png",
+      "owner-1920-section-3-speed.png",
+      "owner-1920-section-4-quality-damage.png",
+      "owner-1920-section-5-returns-rework.png",
+      "owner-1920-section-6-stock.png",
+      "owner-1920-section-7-vendors.png",
+      "owner-1920-section-8-looms-yarn.png",
+      "owner-1920-section-9-attention-team.png",
+      "owner-1920-drawer.png",
+      "owner-1920-arrange.png",
+      "owner-1920-arrange-full.png"
+    ]
+  },
+  {
+    "dashboard": "owner",
+    "size": "1440",
+    "expect": "desktop",
+    "hscroll": true,
+    "mode": "desktop",
+    "overflow": [
+      "Orders booked per month: <div> ",
+      "Orders booked per month: <button> ",
+      "Orders booked per month: <div> ",
+      "Orders booked per month: <button> ",
+      "Orders booked per month: <div> ",
+      "Orders booked per month: <button> ",
+      "Orders booked per month: <div> ",
+      "Orders booked per month: <button> ",
+      "Orders booked per month: <div> ",
+      "Orders booked per month: <button> ",
+      "Orders booked per month: <div> ",
+      "Orders booked per month: <button> ",
+      "Orders booked per month: <div> ",
+      "Orders booked per month: <button> ",
+      "Orders booked per month: <div> 1.3k",
+      "Orders booked per month: <button> ",
+      "Orders booked per month: <span> 1.3k",
+      "Order value booked: <div> ",
+      "Order value booked: <button> ",
+      "Order value booked: <div> ",
+      "Order value booked: <button> ",
+      "Order value booked: <div> ",
+      "Order value booked: <button> ",
+      "Order value booked: <div> ",
+      "Order value booked: <button> ",
+      "Order value booked: <div> ",
+      "Order value booked: <button> ",
+      "Order value booked: <div> ",
+      "Order value booked: <button> ",
+      "Order value booked: <div> ₹2.2 Cr",
+      "Order value booked: <button> ",
+      "Order value booked: <span> ₹2.2 Cr",
+      "Order value booked: <div> ₹40.7 L",
+      "Order value booked: <button> ",
+      "Order value booked: <span> ₹40.7 L",
+      "Goods returned by month: <div> ",
+      "Goods returned by month: <button> ",
+      "Goods returned by month: <div> ",
+      "Goods returned by month: <button> ",
+      "Goods returned by month: <div> ",
+      "Goods returned by month: <button> ",
+      "Goods returned by month: <div> ",
+      "Goods returned by month: <button> ",
+      "Goods returned by month: <div> ",
+      "Goods returned by month: <button> ",
+      "Goods returned by month: <div> ",
+      "Goods returned by month: <button> ",
+      "Goods returned by month: <div> ",
+      "Goods returned by month: <button> ",
+      "Goods returned by month: <div> 61",
+      "Goods returned by month: <button> ",
+      "Goods returned by month: <span> 61",
+      "Work done twice: <div> ",
+      "Work done twice: <button> ",
+      "Work done twice: <div> ",
+      "Work done twice: <button> ",
+      "Work done twice: <div> ",
+      "Work done twice: <button> ",
+      "Work done twice: <div> ",
+      "Work done twice: <button> ",
+      "Work done twice: <div> ",
+      "Work done twice: <button> ",
+      "Work done twice: <div> 29",
+      "Work done twice: <button> ",
+      "Work done twice: <span> 29",
+      "Work done twice: <div> ",
+      "Work done twice: <button> ",
+      "Work done twice: <div> 1",
+      "Work done twice: <button> ",
+      "Work done twice: <span> 1",
+      "Our goods lying outside: <span> 14,384.07m",
+      "Our goods lying outside: <span> m",
+      "Frames woven per month: <div> ",
+      "Frames woven per month: <button> ",
+      "Frames woven per month: <div> ",
+      "Frames woven per month: <button> ",
+      "Frames woven per month: <div> ",
+      "Frames woven per month: <button> ",
+      "Frames woven per month: <div> 3k",
+      "Frames woven per month: <button> ",
+      "Frames woven per month: <span> 3k",
+      "Frames woven per month: <div> ",
+      "Frames woven per month: <button> ",
+      "Frames woven per month: <div> ",
+      "Frames woven per month: <button> ",
+      "Frames woven per month: <div> ",
+      "Frames woven per month: <button> ",
+      "Frames woven per month: <div> 966",
+      "Frames woven per month: <button> ",
+      "Frames woven per month: <span> 966",
+      "Yarn bought vs used: <div> ",
+      "Yarn bought vs used: <button> ",
+      "Yarn bought vs used: <div> ",
+      "Yarn bought vs used: <button> ",
+      "Yarn bought vs used: <div> ",
+      "Yarn bought vs used: <button> ",
+      "Yarn bought vs used: <div> ",
+      "Yarn bought vs used: <button> ",
+      "Yarn bought vs used: <div> ",
+      "Yarn bought vs used: <button> ",
+      "Yarn bought vs used: <div> ",
+      "Yarn bought vs used: <button> ",
+      "Yarn bought vs used: <div> ",
+      "Yarn bought vs used: <button> ",
+      "Yarn bought vs used: <div> ",
+      "Yarn bought vs used: <button> "
+    ],
+    "cut": [
+      "Business at a glance: \"Dispatched this month\"",
+      "Business at a glance: \"Booked this month\"",
+      "Orders booked per month: \"All-over (m)\"",
+      "Business by broker: \"Pcs\"",
+      "Business by broker: \"Shree Ambica Saree Emporium and Wholesale Textile \"",
+      "Business by broker: \"Shree Ambica Saree Emporium and Wholesale Textile \"",
+      "Quality demand: \"All-over (m)\"",
+      "Damage by type: \"Weaver\"",
+      "Damage by type: \"Machine\"",
+      "Damage by type: \"Supervisor\"",
+      "Goods returned by month: \"All-over (m)\"",
+      "Returns by client: \"All-over (m)\"",
+      "Job-work parties: \"Butta cutting\"",
+      "Job-work parties: \"Outside weavers\"",
+      "Our goods lying outside: \"Krishna Butta Cutting\"",
+      "Our goods lying outside: \"Anupam Dyeing Mills\"",
+      "Our goods lying outside: \"Shree Ganesh Butta Cutting and Hand Finishing Work\"",
+      "Our goods lying outside: \"Laxmipati Process House\"",
+      "Frames woven per month: \"Frames (pcs)\"",
+      "Dispatch expected next 4 weeks: \"All-over (m)\"",
+      "Today in numbers: \"Frames completed\""
+    ],
+    "unequal": [],
+    "holes": [
+      "Business pulse: row 2 leaves 380 px empty",
+      "Speed: row 1 leaves 190 px empty",
+      "Speed: row 2 leaves 190 px empty",
+      "Quality & damage: row 2 leaves 380 px empty",
+      "Returns & rework: row 1 leaves 190 px empty",
+      "Returns & rework: row 2 leaves 760 px empty",
+      "Vendors: row 1 leaves 190 px empty",
+      "Vendors: row 2 leaves 760 px empty",
+      "Looms & yarn: row 1 leaves 190 px empty",
+      "Looms & yarn: row 2 leaves 190 px empty",
+      "Attention & team: row 1 leaves 190 px empty",
+      "Attention & team: row 2 leaves 570 px empty"
+    ],
+    "baseline": [
+      "Business pulse: row 1 figures start at 0 / 58 px",
+      "Business pulse: row 2 figures start at 0 / 14 px",
+      "Clients: row 1 figures start at 49 / 0 px",
+      "Brokers & designs: row 1 figures start at 58 / 0 / 58 px",
+      "Speed: row 1 figures start at 17 / 0 px",
+      "Stock: row 1 figures start at 0 / 17 px",
+      "Vendors: row 1 figures start at 58 / 0 px",
+      "Looms & yarn: row 1 figures start at 0 / 58 px",
+      "Attention & team: row 1 figures start at 0 / 72 px"
+    ],
+    "small": [],
+    "scrollers": [],
+    "contentWidth": 1184,
+    "sections": [],
+    "errors": [],
+    "shots": [
+      "owner-1440-top.png",
+      "owner-1440-full.png",
+      "owner-1440-section-0-business-pulse.png",
+      "owner-1440-section-1-clients.png",
+      "owner-1440-section-2-brokers-designs.png",
+      "owner-1440-section-3-speed.png",
+      "owner-1440-section-4-quality-damage.png",
+      "owner-1440-section-5-returns-rework.png",
+      "owner-1440-section-6-stock.png",
+      "owner-1440-section-7-vendors.png",
+      "owner-1440-section-8-looms-yarn.png",
+      "owner-1440-section-9-attention-team.png",
+      "owner-1440-drawer.png",
+      "owner-1440-arrange.png",
+      "owner-1440-arrange-full.png"
+    ]
+  },
+  {
+    "dashboard": "owner",
+    "size": "1280",
+    "expect": "desktop",
+    "hscroll": true,
+    "mode": "desktop",
+    "overflow": [
+      "Orders booked per month: <div> ",
+      "Orders booked per month: <button> ",
+      "Orders booked per month: <div> ",
+      "Orders booked per month: <button> ",
+      "Orders booked per month: <div> ",
+      "Orders booked per month: <button> ",
+      "Orders booked per month: <div> ",
+      "Orders booked per month: <button> ",
+      "Orders booked per month: <div> ",
+      "Orders booked per month: <button> ",
+      "Orders booked per month: <div> ",
+      "Orders booked per month: <button> ",
+      "Orders booked per month: <div> ",
+      "Orders booked per month: <button> ",
+      "Orders booked per month: <div> 1.3k",
+      "Orders booked per month: <button> ",
+      "Orders booked per month: <span> 1.3k",
+      "Order value booked: <div> ",
+      "Order value booked: <button> ",
+      "Order value booked: <div> ",
+      "Order value booked: <button> ",
+      "Order value booked: <div> ",
+      "Order value booked: <button> ",
+      "Order value booked: <div> ",
+      "Order value booked: <button> ",
+      "Order value booked: <div> ",
+      "Order value booked: <button> ",
+      "Order value booked: <div> ",
+      "Order value booked: <button> ",
+      "Order value booked: <div> ₹2.2 Cr",
+      "Order value booked: <button> ",
+      "Order value booked: <span> ₹2.2 Cr",
+      "Order value booked: <div> ₹40.7 L",
+      "Order value booked: <button> ",
+      "Order value booked: <span> ₹40.7 L",
+      "Goods returned by month: <div> ",
+      "Goods returned by month: <button> ",
+      "Goods returned by month: <div> ",
+      "Goods returned by month: <button> ",
+      "Goods returned by month: <div> ",
+      "Goods returned by month: <button> ",
+      "Goods returned by month: <div> ",
+      "Goods returned by month: <button> ",
+      "Goods returned by month: <div> ",
+      "Goods returned by month: <button> ",
+      "Goods returned by month: <div> ",
+      "Goods returned by month: <button> ",
+      "Goods returned by month: <div> ",
+      "Goods returned by month: <button> ",
+      "Goods returned by month: <div> 61",
+      "Goods returned by month: <button> ",
+      "Goods returned by month: <span> 61",
+      "Work done twice: <div> ",
+      "Work done twice: <button> ",
+      "Work done twice: <div> ",
+      "Work done twice: <button> ",
+      "Work done twice: <div> ",
+      "Work done twice: <button> ",
+      "Work done twice: <div> ",
+      "Work done twice: <button> ",
+      "Work done twice: <div> ",
+      "Work done twice: <button> ",
+      "Work done twice: <div> 29",
+      "Work done twice: <button> ",
+      "Work done twice: <span> 29",
+      "Work done twice: <div> ",
+      "Work done twice: <button> ",
+      "Work done twice: <div> 1",
+      "Work done twice: <button> ",
+      "Work done twice: <span> 1",
+      "Our goods lying outside: <span> 14,384.07m",
+      "Our goods lying outside: <span> 14,384.07",
+      "Our goods lying outside: <span> m",
+      "Frames woven per month: <div> ",
+      "Frames woven per month: <button> ",
+      "Frames woven per month: <div> ",
+      "Frames woven per month: <button> ",
+      "Frames woven per month: <div> ",
+      "Frames woven per month: <button> ",
+      "Frames woven per month: <div> 3k",
+      "Frames woven per month: <button> ",
+      "Frames woven per month: <span> 3k",
+      "Frames woven per month: <div> ",
+      "Frames woven per month: <button> ",
+      "Frames woven per month: <div> ",
+      "Frames woven per month: <button> ",
+      "Frames woven per month: <div> ",
+      "Frames woven per month: <button> ",
+      "Frames woven per month: <div> 966",
+      "Frames woven per month: <button> ",
+      "Frames woven per month: <span> 966",
+      "Yarn bought vs used: <div> ",
+      "Yarn bought vs used: <button> ",
+      "Yarn bought vs used: <div> ",
+      "Yarn bought vs used: <button> ",
+      "Yarn bought vs used: <div> ",
+      "Yarn bought vs used: <button> ",
+      "Yarn bought vs used: <div> ",
+      "Yarn bought vs used: <button> ",
+      "Yarn bought vs used: <div> ",
+      "Yarn bought vs used: <button> ",
+      "Yarn bought vs used: <div> ",
+      "Yarn bought vs used: <button> ",
+      "Yarn bought vs used: <div> ",
+      "Yarn bought vs used: <button> ",
+      "Yarn bought vs used: <div> ",
+      "Yarn bought vs used: <button> "
+    ],
+    "cut": [
+      "Business at a glance: \"In production\"",
+      "Business at a glance: \"Dispatched this month\"",
+      "Business at a glance: \"Booked this month\"",
+      "Orders booked per month: \"All-over (m)\"",
+      "Business by broker: \"Pcs\"",
+      "Business by broker: \"Shree Ambica Saree Emporium and Wholesale Textile \"",
+      "Business by broker: \"Shree Ambica Saree Emporium and Wholesale Textile \"",
+      "Quality demand: \"All-over (m)\"",
+      "Goods returned by month: \"All-over (m)\"",
+      "Returns by client: \"All-over (m)\"",
+      "Job-work parties: \"Butta cutting\"",
+      "Job-work parties: \"Outside weavers\"",
+      "Our goods lying outside: \"Krishna Butta Cutting\"",
+      "Our goods lying outside: \"Anupam Dyeing Mills\"",
+      "Our goods lying outside: \"Reliable Process\"",
+      "Our goods lying outside: \"Shree Ganesh Butta Cutting and Hand Finishing Work\"",
+      "Our goods lying outside: \"Laxmipati Process House\"",
+      "Frames woven per month: \"Frames (pcs)\"",
+      "Dispatch expected next 4 weeks: \"All-over (m)\"",
+      "Dispatch expected next 4 weeks: \"Wk of 23 Nov\"",
+      "Dispatch expected next 4 weeks: \"Wk of 30 Nov\"",
+      "Today in numbers: \"Orders booked\"",
+      "Today in numbers: \"Frames completed\"",
+      "Today in numbers: \"Takas entered\""
+    ],
+    "unequal": [],
+    "holes": [
+      "Business pulse: row 2 leaves 327 px empty",
+      "Speed: row 1 leaves 163 px empty",
+      "Speed: row 2 leaves 163 px empty",
+      "Quality & damage: row 2 leaves 327 px empty",
+      "Returns & rework: row 1 leaves 163 px empty",
+      "Returns & rework: row 2 leaves 653 px empty",
+      "Vendors: row 1 leaves 163 px empty",
+      "Vendors: row 2 leaves 653 px empty",
+      "Looms & yarn: row 1 leaves 163 px empty",
+      "Looms & yarn: row 2 leaves 163 px empty",
+      "Attention & team: row 1 leaves 163 px empty",
+      "Attention & team: row 2 leaves 490 px empty"
+    ],
+    "baseline": [
+      "Business pulse: row 1 figures start at 0 / 58 px",
+      "Business pulse: row 2 figures start at 0 / 32 px",
+      "Clients: row 1 figures start at 49 / 0 px",
+      "Brokers & designs: row 1 figures start at 61 / 0 / 44 px",
+      "Speed: row 1 figures start at 30 / 0 px",
+      "Speed: row 2 figures start at 0 / 30 px",
+      "Quality & damage: row 1 figures start at 14 / 0 / 0 px",
+      "Quality & damage: row 2 figures start at 0 / 30 px",
+      "Returns & rework: row 1 figures start at 0 / 17 px",
+      "Stock: row 1 figures start at 0 / 17 px",
+      "Vendors: row 1 figures start at 9 / 0 px",
+      "Looms & yarn: row 1 figures start at 0 / 28 px",
+      "Attention & team: row 1 figures start at 0 / 72 px"
+    ],
+    "small": [],
+    "scrollers": [
+      "Designs that sell again: scrolls sideways (288 > 273)",
+      "Returns by client: scrolls sideways (288 > 273)",
+      "Dead stock: scrolls sideways (288 > 273)",
+      "Challans out for too long: scrolls sideways (288 > 273)"
+    ],
+    "contentWidth": 1024,
+    "sections": [],
+    "errors": [],
+    "shots": [
+      "owner-1280-top.png",
+      "owner-1280-full.png",
+      "owner-1280-section-0-business-pulse.png",
+      "owner-1280-section-1-clients.png",
+      "owner-1280-section-2-brokers-designs.png",
+      "owner-1280-section-3-speed.png",
+      "owner-1280-section-4-quality-damage.png",
+      "owner-1280-section-5-returns-rework.png",
+      "owner-1280-section-6-stock.png",
+      "owner-1280-section-7-vendors.png",
+      "owner-1280-section-8-looms-yarn.png",
+      "owner-1280-section-9-attention-team.png",
+      "owner-1280-drawer.png",
+      "owner-1280-arrange.png",
+      "owner-1280-arrange-full.png"
+    ]
+  },
+  {
+    "dashboard": "owner",
+    "size": "1280z125",
+    "expect": "desktop",
+    "hscroll": true,
+    "mode": "desktop",
+    "overflow": [
+      "Orders booked per month: <div> ",
+      "Orders booked per month: <button> ",
+      "Orders booked per month: <div> ",
+      "Orders booked per month: <button> ",
+      "Orders booked per month: <div> ",
+      "Orders booked per month: <button> ",
+      "Orders booked per month: <div> ",
+      "Orders booked per month: <button> ",
+      "Orders booked per month: <div> ",
+      "Orders booked per month: <button> ",
+      "Orders booked per month: <div> ",
+      "Orders booked per month: <button> ",
+      "Orders booked per month: <div> ",
+      "Orders booked per month: <button> ",
+      "Orders booked per month: <div> 1.3k",
+      "Orders booked per month: <button> ",
+      "Orders booked per month: <span> 1.3k",
+      "Order value booked: <div> ",
+      "Order value booked: <button> ",
+      "Order value booked: <div> ",
+      "Order value booked: <button> ",
+      "Order value booked: <div> ",
+      "Order value booked: <button> ",
+      "Order value booked: <div> ",
+      "Order value booked: <button> ",
+      "Order value booked: <div> ",
+      "Order value booked: <button> ",
+      "Order value booked: <div> ",
+      "Order value booked: <button> ",
+      "Order value booked: <div> ₹2.2 Cr",
+      "Order value booked: <button> ",
+      "Order value booked: <span> ₹2.2 Cr",
+      "Order value booked: <div> ₹40.7 L",
+      "Order value booked: <button> ",
+      "Order value booked: <span> ₹40.7 L",
+      "Damage by type: <span> 52 pcs",
+      "Damage by type: <span> 27%",
+      "Damage by type: <span> 45 pcs",
+      "Damage by type: <span> 24%",
+      "Damage by type: <span> 44 pcs",
+      "Damage by type: <span> 23%",
+      "Damage by type: <span> 26 pcs",
+      "Damage by type: <span> 14%",
+      "Damage by type: <span> 20 pcs",
+      "Damage by type: <span> 11%",
+      "Damage by type: <span> 3 pcs",
+      "Damage by type: <span> 2%",
+      "Goods returned by month: <div> ",
+      "Goods returned by month: <button> ",
+      "Goods returned by month: <div> ",
+      "Goods returned by month: <button> ",
+      "Goods returned by month: <div> ",
+      "Goods returned by month: <button> ",
+      "Goods returned by month: <div> ",
+      "Goods returned by month: <button> ",
+      "Goods returned by month: <div> ",
+      "Goods returned by month: <button> ",
+      "Goods returned by month: <div> ",
+      "Goods returned by month: <button> ",
+      "Goods returned by month: <div> ",
+      "Goods returned by month: <button> ",
+      "Goods returned by month: <div> 61",
+      "Goods returned by month: <button> ",
+      "Goods returned by month: <span> 61",
+      "Work done twice: <div> ",
+      "Work done twice: <button> ",
+      "Work done twice: <div> ",
+      "Work done twice: <button> ",
+      "Work done twice: <div> ",
+      "Work done twice: <button> ",
+      "Work done twice: <div> ",
+      "Work done twice: <button> ",
+      "Work done twice: <div> ",
+      "Work done twice: <button> ",
+      "Work done twice: <div> 29",
+      "Work done twice: <button> ",
+      "Work done twice: <span> 29",
+      "Work done twice: <div> ",
+      "Work done twice: <button> ",
+      "Work done twice: <div> 1",
+      "Work done twice: <button> ",
+      "Work done twice: <span> 1",
+      "Our goods lying outside: <span> 14,384.07m",
+      "Our goods lying outside: <span> 14,384.07",
+      "Our goods lying outside: <span> m",
+      "Frames woven per month: <div> ",
+      "Frames woven per month: <button> ",
+      "Frames woven per month: <div> ",
+      "Frames woven per month: <button> ",
+      "Frames woven per month: <div> ",
+      "Frames woven per month: <button> ",
+      "Frames woven per month: <div> 3k",
+      "Frames woven per month: <button> ",
+      "Frames woven per month: <span> 3k",
+      "Frames woven per month: <div> ",
+      "Frames woven per month: <button> ",
+      "Frames woven per month: <div> ",
+      "Frames woven per month: <button> ",
+      "Frames woven per month: <div> ",
+      "Frames woven per month: <button> ",
+      "Frames woven per month: <div> 966",
+      "Frames woven per month: <button> ",
+      "Frames woven per month: <span> 966",
+      "Yarn bought vs used: <div> ",
+      "Yarn bought vs used: <button> ",
+      "Yarn bought vs used: <div> ",
+      "Yarn bought vs used: <button> ",
+      "Yarn bought vs used: <div> ",
+      "Yarn bought vs used: <button> ",
+      "Yarn bought vs used: <div> ",
+      "Yarn bought vs used: <button> ",
+      "Yarn bought vs used: <div> ",
+      "Yarn bought vs used: <button> ",
+      "Yarn bought vs used: <div> ",
+      "Yarn bought vs used: <button> ",
+      "Yarn bought vs used: <div> ",
+      "Yarn bought vs used: <button> ",
+      "Yarn bought vs used: <div> ",
+      "Yarn bought vs used: <button> "
+    ],
+    "cut": [
+      "Business at a glance: \"Dispatched this month\"",
+      "Business at a glance: \"Booked this month\"",
+      "Orders booked per month: \"All-over (m)\"",
+      "Order value booked: \"Dec\"",
+      "Order value booked: \"Jan\"",
+      "Order value booked: \"Feb\"",
+      "Order value booked: \"Mar\"",
+      "Order value booked: \"Apr\"",
+      "Order value booked: \"May\"",
+      "Order value booked: \"Jun\"",
+      "Order value booked: \"Aug\"",
+      "Order value booked: \"Sep\"",
+      "Order value booked: \"Oct\"",
+      "Order value booked: \"Nov\"",
+      "Where the open orders are right now: \"Pending for production\"",
+      "Where the open orders are right now: \"Jobsheet pending\"",
+      "Where the open orders are right now: \"At outside weaver\"",
+      "Where the open orders are right now: \"Jobsheet created\"",
+      "Where the open orders are right now: \"Production completed\"",
+      "Where the open orders are right now: \"Ready for dispatch\"",
+      "Where the open orders are right now: \"Partly dispatched\"",
+      "Business by broker: \"Pcs\"",
+      "Business by broker: \"Shree Ambica Saree Emporium and Wholesale Textile \"",
+      "Business by broker: \"Shubh Laxmi Collections · 2 orders\"",
+      "Business by broker: \"Shree Ambica Saree Emporium and Wholesale Textile \"",
+      "Business by broker: \"Laxmi Narayan Silk Mills · 3 orders\"",
+      "Quality demand: \"All-over (m)\"",
+      "Days from order to dispatch: \"90th percentile\"",
+      "Designs with most damage: \"D285\"",
+      "Goods returned by month: \"All-over (m)\"",
+      "Returns by client: \"All-over (m)\"",
+      "Work done twice: \"Dec\"",
+      "Work done twice: \"Jan\"",
+      "Work done twice: \"Feb\"",
+      "Work done twice: \"Mar\"",
+      "Work done twice: \"Apr\"",
+      "Work done twice: \"May\"",
+      "Work done twice: \"Jun\"",
+      "Work done twice: \"Aug\"",
+      "Work done twice: \"Sep\"",
+      "Work done twice: \"Oct\"",
+      "Work done twice: \"Nov\"",
+      "Stock at a glance: \"Value at last order rate\"",
+      "Job-work parties: \"Butta cutting\"",
+      "Job-work parties: \"Outside weavers\"",
+      "Loom utilisation: \"All looms · 24 h a day\"",
+      "Frames woven per month: \"Frames (pcs)\"",
+      "Dispatch expected next 4 weeks: \"All-over (m)\"",
+      "Dispatch expected next 4 weeks: \"This week\"",
+      "Dispatch expected next 4 weeks: \"Wk of 16 Nov\"",
+      "Dispatch expected next 4 weeks: \"Wk of 23 Nov\"",
+      "Dispatch expected next 4 weeks: \"Wk of 30 Nov\"",
+      "Today in numbers: \"Frames completed\""
+    ],
+    "unequal": [],
+    "holes": [
+      "Business pulse: row 2 leaves 241 px empty",
+      "Speed: row 1 leaves 121 px empty",
+      "Speed: row 2 leaves 121 px empty",
+      "Quality & damage: row 2 leaves 241 px empty",
+      "Returns & rework: row 1 leaves 121 px empty",
+      "Returns & rework: row 2 leaves 483 px empty",
+      "Vendors: row 1 leaves 121 px empty",
+      "Vendors: row 2 leaves 483 px empty",
+      "Looms & yarn: row 1 leaves 121 px empty",
+      "Looms & yarn: row 2 leaves 121 px empty",
+      "Attention & team: row 1 leaves 121 px empty",
+      "Attention & team: row 2 leaves 362 px empty"
+    ],
+    "baseline": [
+      "Business pulse: row 1 figures start at 0 / 55 px",
+      "Clients: row 1 figures start at 103 / 0 px",
+      "Brokers & designs: row 1 figures start at 39 / 0 / 23 px",
+      "Speed: row 1 figures start at 52 / 0 px",
+      "Speed: row 2 figures start at 0 / 32 px",
+      "Quality & damage: row 1 figures start at 35 / 0 / 35 px",
+      "Quality & damage: row 2 figures start at 0 / 35 px",
+      "Returns & rework: row 1 figures start at 0 / 17 px",
+      "Stock: row 1 figures start at 0 / 49 px",
+      "Vendors: row 1 figures start at 21 / 0 px",
+      "Looms & yarn: row 1 figures start at 0 / 23 px",
+      "Attention & team: row 1 figures start at 0 / 107 px"
+    ],
+    "small": [],
+    "scrollers": [
+      "Designs that sell again: scrolls sideways (288 > 187)",
+      "Returns by client: scrolls sideways (288 > 187)",
+      "Dead stock: scrolls sideways (288 > 187)",
+      "Job-work parties: scrolls sideways (405 > 308)",
+      "Challans out for too long: scrolls sideways (288 > 187)",
+      "Team activity today: scrolls sideways (314 > 308)"
+    ],
+    "contentWidth": 768,
+    "sections": [],
+    "errors": [],
+    "shots": [
+      "owner-1280z125-top.png",
+      "owner-1280z125-full.png",
+      "owner-1280z125-section-0-business-pulse.png",
+      "owner-1280z125-section-1-clients.png",
+      "owner-1280z125-section-2-brokers-designs.png",
+      "owner-1280z125-section-3-speed.png",
+      "owner-1280z125-section-4-quality-damage.png",
+      "owner-1280z125-section-5-returns-rework.png",
+      "owner-1280z125-section-6-stock.png",
+      "owner-1280z125-section-7-vendors.png",
+      "owner-1280z125-section-8-looms-yarn.png",
+      "owner-1280z125-section-9-attention-team.png",
+      "owner-1280z125-drawer.png",
+      "owner-1280z125-arrange.png",
+      "owner-1280z125-arrange-full.png"
+    ]
+  },
+  {
+    "dashboard": "owner",
+    "size": "1180t",
+    "expect": "tablet",
+    "hscroll": false,
+    "mode": "tablet",
+    "overflow": [],
+    "cut": [],
+    "unequal": [],
+    "holes": [
+      "Business pulse: row 1 leaves 292 px empty",
+      "Business pulse: row 3 leaves 584 px empty"
+    ],
+    "baseline": [
+      "Business pulse: row 2 figures start at 44 / 0 px"
+    ],
+    "small": [
+      "+ 85 more 76×32"
+    ],
+    "scrollers": [
+      "Orders booked per month: scrolls sideways (3030 > 526)",
+      "Order value booked: scrolls sideways (1348 > 234)"
+    ],
+    "contentWidth": 924,
+    "sections": [
+      {
+        "title": "Overview",
+        "hscroll": false,
+        "mode": "tablet",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [
+          "Business pulse: row 1 leaves 292 px empty",
+          "Business pulse: row 3 leaves 584 px empty"
+        ],
+        "baseline": [
+          "Business pulse: row 2 figures start at 44 / 0 px"
+        ],
+        "small": [
+          "+ 85 more 76×32"
+        ],
+        "scrollers": [
+          "Orders booked per month: scrolls sideways (3030 > 526)",
+          "Order value booked: scrolls sideways (1348 > 234)"
+        ],
+        "contentWidth": 924
+      },
+      {
+        "title": "Clients",
+        "hscroll": false,
+        "mode": "tablet",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [],
+        "baseline": [
+          "Clients: row 1 figures start at 55 / 0 px"
+        ],
+        "small": [],
+        "scrollers": [],
+        "contentWidth": 924
+      },
+      {
+        "title": "Brokers & designs",
+        "hscroll": false,
+        "mode": "tablet",
+        "overflow": [],
+        "cut": [
+          "Business by broker: \"Shree Ambica Saree Emporium and Wholesale Textile \"",
+          "Business by broker: \"Shree Ambica Saree Emporium and Wholesale Textile \""
+        ],
+        "unequal": [],
+        "holes": [],
+        "baseline": [
+          "Brokers & designs: row 1 figures start at 62 / 0 / 46 px"
+        ],
+        "small": [],
+        "scrollers": [
+          "Designs that sell again: scrolls sideways (288 > 242)"
+        ],
+        "contentWidth": 924
+      },
+      {
+        "title": "Speed",
+        "hscroll": false,
+        "mode": "tablet",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [],
+        "baseline": [
+          "Speed: row 1 figures start at 18 / 0 px",
+          "Speed: row 2 figures start at 0 / 18 px"
+        ],
+        "small": [
+          "+ 47 more 75×32"
+        ],
+        "scrollers": [],
+        "contentWidth": 924
+      },
+      {
+        "title": "Quality & damage",
+        "hscroll": false,
+        "mode": "tablet",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [
+          "Quality & damage: row 2 leaves 292 px empty"
+        ],
+        "baseline": [
+          "Quality & damage: row 2 figures start at 0 / 17 px"
+        ],
+        "small": [
+          "D241: 6.9 % · 29 of 419 pcs 234×40",
+          "D237: 3.4 % · 13 of 378 pcs 234×40",
+          "D285: 3.4 % · 34 of 1013 pcs 234×40",
+          "D272: 3.3 % · 18 of 540 pcs 234×40",
+          "D222: 3 % · 10 of 330 pcs 234×40"
+        ],
+        "scrollers": [],
+        "contentWidth": 924
+      },
+      {
+        "title": "Returns & rework",
+        "hscroll": false,
+        "mode": "tablet",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [
+          "Returns & rework: row 2 leaves 584 px empty"
+        ],
+        "baseline": [
+          "Returns & rework: row 1 figures start at 0 / 18 px"
+        ],
+        "small": [],
+        "scrollers": [
+          "Goods returned by month: scrolls sideways (3030 > 526)",
+          "Returns by client: scrolls sideways (288 > 242)",
+          "Work done twice: scrolls sideways (1348 > 234)"
+        ],
+        "contentWidth": 924
+      },
+      {
+        "title": "Stock",
+        "hscroll": false,
+        "mode": "tablet",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [],
+        "baseline": [
+          "Stock: row 1 figures start at 0 / 18 px"
+        ],
+        "small": [],
+        "scrollers": [
+          "Dead stock: scrolls sideways (288 > 242)"
+        ],
+        "contentWidth": 924
+      },
+      {
+        "title": "Vendors",
+        "hscroll": false,
+        "mode": "tablet",
+        "overflow": [
+          "Our goods lying outside: <span> 14,384.07m",
+          "Our goods lying outside: <span> 14,384.07",
+          "Our goods lying outside: <span> m"
+        ],
+        "cut": [
+          "Our goods lying outside: \"Krishna Butta Cutting\"",
+          "Our goods lying outside: \"Anupam Dyeing Mills\"",
+          "Our goods lying outside: \"Reliable Process\"",
+          "Our goods lying outside: \"Shree Ganesh Butta Cutting and Hand Finishing Work\"",
+          "Our goods lying outside: \"Laxmipati Process House\""
+        ],
+        "unequal": [],
+        "holes": [
+          "Vendors: row 2 leaves 584 px empty"
+        ],
+        "baseline": [
+          "Vendors: row 1 figures start at 25 / 0 px"
+        ],
+        "small": [],
+        "scrollers": [
+          "Challans out for too long: scrolls sideways (288 > 242)"
+        ],
+        "contentWidth": 924
+      },
+      {
+        "title": "Looms & yarn",
+        "hscroll": false,
+        "mode": "tablet",
+        "overflow": [],
+        "cut": [
+          "Loom utilisation: \"All looms · 24 h a day\""
+        ],
+        "unequal": [],
+        "holes": [],
+        "baseline": [
+          "Looms & yarn: row 1 figures start at 0 / 44 px"
+        ],
+        "small": [
+          "Loom 30: 11.7 % · 84 h 234×40",
+          "Loom 22: 28.2 % · 202 h 234×40",
+          "Loom 28: 32 % · 230 h 234×40",
+          "Loom 10: 34.7 % · 249 h 234×40",
+          "Loom 21: 35.5 % · 254 h 234×40",
+          "Loom 28: 285 h idle 234×40",
+          "Loom 30: 201 h idle 234×40",
+          "Loom 3: 185 h idle 234×40",
+          "Loom 21: 177 h idle 234×40",
+          "Loom 18: 126 h idle 234×40"
+        ],
+        "scrollers": [
+          "Frames woven per month: scrolls sideways (3030 > 526)",
+          "Yarn bought vs used: scrolls sideways (3030 > 526)"
+        ],
+        "contentWidth": 924
+      },
+      {
+        "title": "Attention & team",
+        "hscroll": false,
+        "mode": "tablet",
+        "overflow": [],
+        "cut": [
+          "Dispatch expected next 4 weeks: \"Wk of 16 Nov\"",
+          "Dispatch expected next 4 weeks: \"Wk of 23 Nov\"",
+          "Dispatch expected next 4 weeks: \"Wk of 30 Nov\""
+        ],
+        "unequal": [],
+        "holes": [
+          "Attention & team: row 2 leaves 292 px empty"
+        ],
+        "baseline": [
+          "Attention & team: row 1 figures start at 0 / 82 px"
+        ],
+        "small": [],
+        "scrollers": [],
+        "contentWidth": 924
+      }
+    ],
+    "errors": [],
+    "shots": [
+      "owner-1180t-top.png",
+      "owner-1180t-tab-0-overview.png",
+      "owner-1180t-tab-1-clients.png",
+      "owner-1180t-tab-2-brokers-designs.png",
+      "owner-1180t-tab-3-speed.png",
+      "owner-1180t-tab-4-quality-damage.png",
+      "owner-1180t-tab-5-returns-rework.png",
+      "owner-1180t-tab-6-stock.png",
+      "owner-1180t-tab-7-vendors.png",
+      "owner-1180t-tab-8-looms-yarn.png",
+      "owner-1180t-tab-9-attention-team.png",
+      "owner-1180t-drawer.png",
+      "owner-1180t-arrange.png",
+      "owner-1180t-arrange-full.png"
+    ]
+  },
+  {
+    "dashboard": "owner",
+    "size": "820t",
+    "expect": "tablet",
+    "hscroll": false,
+    "mode": "tablet",
+    "overflow": [],
+    "cut": [],
+    "unequal": [],
+    "holes": [],
+    "baseline": [],
+    "small": [
+      "+ 85 more 76×32"
+    ],
+    "scrollers": [
+      "Orders booked per month: scrolls sideways (4251 > 738)",
+      "Order value booked: scrolls sideways (1981 > 344)"
+    ],
+    "contentWidth": 820,
+    "sections": [
+      {
+        "title": "Overview",
+        "hscroll": false,
+        "mode": "tablet",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [],
+        "baseline": [],
+        "small": [
+          "+ 85 more 76×32"
+        ],
+        "scrollers": [
+          "Orders booked per month: scrolls sideways (4251 > 738)",
+          "Order value booked: scrolls sideways (1981 > 344)"
+        ],
+        "contentWidth": 820
+      },
+      {
+        "title": "Clients",
+        "hscroll": false,
+        "mode": "tablet",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [
+          "Clients: row 1 leaves 394 px empty"
+        ],
+        "baseline": [],
+        "small": [],
+        "scrollers": [],
+        "contentWidth": 820
+      },
+      {
+        "title": "Brokers & designs",
+        "hscroll": false,
+        "mode": "tablet",
+        "overflow": [],
+        "cut": [
+          "Business by broker: \"Shree Ambica Saree Emporium and Wholesale Textile \"",
+          "Business by broker: \"Shree Ambica Saree Emporium and Wholesale Textile \""
+        ],
+        "unequal": [],
+        "holes": [
+          "Brokers & designs: row 2 leaves 394 px empty"
+        ],
+        "baseline": [
+          "Brokers & designs: row 1 figures start at 62 / 0 px"
+        ],
+        "small": [],
+        "scrollers": [],
+        "contentWidth": 820
+      },
+      {
+        "title": "Speed",
+        "hscroll": false,
+        "mode": "tablet",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [
+          "Speed: row 1 leaves 394 px empty",
+          "Speed: row 4 leaves 394 px empty"
+        ],
+        "baseline": [],
+        "small": [
+          "+ 47 more 75×32"
+        ],
+        "scrollers": [],
+        "contentWidth": 820
+      },
+      {
+        "title": "Quality & damage",
+        "hscroll": false,
+        "mode": "tablet",
+        "overflow": [],
+        "cut": [
+          "Damage by type: \"Supervisor\""
+        ],
+        "unequal": [],
+        "holes": [
+          "Quality & damage: row 3 leaves 394 px empty"
+        ],
+        "baseline": [],
+        "small": [
+          "Weaver52 pcs27% 188×28",
+          "Machine45 pcs24% 188×28",
+          "Mill44 pcs23% 188×28",
+          "Butta26 pcs14% 188×28",
+          "Supervisor20 pcs11% 188×28",
+          "Other3 pcs2% 188×28",
+          "D241: 6.9 % · 29 of 419 pcs 344×40",
+          "D237: 3.4 % · 13 of 378 pcs 344×40",
+          "D285: 3.4 % · 34 of 1013 pcs 344×40",
+          "D272: 3.3 % · 18 of 540 pcs 344×40",
+          "D222: 3 % · 10 of 330 pcs 344×40"
+        ],
+        "scrollers": [],
+        "contentWidth": 820
+      },
+      {
+        "title": "Returns & rework",
+        "hscroll": false,
+        "mode": "tablet",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [],
+        "baseline": [
+          "Returns & rework: row 2 figures start at 62 / 0 px"
+        ],
+        "small": [],
+        "scrollers": [
+          "Goods returned by month: scrolls sideways (4251 > 738)",
+          "Work done twice: scrolls sideways (1981 > 344)"
+        ],
+        "contentWidth": 820
+      },
+      {
+        "title": "Stock",
+        "hscroll": false,
+        "mode": "tablet",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [
+          "Stock: row 2 leaves 394 px empty"
+        ],
+        "baseline": [],
+        "small": [],
+        "scrollers": [],
+        "contentWidth": 820
+      },
+      {
+        "title": "Vendors",
+        "hscroll": false,
+        "mode": "tablet",
+        "overflow": [],
+        "cut": [
+          "Our goods lying outside: \"Shree Ganesh Butta Cutting and Hand Finishing Work\"",
+          "Our goods lying outside: \"Laxmipati Process House\""
+        ],
+        "unequal": [],
+        "holes": [],
+        "baseline": [],
+        "small": [],
+        "scrollers": [],
+        "contentWidth": 820
+      },
+      {
+        "title": "Looms & yarn",
+        "hscroll": false,
+        "mode": "tablet",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [
+          "Looms & yarn: row 1 leaves 394 px empty",
+          "Looms & yarn: row 4 leaves 394 px empty"
+        ],
+        "baseline": [],
+        "small": [
+          "Loom 30: 11.7 % · 84 h 344×40",
+          "Loom 22: 28.2 % · 202 h 344×40",
+          "Loom 28: 32 % · 230 h 344×40",
+          "Loom 10: 34.7 % · 249 h 344×40",
+          "Loom 21: 35.5 % · 254 h 344×40",
+          "Loom 28: 285 h idle 344×40",
+          "Loom 30: 201 h idle 344×40",
+          "Loom 3: 185 h idle 344×40",
+          "Loom 21: 177 h idle 344×40",
+          "Loom 18: 126 h idle 344×40"
+        ],
+        "scrollers": [
+          "Frames woven per month: scrolls sideways (4251 > 738)",
+          "Yarn bought vs used: scrolls sideways (4251 > 738)"
+        ],
+        "contentWidth": 820
+      },
+      {
+        "title": "Attention & team",
+        "hscroll": false,
+        "mode": "tablet",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [
+          "Attention & team: row 2 leaves 394 px empty"
+        ],
+        "baseline": [],
+        "small": [],
+        "scrollers": [],
+        "contentWidth": 820
+      }
+    ],
+    "errors": [],
+    "shots": [
+      "owner-820t-top.png",
+      "owner-820t-tab-0-overview.png",
+      "owner-820t-tab-1-clients.png",
+      "owner-820t-tab-2-brokers-designs.png",
+      "owner-820t-tab-3-speed.png",
+      "owner-820t-tab-4-quality-damage.png",
+      "owner-820t-tab-5-returns-rework.png",
+      "owner-820t-tab-6-stock.png",
+      "owner-820t-tab-7-vendors.png",
+      "owner-820t-tab-8-looms-yarn.png",
+      "owner-820t-tab-9-attention-team.png",
+      "owner-820t-drawer.png",
+      "owner-820t-arrange.png",
+      "owner-820t-arrange-full.png"
+    ]
+  },
+  {
+    "dashboard": "owner",
+    "size": "768t",
+    "expect": "tablet",
+    "hscroll": false,
+    "mode": "tablet",
+    "overflow": [],
+    "cut": [],
+    "unequal": [],
+    "holes": [],
+    "baseline": [],
+    "small": [
+      "+ 85 more 76×32"
+    ],
+    "scrollers": [
+      "Orders booked per month: scrolls sideways (3951 > 686)",
+      "Order value booked: scrolls sideways (1832 > 318)"
+    ],
+    "contentWidth": 768,
+    "sections": [
+      {
+        "title": "Overview",
+        "hscroll": false,
+        "mode": "tablet",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [],
+        "baseline": [],
+        "small": [
+          "+ 85 more 76×32"
+        ],
+        "scrollers": [
+          "Orders booked per month: scrolls sideways (3951 > 686)",
+          "Order value booked: scrolls sideways (1832 > 318)"
+        ],
+        "contentWidth": 768
+      },
+      {
+        "title": "Clients",
+        "hscroll": false,
+        "mode": "tablet",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [
+          "Clients: row 1 leaves 368 px empty"
+        ],
+        "baseline": [],
+        "small": [],
+        "scrollers": [],
+        "contentWidth": 768
+      },
+      {
+        "title": "Brokers & designs",
+        "hscroll": false,
+        "mode": "tablet",
+        "overflow": [],
+        "cut": [
+          "Business by broker: \"Shree Ambica Saree Emporium and Wholesale Textile \"",
+          "Business by broker: \"Shree Ambica Saree Emporium and Wholesale Textile \""
+        ],
+        "unequal": [],
+        "holes": [
+          "Brokers & designs: row 2 leaves 368 px empty"
+        ],
+        "baseline": [
+          "Brokers & designs: row 1 figures start at 62 / 0 px"
+        ],
+        "small": [],
+        "scrollers": [],
+        "contentWidth": 768
+      },
+      {
+        "title": "Speed",
+        "hscroll": false,
+        "mode": "tablet",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [
+          "Speed: row 1 leaves 368 px empty",
+          "Speed: row 4 leaves 368 px empty"
+        ],
+        "baseline": [],
+        "small": [
+          "+ 47 more 75×32"
+        ],
+        "scrollers": [],
+        "contentWidth": 768
+      },
+      {
+        "title": "Quality & damage",
+        "hscroll": false,
+        "mode": "tablet",
+        "overflow": [],
+        "cut": [
+          "Damage by type: \"Weaver\"",
+          "Damage by type: \"Machine\"",
+          "Damage by type: \"Butta\"",
+          "Damage by type: \"Supervisor\""
+        ],
+        "unequal": [],
+        "holes": [
+          "Quality & damage: row 3 leaves 368 px empty"
+        ],
+        "baseline": [],
+        "small": [
+          "Weaver52 pcs27% 162×28",
+          "Machine45 pcs24% 162×28",
+          "Mill44 pcs23% 162×28",
+          "Butta26 pcs14% 162×28",
+          "Supervisor20 pcs11% 162×28",
+          "Other3 pcs2% 162×28",
+          "D241: 6.9 % · 29 of 419 pcs 318×40",
+          "D237: 3.4 % · 13 of 378 pcs 318×40",
+          "D285: 3.4 % · 34 of 1013 pcs 318×40",
+          "D272: 3.3 % · 18 of 540 pcs 318×40",
+          "D222: 3 % · 10 of 330 pcs 318×40"
+        ],
+        "scrollers": [],
+        "contentWidth": 768
+      },
+      {
+        "title": "Returns & rework",
+        "hscroll": false,
+        "mode": "tablet",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [],
+        "baseline": [
+          "Returns & rework: row 2 figures start at 62 / 0 px"
+        ],
+        "small": [],
+        "scrollers": [
+          "Goods returned by month: scrolls sideways (3951 > 686)",
+          "Work done twice: scrolls sideways (1832 > 318)"
+        ],
+        "contentWidth": 768
+      },
+      {
+        "title": "Stock",
+        "hscroll": false,
+        "mode": "tablet",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [
+          "Stock: row 2 leaves 368 px empty"
+        ],
+        "baseline": [],
+        "small": [],
+        "scrollers": [],
+        "contentWidth": 768
+      },
+      {
+        "title": "Vendors",
+        "hscroll": false,
+        "mode": "tablet",
+        "overflow": [],
+        "cut": [
+          "Our goods lying outside: \"Krishna Butta Cutting\"",
+          "Our goods lying outside: \"Anupam Dyeing Mills\"",
+          "Our goods lying outside: \"Shree Ganesh Butta Cutting and Hand Finishing Work\"",
+          "Our goods lying outside: \"Laxmipati Process House\""
+        ],
+        "unequal": [],
+        "holes": [],
+        "baseline": [],
+        "small": [],
+        "scrollers": [],
+        "contentWidth": 768
+      },
+      {
+        "title": "Looms & yarn",
+        "hscroll": false,
+        "mode": "tablet",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [
+          "Looms & yarn: row 1 leaves 368 px empty",
+          "Looms & yarn: row 4 leaves 368 px empty"
+        ],
+        "baseline": [],
+        "small": [
+          "Loom 30: 11.7 % · 84 h 318×40",
+          "Loom 22: 28.2 % · 202 h 318×40",
+          "Loom 28: 32 % · 230 h 318×40",
+          "Loom 10: 34.7 % · 249 h 318×40",
+          "Loom 21: 35.5 % · 254 h 318×40",
+          "Loom 28: 285 h idle 318×40",
+          "Loom 30: 201 h idle 318×40",
+          "Loom 3: 185 h idle 318×40",
+          "Loom 21: 177 h idle 318×40",
+          "Loom 18: 126 h idle 318×40"
+        ],
+        "scrollers": [
+          "Frames woven per month: scrolls sideways (3951 > 686)",
+          "Yarn bought vs used: scrolls sideways (3951 > 686)"
+        ],
+        "contentWidth": 768
+      },
+      {
+        "title": "Attention & team",
+        "hscroll": false,
+        "mode": "tablet",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [
+          "Attention & team: row 2 leaves 368 px empty"
+        ],
+        "baseline": [],
+        "small": [],
+        "scrollers": [],
+        "contentWidth": 768
+      }
+    ],
+    "errors": [],
+    "shots": [
+      "owner-768t-top.png",
+      "owner-768t-tab-0-overview.png",
+      "owner-768t-tab-1-clients.png",
+      "owner-768t-tab-2-brokers-designs.png",
+      "owner-768t-tab-3-speed.png",
+      "owner-768t-tab-4-quality-damage.png",
+      "owner-768t-tab-5-returns-rework.png",
+      "owner-768t-tab-6-stock.png",
+      "owner-768t-tab-7-vendors.png",
+      "owner-768t-tab-8-looms-yarn.png",
+      "owner-768t-tab-9-attention-team.png",
+      "owner-768t-drawer.png",
+      "owner-768t-arrange.png",
+      "owner-768t-arrange-full.png"
+    ]
+  },
+  {
+    "dashboard": "owner",
+    "size": "390",
+    "expect": "phone",
+    "hscroll": false,
+    "mode": "tablet",
+    "overflow": [],
+    "cut": [],
+    "unequal": [],
+    "holes": [],
+    "baseline": [],
+    "small": [
+      "Refresh the dashboard 36×44",
+      "+ 85 more 76×32"
+    ],
+    "scrollers": [
+      "Orders booked per month: scrolls sideways (1866 > 324)",
+      "Order value booked: scrolls sideways (1866 > 324)"
+    ],
+    "contentWidth": 390,
+    "sections": [
+      {
+        "title": "Overview",
+        "hscroll": false,
+        "mode": "tablet",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [],
+        "baseline": [],
+        "small": [
+          "Refresh the dashboard 36×44",
+          "+ 85 more 76×32"
+        ],
+        "scrollers": [
+          "Orders booked per month: scrolls sideways (1866 > 324)",
+          "Order value booked: scrolls sideways (1866 > 324)"
+        ],
+        "contentWidth": 390
+      },
+      {
+        "title": "Clients",
+        "hscroll": false,
+        "mode": "tablet",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [],
+        "baseline": [],
+        "small": [
+          "Refresh the dashboard 36×44"
+        ],
+        "scrollers": [],
+        "contentWidth": 390
+      },
+      {
+        "title": "Brokers & designs",
+        "hscroll": false,
+        "mode": "tablet",
+        "overflow": [],
+        "cut": [
+          "Business by broker: \"Shree Ambica Saree Emporium and Wholesale Textile \"",
+          "Business by broker: \"Shree Ambica Saree Emporium and Wholesale Textile \""
+        ],
+        "unequal": [],
+        "holes": [],
+        "baseline": [],
+        "small": [
+          "Refresh the dashboard 36×44"
+        ],
+        "scrollers": [],
+        "contentWidth": 390
+      },
+      {
+        "title": "Speed",
+        "hscroll": false,
+        "mode": "tablet",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [],
+        "baseline": [],
+        "small": [
+          "Refresh the dashboard 36×44",
+          "+ 47 more 75×32"
+        ],
+        "scrollers": [],
+        "contentWidth": 390
+      },
+      {
+        "title": "Quality & damage",
+        "hscroll": false,
+        "mode": "tablet",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [],
+        "baseline": [],
+        "small": [
+          "Refresh the dashboard 36×44",
+          "Weaver52 pcs27% 324×28",
+          "Machine45 pcs24% 324×28",
+          "Mill44 pcs23% 324×28",
+          "Butta26 pcs14% 324×28",
+          "Supervisor20 pcs11% 324×28",
+          "Other3 pcs2% 324×28",
+          "D241: 6.9 % · 29 of 419 pcs 324×40",
+          "D237: 3.4 % · 13 of 378 pcs 324×40",
+          "D285: 3.4 % · 34 of 1013 pcs 324×40",
+          "D272: 3.3 % · 18 of 540 pcs 324×40",
+          "D222: 3 % · 10 of 330 pcs 324×40"
+        ],
+        "scrollers": [],
+        "contentWidth": 390
+      },
+      {
+        "title": "Returns & rework",
+        "hscroll": false,
+        "mode": "tablet",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [],
+        "baseline": [],
+        "small": [
+          "Refresh the dashboard 36×44"
+        ],
+        "scrollers": [
+          "Goods returned by month: scrolls sideways (1866 > 324)",
+          "Work done twice: scrolls sideways (1866 > 324)"
+        ],
+        "contentWidth": 390
+      },
+      {
+        "title": "Stock",
+        "hscroll": false,
+        "mode": "tablet",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [],
+        "baseline": [],
+        "small": [
+          "Refresh the dashboard 36×44"
+        ],
+        "scrollers": [],
+        "contentWidth": 390
+      },
+      {
+        "title": "Vendors",
+        "hscroll": false,
+        "mode": "tablet",
+        "overflow": [],
+        "cut": [
+          "Job-work parties: \"Butta cutting\"",
+          "Job-work parties: \"Outside weavers\"",
+          "Our goods lying outside: \"Krishna Butta Cutting\"",
+          "Our goods lying outside: \"Anupam Dyeing Mills\"",
+          "Our goods lying outside: \"Shree Ganesh Butta Cutting and Hand Finishing Work\"",
+          "Our goods lying outside: \"Laxmipati Process House\""
+        ],
+        "unequal": [],
+        "holes": [],
+        "baseline": [],
+        "small": [
+          "Refresh the dashboard 36×44"
+        ],
+        "scrollers": [
+          "Job-work parties: scrolls sideways (405 > 332)"
+        ],
+        "contentWidth": 390
+      },
+      {
+        "title": "Looms & yarn",
+        "hscroll": false,
+        "mode": "tablet",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [],
+        "baseline": [],
+        "small": [
+          "Refresh the dashboard 36×44",
+          "Loom 30: 11.7 % · 84 h 324×40",
+          "Loom 22: 28.2 % · 202 h 324×40",
+          "Loom 28: 32 % · 230 h 324×40",
+          "Loom 10: 34.7 % · 249 h 324×40",
+          "Loom 21: 35.5 % · 254 h 324×40",
+          "Loom 28: 285 h idle 324×40",
+          "Loom 30: 201 h idle 324×40",
+          "Loom 3: 185 h idle 324×40",
+          "Loom 21: 177 h idle 324×40",
+          "Loom 18: 126 h idle 324×40"
+        ],
+        "scrollers": [
+          "Frames woven per month: scrolls sideways (1866 > 324)",
+          "Yarn bought vs used: scrolls sideways (1866 > 324)"
+        ],
+        "contentWidth": 390
+      },
+      {
+        "title": "Attention & team",
+        "hscroll": false,
+        "mode": "tablet",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [],
+        "baseline": [],
+        "small": [
+          "Refresh the dashboard 36×44"
+        ],
+        "scrollers": [],
+        "contentWidth": 390
+      }
+    ],
+    "errors": [],
+    "shots": [
+      "owner-390-top.png",
+      "owner-390-tab-0-overview.png",
+      "owner-390-tab-1-clients.png",
+      "owner-390-tab-2-brokers-designs.png",
+      "owner-390-tab-3-speed.png",
+      "owner-390-tab-4-quality-damage.png",
+      "owner-390-tab-5-returns-rework.png",
+      "owner-390-tab-6-stock.png",
+      "owner-390-tab-7-vendors.png",
+      "owner-390-tab-8-looms-yarn.png",
+      "owner-390-tab-9-attention-team.png",
+      "owner-390-drawer.png"
+    ]
+  },
+  {
+    "dashboard": "partner",
+    "size": "1920",
+    "expect": "desktop",
+    "hscroll": false,
+    "mode": "desktop",
+    "overflow": [
+      "Cloth by stage right now: <div> 303",
+      "Cloth by stage right now: <button> ",
+      "Cloth by stage right now: <span> 303",
+      "Cloth by stage right now: <div> 1.1k",
+      "Cloth by stage right now: <button> ",
+      "Cloth by stage right now: <span> 1.1k",
+      "Cloth by stage right now: <div> 2k",
+      "Cloth by stage right now: <button> ",
+      "Cloth by stage right now: <span> 2k"
+    ],
+    "cut": [
+      "Cloth by stage right now: \"m (meter orders)\"",
+      "Outside work this month: \"Received from weavers\"",
+      "Outside POs by weaver: \"All-over (m)\""
+    ],
+    "unequal": [],
+    "holes": [
+      "Planning: row 1 leaves 230 px empty",
+      "Planning: row 2 leaves 230 px empty",
+      "After the loom: row 1 leaves 230 px empty",
+      "After the loom: row 2 leaves 230 px empty",
+      "Outside & FG: row 2 leaves 460 px empty"
+    ],
+    "baseline": [
+      "Reliability: row 1 figures start at 14 / 0 px",
+      "After the loom: row 1 figures start at 58 / 0 px",
+      "Outside & FG: row 1 figures start at 0 / 58 / 0 px"
+    ],
+    "small": [],
+    "scrollers": [],
+    "contentWidth": 1440,
+    "sections": [],
+    "errors": [],
+    "shots": [
+      "partner-1920-top.png",
+      "partner-1920-full.png",
+      "partner-1920-section-0-planning.png",
+      "partner-1920-section-1-floor.png",
+      "partner-1920-section-2-reliability.png",
+      "partner-1920-section-3-after-the-loom.png",
+      "partner-1920-section-4-outside-fg.png",
+      "partner-1920-section-5-yarn.png",
+      "partner-1920-arrange.png",
+      "partner-1920-arrange-full.png"
+    ]
+  },
+  {
+    "dashboard": "partner",
+    "size": "1440",
+    "expect": "desktop",
+    "hscroll": false,
+    "mode": "desktop",
+    "overflow": [
+      "Cloth by stage right now: <div> 303",
+      "Cloth by stage right now: <button> ",
+      "Cloth by stage right now: <span> 303",
+      "Cloth by stage right now: <div> 1.1k",
+      "Cloth by stage right now: <button> ",
+      "Cloth by stage right now: <span> 1.1k",
+      "Cloth by stage right now: <div> 2k",
+      "Cloth by stage right now: <button> ",
+      "Cloth by stage right now: <span> 2k"
+    ],
+    "cut": [
+      "Cloth by stage right now: \"m (meter orders)\"",
+      "Outside work this month: \"Received from weavers\"",
+      "Outside POs by weaver: \"All-over (m)\""
+    ],
+    "unequal": [],
+    "holes": [
+      "Planning: row 1 leaves 190 px empty",
+      "Planning: row 2 leaves 190 px empty",
+      "After the loom: row 1 leaves 190 px empty",
+      "After the loom: row 2 leaves 190 px empty",
+      "Outside & FG: row 2 leaves 380 px empty"
+    ],
+    "baseline": [
+      "Planning: row 1 figures start at 0 / 14 px",
+      "Planning: row 2 figures start at 0 / 17 px",
+      "Reliability: row 1 figures start at 32 / 0 px",
+      "After the loom: row 1 figures start at 58 / 0 px",
+      "Outside & FG: row 1 figures start at 0 / 58 / 0 px",
+      "Yarn: row 1 figures start at 0 / 17 / 0 px"
+    ],
+    "small": [],
+    "scrollers": [],
+    "contentWidth": 1184,
+    "sections": [],
+    "errors": [],
+    "shots": [
+      "partner-1440-top.png",
+      "partner-1440-full.png",
+      "partner-1440-section-0-planning.png",
+      "partner-1440-section-1-floor.png",
+      "partner-1440-section-2-reliability.png",
+      "partner-1440-section-3-after-the-loom.png",
+      "partner-1440-section-4-outside-fg.png",
+      "partner-1440-section-5-yarn.png",
+      "partner-1440-arrange.png",
+      "partner-1440-arrange-full.png"
+    ]
+  },
+  {
+    "dashboard": "partner",
+    "size": "1280",
+    "expect": "desktop",
+    "hscroll": false,
+    "mode": "desktop",
+    "overflow": [
+      "Cloth by stage right now: <div> 303",
+      "Cloth by stage right now: <button> ",
+      "Cloth by stage right now: <span> 303",
+      "Cloth by stage right now: <div> 1.1k",
+      "Cloth by stage right now: <button> ",
+      "Cloth by stage right now: <span> 1.1k",
+      "Cloth by stage right now: <div> 2k",
+      "Cloth by stage right now: <button> ",
+      "Cloth by stage right now: <span> 2k"
+    ],
+    "cut": [
+      "Cloth by stage right now: \"m (meter orders)\"",
+      "Outside work this month: \"Received from weavers\"",
+      "Outside POs by weaver: \"All-over (m)\"",
+      "Beams ready vs needed: \"Jobsheets pending / sent\"",
+      "Beams ready vs needed: \"75/36 Poly 75D-600-Z\"",
+      "Beams ready vs needed: \"120/30 Viscose 120D-500-Z\"",
+      "Beams ready vs needed: \"50/24 Nylon 50D-900-Z\""
+    ],
+    "unequal": [],
+    "holes": [
+      "Planning: row 1 leaves 163 px empty",
+      "Planning: row 2 leaves 163 px empty",
+      "After the loom: row 1 leaves 163 px empty",
+      "After the loom: row 2 leaves 163 px empty",
+      "Outside & FG: row 2 leaves 327 px empty"
+    ],
+    "baseline": [
+      "Planning: row 1 figures start at 0 / 49 px",
+      "Planning: row 2 figures start at 0 / 14 px",
+      "Reliability: row 1 figures start at 32 / 0 px",
+      "After the loom: row 1 figures start at 44 / 0 px",
+      "Outside & FG: row 1 figures start at 14 / 58 / 0 px",
+      "Yarn: row 1 figures start at 0 / 17 / 0 px"
+    ],
+    "small": [],
+    "scrollers": [
+      "Orders waiting for jobsheets: scrolls sideways (288 > 273)",
+      "Sent but not started: scrolls sideways (288 > 273)",
+      "Late POs: scrolls sideways (288 > 273)",
+      "FG purchase awaiting goods: scrolls sideways (288 > 273)",
+      "Low yarn: scrolls sideways (288 > 273)"
+    ],
+    "contentWidth": 1024,
+    "sections": [],
+    "errors": [],
+    "shots": [
+      "partner-1280-top.png",
+      "partner-1280-full.png",
+      "partner-1280-section-0-planning.png",
+      "partner-1280-section-1-floor.png",
+      "partner-1280-section-2-reliability.png",
+      "partner-1280-section-3-after-the-loom.png",
+      "partner-1280-section-4-outside-fg.png",
+      "partner-1280-section-5-yarn.png",
+      "partner-1280-arrange.png",
+      "partner-1280-arrange-full.png"
+    ]
+  },
+  {
+    "dashboard": "partner",
+    "size": "1280z125",
+    "expect": "desktop",
+    "hscroll": false,
+    "mode": "desktop",
+    "overflow": [
+      "Cloth by stage right now: <div> ",
+      "Cloth by stage right now: <button> ",
+      "Cloth by stage right now: <div> ",
+      "Cloth by stage right now: <button> ",
+      "Cloth by stage right now: <div> 2k",
+      "Cloth by stage right now: <button> ",
+      "Cloth by stage right now: <span> 2k"
+    ],
+    "cut": [
+      "Machine damage per 100 frames: \"Factory average\"",
+      "Cloth by stage right now: \"m (meter orders)\"",
+      "Cloth by stage right now: \"Butta QC\"",
+      "Cloth by stage right now: \"Waiting mill\"",
+      "Outside work this month: \"POs given\"",
+      "Outside work this month: \"Received from weavers\"",
+      "Outside work this month: \"FG received\"",
+      "Outside POs by weaver: \"All-over (m)\"",
+      "Beams ready vs needed: \"Beams in stock\"",
+      "Beams ready vs needed: \"Jobsheets pending / sent\"",
+      "Beams ready vs needed: \"75/36 Poly 75D-600-Z\"",
+      "Beams ready vs needed: \"120/30 Viscose 120D-500-Z\"",
+      "Beams ready vs needed: \"50/24 Nylon 50D-900-Z\""
+    ],
+    "unequal": [],
+    "holes": [
+      "Planning: row 1 leaves 121 px empty",
+      "Planning: row 2 leaves 121 px empty",
+      "After the loom: row 1 leaves 121 px empty",
+      "After the loom: row 2 leaves 121 px empty",
+      "Outside & FG: row 2 leaves 241 px empty"
+    ],
+    "baseline": [
+      "Planning: row 1 figures start at 0 / 69 px",
+      "Planning: row 2 figures start at 0 / 19 px",
+      "Reliability: row 1 figures start at 102 / 0 px",
+      "After the loom: row 1 figures start at 7 / 0 px",
+      "After the loom: row 2 figures start at 49 / 0 px",
+      "Outside & FG: row 1 figures start at 35 / 93 / 0 px",
+      "Yarn: row 1 figures start at 0 / 49 / 14 px"
+    ],
+    "small": [],
+    "scrollers": [
+      "Orders waiting for jobsheets: scrolls sideways (288 > 187)",
+      "Sent but not started: scrolls sideways (288 > 187)",
+      "Late POs: scrolls sideways (288 > 187)",
+      "FG purchase awaiting goods: scrolls sideways (288 > 187)",
+      "Low yarn: scrolls sideways (288 > 187)"
+    ],
+    "contentWidth": 768,
+    "sections": [],
+    "errors": [],
+    "shots": [
+      "partner-1280z125-top.png",
+      "partner-1280z125-full.png",
+      "partner-1280z125-section-0-planning.png",
+      "partner-1280z125-section-1-floor.png",
+      "partner-1280z125-section-2-reliability.png",
+      "partner-1280z125-section-3-after-the-loom.png",
+      "partner-1280z125-section-4-outside-fg.png",
+      "partner-1280z125-section-5-yarn.png",
+      "partner-1280z125-arrange.png",
+      "partner-1280z125-arrange-full.png"
+    ]
+  },
+  {
+    "dashboard": "partner",
+    "size": "1180t",
+    "expect": "tablet",
+    "hscroll": false,
+    "mode": "tablet",
+    "overflow": [],
+    "cut": [],
+    "unequal": [],
+    "holes": [],
+    "baseline": [
+      "Planning: row 1 figures start at 0 / 37 px",
+      "Planning: row 2 figures start at 0 / 37 px"
+    ],
+    "small": [
+      "+ 1 more 65×32",
+      "+ 12 more 72×32"
+    ],
+    "scrollers": [
+      "Orders waiting for jobsheets: scrolls sideways (288 > 242)",
+      "Sent but not started: scrolls sideways (288 > 242)"
+    ],
+    "contentWidth": 924,
+    "sections": [
+      {
+        "title": "Overview",
+        "hscroll": false,
+        "mode": "tablet",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [],
+        "baseline": [
+          "Planning: row 1 figures start at 0 / 37 px",
+          "Planning: row 2 figures start at 0 / 37 px"
+        ],
+        "small": [
+          "+ 1 more 65×32",
+          "+ 12 more 72×32"
+        ],
+        "scrollers": [
+          "Orders waiting for jobsheets: scrolls sideways (288 > 242)",
+          "Sent but not started: scrolls sideways (288 > 242)"
+        ],
+        "contentWidth": 924
+      },
+      {
+        "title": "Floor",
+        "hscroll": false,
+        "mode": "tablet",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [],
+        "baseline": [],
+        "small": [],
+        "scrollers": [],
+        "contentWidth": 924
+      },
+      {
+        "title": "Reliability",
+        "hscroll": false,
+        "mode": "tablet",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [],
+        "baseline": [
+          "Reliability: row 1 figures start at 55 / 0 px"
+        ],
+        "small": [],
+        "scrollers": [],
+        "contentWidth": 924
+      },
+      {
+        "title": "After the loom",
+        "hscroll": false,
+        "mode": "tablet",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [],
+        "baseline": [
+          "After the loom: row 1 figures start at 42 / 0 px"
+        ],
+        "small": [],
+        "scrollers": [
+          "Cloth by stage right now: scrolls sideways (1031 > 526)"
+        ],
+        "contentWidth": 924
+      },
+      {
+        "title": "Outside & FG",
+        "hscroll": false,
+        "mode": "tablet",
+        "overflow": [],
+        "cut": [
+          "Outside work this month: \"Received from weavers\""
+        ],
+        "unequal": [],
+        "holes": [
+          "Outside & FG: row 2 leaves 292 px empty"
+        ],
+        "baseline": [
+          "Outside & FG: row 1 figures start at 18 / 64 / 0 px"
+        ],
+        "small": [],
+        "scrollers": [
+          "Late POs: scrolls sideways (288 > 242)",
+          "FG purchase awaiting goods: scrolls sideways (288 > 242)"
+        ],
+        "contentWidth": 924
+      },
+      {
+        "title": "Yarn",
+        "hscroll": false,
+        "mode": "tablet",
+        "overflow": [],
+        "cut": [
+          "Beams ready vs needed: \"Jobsheets pending / sent\"",
+          "Beams ready vs needed: \"75/36 Poly 75D-600-Z\"",
+          "Beams ready vs needed: \"120/30 Viscose 120D-500-Z\"",
+          "Beams ready vs needed: \"50/24 Nylon 50D-900-Z\""
+        ],
+        "unequal": [],
+        "holes": [],
+        "baseline": [
+          "Yarn: row 1 figures start at 0 / 18 / 17 px"
+        ],
+        "small": [
+          "75/36 Poly 75D-600-Z: 2 beams · 8,700 m 234×40",
+          "120/30 Viscose 120D-500-Z: 2 beams · 7,0 234×40",
+          "50/24 Nylon 50D-900-Z: 1 beam · 1,500 m 234×40"
+        ],
+        "scrollers": [
+          "Low yarn: scrolls sideways (288 > 242)"
+        ],
+        "contentWidth": 924
+      }
+    ],
+    "errors": [],
+    "shots": [
+      "partner-1180t-top.png",
+      "partner-1180t-tab-0-overview.png",
+      "partner-1180t-tab-1-floor.png",
+      "partner-1180t-tab-2-reliability.png",
+      "partner-1180t-tab-3-after-the-loom.png",
+      "partner-1180t-tab-4-outside-fg.png",
+      "partner-1180t-tab-5-yarn.png",
+      "partner-1180t-arrange.png",
+      "partner-1180t-arrange-full.png"
+    ]
+  },
+  {
+    "dashboard": "partner",
+    "size": "820t",
+    "expect": "tablet",
+    "hscroll": false,
+    "mode": "tablet",
+    "overflow": [],
+    "cut": [],
+    "unequal": [],
+    "holes": [
+      "Planning: row 2 leaves 394 px empty",
+      "Planning: row 4 leaves 394 px empty"
+    ],
+    "baseline": [],
+    "small": [
+      "+ 1 more 65×32",
+      "+ 12 more 72×32"
+    ],
+    "scrollers": [],
+    "contentWidth": 820,
+    "sections": [
+      {
+        "title": "Overview",
+        "hscroll": false,
+        "mode": "tablet",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [
+          "Planning: row 2 leaves 394 px empty",
+          "Planning: row 4 leaves 394 px empty"
+        ],
+        "baseline": [],
+        "small": [
+          "+ 1 more 65×32",
+          "+ 12 more 72×32"
+        ],
+        "scrollers": [],
+        "contentWidth": 820
+      },
+      {
+        "title": "Floor",
+        "hscroll": false,
+        "mode": "tablet",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [],
+        "baseline": [],
+        "small": [],
+        "scrollers": [],
+        "contentWidth": 820
+      },
+      {
+        "title": "Reliability",
+        "hscroll": false,
+        "mode": "tablet",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [
+          "Reliability: row 1 leaves 394 px empty"
+        ],
+        "baseline": [],
+        "small": [],
+        "scrollers": [],
+        "contentWidth": 820
+      },
+      {
+        "title": "After the loom",
+        "hscroll": false,
+        "mode": "tablet",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [],
+        "baseline": [],
+        "small": [],
+        "scrollers": [
+          "Cloth by stage right now: scrolls sideways (1446 > 738)"
+        ],
+        "contentWidth": 820
+      },
+      {
+        "title": "Outside & FG",
+        "hscroll": false,
+        "mode": "tablet",
+        "overflow": [],
+        "cut": [
+          "Outside work this month: \"Received from weavers\""
+        ],
+        "unequal": [],
+        "holes": [
+          "Outside & FG: row 3 leaves 394 px empty"
+        ],
+        "baseline": [
+          "Outside & FG: row 1 figures start at 0 / 62 px"
+        ],
+        "small": [],
+        "scrollers": [],
+        "contentWidth": 820
+      },
+      {
+        "title": "Yarn",
+        "hscroll": false,
+        "mode": "tablet",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [
+          "Yarn: row 2 leaves 394 px empty"
+        ],
+        "baseline": [
+          "Yarn: row 1 figures start at 0 / 17 px"
+        ],
+        "small": [
+          "75/36 Poly 75D-600-Z: 2 beams · 8,700 m 344×40",
+          "120/30 Viscose 120D-500-Z: 2 beams · 7,0 344×40",
+          "50/24 Nylon 50D-900-Z: 1 beam · 1,500 m 344×40"
+        ],
+        "scrollers": [],
+        "contentWidth": 820
+      }
+    ],
+    "errors": [],
+    "shots": [
+      "partner-820t-top.png",
+      "partner-820t-tab-0-overview.png",
+      "partner-820t-tab-1-floor.png",
+      "partner-820t-tab-2-reliability.png",
+      "partner-820t-tab-3-after-the-loom.png",
+      "partner-820t-tab-4-outside-fg.png",
+      "partner-820t-tab-5-yarn.png",
+      "partner-820t-arrange.png",
+      "partner-820t-arrange-full.png"
+    ]
+  },
+  {
+    "dashboard": "partner",
+    "size": "768t",
+    "expect": "tablet",
+    "hscroll": false,
+    "mode": "tablet",
+    "overflow": [],
+    "cut": [],
+    "unequal": [],
+    "holes": [
+      "Planning: row 2 leaves 368 px empty",
+      "Planning: row 4 leaves 368 px empty"
+    ],
+    "baseline": [],
+    "small": [
+      "+ 1 more 65×32",
+      "+ 12 more 72×32"
+    ],
+    "scrollers": [],
+    "contentWidth": 768,
+    "sections": [
+      {
+        "title": "Overview",
+        "hscroll": false,
+        "mode": "tablet",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [
+          "Planning: row 2 leaves 368 px empty",
+          "Planning: row 4 leaves 368 px empty"
+        ],
+        "baseline": [],
+        "small": [
+          "+ 1 more 65×32",
+          "+ 12 more 72×32"
+        ],
+        "scrollers": [],
+        "contentWidth": 768
+      },
+      {
+        "title": "Floor",
+        "hscroll": false,
+        "mode": "tablet",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [],
+        "baseline": [],
+        "small": [],
+        "scrollers": [],
+        "contentWidth": 768
+      },
+      {
+        "title": "Reliability",
+        "hscroll": false,
+        "mode": "tablet",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [
+          "Reliability: row 1 leaves 368 px empty"
+        ],
+        "baseline": [],
+        "small": [],
+        "scrollers": [],
+        "contentWidth": 768
+      },
+      {
+        "title": "After the loom",
+        "hscroll": false,
+        "mode": "tablet",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [],
+        "baseline": [],
+        "small": [],
+        "scrollers": [
+          "Cloth by stage right now: scrolls sideways (1344 > 686)"
+        ],
+        "contentWidth": 768
+      },
+      {
+        "title": "Outside & FG",
+        "hscroll": false,
+        "mode": "tablet",
+        "overflow": [],
+        "cut": [
+          "Outside work this month: \"Received from weavers\""
+        ],
+        "unequal": [],
+        "holes": [
+          "Outside & FG: row 3 leaves 368 px empty"
+        ],
+        "baseline": [
+          "Outside & FG: row 1 figures start at 0 / 62 px"
+        ],
+        "small": [],
+        "scrollers": [],
+        "contentWidth": 768
+      },
+      {
+        "title": "Yarn",
+        "hscroll": false,
+        "mode": "tablet",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [
+          "Yarn: row 2 leaves 368 px empty"
+        ],
+        "baseline": [
+          "Yarn: row 1 figures start at 0 / 17 px"
+        ],
+        "small": [
+          "75/36 Poly 75D-600-Z: 2 beams · 8,700 m 318×40",
+          "120/30 Viscose 120D-500-Z: 2 beams · 7,0 318×40",
+          "50/24 Nylon 50D-900-Z: 1 beam · 1,500 m 318×40"
+        ],
+        "scrollers": [],
+        "contentWidth": 768
+      }
+    ],
+    "errors": [],
+    "shots": [
+      "partner-768t-top.png",
+      "partner-768t-tab-0-overview.png",
+      "partner-768t-tab-1-floor.png",
+      "partner-768t-tab-2-reliability.png",
+      "partner-768t-tab-3-after-the-loom.png",
+      "partner-768t-tab-4-outside-fg.png",
+      "partner-768t-tab-5-yarn.png",
+      "partner-768t-arrange.png",
+      "partner-768t-arrange-full.png"
+    ]
+  },
+  {
+    "dashboard": "partner",
+    "size": "390",
+    "expect": "phone",
+    "hscroll": false,
+    "mode": "tablet",
+    "overflow": [],
+    "cut": [],
+    "unequal": [],
+    "holes": [],
+    "baseline": [],
+    "small": [
+      "Refresh the dashboard 36×44",
+      "+ 1 more 65×32",
+      "+ 12 more 72×32"
+    ],
+    "scrollers": [],
+    "contentWidth": 390,
+    "sections": [
+      {
+        "title": "Overview",
+        "hscroll": false,
+        "mode": "tablet",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [],
+        "baseline": [],
+        "small": [
+          "Refresh the dashboard 36×44",
+          "+ 1 more 65×32",
+          "+ 12 more 72×32"
+        ],
+        "scrollers": [],
+        "contentWidth": 390
+      },
+      {
+        "title": "Floor",
+        "hscroll": false,
+        "mode": "tablet",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [],
+        "baseline": [],
+        "small": [
+          "Refresh the dashboard 36×44"
+        ],
+        "scrollers": [],
+        "contentWidth": 390
+      },
+      {
+        "title": "Reliability",
+        "hscroll": false,
+        "mode": "tablet",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [],
+        "baseline": [],
+        "small": [
+          "Refresh the dashboard 36×44"
+        ],
+        "scrollers": [],
+        "contentWidth": 390
+      },
+      {
+        "title": "After the loom",
+        "hscroll": false,
+        "mode": "tablet",
+        "overflow": [],
+        "cut": [
+          "Cloth by stage right now: \"m (meter orders)\"",
+          "Cloth by stage right now: \"Waiting mill\""
+        ],
+        "unequal": [],
+        "holes": [],
+        "baseline": [],
+        "small": [
+          "Refresh the dashboard 36×44"
+        ],
+        "scrollers": [
+          "Cloth by stage right now: scrolls sideways (635 > 324)"
+        ],
+        "contentWidth": 390
+      },
+      {
+        "title": "Outside & FG",
+        "hscroll": false,
+        "mode": "tablet",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [],
+        "baseline": [],
+        "small": [
+          "Refresh the dashboard 36×44"
+        ],
+        "scrollers": [],
+        "contentWidth": 390
+      },
+      {
+        "title": "Yarn",
+        "hscroll": false,
+        "mode": "tablet",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [],
+        "baseline": [],
+        "small": [
+          "Refresh the dashboard 36×44",
+          "75/36 Poly 75D-600-Z: 2 beams · 8,700 m 324×40",
+          "120/30 Viscose 120D-500-Z: 2 beams · 7,0 324×40",
+          "50/24 Nylon 50D-900-Z: 1 beam · 1,500 m 324×40"
+        ],
+        "scrollers": [],
+        "contentWidth": 390
+      }
+    ],
+    "errors": [],
+    "shots": [
+      "partner-390-top.png",
+      "partner-390-tab-0-overview.png",
+      "partner-390-tab-1-floor.png",
+      "partner-390-tab-2-reliability.png",
+      "partner-390-tab-3-after-the-loom.png",
+      "partner-390-tab-4-outside-fg.png",
+      "partner-390-tab-5-yarn.png"
+    ]
+  },
+  {
+    "dashboard": "supervisor",
+    "size": "1920",
+    "expect": "desktop",
+    "hscroll": false,
+    "mode": "desktop",
+    "overflow": [],
+    "cut": [],
+    "unequal": [],
+    "holes": [
+      "Priority: row 2 leaves 920 px empty",
+      "Yarn: row 2 leaves 920 px empty"
+    ],
+    "baseline": [],
+    "small": [],
+    "scrollers": [],
+    "contentWidth": 1440,
+    "sections": [],
+    "errors": [],
+    "shots": [
+      "supervisor-1920-top.png",
+      "supervisor-1920-full.png",
+      "supervisor-1920-section-0-floor-today.png",
+      "supervisor-1920-section-1-performance.png",
+      "supervisor-1920-section-2-priority.png",
+      "supervisor-1920-section-3-yarn.png"
+    ]
+  },
+  {
+    "dashboard": "supervisor",
+    "size": "1440",
+    "expect": "desktop",
+    "hscroll": false,
+    "mode": "desktop",
+    "overflow": [],
+    "cut": [
+      "Today on the floor: \"Completed today\""
+    ],
+    "unequal": [],
+    "holes": [
+      "Priority: row 2 leaves 760 px empty",
+      "Yarn: row 2 leaves 760 px empty"
+    ],
+    "baseline": [
+      "Floor today: row 1 figures start at 0 / 14 px",
+      "Priority: row 1 figures start at 0 / 0 / 14 px"
+    ],
+    "small": [],
+    "scrollers": [],
+    "contentWidth": 1184,
+    "sections": [],
+    "errors": [],
+    "shots": [
+      "supervisor-1440-top.png",
+      "supervisor-1440-full.png",
+      "supervisor-1440-section-0-floor-today.png",
+      "supervisor-1440-section-1-performance.png",
+      "supervisor-1440-section-2-priority.png",
+      "supervisor-1440-section-3-yarn.png"
+    ]
+  },
+  {
+    "dashboard": "supervisor",
+    "size": "1280",
+    "expect": "desktop",
+    "hscroll": false,
+    "mode": "desktop",
+    "overflow": [],
+    "cut": [
+      "Today on the floor: \"Looms running\"",
+      "Today on the floor: \"Started today\"",
+      "Today on the floor: \"Completed today\"",
+      "Beams ready: \"75/36 Poly 75D-600-Z\"",
+      "Beams ready: \"120/30 Viscose 120D-500-Z\"",
+      "Beams ready: \"50/24 Nylon 50D-900-Z\""
+    ],
+    "unequal": [],
+    "holes": [
+      "Priority: row 2 leaves 653 px empty",
+      "Yarn: row 2 leaves 653 px empty"
+    ],
+    "baseline": [
+      "Floor today: row 1 figures start at 0 / 32 px",
+      "Priority: row 1 figures start at 0 / 14 / 32 px"
+    ],
+    "small": [],
+    "scrollers": [
+      "Orders waiting longest: scrolls sideways (288 > 273)",
+      "On hold — don’t start: scrolls sideways (288 > 273)",
+      "Lined up per loom: scrolls sideways (288 > 273)"
+    ],
+    "contentWidth": 1024,
+    "sections": [],
+    "errors": [],
+    "shots": [
+      "supervisor-1280-top.png",
+      "supervisor-1280-full.png",
+      "supervisor-1280-section-0-floor-today.png",
+      "supervisor-1280-section-1-performance.png",
+      "supervisor-1280-section-2-priority.png",
+      "supervisor-1280-section-3-yarn.png"
+    ]
+  },
+  {
+    "dashboard": "supervisor",
+    "size": "1280z125",
+    "expect": "desktop",
+    "hscroll": false,
+    "mode": "desktop",
+    "overflow": [],
+    "cut": [
+      "Today on the floor: \"Completed today\"",
+      "Beams ready: \"Beams in stock\"",
+      "Beams ready: \"75/36 Poly 75D-600-Z\"",
+      "Beams ready: \"120/30 Viscose 120D-500-Z\"",
+      "Beams ready: \"50/24 Nylon 50D-900-Z\""
+    ],
+    "unequal": [],
+    "holes": [
+      "Priority: row 2 leaves 483 px empty",
+      "Yarn: row 2 leaves 483 px empty"
+    ],
+    "baseline": [
+      "Floor today: row 1 figures start at 0 / 51 px",
+      "Priority: row 1 figures start at 0 / 35 / 35 px",
+      "Yarn: row 1 figures start at 0 / 0 / 14 px"
+    ],
+    "small": [],
+    "scrollers": [
+      "Orders waiting longest: scrolls sideways (288 > 187)",
+      "On hold — don’t start: scrolls sideways (288 > 187)",
+      "Lined up per loom: scrolls sideways (288 > 187)"
+    ],
+    "contentWidth": 768,
+    "sections": [],
+    "errors": [],
+    "shots": [
+      "supervisor-1280z125-top.png",
+      "supervisor-1280z125-full.png",
+      "supervisor-1280z125-section-0-floor-today.png",
+      "supervisor-1280z125-section-1-performance.png",
+      "supervisor-1280z125-section-2-priority.png",
+      "supervisor-1280z125-section-3-yarn.png"
+    ]
+  },
+  {
+    "dashboard": "supervisor",
+    "size": "1180t",
+    "expect": "tablet",
+    "hscroll": false,
+    "mode": "tablet",
+    "overflow": [],
+    "cut": [],
+    "unequal": [],
+    "holes": [],
+    "baseline": [
+      "Floor today: row 1 figures start at 0 / 20 px"
+    ],
+    "small": [
+      "Loom 8: 7 pcs 234×40"
+    ],
+    "scrollers": [],
+    "contentWidth": 924,
+    "sections": [
+      {
+        "title": "Overview",
+        "hscroll": false,
+        "mode": "tablet",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [],
+        "baseline": [
+          "Floor today: row 1 figures start at 0 / 20 px"
+        ],
+        "small": [
+          "Loom 8: 7 pcs 234×40"
+        ],
+        "scrollers": [],
+        "contentWidth": 924
+      },
+      {
+        "title": "Performance",
+        "hscroll": false,
+        "mode": "tablet",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [],
+        "baseline": [],
+        "small": [],
+        "scrollers": [],
+        "contentWidth": 924
+      },
+      {
+        "title": "Priority",
+        "hscroll": false,
+        "mode": "tablet",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [
+          "Priority: row 2 leaves 584 px empty"
+        ],
+        "baseline": [
+          "Priority: row 1 figures start at 0 / 19 / 35 px"
+        ],
+        "small": [
+          "+ 19 more 73×32",
+          "Loom 8: 7 pcs 234×40",
+          "Loom 14: 4 pcs 234×40",
+          "Loom 15: 4 pcs 234×40",
+          "Loom 21: 3 pcs 234×40",
+          "Loom 2: 1 pc 234×40",
+          "+ 6 more 69×32"
+        ],
+        "scrollers": [
+          "Orders waiting longest: scrolls sideways (288 > 242)",
+          "On hold — don’t start: scrolls sideways (288 > 242)",
+          "Lined up per loom: scrolls sideways (288 > 242)"
+        ],
+        "contentWidth": 924
+      },
+      {
+        "title": "Yarn",
+        "hscroll": false,
+        "mode": "tablet",
+        "overflow": [],
+        "cut": [
+          "Beams ready: \"75/36 Poly 75D-600-Z\"",
+          "Beams ready: \"120/30 Viscose 120D-500-Z\"",
+          "Beams ready: \"50/24 Nylon 50D-900-Z\""
+        ],
+        "unequal": [],
+        "holes": [
+          "Yarn: row 2 leaves 584 px empty"
+        ],
+        "baseline": [],
+        "small": [
+          "75/36 Poly 75D-600-Z: 2 beams · 8,700 m 234×40",
+          "120/30 Viscose 120D-500-Z: 2 beams · 7,0 234×40",
+          "50/24 Nylon 50D-900-Z: 1 beam · 1,500 m 234×40"
+        ],
+        "scrollers": [],
+        "contentWidth": 924
+      }
+    ],
+    "errors": [],
+    "shots": [
+      "supervisor-1180t-top.png",
+      "supervisor-1180t-tab-0-overview.png",
+      "supervisor-1180t-tab-1-performance.png",
+      "supervisor-1180t-tab-2-priority.png",
+      "supervisor-1180t-tab-3-yarn.png"
+    ]
+  },
+  {
+    "dashboard": "supervisor",
+    "size": "820t",
+    "expect": "tablet",
+    "hscroll": false,
+    "mode": "tablet",
+    "overflow": [],
+    "cut": [],
+    "unequal": [],
+    "holes": [
+      "Floor today: row 2 leaves 394 px empty"
+    ],
+    "baseline": [],
+    "small": [
+      "Loom 8: 7 pcs 344×40"
+    ],
+    "scrollers": [],
+    "contentWidth": 820,
+    "sections": [
+      {
+        "title": "Overview",
+        "hscroll": false,
+        "mode": "tablet",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [
+          "Floor today: row 2 leaves 394 px empty"
+        ],
+        "baseline": [],
+        "small": [
+          "Loom 8: 7 pcs 344×40"
+        ],
+        "scrollers": [],
+        "contentWidth": 820
+      },
+      {
+        "title": "Performance",
+        "hscroll": false,
+        "mode": "tablet",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [],
+        "baseline": [],
+        "small": [],
+        "scrollers": [],
+        "contentWidth": 820
+      },
+      {
+        "title": "Priority",
+        "hscroll": false,
+        "mode": "tablet",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [],
+        "baseline": [],
+        "small": [
+          "+ 19 more 73×32",
+          "Loom 8: 7 pcs 344×40",
+          "Loom 14: 4 pcs 344×40",
+          "Loom 15: 4 pcs 344×40",
+          "Loom 21: 3 pcs 344×40",
+          "Loom 2: 1 pc 344×40",
+          "+ 6 more 69×32"
+        ],
+        "scrollers": [],
+        "contentWidth": 820
+      },
+      {
+        "title": "Yarn",
+        "hscroll": false,
+        "mode": "tablet",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [],
+        "baseline": [],
+        "small": [
+          "75/36 Poly 75D-600-Z: 2 beams · 8,700 m 344×40",
+          "120/30 Viscose 120D-500-Z: 2 beams · 7,0 344×40",
+          "50/24 Nylon 50D-900-Z: 1 beam · 1,500 m 344×40"
+        ],
+        "scrollers": [],
+        "contentWidth": 820
+      }
+    ],
+    "errors": [],
+    "shots": [
+      "supervisor-820t-top.png",
+      "supervisor-820t-tab-0-overview.png",
+      "supervisor-820t-tab-1-performance.png",
+      "supervisor-820t-tab-2-priority.png",
+      "supervisor-820t-tab-3-yarn.png"
+    ]
+  },
+  {
+    "dashboard": "supervisor",
+    "size": "768t",
+    "expect": "tablet",
+    "hscroll": false,
+    "mode": "tablet",
+    "overflow": [],
+    "cut": [],
+    "unequal": [],
+    "holes": [
+      "Floor today: row 2 leaves 368 px empty"
+    ],
+    "baseline": [],
+    "small": [
+      "Loom 8: 7 pcs 318×40"
+    ],
+    "scrollers": [],
+    "contentWidth": 768,
+    "sections": [
+      {
+        "title": "Overview",
+        "hscroll": false,
+        "mode": "tablet",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [
+          "Floor today: row 2 leaves 368 px empty"
+        ],
+        "baseline": [],
+        "small": [
+          "Loom 8: 7 pcs 318×40"
+        ],
+        "scrollers": [],
+        "contentWidth": 768
+      },
+      {
+        "title": "Performance",
+        "hscroll": false,
+        "mode": "tablet",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [],
+        "baseline": [],
+        "small": [],
+        "scrollers": [],
+        "contentWidth": 768
+      },
+      {
+        "title": "Priority",
+        "hscroll": false,
+        "mode": "tablet",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [],
+        "baseline": [],
+        "small": [
+          "+ 19 more 73×32",
+          "Loom 8: 7 pcs 318×40",
+          "Loom 14: 4 pcs 318×40",
+          "Loom 15: 4 pcs 318×40",
+          "Loom 21: 3 pcs 318×40",
+          "Loom 2: 1 pc 318×40",
+          "+ 6 more 69×32"
+        ],
+        "scrollers": [],
+        "contentWidth": 768
+      },
+      {
+        "title": "Yarn",
+        "hscroll": false,
+        "mode": "tablet",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [],
+        "baseline": [],
+        "small": [
+          "75/36 Poly 75D-600-Z: 2 beams · 8,700 m 318×40",
+          "120/30 Viscose 120D-500-Z: 2 beams · 7,0 318×40",
+          "50/24 Nylon 50D-900-Z: 1 beam · 1,500 m 318×40"
+        ],
+        "scrollers": [],
+        "contentWidth": 768
+      }
+    ],
+    "errors": [],
+    "shots": [
+      "supervisor-768t-top.png",
+      "supervisor-768t-tab-0-overview.png",
+      "supervisor-768t-tab-1-performance.png",
+      "supervisor-768t-tab-2-priority.png",
+      "supervisor-768t-tab-3-yarn.png"
+    ]
+  },
+  {
+    "dashboard": "supervisor",
+    "size": "390",
+    "expect": "phone",
+    "hscroll": false,
+    "mode": "tablet",
+    "overflow": [],
+    "cut": [],
+    "unequal": [],
+    "holes": [],
+    "baseline": [],
+    "small": [
+      "Refresh the dashboard 36×44",
+      "Loom 8: 7 pcs 324×40"
+    ],
+    "scrollers": [],
+    "contentWidth": 390,
+    "sections": [
+      {
+        "title": "Overview",
+        "hscroll": false,
+        "mode": "tablet",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [],
+        "baseline": [],
+        "small": [
+          "Refresh the dashboard 36×44",
+          "Loom 8: 7 pcs 324×40"
+        ],
+        "scrollers": [],
+        "contentWidth": 390
+      },
+      {
+        "title": "Performance",
+        "hscroll": false,
+        "mode": "tablet",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [],
+        "baseline": [],
+        "small": [
+          "Refresh the dashboard 36×44"
+        ],
+        "scrollers": [],
+        "contentWidth": 390
+      },
+      {
+        "title": "Priority",
+        "hscroll": false,
+        "mode": "tablet",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [],
+        "baseline": [],
+        "small": [
+          "Refresh the dashboard 36×44",
+          "+ 19 more 73×32",
+          "Loom 8: 7 pcs 324×40",
+          "Loom 14: 4 pcs 324×40",
+          "Loom 15: 4 pcs 324×40",
+          "Loom 21: 3 pcs 324×40",
+          "Loom 2: 1 pc 324×40",
+          "+ 6 more 69×32"
+        ],
+        "scrollers": [],
+        "contentWidth": 390
+      },
+      {
+        "title": "Yarn",
+        "hscroll": false,
+        "mode": "tablet",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [],
+        "baseline": [],
+        "small": [
+          "Refresh the dashboard 36×44",
+          "75/36 Poly 75D-600-Z: 2 beams · 8,700 m 324×40",
+          "120/30 Viscose 120D-500-Z: 2 beams · 7,0 324×40",
+          "50/24 Nylon 50D-900-Z: 1 beam · 1,500 m 324×40"
+        ],
+        "scrollers": [],
+        "contentWidth": 390
+      }
+    ],
+    "errors": [],
+    "shots": [
+      "supervisor-390-top.png",
+      "supervisor-390-tab-0-overview.png",
+      "supervisor-390-tab-1-performance.png",
+      "supervisor-390-tab-2-priority.png",
+      "supervisor-390-tab-3-yarn.png"
+    ]
+  }
+]
