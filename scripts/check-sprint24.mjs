@@ -195,7 +195,43 @@ check(done3.overG > 0 && done3.leftoverG === 0 && done3.leftover.length === 0, '
 const jobList = await ok('jemish', 'GET', '/yarn/warping/jobs?status=done&limit=50');
 check(jobList.items.find((j) => j.id === job1.id)?.leftover.length === 2, 'D: the done job lists where its remaining kg went');
 
-// @@PHASE-E@@
+// ---------------------------------------------------------------- E · CR-25 Palti
+const remP1 = remainingRows.find((b) => b.programId === p1.id);
+const p1bNow = (await zone('warping')).boxes.find((b) => b.id === p1b.id);
+const directLotA = await lotAvail('direct', q75.id, lotA.lot.id);
+const paltiBody = {
+  date: today,
+  inputs: [
+    { kind: 'box', zone: 'warping', boxId: remP1.id, qtyKg: null },
+    { kind: 'box', zone: 'warping', boxId: p1bNow.id, qtyKg: 5 },
+    { kind: 'raw', zone: 'direct', qualityId: q75.id, lotId: lotA.lot.id, qtyKg: 2 },
+  ],
+  output: { warpingQualityId: p1a.warpingQuality.id, rolls: 4, netKg: 0, zone: 'tfo' },
+  note: 's24 palti',
+};
+const inputsG = remP1.netG + 5 * KG + 2 * KG;
+check((await call('yarn', 'POST', '/yarn/palti', { ...paltiBody, output: { ...paltiBody.output, netKg: inputsG / KG + 1 } })).status === 400, 'E: net more than the inputs is refused');
+const run = await ok('yarn', 'POST', '/yarn/palti', { ...paltiBody, output: { ...paltiBody.output, netKg: (inputsG - 0.5 * KG) / KG } });
+check(run.box && run.box.zone === 'tfo' && run.box.netG === inputsG - 0.5 * KG && run.wasteG === 0.5 * KG && run.inputG === inputsG && run.inputs.length === 3, 'E: one new numbered box in TFO, waste 0.5 kg recorded', run);
+const tfoAfter = await zone('tfo');
+const paltiBox = tfoAfter.boxes.find((b) => b.id === run.box.id);
+check(paltiBox?.kind === 'palti' && paltiBox.fy && !tfoAfter.programs.some((p) => p.id === paltiBox.programId), 'E: the Palti box is in TFO stock, not under any program');
+const warpAfter = await zone('warping');
+check(!warpAfter.boxes.some((b) => b.id === remP1.id) && warpAfter.boxes.find((b) => b.id === p1b.id)?.remainingG === p1bNow.remainingG - 5 * KG, 'E: inputs left stock (remaining row used, 5 kg off the box)');
+check((await lotAvail('direct', q75.id, lotA.lot.id)) === directLotA - 2 * KG, 'E: 2 kg raw left Direct consumption');
+const paltiList = await ok('jemish', 'GET', '/yarn/palti');
+check(paltiList.items[0]?.id === run.id, 'E: the Palti list shows it');
+const paltiMoves = await ok('jemish', 'GET', '/yarn/moves?kind=palti&limit=20');
+check(paltiMoves.items.some((m) => m.kind === 'palti_output' && /Palti box/.test(m.context ?? '')), 'E: movements filter Palti');
+await ok('yarn', 'POST', '/yarn/transfers', { what: 'twisted', from: 'tfo', to: 'direct', boxIds: [run.box.id] });
+check((await call('yarn', 'POST', '/yarn/withdrawals', { what: 'twisted', zone: 'direct', boxes: [{ boxId: run.box.id, qtyKg: 1 }], purpose: 'in_house' })).status === 201, 'E: a Palti box transfers and withdraws like any box');
+
+// ---------------------------------------------------------------- F · CR-18 stickers
+const stickers = await ok('yarn', 'GET', `/yarn/boxes/print?ids=${run.box.id},${p1a.id}`);
+check(stickers.length === 2 && stickers[0].source === 'Palti' && stickers[1].source === `P-${p1.id}` && stickers[0].fy && stickers[1].grossG > stickers[1].netG, 'F: sticker data (box no + FY, gross / net, source)', stickers);
+check((await call('yarn', 'GET', '/yarn/boxes/print')).status === 400, 'F: print needs box ids');
+const one = await ok('supervisor', 'GET', `/yarn/boxes/${run.box.id}`);
+check(one.zone === 'direct' && one.boxNo === run.box.boxNo, 'F: the QR target finds the box and its zone');
 
 console.log(failed ? `\n${failed} check(s) FAILED` : '\nAll Sprint 24 checks passed');
 process.exit(failed ? 1 : 0);

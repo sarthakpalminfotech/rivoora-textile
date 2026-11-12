@@ -16,6 +16,7 @@ import {
   MAX_PENDING_PROGRAMS,
   MAX_PROGRAM_SECTIONS,
   MAX_PO_LINES,
+  MAX_PALTI_INPUTS,
   MAX_WARPING_INPUTS,
   TFO_SECTIONS,
   TWIST_DIRECTIONS,
@@ -614,3 +615,52 @@ export const warpingJobsQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(100).default(20),
 });
+
+/* ---------- Sprint 24 (CR-25): Palti ---------- */
+
+/** One Palti input: stock from ANY zone — a box (whole: `qtyKg` null, or part), "No box" twisted kg, or raw kg of a lot. */
+const paltiInput = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('box'), zone: z.enum(YARN_ZONES), boxId: boxIdField, qtyKg: kg('Enter the kg').nullish().transform((v) => v ?? null) }),
+  z.object({ kind: z.literal('no_box'), zone: z.enum(YARN_ZONES), qualityId: id('Select the quality').nullish(), warpingQualityId: id('Select the quality').nullish(), qtyKg: kg('Enter the kg') }),
+  z.object({ kind: z.literal('raw'), zone: z.enum(YARN_ZONES), qualityId: id('Select the quality'), lotId: lotIdField, qtyKg: kg('Enter the kg') }),
+]);
+export type PaltiInputInput = z.input<typeof paltiInput>;
+
+/**
+ * POST /yarn/palti — leftover yarn re-wound into ONE new box: inputs (stock leaves at save) and the output box (automatic
+ * number, warping quality, rolls / spindles optional, gross optional, net required, the zone it is kept in). Net may be less
+ * than the inputs (the difference is recorded as waste), never more.
+ */
+export const paltiCreateSchema = z
+  .object({
+    date: isoDate('Pick the date'),
+    inputs: z.array(paltiInput, { required_error: 'Add at least one input' }).min(1, 'Add at least one input').max(MAX_PALTI_INPUTS, `At most ${MAX_PALTI_INPUTS} inputs`),
+    output: z.object({
+      warpingQualityId: id('Select the warping quality'),
+      rolls: z.number({ invalid_type_error: 'Enter the rolls' }).int('Use a whole number').min(0, 'Cannot be negative').max(100_000).nullish().transform((v) => v ?? null),
+      grossKg: kg('Enter the gross kg').nullish().transform((v) => v ?? null),
+      netKg: kg('Enter the net kg'),
+      zone: z.enum(YARN_ZONES, { errorMap: () => ({ message: 'Pick where the box is kept' }) }),
+    }),
+    note: optText(1000),
+  })
+  .superRefine((v, ctx) => {
+    const boxes = new Set<number>();
+    v.inputs.forEach((i, idx) => {
+      if (i.kind === 'no_box' && !!i.qualityId === !!i.warpingQualityId) ctx.addIssue({ code: 'custom', path: ['inputs', idx, 'qualityId'], message: 'Select the quality' });
+      if (i.kind === 'box') {
+        if (boxes.has(i.boxId)) ctx.addIssue({ code: 'custom', path: ['inputs', idx, 'boxId'], message: 'This box is already an input' });
+        boxes.add(i.boxId);
+      }
+    });
+    if (v.output.grossKg !== null && v.output.grossKg + 1e-9 < v.output.netKg) ctx.addIssue({ code: 'custom', path: ['output', 'grossKg'], message: 'Gross can’t be less than net' });
+  });
+export type PaltiCreateInput = z.input<typeof paltiCreateSchema>;
+
+export const paltiListQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+});
+
+/** GET /yarn/boxes/print?ids= — Sprint 24 (CR-18): the boxes to print stickers for. */
+export const boxPrintQuerySchema = z.object({ ids: z.unknown().transform(idList).refine((v) => v.length > 0, 'Pick at least one box') });

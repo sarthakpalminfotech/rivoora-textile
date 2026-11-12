@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import {
   availableText,
+  boxNoWithFy,
   BEAM_REMARK_MAX_LENGTH,
   BEAM_INPUT_ERROR_TEXT,
   checkTake,
@@ -353,7 +354,7 @@ export function WarpingJobDialog({ open, onOpenChange, job }: { open: boolean; o
   const rawQualities = (zone.data?.qualities ?? []).filter((q) => q.rawG > 0).map((q) => ({ id: q.quality.id, name: q.quality.name, availableG: q.rawG }));
   const boxOptions = (boxes.data ?? []).map((b) => {
     const availableG = b.remainingG - b.reservedG + (own.get(`b|${b.id}`) ?? 0);
-    return { value: b.id, label: b.boxNo, description: `${b.warpingQuality.name} · ${availableText(availableG, b.reservedG - (own.get(`b|${b.id}`) ?? 0))}`, disabled: availableG <= 0, availableG };
+    return { value: b.id, label: boxNoWithFy(b.boxNo, b.fy), description: `${b.kind === 'remaining' ? 'Remaining · ' : b.kind === 'palti' ? 'Palti · ' : ''}${b.warpingQuality.name} · ${availableText(availableG, b.reservedG - (own.get(`b|${b.id}`) ?? 0))}`, disabled: availableG <= 0, availableG };
   });
   const noBoxOptions = (noBox.data ?? []).map((n) => {
     const key = n.warpingQualityId ? `w-${n.warpingQualityId}` : `q-${n.qualityId}`;

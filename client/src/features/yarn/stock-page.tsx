@@ -1,9 +1,13 @@
-import { Boxes, ChevronDown, Cylinder, FilterX, Package2, Search, Spool } from 'lucide-react';
+import { Boxes, ChevronDown, Cylinder, FilterX, Package2, Printer, Search, Spool } from 'lucide-react';
 import { useMemo, useState } from 'react';
-import { Navigate, useParams, useSearchParams } from 'react-router-dom';
+import { Link, Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
+  boxGroupKey,
+  boxNoWithFy,
   isYarnZone,
   NO_LOT_LABEL,
+  PALTI_LABEL,
+  tfoProgramLabel,
   TWIST_DIRECTION_LABEL,
   YARN_ZONE_CONFIG,
   type Beam,
@@ -21,6 +25,7 @@ import { Input } from '@/components/ui/input';
 import { Segmented } from '@/components/ui/segmented';
 import { MultiSelect } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
+import { TickBox } from '@/components/ui/tick-box';
 import { formatDate } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { useYarnZone } from './api';
@@ -45,7 +50,7 @@ const beamKey = (b: Beam) => (b.warpingQuality ? qKey('w', b.warpingQuality.id) 
 const has = (text: string | null | undefined, q: string) => !!text && text.toLowerCase().includes(q);
 
 function programTitle(p: YarnBoxProgram | undefined, id: number) {
-  return p ? `${p.sectionsLabel || 'Program'} · ${p.rawQuality}` : `Program #${id}`;
+  return p ? `${tfoProgramLabel(id)} · ${p.sectionsLabel || 'Program'} · ${p.rawQuality}` : tfoProgramLabel(id);
 }
 function programLine(p: YarnBoxProgram | undefined) {
   if (!p) return '';
@@ -79,8 +84,29 @@ function Section({ title, count, right, children }: { title: string; count?: num
 const GRID = 'grid grid-cols-[minmax(0,1fr)] gap-3 md:grid-cols-[repeat(2,minmax(0,1fr))] xl:grid-cols-[repeat(3,minmax(0,1fr))]';
 
 /** A collapsible card: header (title, sub line, count + kg) and the boxes inside. */
-function BoxGroup({ title, line, boxes, open, onToggle, showQuality }: { title: string; line?: string; boxes: YarnBox[]; open: boolean; onToggle: () => void; showQuality: boolean }) {
+function BoxGroup({
+  title,
+  line,
+  boxes,
+  open,
+  onToggle,
+  showQuality,
+  selected,
+  onSelect,
+}: {
+  title: string;
+  line?: string;
+  boxes: YarnBox[];
+  open: boolean;
+  onToggle: () => void;
+  showQuality: boolean;
+  /** Sprint 24 (CR-18): ticked boxes → "Print stickers". */
+  selected: Set<number>;
+  onSelect: (ids: number[], on: boolean) => void;
+}) {
   const total = boxes.reduce((s, b) => s + b.remainingG, 0);
+  const all = boxes.every((b) => selected.has(b.id));
+  const some = boxes.some((b) => selected.has(b.id));
   return (
     <div className="min-w-0 overflow-hidden rounded-xl border border-border bg-white">
       <button type="button" onClick={onToggle} aria-expanded={open} className="flex w-full items-start gap-2 px-3 py-2.5 text-left transition-colors hover:bg-slate-50">
@@ -98,13 +124,23 @@ function BoxGroup({ title, line, boxes, open, onToggle, showQuality }: { title: 
       </button>
       {open && (
         <ul className="divide-y divide-border border-t border-border">
+          <li className="flex min-h-11 items-center gap-2 bg-slate-50 px-3 text-xs font-semibold text-slate-600">
+            <TickBox checked={all} partial={some && !all} onCheckedChange={(c) => onSelect(boxes.map((b) => b.id), c)} aria-label={`Select all of ${title}`} />
+            Select for stickers
+          </li>
           {boxes.map((b) => (
-            <li key={b.id} className="flex items-baseline gap-2 px-3 py-2 text-sm">
-              <Package2 className="size-4 shrink-0 self-center text-slate-400" aria-hidden />
+            <li key={b.id} className="flex items-center gap-2 px-3 py-2 text-sm">
+              <TickBox checked={selected.has(b.id)} onCheckedChange={(c) => onSelect([b.id], c)} aria-label={`Select box ${boxNoWithFy(b.boxNo, b.fy)}`} />
+              <Package2 className="size-4 shrink-0 text-slate-400" aria-hidden />
               <span className="min-w-0 flex-1">
                 <span className="block truncate">
-                  <span className="font-semibold tabular-nums text-slate-800">Box {b.boxNo}</span>
-                  <span className="text-slate-500"> · {b.rolls} rolls · {b.lot ? `lot ${b.lot.lotNo}` : NO_LOT_LABEL}</span>
+                  <span className="font-semibold tabular-nums text-slate-800">Box {boxNoWithFy(b.boxNo, b.fy)}</span>
+                  {b.kind === 'remaining' && <span className="ml-1 rounded bg-amber-50 px-1 text-[11px] font-semibold text-amber-800">Remaining</span>}
+                  <span className="text-slate-500">
+                    {' '}
+                    · {b.rolls ? `${b.rolls} rolls · ` : ''}
+                    {b.lot ? `lot ${b.lot.lotNo}` : b.kind === 'palti' ? PALTI_LABEL : NO_LOT_LABEL}
+                  </span>
                 </span>
                 {showQuality && <span className="block truncate text-xs text-slate-500">{b.warpingQuality.name}</span>}
               </span>
@@ -121,6 +157,14 @@ function BoxGroup({ title, line, boxes, open, onToggle, showQuality }: { title: 
                   </span>
                 )}
               </span>
+              <Link
+                to={`/print/yarn-boxes?ids=${b.id}`}
+                className="flex size-11 shrink-0 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-900"
+                aria-label={`Print sticker of box ${boxNoWithFy(b.boxNo, b.fy)}`}
+                title="Print sticker"
+              >
+                <Printer className="size-4" />
+              </Link>
             </li>
           ))}
         </ul>
@@ -131,6 +175,17 @@ function BoxGroup({ title, line, boxes, open, onToggle, showQuality }: { title: 
 
 function YarnStock({ data, type, quality, q, group, onGroup }: { data: YarnZoneData; type: TypeFilter; quality: string[]; q: string; group: Group; onGroup: (g: Group) => void }) {
   const [openKeys, setOpenKeys] = useState<Set<string>>(new Set());
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const navigate = useNavigate();
+  const onSelect = (ids: number[], on: boolean) =>
+    setSelected((cur) => {
+      const n = new Set(cur);
+      for (const id of ids) {
+        if (on) n.add(id);
+        else n.delete(id);
+      }
+      return n;
+    });
   const qOk = (key: string) => !quality.length || quality.includes(key);
   const programById = useMemo(() => new Map(data.programs.map((p) => [p.id, p])), [data.programs]);
 
@@ -142,7 +197,15 @@ function YarnStock({ data, type, quality, q, group, onGroup }: { data: YarnZoneD
           if (!qOk(boxQualityKey(b))) return false;
           if (!q) return true;
           const p = programById.get(b.programId);
-          return has(`box ${b.boxNo}`, q) || has(b.boxNo, q) || has(b.warpingQuality.name, q) || has(b.lot?.lotNo, q) || has(p?.sectionsLabel, q) || has(p?.rawQuality, q);
+          return (
+            has(`box ${b.boxNo}`, q) ||
+            has(b.boxNo, q) ||
+            has(b.warpingQuality.name, q) ||
+            has(b.lot?.lotNo, q) ||
+            has(p?.sectionsLabel, q) ||
+            has(p?.rawQuality, q) ||
+            (b.kind === 'palti' ? has(PALTI_LABEL, q) : has(tfoProgramLabel(b.programId), q))
+          );
         });
   const noBox = type === 'raw' ? [] : data.noBox.filter((n) => qOk(noBoxKey(n)) && (!q || has(n.name, q)));
 
@@ -156,16 +219,22 @@ function YarnStock({ data, type, quality, q, group, onGroup }: { data: YarnZoneD
   const groups = useMemo(() => {
     const out: { key: string; title: string; line?: string; boxes: YarnBox[] }[] = [];
     for (const b of boxes) {
-      const key = group === 'program' ? `p-${b.programId}` : boxQualityKey(b);
+      // Sprint 24: Palti boxes in their own "Palti" group; warping "remaining" rows under their program.
+      const key = group === 'program' ? boxGroupKey(b) : boxQualityKey(b);
       let g = out.find((x) => x.key === key);
       if (!g) {
         const p = programById.get(b.programId);
-        g = group === 'program' ? { key, title: programTitle(p, b.programId), line: programLine(p), boxes: [] } : { key, title: b.warpingQuality.name, boxes: [] };
+        g =
+          group === 'program'
+            ? key === 'palti'
+              ? { key, title: PALTI_LABEL, line: 'Leftover yarn re-wound into new boxes', boxes: [] }
+              : { key, title: programTitle(p, b.programId), line: programLine(p), boxes: [] }
+            : { key, title: b.warpingQuality.name, boxes: [] };
         out.push(g);
       }
       g.boxes.push(b);
     }
-    if (group === 'program') out.sort((a, b) => Number(b.key.slice(2)) - Number(a.key.slice(2)));
+    if (group === 'program') out.sort((a, b) => (a.key === 'palti' ? 1 : b.key === 'palti' ? -1 : Number(b.key.slice(2)) - Number(a.key.slice(2))));
     else out.sort((a, b) => a.title.localeCompare(b.title));
     return out;
   }, [boxes, group, programById]);
@@ -247,9 +316,32 @@ function YarnStock({ data, type, quality, q, group, onGroup }: { data: YarnZoneD
         >
           <div className={cn(GRID, 'items-start')}>
             {groups.map((g) => (
-              <BoxGroup key={g.key} title={g.title} line={g.line} boxes={g.boxes} open={isOpen(g.key)} onToggle={() => toggle(g.key)} showQuality={group === 'program'} />
+              <BoxGroup
+                key={g.key}
+                title={g.title}
+                line={g.line}
+                boxes={g.boxes}
+                open={isOpen(g.key)}
+                onToggle={() => toggle(g.key)}
+                showQuality={group === 'program'}
+                selected={selected}
+                onSelect={onSelect}
+              />
             ))}
           </div>
+          {selected.size > 0 && (
+            <div className="kb-bar sticky bottom-20 z-20 mt-3 flex items-center gap-3 rounded-2xl border border-border bg-white/95 p-3 shadow-soft backdrop-blur lg:bottom-3">
+              <p className="min-w-0 flex-1 text-sm font-semibold text-slate-800">
+                {selected.size} box{selected.size === 1 ? '' : 'es'} selected
+              </p>
+              <Button variant="ghost" size="sm" onClick={() => setSelected(new Set())}>
+                Clear
+              </Button>
+              <Button className="min-h-11" onClick={() => navigate(`/print/yarn-boxes?ids=${[...selected].join(',')}`)}>
+                <Printer /> Print stickers
+              </Button>
+            </div>
+          )}
         </Section>
       )}
 

@@ -1,4 +1,4 @@
-import { ArrowLeftRight, ChevronRight, Cylinder, History, PackageMinus, PackagePlus, RotateCw, SlidersHorizontal, Spool, Waves } from 'lucide-react';
+import { ArrowLeftRight, ChevronRight, Cylinder, History, PackageMinus, PackagePlus, Recycle, RotateCw, SlidersHorizontal, Spool, Waves } from 'lucide-react';
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
@@ -128,8 +128,14 @@ export default function YarnInventoryPage() {
 
   return (
     <div className="page-container space-y-5 pb-24 pt-5 lg:pb-6">
-      {(can('canViewYarn') || can('canAdjustYarnStock')) && (
+      {(can('canViewYarn') || can('canAdjustYarnStock') || can('canUseYarnInventory')) && (
         <div className="flex flex-wrap justify-end gap-2">
+          {/* Sprint 24 (CR-25): Palti — leftover yarn re-wound into a new box (the floor roles). */}
+          {can('canUseYarnInventory') && (
+            <Button variant="secondary" onClick={() => navigate('/yarn/palti')}>
+              <Recycle /> Palti
+            </Button>
+          )}
           {can('canViewYarn') && (
             <Button variant="secondary" onClick={() => navigate('/yarn-po')}>
               <PackagePlus /> Receive (via PO)

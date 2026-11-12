@@ -30,7 +30,10 @@ import type {
   WarpingStartInput,
   WarpingStatus,
   WithdrawPurpose,
+  PaltiCreateInput,
+  PaltiRun,
   YarnBox,
+  YarnBoxSticker,
   YarnLotCheck,
   YarnLotStock,
   YarnMove,
@@ -354,6 +357,27 @@ export const useCancelPendingJob = () => useYarnMutation((id: number) => api.pos
 /** Sprint 24 (CR-24): the denier is entered at start. */
 export const useStartPendingJob = () =>
   useYarnMutation(({ id, data }: { id: number; data: WarpingStartInput }) => api.post<WarpingJob>(`/yarn/warping/pending/${id}/start`, data), { silentFieldErrors: true });
+
+/* ---------- Sprint 24: Palti (CR-25), box stickers (CR-18) ---------- */
+
+export const usePaltiRuns = () => useInfiniteList<PaltiRun>(['yarn', 'palti', 'list'], '/yarn/palti', {});
+export const useCreatePalti = () => useYarnMutation((data: PaltiCreateInput) => api.post<PaltiRun>('/yarn/palti', data), { silentFieldErrors: true });
+
+export function useBoxStickers(ids: number[]) {
+  return useQuery({
+    queryKey: ['yarn', 'stickers', ids.join(',')],
+    queryFn: ({ signal }) => api.get<YarnBoxSticker[]>('/yarn/boxes/print', { ids: ids.join(',') }, signal),
+    enabled: ids.length > 0,
+  });
+}
+
+export function useYarnBox(id: number) {
+  return useQuery({
+    queryKey: ['yarn', 'box', id],
+    queryFn: ({ signal }) => api.get<{ id: number; boxNo: string; fy: string; zone: YarnZone; status: string; zoneLabel: string }>(`/yarn/boxes/${id}`, undefined, signal),
+    enabled: id > 0,
+  });
+}
 
 /** Sprint 20 — live "beam no. is free" check on Mark done. */
 export const useFinishWarping = (id: number) =>

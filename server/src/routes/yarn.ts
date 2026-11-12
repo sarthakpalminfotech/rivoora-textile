@@ -1,7 +1,9 @@
 import { Router } from 'express';
 import {
   beamsQuerySchema,
+  boxPrintQuerySchema,
   can,
+  paltiListQuerySchema,
   checkLotNoQuerySchema,
   noBoxQuerySchema,
   isYarnZone,
@@ -14,6 +16,7 @@ import {
 import { notFound } from '../lib/errors';
 import { ah, parseId } from '../lib/http';
 import { requirePermission } from '../middleware/role';
+import { boxStickers, createPaltiRun, getBox, listPaltiRuns } from '../services/yarn-palti';
 import { checkLotNo, createTransfer, listNoBoxStock, manualAdd, manualRemove, createWithdrawal, listBeams, listBoxStock, listLotStock, listMoves, yarnSummary, yarnZone } from '../services/yarn-stock';
 import {
   cancelPendingProgram,
@@ -108,6 +111,40 @@ yarnRouter.get(
   ah(async (req, res) => {
     res.set('Cache-Control', 'no-store');
     res.json(await listBoxStock(yarnBoxesQuerySchema.parse(req.query)));
+  }),
+);
+
+/** Sprint 24 (CR-18) — sticker data of boxes (TFO / Palti / remaining), and one box (the sticker QR target). */
+yarnRouter.get(
+  '/boxes/print',
+  ah(async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    res.json(await boxStickers(boxPrintQuerySchema.parse(req.query).ids));
+  }),
+);
+
+yarnRouter.get(
+  '/boxes/:id',
+  ah(async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    res.json(await getBox(parseId(req.params.id)));
+  }),
+);
+
+/* Sprint 24 (CR-25) — Palti: leftover yarn re-wound into a new box (the floor roles). */
+
+yarnRouter.get(
+  '/palti',
+  ah(async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    res.json(await listPaltiRuns(paltiListQuerySchema.parse(req.query)));
+  }),
+);
+
+yarnRouter.post(
+  '/palti',
+  ah(async (req, res) => {
+    res.status(201).json(await createPaltiRun(req.role, req.body));
   }),
 );
 

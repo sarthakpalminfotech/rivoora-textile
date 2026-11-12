@@ -553,3 +553,36 @@ export interface WarpingDoneResult {
   overG: number;
   leftover: { label: string; g: number; boxId: number | null }[];
 }
+
+/* ---------- Sprint 24 (CR-25): Palti · (CR-18): box stickers ---------- */
+
+/** One Palti box made: what went in, the new box, the waste. */
+export interface PaltiRun {
+  id: number;
+  date: string;
+  box: { id: number; boxNo: string; fy: string; zone: YarnZone; status: BoxStatus; warpingQuality: { id: number; name: string }; rolls: number; grossG: number; netG: number } | null;
+  inputG: number;
+  wasteG: number;
+  /** "Box 12 (26-27) · TFO · 4 kg", "Lot 245 · Warping · 2 kg" */
+  inputs: { zone: YarnZone; label: string; qtyG: number }[];
+  note: string | null;
+  createdAt: string;
+  createdBy: YarnActor;
+}
+
+/** One sticker (50 × 25 mm, or a cell of the A4 sheet). */
+export interface YarnBoxSticker {
+  id: number;
+  boxNo: string;
+  fy: string;
+  kind: YarnBoxKind;
+  quality: string;
+  lot: string | null;
+  grossG: number;
+  netG: number;
+  rolls: number;
+  date: string;
+  /** "P-12" or "Palti". */
+  source: string;
+  zone: YarnZone;
+}

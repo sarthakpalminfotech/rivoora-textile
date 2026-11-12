@@ -6,8 +6,10 @@ import {
   yarnManualAddSchema,
   yarnManualRemoveSchema,
   type BeamMoveKind,
+  boxNoWithFy,
   kgToGrams,
   kindsForFilters,
+  PALTI_LABEL,
   ratePaise,
   WITHDRAW_PURPOSE_LABEL,
   programSectionsLabel,
@@ -43,6 +45,7 @@ import { db, type DbOrTx, type Tx } from '../db/client';
 import {
   beamMoves,
   beams,
+  paltiRuns,
   tfoMachines,
   tfoPendingPrograms,
   tfoProgramSections,
@@ -546,7 +549,7 @@ export async function listNoBoxStock(zone: YarnZone): Promise<NoBoxStock[]> {
 }
 
 /** The ledger fields + display name of "No box" twisted stock (yarn quality, or warping quality on the system row). */
-async function noBoxTarget(tx: Tx, noBox: { qualityId?: number | null; warpingQualityId?: number | null }, field = 'qualityId') {
+export async function noBoxTarget(tx: Tx, noBox: { qualityId?: number | null; warpingQualityId?: number | null }, field = 'qualityId') {
   if (noBox.warpingQualityId) {
     const [wq] = await tx.select({ name: warpingQualities.name }).from(warpingQualities).where(and(eq(warpingQualities.id, noBox.warpingQualityId), eq(warpingQualities.isDeleted, false)));
     if (!wq) throw badRequest('That warping quality no longer exists — pick another', field);
@@ -557,7 +560,7 @@ async function noBoxTarget(tx: Tx, noBox: { qualityId?: number | null; warpingQu
 }
 
 /** In-stock boxes of the zone among `ids`, with their remaining kg; 409 when any of them is not (any more) there. */
-async function lockBoxes(tx: Tx, ids: number[], zone: YarnZone): Promise<YarnBox[]> {
+export async function lockBoxes(tx: Tx, ids: number[], zone: YarnZone): Promise<YarnBox[]> {
   const unique = [...new Set(ids)];
   const rows = await listBoxesRaw(tx, inArray(yarnBoxes.id, unique));
   const boxes = await toBoxes(tx, rows);
@@ -672,7 +675,7 @@ async function decorateMoves(rows: MoveRow[], showRate: boolean): Promise<YarnMo
   const lotIds = [...new Set(rows.map((r) => r.lot_id).filter((v): v is number => v !== null))];
   const boxIds = [...new Set(rows.map((r) => r.box_id).filter((v): v is number => v !== null))];
   const wqIds = [...new Set(rows.map((r) => r.wq_id).filter((v): v is number => v !== null))];
-  const [qualities, people, lots, boxRows, receipts, transfers, programs, jobs, wqs, withdrawals] = await Promise.all([
+  const [qualities, people, lots, boxRows, receipts, transfers, programs, jobs, wqs, withdrawals, paltis] = await Promise.all([
     qualityIds.length ? db.select({ id: yarnQualities.id, name: yarnQualities.name }).from(yarnQualities).where(inArray(yarnQualities.id, qualityIds)) : [],
     userIds.length ? db.select({ id: users.id, name: users.name }).from(users).where(inArray(users.id, userIds)) : [],
     lotIds.length ? db.select({ id: yarnLots.id, lotNo: yarnLots.lotNo }).from(yarnLots).where(inArray(yarnLots.id, lotIds)) : [],
@@ -708,6 +711,13 @@ async function decorateMoves(rows: MoveRow[], showRate: boolean): Promise<YarnMo
           .from(yarnWithdrawals)
           .where(inArray(yarnWithdrawals.id, idsOf('withdrawal')))
       : [],
+    idsOf('palti').length
+      ? db
+          .select({ id: paltiRuns.id, boxNo: yarnBoxes.boxNo, fy: yarnBoxes.fy })
+          .from(paltiRuns)
+          .leftJoin(yarnBoxes, eq(yarnBoxes.id, paltiRuns.boxId))
+          .where(inArray(paltiRuns.id, idsOf('palti')))
+      : [],
   ]);
   const wqName = new Map(wqs.map((w) => [w.id, w.name]));
   const qName = new Map(qualities.map((q) => [q.id, q.name]));
@@ -733,6 +743,10 @@ async function decorateMoves(rows: MoveRow[], showRate: boolean): Promise<YarnMo
       case 'job': {
         const x = jobs.find((v) => v.id === id);
         return x ? warpingJobLabel(x.jobNo) : null;
+      }
+      case 'palti': {
+        const x = paltis.find((v) => v.id === id);
+        return x?.boxNo ? `Palti box ${boxNoWithFy(x.boxNo, x.fy)}` : PALTI_LABEL;
       }
       case 'withdrawal': {
         const x = withdrawals.find((v) => v.id === id);

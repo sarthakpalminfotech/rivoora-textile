@@ -88,6 +88,9 @@ const YarnInventoryPage = lazy(() => import('@/features/yarn/inventory-page'));
 const YarnZonePage = lazy(() => import('@/features/yarn/zone-page'));
 const YarnStockPage = lazy(() => import('@/features/yarn/stock-page'));
 const YarnMovementsPage = lazy(() => import('@/features/yarn/zone-page').then((m) => ({ default: m.YarnMovementsPage })));
+const YarnPaltiPage = lazy(() => import('@/features/yarn/palti-page'));
+const BoxStickerPrintPage = lazy(() => import('@/features/yarn/box-sticker-print-page'));
+const YarnBoxRedirectPage = lazy(() => import('@/features/yarn/box-sticker-print-page').then((m) => ({ default: m.YarnBoxRedirectPage })));
 const LoginPage = lazy(() => import('@/features/auth/login-page'));
 const NotFoundPage = lazy(() => import('@/pages/not-found-page'));
 
@@ -225,6 +228,17 @@ const router = createBrowserRouter([
           </Suspense>
         ),
       },
+      // Sprint 24 (CR-18): box stickers (50 × 25 mm labels or an A4 sheet).
+      {
+        path: '/print/yarn-boxes',
+        element: (
+          <Suspense fallback={<PageSkeleton />}>
+            <RequirePermission permission="canUseYarnInventory">
+              <BoxStickerPrintPage />
+            </RequirePermission>
+          </Suspense>
+        ),
+      },
       {
         path: '/print/yarn-po/:id',
         element: (
@@ -317,6 +331,9 @@ const router = createBrowserRouter([
           // Sprint 17/20: Yarn inventory (zones, TFO, warping) — Jenish, Gaurang, the production supervisor, the Yarn inventory supervisor.
           { path: 'yarn', element: guard('canUseYarnInventory', <YarnInventoryPage />) },
           { path: 'yarn/movements', element: guard('canUseYarnInventory', <YarnMovementsPage />) },
+          // Sprint 24: Palti (CR-25) and the box sticker QR target (CR-18) — before `yarn/:zone`.
+          { path: 'yarn/palti', element: guard('canUseYarnInventory', <YarnPaltiPage />) },
+          { path: 'yarn/box/:id', element: guard('canUseYarnInventory', <YarnBoxRedirectPage />) },
           { path: 'yarn/:zone', element: guard('canUseYarnInventory', <YarnZonePage />) },
           { path: 'yarn/:zone/stock', element: guard('canUseYarnInventory', <YarnStockPage />) },
           // Sprint 17/20: Yarn PO (view: Jenish, Gaurang, the production + Yarn inventory supervisors).
