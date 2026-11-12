@@ -1,5 +1,5 @@
 import { ArrowDown, ArrowRight, ArrowUp, Eye, EyeOff, GripVertical, Maximize2, Minimize2, MoreHorizontal, RefreshCw, Sparkles, TrendingDown, TrendingUp } from 'lucide-react';
-import { forwardRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { forwardRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from 'react';
 import {
   formatValue,
   isCardError,
@@ -93,7 +93,7 @@ function BigNumber({ value, unit, size = 'lg', tone }: { value: number | null; u
   const { num, unit: u } = splitValue(value, unit);
   const rupee = unit === 'rs';
   return (
-    <span className={cn('inline-flex items-baseline gap-1 font-semibold tabular-nums tracking-tight', tone && tone !== 'neutral' ? TONE_TEXT[tone] : 'text-slate-900')}>
+    <span className={cn('inline-flex items-baseline gap-1 whitespace-nowrap font-semibold tabular-nums tracking-tight', tone && tone !== 'neutral' ? TONE_TEXT[tone] : 'text-slate-900')}>
       {rupee && <span className={cn('font-medium text-slate-500', size === 'lg' ? 'text-lg' : 'text-sm')}>₹</span>}
       <span className={cn(size === 'lg' ? 'text-[26px] leading-none md:text-[27px] lg:text-[30px]' : size === 'md' ? 'text-[22px] leading-none lg:text-[24px]' : 'text-lg leading-none')}>{num}</span>
       {!rupee && u && <span className={cn('font-medium text-slate-500', size === 'lg' ? 'text-sm' : 'text-xs')}>{u}</span>}
@@ -142,7 +142,7 @@ export function SplitView({ items, actions, dense }: { items: SplitItem[]; actio
     <div className={cn('grid gap-x-4 gap-y-4', items.length >= 4 ? 'grid-cols-2 sm:grid-cols-3' : 'grid-cols-2', items.length === 5 && !dense && 'xl:grid-cols-5', items.length === 3 && 'sm:grid-cols-3', items.length === 4 && 'xl:grid-cols-4')}>
       {items.map((it) => (
         <Tap key={it.label} onTap={tapOf(actions, it.drawer, it.href)} label={`${it.label}: ${formatValue(it.value, it.unit)}`} className="min-w-0">
-          <p className="truncate text-xs font-medium text-slate-500">{it.label}</p>
+          <p className="line-clamp-2 text-xs font-medium leading-snug text-slate-500">{it.label}</p>
           <p className="mt-1">
             <BigNumber value={it.value} unit={it.unit} size="md" tone={it.tone} />
           </p>
@@ -172,8 +172,12 @@ function BarsView({ b, mode, actions }: { b: BarsBody; mode: DashboardMode; acti
   );
 }
 
+const RANKED_SHOWN = 8;
+
 function RankedView({ b, actions }: { b: RankedBody; actions: CardActions }) {
   const max = Math.max(0, ...b.rows.map((r) => r.value));
+  const [all, setAll] = useState(false);
+  const rows = all ? b.rows : b.rows.slice(0, RANKED_SHOWN);
   return (
     <div>
       {b.head && b.head.length > 0 && (
@@ -185,11 +189,11 @@ function RankedView({ b, actions }: { b: RankedBody; actions: CardActions }) {
         <EmptyLine text="Nothing to show for this view" />
       ) : (
         <ol className="space-y-2">
-          {b.rows.map((r, i) => (
+          {rows.map((r, i) => (
             <li key={`${r.label}-${i}`}>
-              <Tap onTap={r.href ? () => actions.go(r.href!) : null} label={`${r.label}: ${r.valueText ?? formatValue(r.value, r.unit)}`} className="w-full">
+              <Tap onTap={r.href ? () => actions.go(r.href!) : null} label={`${r.label}: ${r.valueText ?? formatValue(r.value, r.unit)}`} className="w-full [@media(pointer:coarse)]:min-h-12">
                 <span className="flex items-baseline gap-2">
-                  <span className={cn('min-w-0 flex-1 truncate text-[13px] font-medium', r.tone && r.tone !== 'neutral' ? TONE_TEXT[r.tone] : 'text-slate-800')}>{r.label}</span>
+                  <span title={r.label} className={cn('min-w-0 flex-1 truncate text-[13px] font-medium', r.tone && r.tone !== 'neutral' ? TONE_TEXT[r.tone] : 'text-slate-800')}>{r.label}</span>
                   <span className="shrink-0 text-[13px] font-semibold tabular-nums text-slate-900">{r.valueText ?? formatValue(r.value, r.unit)}</span>
                 </span>
                 {r.sub && <span className="block truncate text-[11.5px] text-slate-500">{r.sub}</span>}
@@ -198,6 +202,11 @@ function RankedView({ b, actions }: { b: RankedBody; actions: CardActions }) {
             </li>
           ))}
         </ol>
+      )}
+      {b.rows.length > RANKED_SHOWN && (
+        <button type="button" onClick={() => setAll(!all)} className="mt-2.5 inline-flex min-h-8 items-center text-xs font-semibold text-primary hover:underline [@media(pointer:coarse)]:min-h-12">
+          {all ? 'Show fewer' : `Show all ${b.rows.length}`}
+        </button>
       )}
       <MoreLink more={b.more} href={b.moreHref ?? null} actions={actions} />
     </div>
@@ -216,7 +225,7 @@ function TableView({ b, actions }: { b: TableBody; actions: CardActions }) {
         <EmptyLine text="Nothing to show for this view" />
       ) : (
         <div className="-mx-1 overflow-x-auto">
-          <table className="w-full min-w-[18rem] text-[13px]">
+          <table className="w-full text-[13px]">
             <thead>
               <tr className="text-left text-[11px] font-semibold uppercase tracking-wide text-slate-400">
                 {b.columns.map((c) => (
@@ -256,7 +265,7 @@ function MoreLink({ more, href, actions }: { more: number; href: string | null; 
   if (!more) return null;
   const text = `+ ${more} more`;
   return href ? (
-    <button type="button" onClick={() => actions.go(href)} className="mt-2.5 inline-flex min-h-8 items-center gap-1 text-xs font-semibold text-primary hover:underline">
+    <button type="button" onClick={() => actions.go(href)} className="mt-2.5 inline-flex min-h-8 items-center gap-1 text-xs font-semibold text-primary hover:underline [@media(pointer:coarse)]:min-h-12">
       {text} <ArrowRight className="size-3.5" aria-hidden />
     </button>
   ) : (
@@ -317,9 +326,15 @@ export const InsightCard = forwardRef<
     arrange?: ArrangeProps | null;
     /** Pinned Needs attention panel styling. */
     panel?: boolean;
+    /**
+     * Sprint 26 (desktop): the card's four parts (header · answer · switch · body) sit on the row's shared grid lines
+     * (CSS subgrid), so every figure of a row starts at the same height.
+     */
+    subgrid?: boolean;
     className?: string;
+    style?: CSSProperties;
   }
->(function InsightCard({ dashboard, def, payload: batchPayload, loading, mode, actions, onRetry, arrange, panel, className }, ref) {
+>(function InsightCard({ dashboard, def, payload: batchPayload, loading, mode, actions, onRetry, arrange, panel, subgrid, className, style }, ref) {
   const [ownPeriod, setOwnPeriod] = useState<PeriodKey | null>(null);
   const own = useCardWithPeriod(dashboard, def.id, ownPeriod);
   const payload = ownPeriod ? (own.data?.cards[def.id] ?? batchPayload) : batchPayload;
@@ -336,6 +351,7 @@ export const InsightCard = forwardRef<
       ref={ref}
       id={panel ? 'attention' : undefined}
       aria-label={def.title}
+      style={style}
       tabIndex={arrange ? 0 : undefined}
       onKeyDown={arrange?.onKeyDown}
       draggable={arrange?.draggable}
@@ -344,7 +360,8 @@ export const InsightCard = forwardRef<
       onDragOver={arrange?.onDragOver}
       onDrop={arrange?.onDrop}
       className={cn(
-        'group/card flex h-full min-w-0 flex-col rounded-xl border bg-white p-4 transition-[box-shadow,opacity,border-color] duration-200 lg:p-5',
+        'group/card min-w-0 rounded-xl border bg-white p-4 transition-[box-shadow,opacity,border-color] duration-200 lg:p-5',
+        subgrid ? 'row-span-4 grid grid-rows-subgrid gap-0' : 'flex h-full flex-col',
         panel ? (tone === 'red' ? 'border-rose-200 bg-rose-50/40' : tone === 'amber' ? 'border-amber-200 bg-amber-50/40' : 'border-emerald-200 bg-emerald-50/30') : 'border-border',
         !touch && !arrange && 'hover:shadow-soft',
         arrange && 'outline-none focus-visible:ring-2 focus-visible:ring-primary/40',
@@ -405,9 +422,10 @@ export const InsightCard = forwardRef<
       {/* 2 · answer line */}
       <p className="mt-0.5 text-xs leading-snug text-slate-500">{def.answer}</p>
       {/* switch (Pcs | m, Butta | Mill | Weavers …) */}
-      {ok?.switch && !arrange && (
-        <div className="mt-3">
+      <div className={cn(ok?.switch && !arrange && 'mt-3')}>
+        {ok?.switch && !arrange && (
           <Segmented
+            fit
             size={touch ? 'lg' : 'md'}
             value={viewKey}
             onChange={setView}
@@ -415,9 +433,10 @@ export const InsightCard = forwardRef<
             aria-label={`${def.title} — show`}
             className={cn('w-full', !touch && 'sm:w-auto')}
           />
-        </div>
-      )}
-      {/* 3 · body */}
+        )}
+      </div>
+      {/* 3 · body (+ footer, Arrange controls) */}
+      <div className="flex min-w-0 flex-1 flex-col">
       <div className="mt-4 min-w-0 flex-1">
         {arrange ? (
           <p className="text-xs text-slate-400">{arrange.hidden ? 'Hidden on the dashboard' : 'Shown'} · {arrange.wide ? 'wide' : 'normal'}</p>
@@ -472,6 +491,7 @@ export const InsightCard = forwardRef<
           )}
         </div>
       )}
+      </div>
     </article>
   );
 });

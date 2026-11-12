@@ -86,11 +86,13 @@ export function ColumnChart({
   // Swipe for the older months: start scrolled to the latest ones.
   useLayoutEffect(() => {
     const el = scroller.current;
-    if (el && maxVisible && points.length > maxVisible) el.scrollLeft = el.scrollWidth;
+    if (el && maxVisible && points.length > 3) el.scrollLeft = el.scrollWidth;
   }, [maxVisible, points.length, width]);
   const max = Math.max(1, ...points.flatMap((p) => p.values));
-  const scrolls = !!maxVisible && points.length > maxVisible;
-  const colW = scrolls ? width / maxVisible! : width / Math.max(1, points.length);
+  // Sprint 26: never fewer than ~52 px per column on touch (a bar stays a comfortable tap target in a narrow card)
+  const visible = maxVisible && width ? Math.max(3, Math.min(maxVisible, Math.floor(width / 52))) : maxVisible;
+  const scrolls = !!visible && points.length > visible;
+  const colW = scrolls ? width / visible! : width / Math.max(1, points.length);
   const allLabels = colW >= (large ? 56 : 44);
   const maxIdx = points.reduce((best, p, i) => (p.values[0] > points[best].values[0] ? i : best), 0);
   const two = series.length > 1;
@@ -107,11 +109,11 @@ export function ColumnChart({
         </div>
       )}
       <div ref={scroller} className={cn('scrollbar-none', scrolls && 'snap-x overflow-x-auto overscroll-x-contain')}>
-        <div className="flex items-end border-b border-slate-200" style={{ height, width: scrolls ? `${(points.length / maxVisible!) * 100}%` : '100%' }} role="list">
+        <div className="flex items-end border-b border-slate-200" style={{ height, width: scrolls ? `${(points.length / visible!) * 100}%` : '100%' }} role="list">
           {points.map((p, i) => {
             const showLabel = allLabels || i === points.length - 1 || i === maxIdx;
             return (
-              <div key={`${p.label}-${i}`} role="listitem" className={cn('relative flex h-full min-w-0 flex-1 snap-end items-end justify-center gap-[3px] px-[12%]')}>
+              <div key={`${p.label}-${i}`} role="listitem" className="relative flex h-full min-w-0 flex-1 snap-end items-end justify-center">
                 <button
                   type="button"
                   className="absolute inset-0 z-10 cursor-pointer rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
@@ -121,10 +123,12 @@ export function ColumnChart({
                   onClick={() => (active === i && onPick && p.href ? onPick(p) : setActive(active === i ? null : i))}
                   onDoubleClick={() => onPick && p.href && onPick(p)}
                 />
+                {/* the bars take 64 % of their own column (a % padding would be a share of the whole chart) */}
+                <div className="flex h-full w-[64%] max-w-[72px] items-end justify-center gap-[3px]">
                 {p.values.map((v, k) => (
                   <div
                     key={k}
-                    className="relative w-full max-w-[34px] rounded-t-[5px] transition-[height] duration-200"
+                    className="relative min-w-0 max-w-[34px] flex-1 rounded-t-[5px] transition-[height] duration-200"
                     style={{ height: `${Math.max(v > 0 ? 2 : 0, (v / max) * (height - 22))}px`, backgroundColor: two ? SERIES[k] : i === points.length - 1 ? SERIES[0] : 'hsl(var(--primary) / 0.55)' }}
                   >
                     {showLabel && !two && v > 0 && (
@@ -132,6 +136,7 @@ export function ColumnChart({
                     )}
                   </div>
                 ))}
+                </div>
                 {active === i && (
                   // Inside a sideways scroller the tip stays inside the chart (it would be clipped above it).
                   <Tip className={cn(scrolls ? 'top-0' : 'bottom-full mb-1', i > points.length / 2 ? 'right-0' : 'left-0')}>
@@ -150,9 +155,9 @@ export function ColumnChart({
             );
           })}
         </div>
-        <div className="mt-1.5 flex" style={{ width: scrolls ? `${(points.length / maxVisible!) * 100}%` : '100%' }} aria-hidden>
+        <div className="mt-1.5 flex" style={{ width: scrolls ? `${(points.length / visible!) * 100}%` : '100%' }} aria-hidden>
           {points.map((p, i) => (
-            <span key={i} className={cn('min-w-0 flex-1 truncate text-center tabular-nums text-slate-500', large ? 'text-xs' : 'text-[11px]', !allLabels && points.length > 8 && i % 2 === 1 && i !== points.length - 1 && 'invisible')}>
+            <span key={i} className={cn('line-clamp-2 min-w-0 flex-1 text-center leading-tight tabular-nums text-slate-500', large ? 'text-xs' : 'text-[11px]', !allLabels && points.length > 8 && i % 2 === 1 && i !== points.length - 1 && 'invisible')}>
               {p.label}
             </span>
           ))}
@@ -206,7 +211,7 @@ export function Donut({ parts, total, unit, size = 132 }: { parts: DonutPart[]; 
   const sorted = [...parts].sort((a, b) => b.value - a.value);
   let offset = 0;
   return (
-    <div ref={ref} className="flex flex-col items-center gap-4 sm:flex-row sm:items-center">
+    <div ref={ref} className="flex flex-wrap items-center justify-center gap-4">
       <div className="relative shrink-0" style={{ width: size, height: size }}>
         <svg viewBox="0 0 100 100" className="size-full -rotate-90" role="img" aria-label={sorted.map((p) => `${p.label} ${formatValue(p.value, unit)}`).join(', ')}>
           <circle cx="50" cy="50" r={r} fill="none" stroke="rgb(241 245 249)" strokeWidth="13" />
@@ -247,12 +252,13 @@ export function Donut({ parts, total, unit, size = 132 }: { parts: DonutPart[]; 
           )}
         </div>
       </div>
-      <ul className="w-full min-w-0 space-y-1.5">
+      {/* the legend sits beside the donut, or under it when the card is narrow (it never overflows) */}
+      <ul className="min-w-[13rem] flex-1 space-y-1.5">
         {sorted.map((p, i) => (
           <li key={p.label}>
             <button
               type="button"
-              className={cn('flex w-full items-center gap-2 rounded-md px-1.5 py-1 text-left text-[13px] transition-colors', active === i ? 'bg-slate-100' : 'hover:bg-slate-50')}
+              className={cn('flex w-full items-center gap-2 rounded-md px-1.5 py-1 text-left text-[13px] transition-colors [@media(pointer:coarse)]:min-h-11', active === i ? 'bg-slate-100' : 'hover:bg-slate-50')}
               onClick={() => setActive(active === i ? null : i)}
             >
               <span className="size-2.5 shrink-0 rounded-sm" style={{ backgroundColor: shade(i, sorted.length) }} aria-hidden />

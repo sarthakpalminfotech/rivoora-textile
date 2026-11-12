@@ -19,6 +19,7 @@ import {
   type DashboardLayout,
   type Drawer,
   type PeriodKey,
+  packRows,
 } from '@rivoora/shared';
 import { usePageTitle } from '@/components/layout/page-title';
 import { ErrorState } from '@/components/list-parts';
@@ -45,17 +46,19 @@ import { useDashboardMode, type DashboardMode } from './layout-mode';
  * handles, sticky Done bar, pull to refresh. Phone: one column, the strip 2 × 3, section tabs, no Arrange.
  */
 
-/** Grid span of a card per layout mode (desktop and tablet are their own designs, not one grid reflowing). */
-function spanClass(width: CardWidth, mode: DashboardMode): string {
-  if (mode === 'desktop') return { small: 'col-span-3', normal: 'col-span-4', wide: 'col-span-6', full: 'col-span-12' }[width];
-  if (mode === 'tablet3') return { small: 'col-span-1', normal: 'col-span-1', wide: 'col-span-2', full: 'col-span-3' }[width];
-  if (mode === 'tablet2') return { small: 'col-span-1', normal: 'col-span-1', wide: 'col-span-2', full: 'col-span-2' }[width];
-  return 'col-span-1';
-}
+/** Columns asked for per layout mode (desktop and tablet are their own designs, not one grid reflowing). */
+const SPAN: Record<DashboardMode, Record<CardWidth, number>> = {
+  desktop: { small: 3, normal: 4, wide: 6, full: 12 },
+  tablet3: { small: 1, normal: 1, wide: 2, full: 3 },
+  tablet2: { small: 1, normal: 1, wide: 2, full: 2 },
+  phone: { small: 1, normal: 1, wide: 1, full: 1 },
+};
+const COLS: Record<DashboardMode, number> = { desktop: 12, tablet3: 3, tablet2: 2, phone: 1 };
+/** Sprint 26: desktop and tablet rows use subgrid (row gap 0 — each card keeps its own bottom margin), so figures share a baseline. */
 const GRID: Record<DashboardMode, string> = {
-  desktop: 'grid grid-cols-12 gap-5',
-  tablet3: 'grid grid-cols-3 gap-4',
-  tablet2: 'grid grid-cols-2 gap-4',
+  desktop: 'grid grid-cols-12 gap-x-5 gap-y-0',
+  tablet3: 'grid grid-cols-3 gap-x-4 gap-y-0',
+  tablet2: 'grid grid-cols-2 gap-x-4 gap-y-0',
   phone: 'grid grid-cols-1 gap-3',
 };
 const STRIP_GRID: Record<DashboardMode, string> = {
@@ -97,7 +100,7 @@ export default function DashboardPage() {
 
 function Dashboard({ dashboard }: { dashboard: DashboardKey }) {
   const def = DASHBOARDS[dashboard];
-  usePageTitle(def.title);
+  usePageTitle('Dashboard');
   const navigate = useNavigate();
   const { can, user } = useRole();
   const mode = useDashboardMode();
@@ -285,7 +288,9 @@ function Dashboard({ dashboard }: { dashboard: DashboardKey }) {
           <p className="rounded-xl border border-dashed border-border px-4 py-6 text-center text-sm text-slate-400">Drop a card here, or move one with ↑ ↓</p>
         ) : (
           <div className={GRID[mode]}>
-            {list.map((c) => {
+            {/* rows without holes: Arrange order, a later card may move up to fill a row, short rows are stretched */}
+            {(arranging ? list.map((_, index) => ({ index, span: SPAN[mode][list[index].width] })) : packRows(list.map((c) => SPAN[mode][c.width]), COLS[mode]).flat()).map(({ index, span }) => {
+              const c = list[index];
               const cdef = defs.get(c.id)!;
               return (
                 <InsightCard
@@ -301,7 +306,9 @@ function Dashboard({ dashboard }: { dashboard: DashboardKey }) {
                   mode={mode}
                   actions={actions}
                   onRetry={refresh}
-                  className={spanClass(c.width, mode)}
+                  subgrid={mode !== 'phone'}
+                  className={cn(mode === 'desktop' ? 'mb-5' : mode !== 'phone' && 'mb-4')}
+                  style={{ gridColumn: `span ${arranging ? Math.min(span, COLS[mode]) : span} / span ${arranging ? Math.min(span, COLS[mode]) : span}` }}
                   arrange={
                     draft
                       ? {
@@ -363,7 +370,10 @@ function Dashboard({ dashboard }: { dashboard: DashboardKey }) {
   ));
 
   return (
-    <div className="page-container pb-28 pt-3 lg:pb-8 2xl:max-w-[1440px]" onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}>
+    <div
+      data-dashboard-mode={mode}
+      className={cn('page-container pb-28 pt-3 lg:pb-8', mode === 'desktop' && 'mx-auto !max-w-[1440px] lg:!px-4 xl:!px-6')}
+      onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}>
       {pull > 0 && (
         <div className="flex items-center justify-center text-xs font-medium text-slate-500 transition-[height]" style={{ height: pull }} aria-hidden>
           <RefreshCw className={cn('mr-1.5 size-4', pull > 64 && 'text-primary')} style={{ transform: `rotate(${pull * 3}deg)` }} />
@@ -386,7 +396,7 @@ function Dashboard({ dashboard }: { dashboard: DashboardKey }) {
               <button
                 type="button"
                 onClick={refresh}
-                className={cn('inline-flex items-center gap-1.5 rounded-lg px-2.5 text-xs font-medium text-slate-500 hover:bg-white hover:text-slate-800', touch ? 'min-h-11' : 'min-h-9')}
+                className={cn('inline-flex items-center gap-1.5 rounded-lg px-2.5 text-xs font-medium text-slate-500 hover:bg-white hover:text-slate-800', touch ? 'min-h-11 min-w-11 justify-center' : 'min-h-9')}
                 aria-label="Refresh the dashboard"
               >
                 {cardsQ.isFetching ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <RefreshCw className="size-4" aria-hidden />}
@@ -417,22 +427,24 @@ function Dashboard({ dashboard }: { dashboard: DashboardKey }) {
           <div className={cn('flex flex-col gap-2', mode === 'desktop' && 'flex-row flex-wrap items-center justify-between')}>
             {canSwitchDash.length > 1 && (
               <Segmented
+                fit
                 size={touch ? 'lg' : 'md'}
                 value={dashboard}
                 onChange={(k) => navigate(`/dashboard/${k}${period !== DEFAULT_PERIOD ? `?period=${period}` : ''}`)}
                 options={canSwitchDash.map((k) => ({ value: k, label: DASHBOARD_LABEL[k] }))}
                 aria-label="Dashboard"
-                className={cn(mode === 'desktop' ? 'w-auto min-w-[22rem]' : 'w-full md:max-w-xl')}
+                className={cn(mode === 'desktop' ? 'w-auto' : 'w-full md:max-w-xl')}
               />
             )}
-            <div ref={periodRef} className={cn(mode === 'desktop' && 'ml-auto')}>
+            <div ref={periodRef} className={cn(mode === 'desktop' ? 'ml-auto' : 'scrollbar-none -mx-1 overflow-x-auto px-1')}>
               <Segmented
+                fit
                 size={touch ? 'lg' : 'md'}
                 value={period}
                 onChange={(p) => setParam('period', p === DEFAULT_PERIOD ? null : p)}
                 options={PERIOD_KEYS.map((k) => ({ value: k, label: PERIOD_SHORT[k] }))}
                 aria-label="Period"
-                className={cn(mode === 'desktop' ? 'w-auto min-w-[26rem]' : 'w-full')}
+                className={cn(mode === 'desktop' ? 'w-auto' : 'w-full min-w-max')}
               />
             </div>
           </div>

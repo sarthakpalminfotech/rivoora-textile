@@ -109,7 +109,7 @@ export class ProductionSim {
     const qty = unit === 'pcs' ? 45 + 3 * Math.round(Math.pow(r.next(), 1.7) * 230) : 10 * Math.round((400 + Math.pow(r.next(), 1.5) * 2400) / 10);
     const rate = unit === 'pcs' ? Math.round(fgType === 'saree' ? r.u(380, 1350) : r.u(450, 1600)) : Math.round(r.u(95, 260));
     const createdX = this.clock.at(p.x, r.u(10, 18.5));
-    const promised = r.chance(0.5) ? this.clock.day(p.x + r.int(25, 45)) : null;
+    const promised = r.chance(0.5) ? this.clock.day(p.x + r.int(32, 55)) : null;
     const o: SimOrder = {
       id: this.ids.reserve('orders'),
       no: 0,
@@ -336,7 +336,8 @@ export class ProductionSim {
         this.newTaka(o, js, { pcs, meters: Math.round(pcs * (o.fgType === 'saree' ? r.u(5.6, 6.3) : r.u(2.4, 3)) * 100) / 100, createdX: entryX + k * 0.0004 });
       }
     } else {
-      const cloth = Math.round((js.meters ?? 0) * js.sections * factor * 100) / 100;
+      // meter orders are woven a little long: the mill shrinks them 1–4 %
+      const cloth = Math.round((js.meters ?? 0) * js.sections * (factor < 0.9 || factor > 1.1 ? factor : factor + 0.05) * 100) / 100;
       const n = Math.max(1, Math.round(cloth / r.u(90, 115)));
       for (let k = 0; k < n; k++) this.newTaka(o, js, { pcs: null, meters: Math.round((cloth / n) * 100) / 100, createdX: entryX + k * 0.0004 });
     }
@@ -520,7 +521,7 @@ export class ProductionSim {
     }
     if (r.chance(0.015)) this.damage(t, 'godown', 'godown', x + r.u(0.1, 1), GODOWN_DMG, 'dhruvil');
     if (t.meters !== null && r.chance(0.4)) t.actualMeters = Math.round(t.meters * (r.chance(0.92) ? r.u(0.955, 0.995) : r.u(1.002, 1.01)) * 100) / 100;
-    if (t.pcs !== null && t.pcs > 5 && r.chance(0.02)) t.actualPcs = t.pcs - 1;
+    if (t.pcs !== null && t.pcs > 5 && o.short && r.chance(0.3)) t.actualPcs = t.pcs - 1;
     const tick = o.stall === 'godown' ? this.clock.H + 3 : x + r.u(0.3, 3);
     this.resolveSome(t, tick - 0.01, 'godown', 'dhruvil', 0.45);
     t.checkedX = tick;

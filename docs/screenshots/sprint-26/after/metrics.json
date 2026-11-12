@@ -1,0 +1,1312 @@
+[
+  {
+    "dashboard": "owner",
+    "size": "1920",
+    "expect": "desktop",
+    "hscroll": false,
+    "mode": "desktop",
+    "overflow": [],
+    "cut": [
+      "Business by broker: \"Shree Ambica Saree Emporium and Wholesale Textile \"",
+      "Business by broker: \"Shree Ambica Saree Emporium and Wholesale Textile \""
+    ],
+    "unequal": [],
+    "holes": [],
+    "baseline": [],
+    "small": [],
+    "scrollers": [],
+    "contentWidth": 1440,
+    "sections": [],
+    "errors": [],
+    "shots": [
+      "owner-1920-top.png",
+      "owner-1920-full.png",
+      "owner-1920-drawer.png"
+    ]
+  },
+  {
+    "dashboard": "owner",
+    "size": "1440",
+    "expect": "desktop",
+    "hscroll": false,
+    "mode": "desktop",
+    "overflow": [],
+    "cut": [
+      "Business by broker: \"Shree Ambica Saree Emporium and Wholesale Textile \"",
+      "Business by broker: \"Shree Ambica Saree Emporium and Wholesale Textile \""
+    ],
+    "unequal": [],
+    "holes": [],
+    "baseline": [],
+    "small": [],
+    "scrollers": [],
+    "contentWidth": 1184,
+    "sections": [],
+    "errors": [],
+    "shots": [
+      "owner-1440-top.png",
+      "owner-1440-full.png",
+      "owner-1440-drawer.png"
+    ]
+  },
+  {
+    "dashboard": "owner",
+    "size": "1280",
+    "expect": "desktop",
+    "hscroll": false,
+    "mode": "desktop",
+    "overflow": [],
+    "cut": [
+      "Business by broker: \"Shree Ambica Saree Emporium and Wholesale Textile \"",
+      "Business by broker: \"Shree Ambica Saree Emporium and Wholesale Textile \""
+    ],
+    "unequal": [],
+    "holes": [],
+    "baseline": [],
+    "small": [],
+    "scrollers": [],
+    "contentWidth": 1024,
+    "sections": [],
+    "errors": [],
+    "shots": [
+      "owner-1280-top.png",
+      "owner-1280-full.png",
+      "owner-1280-drawer.png"
+    ]
+  },
+  {
+    "dashboard": "owner",
+    "size": "1180t",
+    "expect": "tablet",
+    "hscroll": false,
+    "mode": "tablet3",
+    "overflow": [],
+    "cut": [],
+    "unequal": [],
+    "holes": [],
+    "baseline": [],
+    "small": [],
+    "scrollers": [
+      "Order value booked: scrolls sideways (702 > 234)",
+      "Orders booked per month: scrolls sideways (1052 > 526)"
+    ],
+    "contentWidth": 924,
+    "sections": [
+      {
+        "title": "Overview",
+        "hscroll": false,
+        "mode": "tablet3",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [],
+        "baseline": [],
+        "small": [],
+        "scrollers": [
+          "Order value booked: scrolls sideways (702 > 234)",
+          "Orders booked per month: scrolls sideways (1052 > 526)"
+        ],
+        "contentWidth": 924
+      },
+      {
+        "title": "Clients",
+        "hscroll": false,
+        "mode": "tablet3",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [],
+        "baseline": [],
+        "small": [],
+        "scrollers": [],
+        "contentWidth": 924
+      },
+      {
+        "title": "Brokers & designs",
+        "hscroll": false,
+        "mode": "tablet3",
+        "overflow": [],
+        "cut": [
+          "Business by broker: \"Shree Ambica Saree Emporium and Wholesale Textile \"",
+          "Business by broker: \"Shree Ambica Saree Emporium and Wholesale Textile \""
+        ],
+        "unequal": [],
+        "holes": [],
+        "baseline": [],
+        "small": [],
+        "scrollers": [],
+        "contentWidth": 924
+      },
+      {
+        "title": "Speed",
+        "hscroll": false,
+        "mode": "tablet3",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [],
+        "baseline": [],
+        "small": [],
+        "scrollers": [],
+        "contentWidth": 924
+      },
+      {
+        "title": "Quality & damage",
+        "hscroll": false,
+        "mode": "tablet3",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [],
+        "baseline": [],
+        "small": [],
+        "scrollers": [],
+        "contentWidth": 924
+      },
+      {
+        "title": "Returns & rework",
+        "hscroll": false,
+        "mode": "tablet3",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [],
+        "baseline": [],
+        "small": [],
+        "scrollers": [
+          "Goods returned by month: scrolls sideways (1052 > 526)",
+          "Work done twice: scrolls sideways (1636 > 818)"
+        ],
+        "contentWidth": 924
+      },
+      {
+        "title": "Stock",
+        "hscroll": false,
+        "mode": "tablet3",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [],
+        "baseline": [],
+        "small": [],
+        "scrollers": [],
+        "contentWidth": 924
+      },
+      {
+        "title": "Vendors",
+        "hscroll": false,
+        "mode": "tablet3",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [],
+        "baseline": [],
+        "small": [],
+        "scrollers": [],
+        "contentWidth": 924
+      },
+      {
+        "title": "Looms & yarn",
+        "hscroll": false,
+        "mode": "tablet3",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [],
+        "baseline": [],
+        "small": [],
+        "scrollers": [
+          "Frames woven per month: scrolls sideways (1052 > 526)",
+          "Yarn bought vs used: scrolls sideways (1052 > 526)"
+        ],
+        "contentWidth": 924
+      },
+      {
+        "title": "Attention & team",
+        "hscroll": false,
+        "mode": "tablet3",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [],
+        "baseline": [],
+        "small": [],
+        "scrollers": [],
+        "contentWidth": 924
+      }
+    ],
+    "errors": [],
+    "shots": [
+      "owner-1180t-top.png",
+      "owner-1180t-tab-0-overview.png",
+      "owner-1180t-tab-1-clients.png",
+      "owner-1180t-tab-2-brokers-designs.png",
+      "owner-1180t-tab-3-speed.png",
+      "owner-1180t-tab-4-quality-damage.png",
+      "owner-1180t-tab-5-returns-rework.png",
+      "owner-1180t-tab-6-stock.png",
+      "owner-1180t-tab-7-vendors.png",
+      "owner-1180t-tab-8-looms-yarn.png",
+      "owner-1180t-tab-9-attention-team.png",
+      "owner-1180t-drawer.png"
+    ]
+  },
+  {
+    "dashboard": "owner",
+    "size": "820t",
+    "expect": "tablet",
+    "hscroll": false,
+    "mode": "tablet2",
+    "overflow": [],
+    "cut": [],
+    "unequal": [],
+    "holes": [],
+    "baseline": [],
+    "small": [],
+    "scrollers": [
+      "Orders booked per month: scrolls sideways (1476 > 738)",
+      "Order value booked: scrolls sideways (688 > 344)"
+    ],
+    "contentWidth": 820,
+    "sections": [
+      {
+        "title": "Overview",
+        "hscroll": false,
+        "mode": "tablet2",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [],
+        "baseline": [],
+        "small": [],
+        "scrollers": [
+          "Orders booked per month: scrolls sideways (1476 > 738)",
+          "Order value booked: scrolls sideways (688 > 344)"
+        ],
+        "contentWidth": 820
+      },
+      {
+        "title": "Clients",
+        "hscroll": false,
+        "mode": "tablet2",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [],
+        "baseline": [],
+        "small": [],
+        "scrollers": [],
+        "contentWidth": 820
+      },
+      {
+        "title": "Brokers & designs",
+        "hscroll": false,
+        "mode": "tablet2",
+        "overflow": [],
+        "cut": [
+          "Business by broker: \"Shree Ambica Saree Emporium and Wholesale Textile \"",
+          "Business by broker: \"Shree Ambica Saree Emporium and Wholesale Textile \""
+        ],
+        "unequal": [],
+        "holes": [],
+        "baseline": [],
+        "small": [],
+        "scrollers": [],
+        "contentWidth": 820
+      },
+      {
+        "title": "Speed",
+        "hscroll": false,
+        "mode": "tablet2",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [],
+        "baseline": [],
+        "small": [],
+        "scrollers": [],
+        "contentWidth": 820
+      },
+      {
+        "title": "Quality & damage",
+        "hscroll": false,
+        "mode": "tablet2",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [],
+        "baseline": [],
+        "small": [],
+        "scrollers": [],
+        "contentWidth": 820
+      },
+      {
+        "title": "Returns & rework",
+        "hscroll": false,
+        "mode": "tablet2",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [],
+        "baseline": [],
+        "small": [],
+        "scrollers": [
+          "Goods returned by month: scrolls sideways (1476 > 738)",
+          "Work done twice: scrolls sideways (688 > 344)"
+        ],
+        "contentWidth": 820
+      },
+      {
+        "title": "Stock",
+        "hscroll": false,
+        "mode": "tablet2",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [],
+        "baseline": [],
+        "small": [],
+        "scrollers": [],
+        "contentWidth": 820
+      },
+      {
+        "title": "Vendors",
+        "hscroll": false,
+        "mode": "tablet2",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [],
+        "baseline": [],
+        "small": [],
+        "scrollers": [],
+        "contentWidth": 820
+      },
+      {
+        "title": "Looms & yarn",
+        "hscroll": false,
+        "mode": "tablet2",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [],
+        "baseline": [],
+        "small": [],
+        "scrollers": [
+          "Frames woven per month: scrolls sideways (1476 > 738)",
+          "Yarn bought vs used: scrolls sideways (1476 > 738)"
+        ],
+        "contentWidth": 820
+      },
+      {
+        "title": "Attention & team",
+        "hscroll": false,
+        "mode": "tablet2",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [],
+        "baseline": [],
+        "small": [],
+        "scrollers": [],
+        "contentWidth": 820
+      }
+    ],
+    "errors": [],
+    "shots": [
+      "owner-820t-top.png",
+      "owner-820t-tab-0-overview.png",
+      "owner-820t-tab-1-clients.png",
+      "owner-820t-tab-2-brokers-designs.png",
+      "owner-820t-tab-3-speed.png",
+      "owner-820t-tab-4-quality-damage.png",
+      "owner-820t-tab-5-returns-rework.png",
+      "owner-820t-tab-6-stock.png",
+      "owner-820t-tab-7-vendors.png",
+      "owner-820t-tab-8-looms-yarn.png",
+      "owner-820t-tab-9-attention-team.png",
+      "owner-820t-drawer.png"
+    ]
+  },
+  {
+    "dashboard": "owner",
+    "size": "768t",
+    "expect": "tablet",
+    "hscroll": false,
+    "mode": "tablet2",
+    "overflow": [],
+    "cut": [],
+    "unequal": [],
+    "holes": [],
+    "baseline": [],
+    "small": [],
+    "scrollers": [
+      "Orders booked per month: scrolls sideways (1372 > 686)",
+      "Order value booked: scrolls sideways (636 > 318)"
+    ],
+    "contentWidth": 768,
+    "sections": [
+      {
+        "title": "Overview",
+        "hscroll": false,
+        "mode": "tablet2",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [],
+        "baseline": [],
+        "small": [],
+        "scrollers": [
+          "Orders booked per month: scrolls sideways (1372 > 686)",
+          "Order value booked: scrolls sideways (636 > 318)"
+        ],
+        "contentWidth": 768
+      },
+      {
+        "title": "Clients",
+        "hscroll": false,
+        "mode": "tablet2",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [],
+        "baseline": [],
+        "small": [],
+        "scrollers": [],
+        "contentWidth": 768
+      },
+      {
+        "title": "Brokers & designs",
+        "hscroll": false,
+        "mode": "tablet2",
+        "overflow": [],
+        "cut": [
+          "Business by broker: \"Shree Ambica Saree Emporium and Wholesale Textile \"",
+          "Business by broker: \"Shree Ambica Saree Emporium and Wholesale Textile \""
+        ],
+        "unequal": [],
+        "holes": [],
+        "baseline": [],
+        "small": [],
+        "scrollers": [],
+        "contentWidth": 768
+      },
+      {
+        "title": "Speed",
+        "hscroll": false,
+        "mode": "tablet2",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [],
+        "baseline": [],
+        "small": [],
+        "scrollers": [],
+        "contentWidth": 768
+      },
+      {
+        "title": "Quality & damage",
+        "hscroll": false,
+        "mode": "tablet2",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [],
+        "baseline": [],
+        "small": [],
+        "scrollers": [],
+        "contentWidth": 768
+      },
+      {
+        "title": "Returns & rework",
+        "hscroll": false,
+        "mode": "tablet2",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [],
+        "baseline": [],
+        "small": [],
+        "scrollers": [
+          "Goods returned by month: scrolls sideways (1372 > 686)",
+          "Work done twice: scrolls sideways (636 > 318)"
+        ],
+        "contentWidth": 768
+      },
+      {
+        "title": "Stock",
+        "hscroll": false,
+        "mode": "tablet2",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [],
+        "baseline": [],
+        "small": [],
+        "scrollers": [],
+        "contentWidth": 768
+      },
+      {
+        "title": "Vendors",
+        "hscroll": false,
+        "mode": "tablet2",
+        "overflow": [],
+        "cut": [
+          "Our goods lying outside: \"Anupam Dyeing Mills\"",
+          "Our goods lying outside: \"Laxmipati Process House\"",
+          "Our goods lying outside: \"Krishna Butta Cutting\""
+        ],
+        "unequal": [],
+        "holes": [],
+        "baseline": [],
+        "small": [],
+        "scrollers": [],
+        "contentWidth": 768
+      },
+      {
+        "title": "Looms & yarn",
+        "hscroll": false,
+        "mode": "tablet2",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [],
+        "baseline": [],
+        "small": [],
+        "scrollers": [
+          "Frames woven per month: scrolls sideways (1372 > 686)",
+          "Yarn bought vs used: scrolls sideways (1372 > 686)"
+        ],
+        "contentWidth": 768
+      },
+      {
+        "title": "Attention & team",
+        "hscroll": false,
+        "mode": "tablet2",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [],
+        "baseline": [],
+        "small": [],
+        "scrollers": [],
+        "contentWidth": 768
+      }
+    ],
+    "errors": [],
+    "shots": [
+      "owner-768t-top.png",
+      "owner-768t-tab-0-overview.png",
+      "owner-768t-tab-1-clients.png",
+      "owner-768t-tab-2-brokers-designs.png",
+      "owner-768t-tab-3-speed.png",
+      "owner-768t-tab-4-quality-damage.png",
+      "owner-768t-tab-5-returns-rework.png",
+      "owner-768t-tab-6-stock.png",
+      "owner-768t-tab-7-vendors.png",
+      "owner-768t-tab-8-looms-yarn.png",
+      "owner-768t-tab-9-attention-team.png",
+      "owner-768t-drawer.png"
+    ]
+  },
+  {
+    "dashboard": "partner",
+    "size": "1920",
+    "expect": "desktop",
+    "hscroll": false,
+    "mode": "desktop",
+    "overflow": [],
+    "cut": [],
+    "unequal": [],
+    "holes": [],
+    "baseline": [],
+    "small": [],
+    "scrollers": [],
+    "contentWidth": 1440,
+    "sections": [],
+    "errors": [],
+    "shots": [
+      "partner-1920-top.png",
+      "partner-1920-full.png"
+    ]
+  },
+  {
+    "dashboard": "partner",
+    "size": "1440",
+    "expect": "desktop",
+    "hscroll": false,
+    "mode": "desktop",
+    "overflow": [],
+    "cut": [],
+    "unequal": [],
+    "holes": [],
+    "baseline": [],
+    "small": [],
+    "scrollers": [],
+    "contentWidth": 1184,
+    "sections": [],
+    "errors": [],
+    "shots": [
+      "partner-1440-top.png",
+      "partner-1440-full.png"
+    ]
+  },
+  {
+    "dashboard": "partner",
+    "size": "1280",
+    "expect": "desktop",
+    "hscroll": false,
+    "mode": "desktop",
+    "overflow": [],
+    "cut": [
+      "Beams ready vs needed: \"75/36 Poly 75D-600-Z\"",
+      "Beams ready vs needed: \"50/24 Nylon 50D-900-Z\"",
+      "Beams ready vs needed: \"150/48 Poly 150D-400-S\"",
+      "Beams ready vs needed: \"120/30 Viscose 120D-500-Z\""
+    ],
+    "unequal": [],
+    "holes": [],
+    "baseline": [],
+    "small": [],
+    "scrollers": [],
+    "contentWidth": 1024,
+    "sections": [],
+    "errors": [],
+    "shots": [
+      "partner-1280-top.png",
+      "partner-1280-full.png"
+    ]
+  },
+  {
+    "dashboard": "partner",
+    "size": "1180t",
+    "expect": "tablet",
+    "hscroll": false,
+    "mode": "tablet3",
+    "overflow": [],
+    "cut": [],
+    "unequal": [],
+    "holes": [],
+    "baseline": [],
+    "small": [],
+    "scrollers": [],
+    "contentWidth": 924,
+    "sections": [
+      {
+        "title": "Overview",
+        "hscroll": false,
+        "mode": "tablet3",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [],
+        "baseline": [],
+        "small": [],
+        "scrollers": [],
+        "contentWidth": 924
+      },
+      {
+        "title": "Floor",
+        "hscroll": false,
+        "mode": "tablet3",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [],
+        "baseline": [],
+        "small": [],
+        "scrollers": [],
+        "contentWidth": 924
+      },
+      {
+        "title": "Reliability",
+        "hscroll": false,
+        "mode": "tablet3",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [],
+        "baseline": [],
+        "small": [],
+        "scrollers": [],
+        "contentWidth": 924
+      },
+      {
+        "title": "After the loom",
+        "hscroll": false,
+        "mode": "tablet3",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [],
+        "baseline": [],
+        "small": [],
+        "scrollers": [
+          "Cloth by stage right now: scrolls sideways (614 > 526)"
+        ],
+        "contentWidth": 924
+      },
+      {
+        "title": "Outside & FG",
+        "hscroll": false,
+        "mode": "tablet3",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [],
+        "baseline": [],
+        "small": [],
+        "scrollers": [
+          "FG purchase awaiting goods: scrolls sideways (259 > 242)"
+        ],
+        "contentWidth": 924
+      },
+      {
+        "title": "Yarn",
+        "hscroll": false,
+        "mode": "tablet3",
+        "overflow": [],
+        "cut": [
+          "Beams ready vs needed: \"75/36 Poly 75D-600-Z\"",
+          "Beams ready vs needed: \"50/24 Nylon 50D-900-Z\"",
+          "Beams ready vs needed: \"150/48 Poly 150D-400-S\"",
+          "Beams ready vs needed: \"120/30 Viscose 120D-500-Z\""
+        ],
+        "unequal": [],
+        "holes": [],
+        "baseline": [],
+        "small": [],
+        "scrollers": [],
+        "contentWidth": 924
+      }
+    ],
+    "errors": [],
+    "shots": [
+      "partner-1180t-top.png",
+      "partner-1180t-tab-0-overview.png",
+      "partner-1180t-tab-1-floor.png",
+      "partner-1180t-tab-2-reliability.png",
+      "partner-1180t-tab-3-after-the-loom.png",
+      "partner-1180t-tab-4-outside-fg.png",
+      "partner-1180t-tab-5-yarn.png"
+    ]
+  },
+  {
+    "dashboard": "partner",
+    "size": "820t",
+    "expect": "tablet",
+    "hscroll": false,
+    "mode": "tablet2",
+    "overflow": [],
+    "cut": [],
+    "unequal": [],
+    "holes": [],
+    "baseline": [],
+    "small": [],
+    "scrollers": [],
+    "contentWidth": 820,
+    "sections": [
+      {
+        "title": "Overview",
+        "hscroll": false,
+        "mode": "tablet2",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [],
+        "baseline": [],
+        "small": [],
+        "scrollers": [],
+        "contentWidth": 820
+      },
+      {
+        "title": "Floor",
+        "hscroll": false,
+        "mode": "tablet2",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [],
+        "baseline": [],
+        "small": [],
+        "scrollers": [],
+        "contentWidth": 820
+      },
+      {
+        "title": "Reliability",
+        "hscroll": false,
+        "mode": "tablet2",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [],
+        "baseline": [],
+        "small": [],
+        "scrollers": [],
+        "contentWidth": 820
+      },
+      {
+        "title": "After the loom",
+        "hscroll": false,
+        "mode": "tablet2",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [],
+        "baseline": [],
+        "small": [],
+        "scrollers": [
+          "Cloth by stage right now: scrolls sideways (861 > 738)"
+        ],
+        "contentWidth": 820
+      },
+      {
+        "title": "Outside & FG",
+        "hscroll": false,
+        "mode": "tablet2",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [],
+        "baseline": [],
+        "small": [],
+        "scrollers": [],
+        "contentWidth": 820
+      },
+      {
+        "title": "Yarn",
+        "hscroll": false,
+        "mode": "tablet2",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [],
+        "baseline": [],
+        "small": [],
+        "scrollers": [],
+        "contentWidth": 820
+      }
+    ],
+    "errors": [],
+    "shots": [
+      "partner-820t-top.png",
+      "partner-820t-tab-0-overview.png",
+      "partner-820t-tab-1-floor.png",
+      "partner-820t-tab-2-reliability.png",
+      "partner-820t-tab-3-after-the-loom.png",
+      "partner-820t-tab-4-outside-fg.png",
+      "partner-820t-tab-5-yarn.png"
+    ]
+  },
+  {
+    "dashboard": "partner",
+    "size": "768t",
+    "expect": "tablet",
+    "hscroll": false,
+    "mode": "tablet2",
+    "overflow": [],
+    "cut": [],
+    "unequal": [],
+    "holes": [],
+    "baseline": [],
+    "small": [],
+    "scrollers": [],
+    "contentWidth": 768,
+    "sections": [
+      {
+        "title": "Overview",
+        "hscroll": false,
+        "mode": "tablet2",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [],
+        "baseline": [],
+        "small": [],
+        "scrollers": [],
+        "contentWidth": 768
+      },
+      {
+        "title": "Floor",
+        "hscroll": false,
+        "mode": "tablet2",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [],
+        "baseline": [],
+        "small": [],
+        "scrollers": [],
+        "contentWidth": 768
+      },
+      {
+        "title": "Reliability",
+        "hscroll": false,
+        "mode": "tablet2",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [],
+        "baseline": [],
+        "small": [],
+        "scrollers": [],
+        "contentWidth": 768
+      },
+      {
+        "title": "After the loom",
+        "hscroll": false,
+        "mode": "tablet2",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [],
+        "baseline": [],
+        "small": [],
+        "scrollers": [
+          "Cloth by stage right now: scrolls sideways (800 > 686)"
+        ],
+        "contentWidth": 768
+      },
+      {
+        "title": "Outside & FG",
+        "hscroll": false,
+        "mode": "tablet2",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [],
+        "baseline": [],
+        "small": [],
+        "scrollers": [],
+        "contentWidth": 768
+      },
+      {
+        "title": "Yarn",
+        "hscroll": false,
+        "mode": "tablet2",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [],
+        "baseline": [],
+        "small": [],
+        "scrollers": [],
+        "contentWidth": 768
+      }
+    ],
+    "errors": [],
+    "shots": [
+      "partner-768t-top.png",
+      "partner-768t-tab-0-overview.png",
+      "partner-768t-tab-1-floor.png",
+      "partner-768t-tab-2-reliability.png",
+      "partner-768t-tab-3-after-the-loom.png",
+      "partner-768t-tab-4-outside-fg.png",
+      "partner-768t-tab-5-yarn.png"
+    ]
+  },
+  {
+    "dashboard": "supervisor",
+    "size": "1920",
+    "expect": "desktop",
+    "hscroll": false,
+    "mode": "desktop",
+    "overflow": [],
+    "cut": [],
+    "unequal": [],
+    "holes": [],
+    "baseline": [],
+    "small": [],
+    "scrollers": [],
+    "contentWidth": 1440,
+    "sections": [],
+    "errors": [],
+    "shots": [
+      "supervisor-1920-top.png",
+      "supervisor-1920-full.png"
+    ]
+  },
+  {
+    "dashboard": "supervisor",
+    "size": "1440",
+    "expect": "desktop",
+    "hscroll": false,
+    "mode": "desktop",
+    "overflow": [],
+    "cut": [],
+    "unequal": [],
+    "holes": [],
+    "baseline": [],
+    "small": [],
+    "scrollers": [],
+    "contentWidth": 1184,
+    "sections": [],
+    "errors": [],
+    "shots": [
+      "supervisor-1440-top.png",
+      "supervisor-1440-full.png"
+    ]
+  },
+  {
+    "dashboard": "supervisor",
+    "size": "1280",
+    "expect": "desktop",
+    "hscroll": false,
+    "mode": "desktop",
+    "overflow": [],
+    "cut": [
+      "Beams ready: \"75/36 Poly 75D-600-Z\"",
+      "Beams ready: \"50/24 Nylon 50D-900-Z\"",
+      "Beams ready: \"150/48 Poly 150D-400-S\"",
+      "Beams ready: \"120/30 Viscose 120D-500-Z\""
+    ],
+    "unequal": [],
+    "holes": [],
+    "baseline": [],
+    "small": [],
+    "scrollers": [],
+    "contentWidth": 1024,
+    "sections": [],
+    "errors": [],
+    "shots": [
+      "supervisor-1280-top.png",
+      "supervisor-1280-full.png"
+    ]
+  },
+  {
+    "dashboard": "supervisor",
+    "size": "1180t",
+    "expect": "tablet",
+    "hscroll": false,
+    "mode": "tablet3",
+    "overflow": [],
+    "cut": [],
+    "unequal": [],
+    "holes": [],
+    "baseline": [],
+    "small": [],
+    "scrollers": [],
+    "contentWidth": 924,
+    "sections": [
+      {
+        "title": "Overview",
+        "hscroll": false,
+        "mode": "tablet3",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [],
+        "baseline": [],
+        "small": [],
+        "scrollers": [],
+        "contentWidth": 924
+      },
+      {
+        "title": "Performance",
+        "hscroll": false,
+        "mode": "tablet3",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [],
+        "baseline": [],
+        "small": [],
+        "scrollers": [],
+        "contentWidth": 924
+      },
+      {
+        "title": "Priority",
+        "hscroll": false,
+        "mode": "tablet3",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [],
+        "baseline": [],
+        "small": [],
+        "scrollers": [],
+        "contentWidth": 924
+      },
+      {
+        "title": "Yarn",
+        "hscroll": false,
+        "mode": "tablet3",
+        "overflow": [],
+        "cut": [
+          "Beams ready: \"75/36 Poly 75D-600-Z\"",
+          "Beams ready: \"50/24 Nylon 50D-900-Z\"",
+          "Beams ready: \"150/48 Poly 150D-400-S\"",
+          "Beams ready: \"120/30 Viscose 120D-500-Z\""
+        ],
+        "unequal": [],
+        "holes": [],
+        "baseline": [],
+        "small": [],
+        "scrollers": [],
+        "contentWidth": 924
+      }
+    ],
+    "errors": [],
+    "shots": [
+      "supervisor-1180t-top.png",
+      "supervisor-1180t-tab-0-overview.png",
+      "supervisor-1180t-tab-1-performance.png",
+      "supervisor-1180t-tab-2-priority.png",
+      "supervisor-1180t-tab-3-yarn.png"
+    ]
+  },
+  {
+    "dashboard": "supervisor",
+    "size": "820t",
+    "expect": "tablet",
+    "hscroll": false,
+    "mode": "tablet2",
+    "overflow": [],
+    "cut": [],
+    "unequal": [],
+    "holes": [],
+    "baseline": [],
+    "small": [],
+    "scrollers": [],
+    "contentWidth": 820,
+    "sections": [
+      {
+        "title": "Overview",
+        "hscroll": false,
+        "mode": "tablet2",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [],
+        "baseline": [],
+        "small": [],
+        "scrollers": [],
+        "contentWidth": 820
+      },
+      {
+        "title": "Performance",
+        "hscroll": false,
+        "mode": "tablet2",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [],
+        "baseline": [],
+        "small": [],
+        "scrollers": [],
+        "contentWidth": 820
+      },
+      {
+        "title": "Priority",
+        "hscroll": false,
+        "mode": "tablet2",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [],
+        "baseline": [],
+        "small": [],
+        "scrollers": [],
+        "contentWidth": 820
+      },
+      {
+        "title": "Yarn",
+        "hscroll": false,
+        "mode": "tablet2",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [],
+        "baseline": [],
+        "small": [],
+        "scrollers": [],
+        "contentWidth": 820
+      }
+    ],
+    "errors": [],
+    "shots": [
+      "supervisor-820t-top.png",
+      "supervisor-820t-tab-0-overview.png",
+      "supervisor-820t-tab-1-performance.png",
+      "supervisor-820t-tab-2-priority.png",
+      "supervisor-820t-tab-3-yarn.png"
+    ]
+  },
+  {
+    "dashboard": "supervisor",
+    "size": "768t",
+    "expect": "tablet",
+    "hscroll": false,
+    "mode": "tablet2",
+    "overflow": [],
+    "cut": [],
+    "unequal": [],
+    "holes": [],
+    "baseline": [],
+    "small": [],
+    "scrollers": [],
+    "contentWidth": 768,
+    "sections": [
+      {
+        "title": "Overview",
+        "hscroll": false,
+        "mode": "tablet2",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [],
+        "baseline": [],
+        "small": [],
+        "scrollers": [],
+        "contentWidth": 768
+      },
+      {
+        "title": "Performance",
+        "hscroll": false,
+        "mode": "tablet2",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [],
+        "baseline": [],
+        "small": [],
+        "scrollers": [],
+        "contentWidth": 768
+      },
+      {
+        "title": "Priority",
+        "hscroll": false,
+        "mode": "tablet2",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [],
+        "baseline": [],
+        "small": [],
+        "scrollers": [],
+        "contentWidth": 768
+      },
+      {
+        "title": "Yarn",
+        "hscroll": false,
+        "mode": "tablet2",
+        "overflow": [],
+        "cut": [],
+        "unequal": [],
+        "holes": [],
+        "baseline": [],
+        "small": [],
+        "scrollers": [],
+        "contentWidth": 768
+      }
+    ],
+    "errors": [],
+    "shots": [
+      "supervisor-768t-top.png",
+      "supervisor-768t-tab-0-overview.png",
+      "supervisor-768t-tab-1-performance.png",
+      "supervisor-768t-tab-2-priority.png",
+      "supervisor-768t-tab-3-yarn.png"
+    ]
+  }
+]

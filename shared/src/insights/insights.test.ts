@@ -16,6 +16,7 @@ import {
   mergeLayout,
   nextWeeks,
   overlapHours,
+  packRows,
   percentile,
   periodRange,
   quietClient,
@@ -173,5 +174,26 @@ describe('Sprint 25 · registry + C11 layout', () => {
     expect(dashboardLayoutSchema.safeParse({ sections: [] }).success).toBe(false);
     expect(dashboardLayoutSchema.safeParse({ sections: [{ key: 'pulse', title: ' ', cards: [] }] }).success).toBe(false);
     expect(dashboardLayoutSchema.safeParse({ sections: [{ key: 'pulse', title: 'Pulse', cards: [{ id: 'o.glance', width: 'huge' }] }] }).success).toBe(false);
+  });
+});
+
+describe('Sprint 26 · rows without holes', () => {
+  const spans = (rows: ReturnType<typeof packRows>) => rows.map((r) => r.map((c) => c.span));
+  it('every row ends at the right edge', () => {
+    for (const input of [[4, 4], [6, 4, 4], [3, 3, 3, 4, 6], [12, 4], [4], [6, 6, 4, 4, 4, 3]]) for (const row of packRows(input, 12)) expect(row.reduce((s, c) => s + c.span, 0)).toBe(12);
+  });
+  it('keeps the Arrange order unless a later card fills a gap', () => {
+    expect(packRows([6, 4, 4, 6], 12).map((r) => r.map((c) => c.index))).toEqual([[0, 1], [2, 3]]);
+    expect(packRows([6, 4, 6, 4], 12).map((r) => r.map((c) => c.index))).toEqual([[0, 1], [2, 3]]);
+    expect(packRows([4, 6, 4, 4], 12).map((r) => r.map((c) => c.index))).toEqual([[0, 1], [2, 3]]);
+    expect(packRows([4, 4, 6, 4], 12).map((r) => r.map((c) => c.index))).toEqual([[0, 1, 3], [2]]);
+  });
+  it('stretches a short row in proportion (two normals → halves, one → full width)', () => {
+    expect(spans(packRows([4, 4], 12))).toEqual([[6, 6]]);
+    expect(spans(packRows([6, 4], 12))).toEqual([[6, 6]]);
+    expect(spans(packRows([3, 3, 3], 12))).toEqual([[4, 4, 4]]);
+    expect(spans(packRows([4], 12))).toEqual([[12]]);
+    expect(spans(packRows([1, 1, 1], 2))).toEqual([[1, 1], [2]]);
+    expect(spans(packRows([1, 2, 1], 3))).toEqual([[1, 2], [3]]);
   });
 });

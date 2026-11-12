@@ -19,6 +19,8 @@ interface SegmentedProps<V extends string> {
   className?: string;
   /** Sprint 19: locked (e.g. "Meter orders are always lump") — shows the current value, nothing is tappable. */
   disabled?: boolean;
+  /** Sprint 26: segments as wide as their label (never truncated); used by the dashboards. */
+  fit?: boolean;
 }
 
 /** Side-by-side attached tappable options (a radio group styled as one control). */
@@ -31,6 +33,7 @@ export function Segmented<V extends string>({
   size = 'md',
   className,
   disabled,
+  fit,
   'aria-label': ariaLabel,
 }: SegmentedProps<V>) {
   return (
@@ -66,7 +69,8 @@ export function Segmented<V extends string>({
               (e.currentTarget.parentElement?.children[options.indexOf(next)] as HTMLElement | undefined)?.focus();
             }}
             className={cn(
-              'flex min-w-0 flex-1 items-center justify-center rounded-lg px-3 font-semibold outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary/40',
+              fit ? 'flex flex-auto items-center justify-center whitespace-nowrap rounded-lg px-3 font-semibold' : 'flex min-w-0 flex-1 items-center justify-center rounded-lg px-3 font-semibold',
+              'outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary/40',
               size === 'lg' ? 'min-h-11 text-[15px]' : 'min-h-10 text-sm',
               disabled
                 ? cn('cursor-not-allowed', active ? 'bg-primary/50 text-white' : 'text-slate-400')
@@ -75,7 +79,7 @@ export function Segmented<V extends string>({
                   : 'text-slate-600 hover:bg-muted',
             )}
           >
-            <span className="truncate">{o.label}</span>
+            <span className={fit ? undefined : 'truncate'}>{o.label}</span>
           </button>
         );
       })}
