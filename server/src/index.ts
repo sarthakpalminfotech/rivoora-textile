@@ -60,7 +60,8 @@ if (!onVercel) {
 
 const api = express.Router();
 api.get('/health', (_req, res) => {
-  res.json({ ok: true });
+  // Sprint 26: `demo` = this server runs on the local demo database (the client shows the DEMO DATA ribbon)
+  res.json({ ok: true, demo: env.isDemo });
 });
 // Public: /health and /auth/login. Everything below needs a valid session (cookie).
 api.use('/auth', authRouter);

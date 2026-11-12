@@ -1,7 +1,10 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App';
+import { loadDemoMode } from './lib/demo-mode';
 import './index.css';
+
+loadDemoMode();
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

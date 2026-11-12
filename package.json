@@ -17,6 +17,8 @@
     "db:seed": "npm run db:seed -w server",
     "db:rename-owner": "npm run db:rename-owner -w server",
     "db:s18-report": "npm run db:s18-report -w server",
+    "demo:seed": "node scripts/demo.mjs seed",
+    "demo:dev": "node scripts/demo.mjs dev",
     "test": "npm run test -w shared"
   },
   "devDependencies": {

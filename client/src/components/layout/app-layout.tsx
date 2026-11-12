@@ -9,6 +9,7 @@ import { cn } from '@/lib/utils';
 import { isMasterPath, navItemsFor, type NavItem } from './nav-items';
 import { usePageTitleValue } from './page-title';
 import { QcSessionBar } from '@/features/auth/qc-session-bar';
+import { DemoRibbon } from './demo-ribbon';
 import { AlertsNavBadge } from '@/features/alerts/alerts-page';
 import { ProfileMenu, RoleTag } from './profile-menu';
 import { PageSkeleton } from './page-skeleton';
@@ -205,6 +206,7 @@ export function AppLayout() {
     <div className="flex min-h-[100dvh]">
       <Sidebar />
       <div className="flex min-w-0 flex-1 flex-col">
+        <DemoRibbon />
         <ActingAsBar />
         <QcSessionBar />
         <TopBar />

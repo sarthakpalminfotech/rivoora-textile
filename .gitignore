@@ -15,3 +15,7 @@ server/uploads/*
 
 .vercel
 .env*
+
+# Sprint 26: the local demo database (never committed) and the demo images it generates
+server/.data/
+*.db-journal

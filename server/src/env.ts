@@ -2,6 +2,7 @@ import { config } from 'dotenv';
 import { existsSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { isDemoDatabaseUrl } from './db/demo/guard';
 
 /** Server package root (both src/ and dist/ sit one level below it). */
 export const SERVER_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -22,11 +23,15 @@ function required(name: string): string {
 
 const clientDist = resolve(SERVER_ROOT, '..', 'client', 'dist');
 
+const databaseUrl = required('TURSO_DATABASE_URL');
+
 export const env = {
-  databaseUrl: required('TURSO_DATABASE_URL'),
+  databaseUrl,
   authToken: required('TURSO_AUTH_TOKEN'),
   port: Number(process.env.PORT) || 4000,
   uploadsDir: resolve(SERVER_ROOT, 'uploads'),
   clientDist: existsSync(clientDist) ? clientDist : null,
   isProduction: process.env.NODE_ENV === 'production',
+  /** Sprint 26: running on the local demo database (`file:` URL whose file name contains "demo") → the DEMO DATA ribbon. */
+  isDemo: isDemoDatabaseUrl(databaseUrl),
 };
