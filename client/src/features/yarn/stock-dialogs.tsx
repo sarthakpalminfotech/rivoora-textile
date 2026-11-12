@@ -1,24 +1,34 @@
 import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import {
+  amountPaise,
   availableText,
+  boxGroupKey,
+  boxNoWithFy,
   checkTake,
   formatKg,
   isBeamZone,
+  PALTI_LABEL,
   parseKgText,
+  ratePaise,
   TAKE_ERROR_TEXT,
+  tfoProgramLabel,
   transferTargets,
+  WITHDRAW_PURPOSE_LABEL,
   YARN_STOCK_WHAT_LABEL,
   YARN_ZONE_CONFIG,
   type Beam,
+  type WithdrawPurpose,
   type YarnBox,
+  type YarnBoxProgram,
   type YarnStockWhat,
   type WithdrawZone,
   type YarnZone, kgText, gramsToKg,
   withdrawWholeBoxes,
 } from '@rivoora/shared';
 import { Field } from '@/components/ui/field';
-import { Textarea } from '@/components/ui/input';
+import { Input, Textarea } from '@/components/ui/input';
+import { Segmented } from '@/components/ui/segmented';
 import { Select } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { TickBox } from '@/components/ui/tick-box';
@@ -27,7 +37,7 @@ import { formatDate } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { useBoxStock, useNoBoxStock, useTransfer, useWithdraw, useYarnZone } from './api';
 import { DialogButtons, YarnDialog } from './dialog';
-import { KgInput, LotSelect, QualitySelect, Toggle2, ZoneChoice, ZoneTag } from './parts';
+import { cleanDecimal, Kg, KgInput, LotSelect, money, numOrNull, QualitySelect, Toggle2, ZoneChoice, ZoneTag } from './parts';
 
 /** Tick in-stock beams of a zone (beam no · quality · taar / panna / meters). */
 export function BeamChecklist({ beams, selected, onChange, invalid }: { beams: Beam[]; selected: number[]; onChange: (ids: number[]) => void; invalid?: boolean }) {
@@ -66,12 +76,84 @@ export function BeamChecklist({ beams, selected, onChange, invalid }: { beams: B
   );
 }
 
+/** What can still be taken from a box: its remaining kg minus what pending warping jobs reserve. */
+export const boxFreeG = (b: YarnBox) => Math.max(0, b.remainingG - b.reservedG);
+
+/** Sprint 24 (CR-19): how the box pickers group boxes — remembered per user (browser) in localStorage. */
+export type BoxGroupMode = 'program' | 'quality';
+const BOX_GROUP_KEY = 'rivoora.yarn.boxGroup';
+export function useBoxGroupMode(): [BoxGroupMode, (m: BoxGroupMode) => void] {
+  const [mode, setMode] = useState<BoxGroupMode>(() => {
+    try {
+      return window.localStorage.getItem(BOX_GROUP_KEY) === 'quality' ? 'quality' : 'program';
+    } catch {
+      return 'program';
+    }
+  });
+  const set = (m: BoxGroupMode) => {
+    setMode(m);
+    try {
+      window.localStorage.setItem(BOX_GROUP_KEY, m);
+    } catch {
+      /* private window / blocked storage: the choice just isn't remembered */
+    }
+  };
+  return [mode, set];
+}
+
+export interface BoxGroup {
+  key: string;
+  title: string;
+  line: string | null;
+  boxes: YarnBox[];
+}
+
 /**
- * Sprint 20 — tick in-stock boxes. `partial`: Withdraw shows a kg field per ticked box (≤ remaining); Transfer moves
- * whole boxes (no kg field, the full remaining amount goes).
+ * Sprint 24 (CR-19) — boxes grouped by their TFO program (header: P-12 · output quality, stop date; "Remaining" rows of a
+ * program sit under it; Palti boxes under "Palti"), or by warping quality. Programs newest first, Palti last.
+ */
+export function groupBoxes(boxes: YarnBox[], programs: YarnBoxProgram[], mode: BoxGroupMode): BoxGroup[] {
+  const byId = new Map(programs.map((p) => [p.id, p]));
+  const out = new Map<string, BoxGroup>();
+  for (const b of boxes) {
+    const key = mode === 'quality' ? `w-${b.warpingQuality.id}` : boxGroupKey(b);
+    let g = out.get(key);
+    if (!g) {
+      if (mode === 'quality') g = { key, title: b.warpingQuality.name, line: null, boxes: [] };
+      else if (key === 'palti') g = { key, title: PALTI_LABEL, line: 'Leftover yarn re-wound into new boxes', boxes: [] };
+      else {
+        const p = byId.get(b.programId);
+        g = {
+          key,
+          title: tfoProgramLabel(b.programId),
+          line: p ? [p.sectionsLabel, p.rawQuality, p.stoppedAt ? `stopped ${formatDate(p.stoppedAt)}` : `started ${formatDate(p.startedAt)}`].filter(Boolean).join(' · ') : null,
+          boxes: [],
+        };
+      }
+      out.set(key, g);
+    }
+    g.boxes.push(b);
+  }
+  const groups = [...out.values()];
+  if (mode === 'program') {
+    for (const g of groups) {
+      if (g.key === 'palti') continue;
+      const qualities = [...new Set(g.boxes.map((b) => b.warpingQuality.name))];
+      g.title = `${g.title} · ${qualities.join(', ')}`;
+    }
+    return groups.sort((a, b) => (a.key === 'palti' ? 1 : b.key === 'palti' ? -1 : Number(b.key.slice(2)) - Number(a.key.slice(2))));
+  }
+  return groups.sort((a, b) => a.title.localeCompare(b.title));
+}
+
+/**
+ * Sprint 20 → 24 — tick in-stock boxes, grouped By program | By quality (CR-19; tick a whole group at once). `partial`:
+ * Withdraw in Direct consumption shows a kg field per ticked box (≤ remaining); everywhere else the whole box goes.
+ * Tablet / desktop: groups left, the selected boxes + totals right; phones: one column with a sticky "N boxes · X kg" bar.
  */
 function BoxChecklist({
   boxes,
+  programs,
   selected,
   onChange,
   partial,
@@ -80,6 +162,7 @@ function BoxChecklist({
   invalid,
 }: {
   boxes: YarnBox[];
+  programs: YarnBoxProgram[];
   selected: number[];
   onChange: (ids: number[]) => void;
   partial?: boolean;
@@ -87,58 +170,127 @@ function BoxChecklist({
   onKgChange?: (boxId: number, kg: string) => void;
   invalid?: boolean;
 }) {
+  const [mode, setMode] = useBoxGroupMode();
+  const groups = useMemo(() => groupBoxes(boxes, programs, mode), [boxes, programs, mode]);
   if (!boxes.length) return <p className="rounded-xl border border-dashed border-border px-4 py-6 text-center text-sm text-slate-500">No boxes in this zone.</p>;
-  const all = selected.length === boxes.length;
+  // A box with a reservation (pending warping job) can't move as a whole; part of it can still be taken.
+  const pickable = (b: YarnBox) => boxFreeG(b) > 0 && (partial || b.reservedG === 0);
+  const kgOf = (b: YarnBox) => (partial ? (parseKgText(boxKg?.[b.id] ?? '') ?? 0) : b.remainingG);
+  const chosen = boxes.filter((b) => selected.includes(b.id));
+  const chosenG = chosen.reduce((s, b) => s + kgOf(b), 0);
+  const toggleGroup = (g: BoxGroup, on: boolean) => {
+    const ids = g.boxes.filter(pickable).map((b) => b.id);
+    onChange(on ? [...new Set([...selected, ...ids])] : selected.filter((id) => !g.boxes.some((b) => b.id === id)));
+  };
+  const totals = (
+    <span className="tabular-nums">
+      {chosen.length} box{chosen.length === 1 ? '' : 'es'} · <Kg g={chosenG} className="font-bold" />
+    </span>
+  );
+
   return (
-    <div className={cn('overflow-hidden rounded-xl border', invalid ? 'border-destructive' : 'border-border')}>
-      <label className="flex min-h-12 cursor-pointer items-center gap-3 border-b border-border bg-slate-50 px-3">
-        <TickBox size="lg" checked={all} partial={selected.length > 0 && !all} onCheckedChange={(c) => onChange(c ? boxes.filter((b) => boxFreeG(b) > 0 && (partial || b.reservedG === 0)).map((b) => b.id) : [])} aria-label="Select all boxes" />
-        <span className="text-sm font-semibold text-slate-700">{selected.length ? `${selected.length} of ${boxes.length} selected` : `Select all (${boxes.length})`}</span>
-      </label>
-      <ul className="max-h-[22rem] divide-y divide-border overflow-y-auto">
-        {boxes.map((b) => {
-          const on = selected.includes(b.id);
-          const free = boxFreeG(b);
-          // A box with a reservation (pending warping job) can't move as a whole; part of it can still be taken.
-          const locked = free <= 0 || (!partial && b.reservedG > 0);
-          const kgErr = on && partial ? (() => {
-            const g = parseKgText(boxKg?.[b.id] ?? '');
-            return g === null || g <= 0 ? 'Enter the kg' : g > free ? `Only ${formatKg(free)} free` : null;
-          })() : null;
-          return (
-            <li key={b.id} className={cn('px-3 py-2', on && 'bg-primary-soft/50')}>
-              <label className="flex min-h-14 cursor-pointer items-center gap-3">
-                <TickBox size="lg" checked={on} disabled={locked && !on} onCheckedChange={(c) => onChange(c ? [...selected, b.id] : selected.filter((x) => x !== b.id))} aria-label={b.boxNo} />
-                <span className="min-w-0 flex-1">
-                  <span className="flex items-baseline gap-2">
-                    <span className="font-bold tabular-nums text-slate-900">{b.boxNo}</span>
-                    <span className="truncate text-sm font-medium text-slate-700">{b.warpingQuality.name}</span>
+    <div className="grid gap-3">
+      <Segmented
+        size="md"
+        value={mode}
+        onChange={setMode}
+        options={[
+          { value: 'program', label: 'By program' },
+          { value: 'quality', label: 'By quality' },
+        ]}
+        aria-label="Group boxes"
+        className="md:max-w-xs"
+      />
+      <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_13rem] md:items-start">
+        <ul className={cn('grid max-h-[26rem] gap-2 overflow-y-auto rounded-xl md:max-h-[30rem]', invalid && 'ring-2 ring-destructive/40')}>
+          {groups.map((g) => {
+            const own = g.boxes.filter((b) => selected.includes(b.id));
+            const open = g.boxes.filter(pickable);
+            const all = open.length > 0 && open.every((b) => selected.includes(b.id));
+            return (
+              <li key={g.key} className="overflow-hidden rounded-xl border border-border bg-white">
+                <label className="flex min-h-12 cursor-pointer items-center gap-3 border-b border-border bg-slate-50 px-3 py-2">
+                  <TickBox size="lg" checked={all} partial={own.length > 0 && !all} disabled={!open.length} onCheckedChange={(c) => toggleGroup(g, c)} aria-label={`Select all of ${g.title}`} />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-bold text-slate-800">{g.title}</span>
+                    {g.line && <span className="block truncate text-xs text-slate-500">{g.line}</span>}
                   </span>
-                  <span className="block truncate text-xs text-slate-500">
-                    {b.rolls} rolls · {formatKg(b.remainingG)} left of {formatKg(b.netG)} · {b.lot ? b.lot.lotNo : 'No lot'}
-                    {b.reservedG > 0 ? ` · reserved ${formatKg(b.reservedG)}` : ''}
+                  <span className="shrink-0 text-right text-xs text-slate-500">
+                    <Kg g={g.boxes.reduce((s, b) => s + b.remainingG, 0)} className="block text-sm font-bold text-slate-800" />
+                    {g.boxes.length} box{g.boxes.length === 1 ? '' : 'es'}
                   </span>
-                </span>
-              </label>
-              {on && partial && (
-                <div className="mt-2 ml-9 flex items-center gap-2">
-                  <KgInput value={boxKg?.[b.id] ?? ''} onValueChange={(v) => onKgChange?.(b.id, v)} invalid={!!kgErr} className="max-w-36" aria-label={`Kg from ${b.boxNo}`} />
-                  <button type="button" className="text-xs font-semibold text-primary hover:underline" onClick={() => onKgChange?.(b.id, kgText(free))}>
-                    Use all
-                  </button>
-                  {kgErr && <span className="text-xs font-medium text-destructive">{kgErr}</span>}
-                </div>
-              )}
-            </li>
-          );
-        })}
-      </ul>
+                </label>
+                <ul className="divide-y divide-border">
+                  {g.boxes.map((b) => {
+                    const on = selected.includes(b.id);
+                    const free = boxFreeG(b);
+                    const kgErr = on && partial ? (() => {
+                      const g2 = parseKgText(boxKg?.[b.id] ?? '');
+                      return g2 === null || g2 <= 0 ? 'Enter the kg' : g2 > free ? `Only ${formatKg(free)} free` : null;
+                    })() : null;
+                    return (
+                      <li key={b.id} className={cn('px-3 py-1.5', on && 'bg-primary-soft/50')}>
+                        <label className="flex min-h-12 cursor-pointer items-center gap-3">
+                          <TickBox size="lg" checked={on} disabled={!pickable(b) && !on} onCheckedChange={(c) => onChange(c ? [...selected, b.id] : selected.filter((x) => x !== b.id))} aria-label={`Box ${boxNoWithFy(b.boxNo, b.fy)}`} />
+                          <span className="min-w-0 flex-1">
+                            <span className="flex items-baseline gap-2">
+                              <span className="font-bold tabular-nums text-slate-900">{boxNoWithFy(b.boxNo, b.fy)}</span>
+                              {b.kind === 'remaining' && <span className="rounded bg-amber-50 px-1.5 text-[11px] font-semibold text-amber-800">Remaining</span>}
+                              {mode === 'program' ? null : <span className="truncate text-xs text-slate-500">{b.kind === 'palti' ? PALTI_LABEL : tfoProgramLabel(b.programId)}</span>}
+                            </span>
+                            <span className="block truncate text-xs text-slate-500">
+                              {b.rolls ? `${b.rolls} rolls · ` : ''}
+                              {formatKg(b.remainingG)}
+                              {b.remainingG !== b.netG ? ` left of ${formatKg(b.netG)}` : ' net'}
+                              {mode === 'program' ? ` · ${b.warpingQuality.name}` : ''}
+                              {b.lot ? ` · lot ${b.lot.lotNo}` : ''}
+                              {b.reservedG > 0 ? ` · reserved ${formatKg(b.reservedG)}` : ''}
+                            </span>
+                          </span>
+                        </label>
+                        {on && partial && (
+                          <div className="mb-1 ml-9 flex flex-wrap items-center gap-2">
+                            <KgInput value={boxKg?.[b.id] ?? ''} onValueChange={(v) => onKgChange?.(b.id, v)} invalid={!!kgErr} className="max-w-36" aria-label={`Kg from box ${b.boxNo}`} />
+                            <button type="button" className="text-xs font-semibold text-primary hover:underline" onClick={() => onKgChange?.(b.id, kgText(free))}>
+                              Use all
+                            </button>
+                            {kgErr && <span className="text-xs font-medium text-destructive">{kgErr}</span>}
+                          </div>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+              </li>
+            );
+          })}
+        </ul>
+        {/* Tablet / desktop: what is selected, with totals. */}
+        <aside className="hidden rounded-xl border border-border bg-slate-50 p-3 md:sticky md:top-0 md:block" aria-label="Selected boxes">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Selected</p>
+          <p className="mt-0.5 text-sm text-slate-800">{totals}</p>
+          {chosen.length > 0 && (
+            <ul className="mt-2 max-h-72 space-y-1 overflow-y-auto text-xs">
+              {chosen.map((b) => (
+                <li key={b.id} className="flex items-baseline justify-between gap-2">
+                  <span className="truncate font-semibold tabular-nums text-slate-700">{boxNoWithFy(b.boxNo, b.fy)}</span>
+                  <Kg g={kgOf(b)} className="text-slate-600" />
+                </li>
+              ))}
+            </ul>
+          )}
+          {chosen.length > 0 && (
+            <button type="button" className="mt-2 text-xs font-semibold text-primary hover:underline" onClick={() => onChange([])}>
+              Clear selection
+            </button>
+          )}
+        </aside>
+      </div>
+      {/* Phones: a sticky totals bar under the list. */}
+      {chosen.length > 0 && <p className="sticky bottom-0 z-10 rounded-xl bg-slate-900 px-3 py-2 text-sm text-white md:hidden">{totals}</p>}
     </div>
   );
 }
-
-/** What can still be taken from a box: its remaining kg minus what pending warping jobs reserve. */
-const boxFreeG = (b: YarnBox) => Math.max(0, b.remainingG - b.reservedG);
 
 type What = YarnStockWhat;
 type TwistedMode = 'boxes' | 'no_box';
@@ -310,6 +462,7 @@ export function StockFields({
             <Field label="Boxes" required error={(tried && !boxesValid(pick, partialBoxes) ? 'Pick boxes with a valid kg' : undefined) ?? (serverErr?.field === 'boxIds' || serverErr?.field === 'boxes' ? serverErr.message : undefined)}>
               <BoxChecklist
                 boxes={pick.boxes}
+                programs={pick.zoneData.data?.programs ?? []}
                 selected={pick.boxIds}
                 onChange={(ids) => {
                   // Sprint 20c: a newly ticked box starts with its whole free kg (change it to take part of it).
@@ -504,31 +657,55 @@ export function TransferDialog({ open, onOpenChange, from }: { open: boolean; on
   );
 }
 
+/** The kg a withdraw takes (for the Sell amount): yarn kg, or the ticked boxes (whole, or the kg typed per box). */
+function withdrawGrams(pick: ReturnType<typeof useStockPick>, whole: boolean): number | null {
+  if (pick.what === 'beams') return null;
+  if (pick.what === 'twisted' && pick.twistedMode === 'boxes') {
+    return pick.boxIds.reduce((s, id) => {
+      const b = pick.boxes.find((x) => x.id === id);
+      return s + (!b ? 0 : whole ? b.remainingG : (parseKgText(pick.boxKg[id] ?? '') ?? 0));
+    }, 0);
+  }
+  return pick.grams;
+}
+
 /**
- * Withdraw: Direct consumption — yarn used directly (part of a box allowed), or beams consumed (marked Consumed; no loom
- * link). Sprint 20c: TFO too — raw yarn, or WHOLE boxes.
+ * Withdraw — Sprint 20c → 24: every zone. Direct consumption: yarn (part of a box allowed) or beams consumed (marked
+ * Consumed; no loom link); TFO: raw yarn or WHOLE boxes; Warping: raw yarn, WHOLE boxes or beams. CR-17: a required
+ * Purpose — Sell (party, optional rate per kg → amount) or Use in-house (note).
  */
 export function WithdrawDialog({ open, onOpenChange, zone = 'direct' }: { open: boolean; onOpenChange: (o: boolean) => void; zone?: WithdrawZone }) {
   const pick = useStockPick(zone, open);
   const whole = withdrawWholeBoxes(zone);
+  const [purpose, setPurpose] = useState<WithdrawPurpose | null>(null);
+  const [party, setParty] = useState('');
+  const [rate, setRate] = useState('');
   const [tried, setTried] = useState(false);
   const [serverErr, setServerErr] = useState<{ field: string; message: string } | null>(null);
   const withdraw = useWithdraw();
   useEffect(() => {
     if (open) {
+      setPurpose(null);
+      setParty('');
+      setRate('');
       setTried(false);
       setServerErr(null);
     }
   }, [open]);
   const twistedOk = pick.twistedMode === 'boxes' ? boxesValid(pick, !whole) : !pick.yarnError;
-  const invalid = pick.what === 'beams' ? !pick.beamIds.length : pick.what === 'twisted' ? !twistedOk : !!pick.yarnError;
+  const purposeErr = !purpose || (purpose === 'sell' && !party.trim());
+  const invalid = purposeErr || (pick.what === 'beams' ? !pick.beamIds.length : pick.what === 'twisted' ? !twistedOk : !!pick.yarnError);
+  const rateNum = numOrNull(rate);
+  const grams = withdrawGrams(pick, whole);
+  const amount = purpose === 'sell' && rateNum !== null && grams ? amountPaise(grams, ratePaise(rateNum)) : null;
   const submit = () => {
     setTried(true);
     setServerErr(null);
-    if (invalid) return;
+    if (invalid || !purpose) return;
+    const why = { purpose, partyName: purpose === 'sell' ? party.trim() : null, rate: purpose === 'sell' ? rateNum : null };
     const body =
       pick.what === 'beams'
-        ? { what: 'beams' as const, zone: 'direct' as const, beamIds: pick.beamIds, note: pick.note.trim() || null }
+        ? { what: 'beams' as const, zone: zone as 'direct' | 'warping', beamIds: pick.beamIds, note: pick.note.trim() || null, ...why }
         : pick.what === 'twisted'
           ? {
               what: 'twisted' as const,
@@ -536,17 +713,19 @@ export function WithdrawDialog({ open, onOpenChange, zone = 'direct' }: { open: 
               boxes: pick.twistedMode === 'boxes' ? pick.boxIds.map((id) => ({ boxId: id, qtyKg: whole ? null : gramsToKg(parseKgText(pick.boxKg[id] ?? '')!) })) : [],
               noBox: pick.twistedMode === 'no_box' ? pick.noBoxBody() : null,
               note: pick.note.trim() || null,
+              ...why,
             }
-          : { what: 'raw' as const, zone, qualityId: pick.qualityId!, lotId: pick.lotId || null, qtyKg: gramsToKg(pick.grams!), note: pick.note.trim() || null };
+          : { what: 'raw' as const, zone, qualityId: pick.qualityId!, lotId: pick.lotId || null, qtyKg: gramsToKg(pick.grams!), note: pick.note.trim() || null, ...why };
     withdraw.mutate(body, {
       onSuccess: () => {
+        const done = purpose === 'sell' ? 'sold' : pick.what === 'beams' ? 'consumed' : 'withdrawn';
         const label =
           pick.what === 'beams'
-            ? `${pick.beamIds.length} beam${pick.beamIds.length === 1 ? '' : 's'} consumed`
+            ? `${pick.beamIds.length} beam${pick.beamIds.length === 1 ? '' : 's'} ${done}`
             : pick.what === 'twisted' && pick.twistedMode === 'boxes'
-              ? `${pick.boxIds.length} box${pick.boxIds.length === 1 ? '' : 'es'} withdrawn`
-              : `${formatKg(pick.grams ?? 0)} withdrawn`;
-        toast.success(label);
+              ? `${pick.boxIds.length} box${pick.boxIds.length === 1 ? '' : 'es'} ${done}`
+              : `${formatKg(pick.grams ?? 0)} ${done}`;
+        toast.success(purpose === 'sell' ? `${label} to ${party.trim()}` : label);
         onOpenChange(false);
       },
       onError: (err) => {
@@ -555,15 +734,22 @@ export function WithdrawDialog({ open, onOpenChange, zone = 'direct' }: { open: 
       },
     });
   };
+  const label = YARN_ZONE_CONFIG[zone].label;
   return (
     <YarnDialog
       open={open}
       onOpenChange={onOpenChange}
-      title={zone === 'tfo' ? 'Withdraw from TFO' : 'Withdraw'}
-      description={zone === 'tfo' ? 'Raw yarn, or whole twisted boxes, taken out of TFO.' : 'Yarn or beams used directly from Direct consumption.'}
+      title={zone === 'direct' ? 'Withdraw' : `Withdraw from ${label}`}
+      description={
+        zone === 'direct'
+          ? 'Yarn or beams taken out of Direct consumption — sold, or used in-house.'
+          : zone === 'tfo'
+            ? 'Raw yarn, or whole twisted boxes, taken out of TFO — sold, or used in-house.'
+            : 'Raw yarn, whole twisted boxes or beams taken out of Warping — sold, or used in-house.'
+      }
       busy={withdraw.isPending}
-      dirty={!!pick.kg || pick.beamIds.length > 0 || pick.boxIds.length > 0}
-      footer={<DialogButtons onCancel={() => onOpenChange(false)} busy={withdraw.isPending} label={pick.what === 'beams' ? 'Mark consumed' : 'Withdraw'} form="yarn-withdraw-form" />}
+      dirty={!!pick.kg || pick.beamIds.length > 0 || pick.boxIds.length > 0 || !!party}
+      footer={<DialogButtons onCancel={() => onOpenChange(false)} busy={withdraw.isPending} label={purpose === 'sell' ? 'Withdraw · Sell' : pick.what === 'beams' ? 'Mark consumed' : 'Withdraw'} form="yarn-withdraw-form" />}
     >
       <form
         id="yarn-withdraw-form"
@@ -574,11 +760,31 @@ export function WithdrawDialog({ open, onOpenChange, zone = 'direct' }: { open: 
         }}
         className="grid gap-5"
       >
+        <Field label="Purpose" required error={tried && !purpose ? 'Pick Sell or Use in-house' : serverErr?.field === 'purpose' ? serverErr.message : undefined}>
+          <Segmented
+            size="lg"
+            value={purpose}
+            onChange={setPurpose}
+            invalid={tried && !purpose}
+            options={(['sell', 'in_house'] as const).map((p) => ({ value: p, label: WITHDRAW_PURPOSE_LABEL[p] }))}
+            aria-label="Purpose"
+          />
+        </Field>
+        {purpose === 'sell' && (
+          <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_10rem]">
+            <Field label="Party" htmlFor="wd-party" required error={(tried && !party.trim() ? 'Enter the party' : undefined) ?? (serverErr?.field === 'partyName' ? serverErr.message : undefined)}>
+              <Input id="wd-party" autoComplete="off" maxLength={120} value={party} onChange={(e) => setParty(e.target.value)} invalid={tried && !party.trim()} placeholder="Who is buying" />
+            </Field>
+            <Field label="Rate ₹ / kg" htmlFor="wd-rate" hint={amount !== null ? `Amount ${money(amount)}` : 'Optional'} error={serverErr?.field === 'rate' ? serverErr.message : undefined}>
+              <Input id="wd-rate" inputMode="decimal" autoComplete="off" value={rate} onChange={(e) => setRate(cleanDecimal(e.target.value, 2, 7))} className="text-right tabular-nums" />
+            </Field>
+          </div>
+        )}
         <Field label="What" required>
           <WhatPicker zone={zone} value={pick.what} onChange={pick.setWhat} />
         </Field>
         <StockFields pick={pick} tried={tried} serverErr={serverErr} zone={zone} partialBoxes={!whole} />
-        <Field label="Note" htmlFor="wd-note" hint={pick.what === 'beams' ? 'e.g. which loom it went to' : undefined}>
+        <Field label="Note" htmlFor="wd-note" hint={pick.what === 'beams' && purpose !== 'sell' ? 'e.g. which loom it went to' : undefined}>
           <Textarea id="wd-note" rows={2} maxLength={1000} value={pick.note} onChange={(e) => pick.setNote(e.target.value)} className="min-h-[72px]" />
         </Field>
       </form>

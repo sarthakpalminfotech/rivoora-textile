@@ -212,11 +212,11 @@ const b2 = await boxIn('direct', bx(2));
 check(b1?.remainingG === 385_000 && b2?.remainingG === 372_500, 'boxes transferred out of TFO later');
 // Sprint 20c: Withdraw in TFO — raw yarn, and a box always goes whole
 const tfoLotBefore = (await lotAvail('tfo', q75.id, lotAId)).availableG;
-await ok('yarn', 'POST', '/yarn/withdrawals', { what: 'raw', zone: 'tfo', qualityId: q75.id, lotId: lotAId, qtyKg: 1 });
+await ok('yarn', 'POST', '/yarn/withdrawals', { what: 'raw', zone: 'tfo', qualityId: q75.id, lotId: lotAId, qtyKg: 1, purpose: 'in_house' });
 check((await lotAvail('tfo', q75.id, lotAId)).availableG === tfoLotBefore - 10_000, 'withdraw raw yarn from TFO');
-await ok('yarn', 'POST', '/yarn/withdrawals', { what: 'twisted', zone: 'tfo', boxes: [{ boxId: t3.id, qtyKg: 1 }] });
+await ok('yarn', 'POST', '/yarn/withdrawals', { what: 'twisted', zone: 'tfo', boxes: [{ boxId: t3.id, qtyKg: 1 }], purpose: 'in_house' });
 check(!(await tfoBox(3)) && (await ok('jemish', 'GET', `/yarn/boxes?status=used&search=${encodeURIComponent(bx(3))}`)).some((b) => b.boxNo === bx(3)), 'a TFO box is withdrawn whole (kg ignored) → Used');
-check((await call('yarn', 'POST', '/yarn/withdrawals', { what: 'raw', zone: 'warping', qualityId: q75.id, lotId: lotAId, qtyKg: 1 })).status === 400, 'no withdraw in Warping (400)');
+check((await call('yarn', 'POST', '/yarn/withdrawals', { what: 'raw', zone: 'warping', qualityId: q75.id, lotId: lotAId, qtyKg: 1 })).status === 400, 'Sprint 24: a withdraw without a purpose is refused (400)');
 const moves = (await ok('jemish', 'GET', `/yarn/moves?search=${encodeURIComponent(bx(1))}&limit=50`)).items;
 check(moves.some((m) => m.kind === 'tfo_output' && m.box?.boxNo === bx(1)) && moves.some((m) => m.kind === 'transfer_in' && m.zone === 'warping'), 'movements: box output + transfer to Warping', moves.map((m) => m.kind));
 const stopMove = moves.find((m) => m.kind === 'tfo_output');
@@ -323,7 +323,7 @@ check(
 
 // ---------------------------------------------------------------- old No-lot / No-box stock still usable
 await ok('jemish', 'POST', '/yarn/adjustments/add', { zone: 'direct', item: 'raw', qualityId: q75.id, qtyKg: 1 });
-await ok('jemish', 'POST', '/yarn/withdrawals', { what: 'raw', zone: 'direct', qualityId: q75.id, lotId: null, qtyKg: 1 });
+await ok('jemish', 'POST', '/yarn/withdrawals', { what: 'raw', zone: 'direct', qualityId: q75.id, lotId: null, qtyKg: 1, purpose: 'in_house' });
 check(true, 'No lot raw stock can be withdrawn');
 
 globalThis.s20 = { party, q75, qOut, wq, stopQ, machine, lotAId, lotBId, b1, b2, bx };

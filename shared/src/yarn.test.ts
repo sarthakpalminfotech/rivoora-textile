@@ -135,7 +135,8 @@ describe('ledger balances', () => {
 
   it('movement filters map to ledger kinds', () => {
     expect(kindsForFilters(['tfo'])).toEqual(['tfo_issue', 'tfo_output', 'tfo_return']);
-    expect(kindsForFilters(['withdraw', 'warping'])).toEqual(['withdraw', 'consumed', 'warping_issue', 'beam_created']);
+    // Sprint 24: Warping also covers the leftover kg put back at Mark done.
+    expect(kindsForFilters(['withdraw', 'warping'])).toEqual(['withdraw', 'consumed', 'warping_issue', 'beam_created', 'warping_leftover']);
   });
 });
 

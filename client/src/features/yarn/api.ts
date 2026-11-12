@@ -24,6 +24,7 @@ import type {
   WarpingQuality,
   WarpingQualityInput,
   WarpingStatus,
+  WithdrawPurpose,
   YarnBox,
   YarnLotCheck,
   YarnLotStock,
@@ -239,10 +240,12 @@ export interface MovesParams {
   to?: string;
   /** Sprint 20 — matches a lot no or a box no. */
   search?: string;
+  /** Sprint 24 — withdrawals of one purpose. */
+  purpose?: WithdrawPurpose;
 }
 
 export const useYarnMoves = (p: MovesParams) =>
-  useInfiniteList<YarnMove>([...yarnKeys.moves, p.search ?? ''], '/yarn/moves', { zone: p.zone, kind: p.kind, quality: p.quality, from: p.from, to: p.to, search: p.search });
+  useInfiniteList<YarnMove>([...yarnKeys.moves, p.search ?? '', p.purpose ?? ''], '/yarn/moves', { zone: p.zone, kind: p.kind, quality: p.quality, from: p.from, to: p.to, search: p.search, purpose: p.purpose });
 
 export function useBeams(zone: BeamZone | undefined, status: Beam['status'] = 'in_stock', enabled = true) {
   return useQuery({

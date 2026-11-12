@@ -3,6 +3,7 @@ import {
   BEAM_REMARK_MAX_LENGTH,
   BEAM_ZONES,
   BEAM_STATUSES,
+  WITHDRAW_PURPOSES,
   WITHDRAW_ZONES,
 
   BOX_STATUSES,
@@ -244,43 +245,69 @@ export const yarnTransferSchema = z
   });
 export type YarnTransferInput = z.input<typeof yarnTransferSchema>;
 
-/** POST /yarn/withdrawals — Direct consumption (yarn, boxes, beams) and Sprint 20c TFO (raw yarn, whole boxes). */
+/**
+ * Sprint 24 (CR-17): every withdraw says why — Sell (party required, rate per kg optional) or Use in-house (note only).
+ * Spread into each `what` branch below.
+ */
+const withdrawPurposeFields = {
+  purpose: z.enum(WITHDRAW_PURPOSES, { errorMap: () => ({ message: 'Pick Sell or Use in-house' }) }),
+  partyName: optText(YARN_NAME_MAX_LENGTH),
+  /** ₹ per kg, optional (Sell only). */
+  rate: z
+    .number({ invalid_type_error: 'Enter the rate' })
+    .min(0, 'Rate cannot be negative')
+    .max(1_000_000, 'Rate is too high')
+    .refine((v) => Math.abs(v * 100 - Math.round(v * 100)) < 1e-6, 'Use at most 2 decimals')
+    .nullish()
+    .transform((v) => v ?? null),
+};
+
+/**
+ * POST /yarn/withdrawals — Sprint 24: every zone. Direct consumption (yarn, part of a box, beams), TFO (raw yarn, whole
+ * boxes), Warping (raw yarn, whole boxes, beams); always with a purpose.
+ */
 export const yarnWithdrawSchema = z
   .discriminatedUnion('what', [
     z.object({
       what: z.literal('raw'),
-      zone: z.enum(WITHDRAW_ZONES, { errorMap: () => ({ message: 'Withdraw is for Direct consumption or TFO' }) }),
+      zone: z.enum(WITHDRAW_ZONES, { errorMap: () => ({ message: 'Pick the zone' }) }),
       qualityId: id('Select the quality'),
       lotId: lotIdField,
       qtyKg: kg('Enter the kg'),
       note: optText(1000),
+      ...withdrawPurposeFields,
     }),
     z.object({
       what: z.literal('twisted'),
-      zone: z.enum(WITHDRAW_ZONES, { errorMap: () => ({ message: 'Withdraw is for Direct consumption or TFO' }) }),
-      /** Sprint 20c: `qtyKg` null = the whole box (always the whole box in TFO). */
+      zone: z.enum(WITHDRAW_ZONES, { errorMap: () => ({ message: 'Pick the zone' }) }),
+      /** Sprint 20c: `qtyKg` null = the whole box (always the whole box outside Direct consumption). */
       boxes: z
         .array(z.object({ boxId: boxIdField, qtyKg: kg('Enter the kg').nullish().transform((v) => v ?? null) }))
         .max(200)
         .default([]),
       noBox: noBoxInput.nullish(),
       note: optText(1000),
+      ...withdrawPurposeFields,
     }),
     z.object({
       what: z.literal('beams'),
-      zone: z.literal('direct', { errorMap: () => ({ message: 'Withdraw is for Direct consumption' }) }),
+      zone: z.enum(BEAM_ZONES, { errorMap: () => ({ message: 'Beams are kept in Direct consumption or Warping' }) }),
       beamIds,
       note: optText(1000),
+      ...withdrawPurposeFields,
     }),
   ])
   .superRefine((v, ctx) => {
+    if (v.purpose === 'sell' && !v.partyName) ctx.addIssue({ code: 'custom', path: ['partyName'], message: 'Enter the party' });
     if (v.what !== 'twisted') return;
     const hasBoxes = v.boxes.length > 0;
     const hasNoBox = !!v.noBox;
     if (hasBoxes === hasNoBox) {
       ctx.addIssue({ code: 'custom', path: ['boxes'], message: hasBoxes ? 'Pick boxes or enter "No box" kg, not both' : 'Pick at least one box, or enter "No box" kg' });
     }
-  });
+  })
+  // Use in-house keeps no party / rate.
+  .transform((v) => (v.purpose === 'in_house' ? { ...v, partyName: null, rate: null } : v));
 export type YarnWithdrawInput = z.input<typeof yarnWithdrawSchema>;
 
 /* ---------- Sprint 20: manual add / remove (owners) ---------- */
@@ -357,6 +384,8 @@ export const yarnMovesQuerySchema = z.object({
   to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().catch(undefined),
   /** Sprint 20: matches a lot no or a box no. */
   search: z.string().trim().max(60).optional().transform((v) => v || undefined),
+  /** Sprint 24: withdrawals of one purpose only (Sell / In-house). */
+  purpose: z.enum(WITHDRAW_PURPOSES).optional().catch(undefined),
 });
 export type YarnMovesQuery = z.infer<typeof yarnMovesQuerySchema>;
 

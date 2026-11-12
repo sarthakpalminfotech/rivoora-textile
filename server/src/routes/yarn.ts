@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import {
   beamsQuerySchema,
+  can,
   checkLotNoQuerySchema,
   noBoxQuerySchema,
   isYarnZone,
@@ -45,9 +46,9 @@ yarnRouter.use(requirePermission('canUseYarnInventory'));
 
 yarnRouter.get(
   '/summary',
-  ah(async (_req, res) => {
+  ah(async (req, res) => {
     res.set('Cache-Control', 'no-store');
-    res.json(await yarnSummary());
+    res.json(await yarnSummary(can(req.role, 'canSeeRate')));
   }),
 );
 
@@ -64,7 +65,7 @@ yarnRouter.get(
   '/moves',
   ah(async (req, res) => {
     res.set('Cache-Control', 'no-store');
-    res.json(await listMoves(yarnMovesQuerySchema.parse(req.query)));
+    res.json(await listMoves(yarnMovesQuerySchema.parse(req.query), { showRate: can(req.role, 'canSeeRate') }));
   }),
 );
 

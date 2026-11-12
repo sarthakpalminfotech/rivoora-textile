@@ -8,6 +8,8 @@ import type {
   TwistDirection,
   WarpingInputKind,
   WarpingStatus,
+  WithdrawPurpose,
+  YarnBoxKind,
   YarnItem,
   YarnPoEventKind,
   YarnPoStatus,
@@ -225,8 +227,13 @@ export interface YarnMove extends YarnActor {
   createdAt: string;
   /** Sprint 20: raw rows' lot — null = "No lot". */
   lot: { id: number; lotNo: string } | null;
-  /** Sprint 20: twisted rows' box — null = "No box". */
-  box: { id: number; boxNo: string } | null;
+  /** Sprint 20: twisted rows' box — null = "No box". Sprint 24: `fy` for the "15 (26-27)" label. */
+  box: { id: number; boxNo: string; fy: string } | null;
+  /**
+   * Sprint 24 (CR-17): a withdrawal's purpose. `ratePaise` only for roles with `canSeeRate` (null otherwise);
+   * `rateEntered` tells the others a rate was given.
+   */
+  withdrawal: { purpose: WithdrawPurpose; partyName: string | null; ratePaise: number | null; rateEntered: boolean } | null;
 }
 
 /**
@@ -272,8 +279,13 @@ export interface YarnBox {
   remainingG: number;
   /** Held by pending warping jobs (Warping zone only). */
   reservedG: number;
+  /** The TFO program it came from (Palti boxes: the system row — group them by `kind`). */
   programId: number;
   createdAt: string;
+  /** Sprint 24: tfo | palti | remaining (warping leftover of a program). */
+  kind: YarnBoxKind;
+  /** Sprint 24: the FY of its number — shown as "15 (26-27)" (`boxNoWithFy`). */
+  fy: string;
 }
 
 export interface YarnSummary {

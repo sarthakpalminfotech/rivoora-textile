@@ -285,12 +285,12 @@ const directBeam = done.beams[0];
 const warpBeam = done.beams[1];
 check((await call('jemish', 'POST', '/yarn/transfers', { what: 'beams', from: 'warping', to: 'tfo', beamIds: [warpBeam.id] })).status === 400, 'beams cannot go to TFO');
 check((await call('jemish', 'POST', '/yarn/transfers', { what: 'beams', from: 'direct', to: 'warping', beamIds: [warpBeam.id] })).status === 409, 'a beam not in the From zone → 409');
-check((await call('jemish', 'POST', '/yarn/withdrawals', { what: 'beams', zone: 'direct', beamIds: [warpBeam.id] })).status === 409, 'cannot consume a beam that is in Warping from Direct consumption');
-await ok('jemish', 'POST', '/yarn/withdrawals', { what: 'beams', zone: 'direct', beamIds: [directBeam.id], note: 'loom 7' });
+check((await call('jemish', 'POST', '/yarn/withdrawals', { what: 'beams', zone: 'direct', beamIds: [warpBeam.id], purpose: 'in_house' })).status === 409, 'cannot consume a beam that is in Warping from Direct consumption');
+await ok('jemish', 'POST', '/yarn/withdrawals', { what: 'beams', zone: 'direct', beamIds: [directBeam.id], note: 'loom 7', purpose: 'in_house' });
 expectedBeams.direct -= 1;
 const consumed = await ok('jemish', 'GET', '/yarn/beams?zone=direct&status=consumed');
 check(consumed.some((b) => b.id === directBeam.id && b.consumedNote === 'loom 7'), 'beam marked Consumed with the note');
-check((await call('jemish', 'POST', '/yarn/withdrawals', { what: 'beams', zone: 'direct', beamIds: [directBeam.id] })).status === 409, 'a consumed beam cannot be consumed again');
+check((await call('jemish', 'POST', '/yarn/withdrawals', { what: 'beams', zone: 'direct', beamIds: [directBeam.id], purpose: 'in_house' })).status === 409, 'a consumed beam cannot be consumed again');
 await reconcile('consume a beam');
 await ok('supervisor', 'POST', '/yarn/transfers', { what: 'beams', from: 'warping', to: 'direct', beamIds: [warpBeam.id] });
 expectedBeams.warping -= 1;
@@ -298,12 +298,12 @@ expectedBeams.direct += 1;
 await reconcile('beam Warping → Direct consumption');
 
 // ---------------------------------------------------------------- withdraw yarn (Direct consumption) + no negative
-check((await call('jemish', 'POST', '/yarn/withdrawals', { what: 'raw', zone: 'direct', qualityId: q75.id, lotId: lot1, qtyKg: 5.0001 })).status === 409, 'withdraw more than available → 409');
-check((await call('jemish', 'POST', '/yarn/withdrawals', { what: 'raw', zone: 'warping', qualityId: q75.id, lotId: lot1, qtyKg: 1 })).status === 400, 'withdraw is Direct consumption / TFO only');
-await ok('yarn', 'POST', '/yarn/withdrawals', { what: 'raw', zone: 'direct', qualityId: q75.id, lotId: lot1, qtyKg: 5 });
+check((await call('jemish', 'POST', '/yarn/withdrawals', { what: 'raw', zone: 'direct', qualityId: q75.id, lotId: lot1, qtyKg: 5.0001, purpose: 'in_house' })).status === 409, 'withdraw more than available → 409');
+check((await call('jemish', 'POST', '/yarn/withdrawals', { what: 'beams', zone: 'tfo', beamIds: [directBeam.id], purpose: 'in_house' })).status === 400, 'Sprint 24: beams are never withdrawn from TFO');
+await ok('yarn', 'POST', '/yarn/withdrawals', { what: 'raw', zone: 'direct', qualityId: q75.id, lotId: lot1, qtyKg: 5, purpose: 'in_house' });
 add('direct', 'raw', q75.id, -50_000);
 await reconcile('withdraw the last 5 kg 75D from Direct consumption');
-check((await call('jemish', 'POST', '/yarn/withdrawals', { what: 'raw', zone: 'direct', qualityId: q75.id, lotId: lot1, qtyKg: 0.0001 })).status === 409, 'zero stock: even 0.1 g is refused');
+check((await call('jemish', 'POST', '/yarn/withdrawals', { what: 'raw', zone: 'direct', qualityId: q75.id, lotId: lot1, qtyKg: 0.0001, purpose: 'in_house' })).status === 409, 'zero stock: even 0.1 g is refused');
 
 // ---------------------------------------------------------------- movements filters + close PO
 const tfoMoves = await ok('jemish', 'GET', `/yarn/moves?zone=tfo&kind=tfo&quality=${q75.id}`);

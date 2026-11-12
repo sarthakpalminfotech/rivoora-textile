@@ -2,7 +2,10 @@ import { ArrowDownLeft, ArrowUpRight, History } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
+  amountPaise,
+  boxNoWithFy,
   isMoveFilter,
+  isWithdrawPurpose,
   isYarnZone,
   MOVE_FILTER_LABEL,
   MOVE_FILTERS,
@@ -10,6 +13,8 @@ import {
   YARN_ITEM_LABEL,
   YARN_ZONE_CONFIG,
   YARN_ZONES,
+  WITHDRAW_PURPOSE_LABEL,
+  WITHDRAW_PURPOSES,
   type MoveFilter,
   type YarnMove,
   type YarnZone,
@@ -24,7 +29,7 @@ import { useDebounce } from '@/hooks/useDebounce';
 import { formatDateTime } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { useYarnMoves, useYarnQualityLookup, type MovesParams } from './api';
-import { actorText, Kg, Pill, ZoneTag } from './parts';
+import { actorText, Kg, money, Pill, ZoneTag } from './parts';
 
 /** "Raw yarn · 75D · Lot 123" / "Twisted yarn · Box BX-5" / "2 beams · BM-3, BM-4" */
 function whatLine(m: YarnMove) {
@@ -32,8 +37,29 @@ function whatLine(m: YarnMove) {
     const n = Math.abs(m.beams ?? 0);
     return `${n} beam${n === 1 ? '' : 's'}${m.quality ? ` · ${m.quality.name}` : ''}`;
   }
-  const lotOrBox = m.box ? `Box ${m.box.boxNo}` : m.lot ? `Lot ${m.lot.lotNo}` : null;
+  const lotOrBox = m.box ? `Box ${boxNoWithFy(m.box.boxNo, m.box.fy)}` : m.lot ? `Lot ${m.lot.lotNo}` : null;
   return `${m.item ? YARN_ITEM_LABEL[m.item] : ''}${m.quality ? ` · ${m.quality.name}` : ''}${lotOrBox ? ` · ${lotOrBox}` : ''}`;
+}
+
+/**
+ * Sprint 24 (CR-17): a withdrawal's purpose — "Sell · Ramesh Traders · ₹120/kg = ₹1,200" (rate / amount only when the role
+ * may see rates, else "rate entered") or "In-house".
+ */
+function PurposeTag({ m }: { m: YarnMove }) {
+  const w = m.withdrawal;
+  if (!w) return null;
+  const sell = w.purpose === 'sell';
+  const rate =
+    sell && w.ratePaise !== null
+      ? ` · ₹${(w.ratePaise / 100).toLocaleString('en-IN')}/kg${m.qtyG ? ` = ${money(amountPaise(Math.abs(m.qtyG), w.ratePaise))}` : ''}`
+      : sell && w.rateEntered
+        ? ' · rate entered'
+        : '';
+  return (
+    <span className={cn('mr-1.5 inline-block rounded px-1.5 text-[11px] font-semibold', sell ? 'bg-sky-50 text-sky-800' : 'bg-slate-100 text-slate-600')}>
+      {sell ? `Sell${w.partyName ? ` · ${w.partyName}` : ''}${rate}` : 'In-house'}
+    </span>
+  );
 }
 
 function Qty({ m, className }: { m: YarnMove; className?: string }) {
@@ -87,7 +113,12 @@ export function MovementList({ items, showZone = true }: { items: YarnMove[]; sh
                   <p className="truncate font-semibold text-slate-800">
                     {MOVE_KIND_LABEL[m.kind]} <span className="font-normal text-slate-600">· {whatLine(m)}</span>
                   </p>
-                  {(m.context || m.note) && <p className="truncate text-xs text-slate-500">{[m.context, m.note].filter(Boolean).join(' · ')}</p>}
+                  {(m.context || m.note || m.withdrawal) && (
+                    <p className="truncate text-xs text-slate-500">
+                      <PurposeTag m={m} />
+                      {[m.withdrawal ? null : m.context, m.note].filter(Boolean).join(' · ')}
+                    </p>
+                  )}
                   <p className="truncate text-xs text-slate-400 lg:hidden">{actorText(m)}</p>
                 </td>
                 <td className="py-2.5 pr-3 text-right">
@@ -109,7 +140,12 @@ export function MovementList({ items, showZone = true }: { items: YarnMove[]; sh
                 <Qty m={m} className="text-sm" />
               </div>
               <p className="truncate text-sm text-slate-600">{whatLine(m)}</p>
-              {(m.context || m.note) && <p className="truncate text-xs text-slate-500">{[m.context, m.note].filter(Boolean).join(' · ')}</p>}
+              {(m.context || m.note || m.withdrawal) && (
+                <p className="truncate text-xs text-slate-500">
+                  <PurposeTag m={m} />
+                  {[m.withdrawal ? null : m.context, m.note].filter(Boolean).join(' · ')}
+                </p>
+              )}
               <p className="mt-0.5 truncate text-xs text-slate-400">
                 {showZone ? `${YARN_ZONE_CONFIG[m.zone].label} · ` : ''}
                 {formatDateTime(m.createdAt)}
@@ -125,7 +161,7 @@ export function MovementList({ items, showZone = true }: { items: YarnMove[]; sh
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
-/** Movement filters in the URL: `mz` (zone, only when no fixed zone), `mtype`, `mq`, `mfrom`, `mto`, `msearch`. */
+/** Movement filters in the URL: `mz` (zone, only when no fixed zone), `mtype`, `mq`, `mfrom`, `mto`, `msearch`, `mpurpose` (Sprint 24). */
 function useMoveFilters(fixedZone?: YarnZone) {
   const [params, setParams] = useSearchParams();
   const value = useMemo<MovesParams>(() => {
@@ -139,6 +175,7 @@ function useMoveFilters(fixedZone?: YarnZone) {
       from: DATE_RE.test(from) ? from : undefined,
       to: DATE_RE.test(to) ? to : undefined,
       search: params.get('msearch') || undefined,
+      purpose: isWithdrawPurpose(params.get('mpurpose') ?? '') ? (params.get('mpurpose') as MovesParams['purpose']) : undefined,
     };
   }, [params, fixedZone]);
   const set = (patch: Partial<MovesParams>) =>
@@ -152,6 +189,7 @@ function useMoveFilters(fixedZone?: YarnZone) {
         if ('from' in patch) put('mfrom', patch.from);
         if ('to' in patch) put('mto', patch.to);
         if ('search' in patch) put('msearch', patch.search);
+        if ('purpose' in patch) put('mpurpose', patch.purpose);
         return next;
       },
       { replace: true },
@@ -171,7 +209,7 @@ export function MovementsSection({ zone, title = 'Movements' }: { zone?: YarnZon
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debouncedSearch]);
   const toggleKind = (k: MoveFilter) => set({ kind: value.kind.includes(k) ? value.kind.filter((x) => x !== k) : [...value.kind, k] });
-  const filtered = value.kind.length > 0 || value.quality.length > 0 || !!value.from || !!value.to || !!value.search || (!zone && !!value.zone);
+  const filtered = value.kind.length > 0 || value.quality.length > 0 || !!value.from || !!value.to || !!value.search || !!value.purpose || (!zone && !!value.zone);
 
   return (
     <section className="rounded-2xl border border-border bg-white p-4 shadow-soft md:p-5">
@@ -200,6 +238,17 @@ export function MovementsSection({ zone, title = 'Movements' }: { zone?: YarnZon
                 {MOVE_FILTER_LABEL[f]}
               </Pill>
             ))}
+        </div>
+        <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Withdraw purpose">
+          <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Purpose</span>
+          <Pill on={!value.purpose} onClick={() => set({ purpose: undefined })}>
+            Any
+          </Pill>
+          {WITHDRAW_PURPOSES.map((p) => (
+            <Pill key={p} on={value.purpose === p} onClick={() => set({ purpose: value.purpose === p ? undefined : p })}>
+              {p === 'sell' ? WITHDRAW_PURPOSE_LABEL.sell : 'In-house'}
+            </Pill>
+          ))}
         </div>
         <div className="grid gap-3 md:grid-cols-3 lg:max-w-4xl">
           <MultiSelect

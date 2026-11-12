@@ -8,6 +8,8 @@ import {
   type BeamMoveKind,
   kgToGrams,
   kindsForFilters,
+  ratePaise,
+  WITHDRAW_PURPOSE_LABEL,
   programSectionsLabel,
   TRANSFER_ERROR_TEXT,
   validateTransfer,
@@ -100,7 +102,7 @@ async function zoneStocks(tx: DbOrTx): Promise<YarnZoneStock[]> {
   }));
 }
 
-export async function yarnSummary(): Promise<YarnSummary> {
+export async function yarnSummary(showRate = false): Promise<YarnSummary> {
   const [zones, [tfo], [machines], [jobs], [tfoPending], [jobsPending], recent] = await Promise.all([
     zoneStocks(db),
     db.select({ n: sql<number>`COUNT(*)` }).from(tfoProgramSections).where(eq(tfoProgramSections.isRunning, true)),
@@ -108,7 +110,7 @@ export async function yarnSummary(): Promise<YarnSummary> {
     db.select({ n: sql<number>`COUNT(*)` }).from(warpingJobs).where(eq(warpingJobs.status, 'in_process')),
     db.select({ n: sql<number>`COUNT(*)` }).from(tfoPendingPrograms).where(eq(tfoPendingPrograms.status, 'pending')),
     db.select({ n: sql<number>`COUNT(*)` }).from(warpingPendingJobs).where(eq(warpingPendingJobs.status, 'pending')),
-    listMoves({ page: 1, limit: 10, kind: [], quality: [] }),
+    listMoves({ page: 1, limit: 10, kind: [], quality: [] }, { showRate }),
   ]);
   return {
     totals: {
@@ -261,7 +263,8 @@ export async function yarnZone(zone: YarnZone): Promise<YarnZoneData> {
       .sort((a, b) => a.quality.name.localeCompare(b.quality.name) || (a.lot ? 1 : 0) - (b.lot ? 1 : 0) || (a.lot?.lotNo ?? '').localeCompare(b.lot?.lotNo ?? '', undefined, { numeric: true })),
     boxes,
     noBox,
-    programs: await boxPrograms(boxes.map((b) => b.programId)),
+    // Sprint 24: Palti boxes point at the system program — they are grouped under "Palti", not a program.
+    programs: await boxPrograms(boxes.filter((b) => b.kind !== 'palti').map((b) => b.programId)),
     stock: stocks.find((s) => s.zone === zone)!,
     qualities: qualities
       .map((q) => ({ quality: { id: q.id, name: q.name, denier: q.denier, filament: q.filament }, rawG: Number(q.rawG), twistedG: Number(q.twistedG) }))
@@ -392,6 +395,8 @@ const boxColumns = {
   netG: yarnBoxes.netG,
   programId: yarnBoxes.programId,
   createdAt: yarnBoxes.createdAt,
+  kind: yarnBoxes.kind,
+  fy: yarnBoxes.fy,
 };
 
 type BoxRow = {
@@ -407,6 +412,8 @@ type BoxRow = {
   netG: number;
   programId: number;
   createdAt: string;
+  kind: YarnBox['kind'];
+  fy: string;
 };
 
 async function toBoxes(tx: DbOrTx, rows: BoxRow[]): Promise<YarnBox[]> {
@@ -453,6 +460,8 @@ async function toBoxes(tx: DbOrTx, rows: BoxRow[]): Promise<YarnBox[]> {
       reservedG: resById.get(r.id) ?? 0,
       programId: r.programId,
       createdAt: r.createdAt,
+      kind: r.kind,
+      fy: r.fy,
     };
   });
 }
@@ -578,7 +587,11 @@ interface MoveRow {
 const inList = (ids: (string | number)[]) => sql.join(ids.map((v) => sql`${v}`), sql`, `);
 
 /** Yarn rows one by one, beam rows grouped per action (ref) + kind + zone ("3 beams"), newest first. */
-export async function listMoves(q: Pick<YarnMovesQuery, 'page' | 'limit' | 'zone' | 'kind' | 'quality' | 'from' | 'to' | 'search'>): Promise<Paginated<YarnMove>> {
+export async function listMoves(
+  q: Pick<YarnMovesQuery, 'page' | 'limit' | 'zone' | 'kind' | 'quality' | 'from' | 'to' | 'search' | 'purpose'>,
+  /** Sprint 24: withdrawal rates only for roles with `canSeeRate`. */
+  opts: { showRate?: boolean } = {},
+): Promise<Paginated<YarnMove>> {
   const kinds = kindsForFilters(q.kind);
   const yarnConds: SQL[] = [];
   const beamConds: SQL[] = [];
@@ -610,6 +623,11 @@ export async function listMoves(q: Pick<YarnMovesQuery, 'page' | 'limit' | 'zone
     )`);
     beamConds.push(sql`0 = 1`); // beams carry no lot / box
   }
+  if (q.purpose) {
+    // Sprint 24: only withdrawals of that purpose.
+    yarnConds.push(sql`m.ref_type = 'withdrawal' AND EXISTS (SELECT 1 FROM yarn_withdrawals w WHERE w.id = m.ref_id AND w.purpose = ${q.purpose})`);
+    beamConds.push(sql`bm.ref_type = 'withdrawal' AND EXISTS (SELECT 1 FROM yarn_withdrawals w WHERE w.id = bm.ref_id AND w.purpose = ${q.purpose})`);
+  }
   const where = (conds: SQL[]) => (conds.length ? sql`WHERE ${sql.join(conds, sql` AND `)}` : sql``);
   const union = sql`
     SELECT 'yarn' AS source, 'y-' || m.id AS gkey, m.zone AS zone, m.kind AS kind, m.item AS item, m.quality_id AS quality_id,
@@ -629,25 +647,25 @@ export async function listMoves(q: Pick<YarnMovesQuery, 'page' | 'limit' | 'zone
     db.all<MoveRow>(sql`SELECT * FROM (${union}) x ORDER BY x.created_at DESC, x.sort_id DESC LIMIT ${q.limit} OFFSET ${(q.page - 1) * q.limit}`),
     db.all<{ total: number }>(sql`SELECT COUNT(*) AS total FROM (${union}) x`),
   ]);
-  const items = await decorateMoves(rows);
+  const items = await decorateMoves(rows, !!opts.showRate);
   return { items, page: q.page, limit: q.limit, total: Number(total), hasMore: q.page * q.limit < Number(total) };
 }
 
 /** Quality names, user names, lot / box info and the "what" line of each row — one query per kind, not per row. */
-async function decorateMoves(rows: MoveRow[]): Promise<YarnMove[]> {
+async function decorateMoves(rows: MoveRow[], showRate: boolean): Promise<YarnMove[]> {
   const idsOf = (type: YarnRefType) => [...new Set(rows.filter((r) => r.ref_type === type && r.ref_id).map((r) => Number(r.ref_id)))];
   const qualityIds = [...new Set(rows.map((r) => r.quality_id).filter((v): v is number => v !== null))];
   const userIds = [...new Set(rows.map((r) => r.user_id).filter((v): v is number => v !== null))];
   const lotIds = [...new Set(rows.map((r) => r.lot_id).filter((v): v is number => v !== null))];
   const boxIds = [...new Set(rows.map((r) => r.box_id).filter((v): v is number => v !== null))];
   const wqIds = [...new Set(rows.map((r) => r.wq_id).filter((v): v is number => v !== null))];
-  const [qualities, people, lots, boxRows, receipts, transfers, programs, jobs, wqs] = await Promise.all([
+  const [qualities, people, lots, boxRows, receipts, transfers, programs, jobs, wqs, withdrawals] = await Promise.all([
     qualityIds.length ? db.select({ id: yarnQualities.id, name: yarnQualities.name }).from(yarnQualities).where(inArray(yarnQualities.id, qualityIds)) : [],
     userIds.length ? db.select({ id: users.id, name: users.name }).from(users).where(inArray(users.id, userIds)) : [],
     lotIds.length ? db.select({ id: yarnLots.id, lotNo: yarnLots.lotNo }).from(yarnLots).where(inArray(yarnLots.id, lotIds)) : [],
     boxIds.length
       ? db
-          .select({ id: yarnBoxes.id, boxNo: yarnBoxes.boxNo, warpingQualityId: yarnBoxes.warpingQualityId, warpingQualityName: warpingQualities.name })
+          .select({ id: yarnBoxes.id, boxNo: yarnBoxes.boxNo, fy: yarnBoxes.fy, warpingQualityId: yarnBoxes.warpingQualityId, warpingQualityName: warpingQualities.name })
           .from(yarnBoxes)
           .innerJoin(warpingQualities, eq(warpingQualities.id, yarnBoxes.warpingQualityId))
           .where(inArray(yarnBoxes.id, boxIds))
@@ -671,6 +689,12 @@ async function decorateMoves(rows: MoveRow[]): Promise<YarnMove[]> {
       : [],
     idsOf('job').length ? db.select({ id: warpingJobs.id, jobNo: warpingJobs.jobNo }).from(warpingJobs).where(inArray(warpingJobs.id, idsOf('job'))) : [],
     wqIds.length ? db.select({ id: warpingQualities.id, name: warpingQualities.name }).from(warpingQualities).where(inArray(warpingQualities.id, wqIds)) : [],
+    idsOf('withdrawal').length
+      ? db
+          .select({ id: yarnWithdrawals.id, purpose: yarnWithdrawals.purpose, partyName: yarnWithdrawals.partyName, ratePaise: yarnWithdrawals.ratePaise })
+          .from(yarnWithdrawals)
+          .where(inArray(yarnWithdrawals.id, idsOf('withdrawal')))
+      : [],
   ]);
   const wqName = new Map(wqs.map((w) => [w.id, w.name]));
   const qName = new Map(qualities.map((q) => [q.id, q.name]));
@@ -696,6 +720,10 @@ async function decorateMoves(rows: MoveRow[]): Promise<YarnMove[]> {
       case 'job': {
         const x = jobs.find((v) => v.id === id);
         return x ? warpingJobLabel(x.jobNo) : null;
+      }
+      case 'withdrawal': {
+        const x = withdrawals.find((v) => v.id === id);
+        return x ? (x.purpose === 'sell' ? `Sold${x.partyName ? ` to ${x.partyName}` : ''}` : WITHDRAW_PURPOSE_LABEL.in_house) : null;
       }
       default:
         return null;
@@ -733,7 +761,11 @@ async function decorateMoves(rows: MoveRow[]): Promise<YarnMove[]> {
       userName: r.user_id !== null ? (uName.get(r.user_id) ?? null) : null,
       createdAt: r.created_at,
       lot: lot ? { id: lot.id, lotNo: lot.lotNo } : null,
-      box: box ? { id: box.id, boxNo: box.boxNo } : null,
+      box: box ? { id: box.id, boxNo: box.boxNo, fy: box.fy } : null,
+      withdrawal: (() => {
+        const w = r.ref_type === 'withdrawal' ? withdrawals.find((v) => v.id === Number(r.ref_id)) : undefined;
+        return w ? { purpose: w.purpose, partyName: w.partyName, ratePaise: showRate ? w.ratePaise : null, rateEntered: w.ratePaise !== null } : null;
+      })(),
     };
   });
 }
@@ -848,7 +880,8 @@ export async function createTransfer(role: RoleKey, input: unknown): Promise<{ t
 /**
  * POST /yarn/withdrawals — Direct consumption: yarn used (ledger `withdraw`, balance checked) or beams consumed
  * (status Consumed with date / by / note, a `consumed` beam move; no loom link). Sprint 20c: TFO too — raw yarn
- * (pending programs' reservations respected) and WHOLE boxes.
+ * (pending programs' reservations respected) and WHOLE boxes. Sprint 24 (CR-17): Warping too (raw, whole boxes, beams),
+ * and every withdraw is Sell (party, optional rate) or Use in-house.
  */
 export async function createWithdrawal(role: RoleKey, input: unknown): Promise<{ withdrawalId: number }> {
   const data = yarnWithdrawSchema.parse(input);
@@ -862,7 +895,15 @@ export async function createWithdrawal(role: RoleKey, input: unknown): Promise<{
   return db.transaction(async (tx) => {
     const [w] = await tx
       .insert(yarnWithdrawals)
-      .values({ zone: data.zone, what: data.what, note: data.note, ...actor(role) })
+      .values({
+        zone: data.zone,
+        what: data.what,
+        note: data.note,
+        purpose: data.purpose,
+        partyName: data.partyName,
+        ratePaise: data.rate === null ? null : ratePaise(data.rate),
+        ...actor(role),
+      })
       .returning({ id: yarnWithdrawals.id, createdAt: yarnWithdrawals.createdAt });
     if (data.what === 'beams') {
       const list = await lockBeams(tx, data.beamIds, data.zone);

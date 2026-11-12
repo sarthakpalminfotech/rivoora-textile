@@ -222,13 +222,15 @@ describe('Sprint 20c', () => {
     expect(tfoPendingStartSchema.parse({ sections: [{ machineId: 1, section: 'A' }] }).rolls).toBeNull();
     expect(tfoPendingStartSchema.parse({ sections: [{ machineId: 1, section: 'A' }], rolls: 4 }).rolls).toBe(4);
   });
-  it('withdraw works in TFO (raw + whole boxes) but beams only in Direct consumption', () => {
+  // Sprint 24 (CR-17) supersedes: Withdraw is in every zone (Warping too, beams in Direct + Warping) and needs a purpose.
+  it('withdraw works in TFO (raw + whole boxes); beams only where beams are kept', () => {
     expect(withdrawWholeBoxes('tfo')).toBe(true);
     expect(withdrawWholeBoxes('direct')).toBe(false);
-    const box = yarnWithdrawSchema.parse({ what: 'twisted', zone: 'tfo', boxes: [{ boxId: 3 }] });
+    const why = { purpose: 'in_house' as const };
+    const box = yarnWithdrawSchema.parse({ what: 'twisted', zone: 'tfo', boxes: [{ boxId: 3 }], ...why });
     expect(box.what === 'twisted' && box.boxes[0].qtyKg).toBeNull();
-    expect(yarnWithdrawSchema.safeParse({ what: 'raw', zone: 'tfo', qualityId: 1, lotId: null, qtyKg: 2 }).success).toBe(true);
-    expect(yarnWithdrawSchema.safeParse({ what: 'raw', zone: 'warping', qualityId: 1, lotId: null, qtyKg: 2 }).success).toBe(false);
-    expect(yarnWithdrawSchema.safeParse({ what: 'beams', zone: 'tfo', beamIds: [1] }).success).toBe(false);
+    expect(yarnWithdrawSchema.safeParse({ what: 'raw', zone: 'tfo', qualityId: 1, lotId: null, qtyKg: 2, ...why }).success).toBe(true);
+    expect(yarnWithdrawSchema.safeParse({ what: 'raw', zone: 'warping', qualityId: 1, lotId: null, qtyKg: 2, ...why }).success).toBe(true);
+    expect(yarnWithdrawSchema.safeParse({ what: 'beams', zone: 'tfo', beamIds: [1], ...why }).success).toBe(false);
   });
 });
