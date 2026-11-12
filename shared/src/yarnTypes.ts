@@ -40,6 +40,8 @@ export interface YarnQuality {
   denier: string | null;
   filament: string | null;
   notes: string | null;
+  /** Sprint 25: the minimum available stock (yarn units) for the Low yarn card; null = none. */
+  minG: number | null;
   createdAt: string;
   updatedAt: string;
 }

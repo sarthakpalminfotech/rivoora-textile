@@ -28,6 +28,8 @@ const schema = z.object({
   orderType: z.enum(ORDER_TYPES),
   rate: z.string().trim(),
   poDate: z.string().min(1, 'Pick the PO date'),
+  /** Sprint 25: optional ('' = not set). */
+  dueDate: z.string(),
   notes: z.string().max(1000),
 });
 type FormValues = z.infer<typeof schema>;
@@ -89,6 +91,7 @@ export function PoFormDialog({
             orderType: po.orderType,
             rate: po.rate != null ? String(po.rate) : '',
             poDate: po.poDate,
+            dueDate: po.dueDate ?? '',
             notes: po.notes ?? '',
           }
         : {
@@ -99,6 +102,7 @@ export function PoFormDialog({
             orderType: defaults.orderType,
             rate: '',
             poDate: toApiDate(new Date()),
+            dueDate: '',
             notes: '',
           },
     );
@@ -123,6 +127,10 @@ export function PoFormDialog({
       setError('materialId', { message: 'Select the quality' });
       return;
     }
+    if (v.dueDate && v.dueDate < v.poDate) {
+      setError('dueDate', { message: 'The due date can’t be before the PO date' });
+      return;
+    }
     const payload = {
       weaverId: v.weaverId,
       materialId: v.materialId,
@@ -131,10 +139,11 @@ export function PoFormDialog({
       orderType: v.orderType,
       rate: can('canSeeRate') && v.rate ? toNumber(v.rate) ?? null : null,
       poDate: v.poDate,
+      dueDate: v.dueDate || null,
       notes: v.notes,
     };
     const onError = (err: unknown) => {
-      const handled = applyServerFieldError(err, setError, ['weaverId', 'materialId', 'quantity', 'unit', 'orderType', 'rate', 'poDate', 'notes']);
+      const handled = applyServerFieldError(err, setError, ['weaverId', 'materialId', 'quantity', 'unit', 'orderType', 'rate', 'poDate', 'dueDate', 'notes']);
       if (!handled) toast.error(errorMessage(err));
     };
     if (po) {
@@ -250,6 +259,29 @@ export function PoFormDialog({
         <Field label="PO date" htmlFor="po-date" required error={errors.poDate?.message}>
           <Controller control={control} name="poDate" render={({ field }) => <DatePicker id="po-date" value={field.value} onChange={field.onChange} invalid={!!errors.poDate} />} />
         </Field>
+        {/* Sprint 25: optional — the Late POs card lists open POs past it. */}
+        <Controller
+          control={control}
+          name="dueDate"
+          render={({ field }) => (
+            <Field
+              label="Due date"
+              htmlFor="po-due"
+              error={errors.dueDate?.message}
+              hint={
+                field.value ? (
+                  <button type="button" className="font-semibold text-primary hover:underline" onClick={() => field.onChange('')}>
+                    Clear
+                  </button>
+                ) : (
+                  'Optional · when the goods should be back'
+                )
+              }
+            >
+              <DatePicker id="po-due" value={field.value} onChange={field.onChange} invalid={!!errors.dueDate} placeholder="Not set" />
+            </Field>
+          )}
+        />
         <Field label="Notes" htmlFor="po-notes" error={errors.notes?.message}>
           <Textarea id="po-notes" rows={3} {...register('notes')} />
         </Field>

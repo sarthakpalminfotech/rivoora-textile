@@ -209,6 +209,8 @@ export interface OrderDetail {
   /** Omitted entirely for roles that may not see rate. */
   rate?: number | null;
   orderDate: string;
+  /** Sprint 25: the date promised to the client (null = not set). */
+  promisedDate: string | null;
   notes: string | null;
   sentToProductionAt: string | null;
   /** Active jobsheets of this order (undo send-for-production is only allowed at 0). */
@@ -1931,6 +1933,8 @@ export interface OutsidePoCard {
   /** Null for roles without `canSeeRate`. */
   rate: number | null;
   poDate: string;
+  /** Sprint 25: optional due date (null = not set). */
+  dueDate: string | null;
   notes: string | null;
   status: PoStatus;
   receivedQty: number;

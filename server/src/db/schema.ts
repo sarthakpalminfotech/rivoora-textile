@@ -283,6 +283,8 @@ export const orders = sqliteTable(
     fy: text('fy').notNull().default('2026-27').$defaultFn(() => currentFyNow()),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
+    /** Sprint 25: the date promised to the client (optional, yyyy-MM-dd) — the On-time delivery card. */
+    promisedDate: text('promised_date'),
   },
   (t) => [
     uniqueIndex('orders_order_no_unique').on(t.fy, t.orderNo),
@@ -368,7 +370,7 @@ export const orderStatusHistory = sqliteTable(
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
-  (t) => [index('order_status_history_order_idx').on(t.orderId)],
+  (t) => [index('order_status_history_order_idx').on(t.orderId), index('order_status_history_changed_idx').on(t.orderId, t.changedAt)],
 );
 
 export const machines = sqliteTable(
@@ -446,6 +448,7 @@ export const jobsheets = sqliteTable(
     index('jobsheets_order_idx').on(t.orderId),
     index('jobsheets_status_idx').on(t.status),
     index('jobsheets_running_machine_idx').on(t.runningMachineId),
+    index('jobsheets_completed_idx').on(t.completedAt),
   ],
 );
 
@@ -632,7 +635,7 @@ export const takaDamages = sqliteTable(
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
-  (t) => [index('taka_damages_taka_idx').on(t.takaId), index('taka_damages_status_idx').on(t.status, t.foundAt)],
+  (t) => [index('taka_damages_taka_idx').on(t.takaId), index('taka_damages_status_idx').on(t.status, t.foundAt), index('taka_damages_created_idx').on(t.createdAt)],
 );
 
 /**
@@ -835,7 +838,7 @@ export const takaEvents = sqliteTable(
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
-  (t) => [index('taka_events_taka_idx').on(t.takaId)],
+  (t) => [index('taka_events_taka_idx').on(t.takaId), index('taka_events_created_idx').on(t.createdAt)],
 );
 
 /**
@@ -1039,6 +1042,7 @@ export const dispatchChallans = sqliteTable(
     uniqueIndex('dispatch_challans_no_revision_unique').on(t.fy, t.challanNo, t.revision),
     index('dispatch_challans_order_idx').on(t.orderId),
     index('dispatch_challans_status_idx').on(t.status),
+    index('dispatch_challans_date_idx').on(t.challanDate),
   ],
 );
 
@@ -1298,6 +1302,8 @@ export const outsidePos = sqliteTable(
     fy: text('fy').notNull().default('2026-27').$defaultFn(() => currentFyNow()),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
+    /** Sprint 25: optional due date (yyyy-MM-dd) — the Late POs card. */
+    dueDate: text('due_date'),
   },
   (t) => [
     uniqueIndex('outside_pos_po_no_unique').on(t.fy, t.poNo),
@@ -1379,6 +1385,8 @@ export const yarnQualities = sqliteTable(
      * way to keep it satisfied). Never shown in any picker or lookup; display always prefers `warping_quality_id`.
      */
     isSystem: integer('is_system', { mode: 'boolean' }).notNull().default(false),
+    /** Sprint 25: optional minimum available stock (yarn units, 0.1 g) — the Low yarn card. */
+    minG: integer('min_g'),
     isDeleted: isDeleted(),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
@@ -2012,3 +2020,24 @@ export const paltiRunInputs = sqliteTable(
   },
   (t) => [index('palti_run_inputs_run_idx').on(t.runId)],
 );
+
+/* ------------------------------------------------------------------ */
+/* Sprint 25: insight dashboards                                        */
+/* ------------------------------------------------------------------ */
+
+/** C11 — the arranged layout of one dashboard (applies to everyone who opens it). No row = the default layout. */
+export const dashboardLayouts = sqliteTable('dashboard_layouts', {
+  dashboard: text('dashboard').primaryKey(),
+  /** JSON `DashboardLayout` (sections → cards with width / hidden). */
+  layout: text('layout').notNull(),
+  updatedByUserId: integer('updated_by_user_id'),
+  updatedAt: updatedAt(),
+});
+
+/** Small app-wide settings: `working_hours_per_day` (default 24), `insight_stock_match` (hidden flag, off). */
+export const appSettings = sqliteTable('app_settings', {
+  key: text('key').primaryKey(),
+  value: text('value').notNull(),
+  updatedByUserId: integer('updated_by_user_id'),
+  updatedAt: updatedAt(),
+});

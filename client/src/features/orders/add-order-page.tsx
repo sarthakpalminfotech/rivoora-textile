@@ -84,6 +84,8 @@ const schema = z
     unit: z.enum(UNITS),
     rate: z.string().trim(),
     orderDate: z.string().min(1, 'Pick the order date'),
+    /** Sprint 25: optional promised date ('' = not set). */
+    promisedDate: z.string(),
     notes: z.string().max(4000, 'Notes are too long'),
     noteImages: z.array(z.custom<UploadResult>()).max(10, 'At most 10 images'),
   })
@@ -92,6 +94,7 @@ const schema = z
     if (!v.orderType) ctx.addIssue({ code: 'custom', path: ['orderType'], message: 'Pick the order type' });
     if (!v.materialId) ctx.addIssue({ code: 'custom', path: ['materialId'], message: 'Select a material' });
     if (v.isOutsideOrder && !v.outsidePartyName.trim()) ctx.addIssue({ code: 'custom', path: ['outsidePartyName'], message: 'Enter the party name' });
+    if (v.promisedDate && v.orderDate && v.promisedDate < v.orderDate) ctx.addIssue({ code: 'custom', path: ['promisedDate'], message: 'The promised date can’t be before the order date' });
     const q = toNumber(v.quantity);
     if (!v.quantity) ctx.addIssue({ code: 'custom', path: ['quantity'], message: 'Enter the quantity' });
     else if (q === undefined || q <= 0) ctx.addIssue({ code: 'custom', path: ['quantity'], message: 'Quantity must be more than 0' });
@@ -125,6 +128,7 @@ const defaults = (): FormValues => ({
   unit: DEFAULT_UNIT,
   rate: '',
   orderDate: toApiDate(new Date()),
+  promisedDate: '',
   notes: '',
   noteImages: [],
 });
@@ -157,6 +161,7 @@ const fromOrder = (o: OrderDetail): FormValues => {
     unit: o.unit,
     rate: o.rate != null ? String(o.rate) : '',
     orderDate: o.orderDate,
+    promisedDate: o.promisedDate ?? '',
     notes: o.notes ?? '',
     noteImages: o.noteImages.map((img) => ({ url: img.imageUrl, thumbUrl: img.thumbUrl })),
   };
@@ -353,11 +358,12 @@ export function OrderForm({ order }: { order?: OrderDetail }) {
       unit: v.unit,
       rate: can('canSeeRate') ? (toNumber(v.rate) ?? null) : null,
       orderDate: v.orderDate,
+      promisedDate: v.promisedDate || null,
       notes: v.notes,
       noteImages: v.noteImages,
     };
     const onError = (err: unknown) => {
-      const handled = applyServerFieldError(err, setError, ['customerId', 'brokerId', 'orderType', 'blouseOption', 'outsidePartyName', 'materialId', 'quantity', 'unit', 'rate', 'orderDate', 'newDesignCode', 'newDesignButta', 'notes'], {
+      const handled = applyServerFieldError(err, setError, ['customerId', 'brokerId', 'orderType', 'blouseOption', 'outsidePartyName', 'materialId', 'quantity', 'unit', 'rate', 'orderDate', 'promisedDate', 'newDesignCode', 'newDesignButta', 'notes'], {
         designCode: 'newDesignCode',
         'newDesign.code': 'newDesignCode',
       });
@@ -784,6 +790,29 @@ export function OrderForm({ order }: { order?: OrderDetail }) {
                 render={({ field }) => <DatePicker id="order-date" value={field.value} onChange={field.onChange} invalid={!!errors.orderDate} />}
               />
             </Field>
+            {/* Sprint 25: optional — the On-time delivery card compares the last dispatch with it. */}
+            <Controller
+              control={control}
+              name="promisedDate"
+              render={({ field }) => (
+                <Field
+                  label="Promised date"
+                  htmlFor="order-promised"
+                  error={errors.promisedDate?.message}
+                  hint={
+                    field.value ? (
+                      <button type="button" className="font-semibold text-primary hover:underline" onClick={() => field.onChange('')}>
+                        Clear
+                      </button>
+                    ) : (
+                      'Optional · the date promised to the client'
+                    )
+                  }
+                >
+                  <DatePicker id="order-promised" value={field.value} onChange={field.onChange} invalid={!!errors.promisedDate} placeholder="Not set" />
+                </Field>
+              )}
+            />
           </div>
         </SectionCard>
 

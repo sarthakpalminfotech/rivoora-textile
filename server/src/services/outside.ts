@@ -84,6 +84,7 @@ const poColumns = {
   orderType: outsidePos.orderType,
   rate: outsidePos.rate,
   poDate: outsidePos.poDate,
+  dueDate: outsidePos.dueDate,
   notes: outsidePos.notes,
   status: outsidePos.status,
   receivedQty: outsidePos.receivedQty,
@@ -106,6 +107,7 @@ type PoRow = {
   orderType: OutsidePoCard['orderType'];
   rate: number | null;
   poDate: string;
+  dueDate: string | null;
   notes: string | null;
   status: OutsidePoCard['status'];
   receivedQty: number;
@@ -135,6 +137,7 @@ function toCard(r: PoRow, role: RoleKey): OutsidePoCard {
     orderType: r.orderType,
     rate: can(role, 'canSeeRate') ? r.rate : null,
     poDate: r.poDate,
+    dueDate: r.dueDate,
     notes: r.notes,
     status: r.status,
     receivedQty: round2(r.receivedQty),
@@ -239,6 +242,7 @@ export async function createOutsidePo(role: RoleKey, orderId: number, input: unk
         orderType: data.orderType,
         rate: can(role, 'canSeeRate') ? data.rate : null,
         poDate: data.poDate,
+        dueDate: data.dueDate,
         notes: data.notes,
         createdBy: role,
         createdByUserId: currentUserId(),
@@ -272,6 +276,7 @@ export async function updateOutsidePo(role: RoleKey, id: number, input: unknown)
         orderType: data.orderType,
         rate: can(role, 'canSeeRate') ? data.rate : po.rate,
         poDate: data.poDate,
+        dueDate: data.dueDate,
         notes: data.notes,
         updatedAt: now(),
       })

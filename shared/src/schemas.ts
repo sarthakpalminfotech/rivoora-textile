@@ -203,6 +203,12 @@ const orderBaseShape = {
       .nullish()
       .transform((v) => v ?? null),
     orderDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date'),
+    /** Sprint 25: optional date promised to the client (the On-time delivery card); not before the order date. */
+    promisedDate: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date')
+      .nullish()
+      .transform((v) => v || null),
     notes: optText(4000),
     noteImages: z
       .array(z.object({ url: imageUrl, thumbUrl: imageUrl }))
@@ -217,6 +223,9 @@ const OUTSIDE_REFINE = { message: 'Enter the party name', path: ['outsidePartyNa
 /** Sprint 19: a meter (all-over) order is always lump — pcs-to-pcs doesn't exist for meters. */
 const meterOrderIsLump = (v: { unit: string; orderType: string }) => v.unit !== 'meters' || v.orderType === 'lump';
 const METER_LUMP_REFINE = { message: 'Meter orders are always lump', path: ['orderType'] };
+/** Sprint 25: the promised date can't be before the order date. */
+const promisedOk = (v: { orderDate: string; promisedDate?: string | null }) => !v.promisedDate || v.promisedDate >= v.orderDate;
+const PROMISED_REFINE = { message: 'The promised date can’t be before the order date', path: ['promisedDate'] };
 
 /** POST /orders — Sprint 16: + the steps (an old client that sends none gets all three, the old flow). */
 export const orderCreateSchema = z
@@ -228,7 +237,8 @@ export const orderCreateSchema = z
   })
   .refine(designOk, DESIGN_REFINE)
   .refine(outsideOk, OUTSIDE_REFINE)
-  .refine(meterOrderIsLump, METER_LUMP_REFINE);
+  .refine(meterOrderIsLump, METER_LUMP_REFINE)
+  .refine(promisedOk, PROMISED_REFINE);
 export type OrderCreateInput = z.input<typeof orderCreateSchema>;
 
 /**
@@ -240,13 +250,22 @@ export const orderUpdateSchema = z
     ...orderBaseShape,
     /** Sprint 21: omitted = keep the order's current FG type. */
     fgType: z.enum(FG_TYPES, { invalid_type_error: 'Pick Saree or Suit' }).optional(),
+    /** Sprint 25: omitted = keep the order's promised date; null = clear it. */
+    promisedDate: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date')
+      .or(z.literal(''))
+      .nullable()
+      .optional()
+      .transform((v) => (v === undefined ? undefined : v || null)),
     hasProduction: stepFlag.optional(),
     hasButta: stepFlag.optional(),
     hasMill: stepFlag.optional(),
   })
   .refine(designOk, DESIGN_REFINE)
   .refine(outsideOk, OUTSIDE_REFINE)
-  .refine(meterOrderIsLump, METER_LUMP_REFINE);
+  .refine(meterOrderIsLump, METER_LUMP_REFINE)
+  .refine(promisedOk, PROMISED_REFINE);
 
 /** PUT /orders/:id/steps */
 export const orderStepsSchema = z.object({ hasProduction: stepFlag, hasButta: stepFlag, hasMill: stepFlag });
@@ -979,8 +998,15 @@ export const outsidePoInputSchema = z.object({
   orderType: z.enum(ORDER_TYPES, { required_error: 'Pick the order type', invalid_type_error: 'Pick the order type' }),
   rate: z.number().min(0, 'Rate cannot be negative').max(100_000_000).nullish().transform((v) => v ?? null),
   poDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Pick the PO date'),
+  /** Sprint 25: optional due date (the Late POs card); not before the PO date. */
+  dueDate: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date')
+    .or(z.literal(''))
+    .nullish()
+    .transform((v) => v || null),
   notes: optText(1000),
-});
+}).refine((v) => !v.dueDate || v.dueDate >= v.poDate, { message: 'The due date can’t be before the PO date', path: ['dueDate'] });
 export type OutsidePoInput = z.input<typeof outsidePoInputSchema>;
 
 const receiptHeader = {

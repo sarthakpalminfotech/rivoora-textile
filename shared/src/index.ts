@@ -38,3 +38,4 @@ export * from './overdue';
 export * from './stock22';
 export * from './fy';
 export * from './loginLimits';
+export * from './insights';

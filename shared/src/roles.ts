@@ -128,6 +128,14 @@ export interface RolePermissions {
   canAdjustFinishedStock: boolean;
   /** Sprint 23 (C10): Settings → QC login limits (locations, hours, extra time) — Jenish + Gaurang. */
   canManageLoginLimits: boolean;
+  /** Sprint 25 (C12): the Owner dashboard — Jenish (Gaurang can switch to it). */
+  canViewOwnerDashboard: boolean;
+  /** Sprint 25 (C12): the Production partner dashboard — Gaurang (Jenish can switch to it). */
+  canViewPartnerDashboard: boolean;
+  /** Sprint 25 (C12): the Supervisor dashboard — the supervisor, Jenish and Gaurang. */
+  canViewSupervisorDashboard: boolean;
+  /** Sprint 25 (C11): Arrange a dashboard (show / hide, move, wide, rename a section, reset) + its settings — Jenish + Gaurang. */
+  canArrangeDashboards: boolean;
 }
 
 export interface RoleConfig {
@@ -177,6 +185,10 @@ const NO_SPRINT12 = {
   canViewAlerts: false,
   canAdjustFinishedStock: false,
   canManageLoginLimits: false,
+  canViewOwnerDashboard: false,
+  canViewPartnerDashboard: false,
+  canViewSupervisorDashboard: false,
+  canArrangeDashboards: false,
 };
 /**
  * Sprint 17 → 20: the yarn floor rights — view + receive Yarn POs (no rate), Yarn inventory: transfer, withdraw, start /
@@ -221,6 +233,11 @@ const OWNER_SPRINT12 = {
   canViewAlerts: true,
   canAdjustFinishedStock: true,
   canManageLoginLimits: true,
+  // Sprint 25: both owners open (and arrange) all three dashboards.
+  canViewOwnerDashboard: true,
+  canViewPartnerDashboard: true,
+  canViewSupervisorDashboard: true,
+  canArrangeDashboards: true,
 };
 
 const NO_TAKAS = { canUseTakaModules: false, canEnterTakas: false, canEditTakas: false, canEditOwnTakaEntry: false, canViewTakas: false };
@@ -374,6 +391,8 @@ export const ROLES: Record<RoleKey, RoleConfig> = {
       // Sprint 21: QC corrections and the Alerts page.
       canUndoQc: true,
       canViewAlerts: true,
+      // Sprint 25: his own dashboard (no rates, no clients).
+      canViewSupervisorDashboard: true,
       // Sprint 17: Yarn PO (view + receive) and Yarn inventory.
       ...YARN_FLOOR,
     },

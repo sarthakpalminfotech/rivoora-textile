@@ -1,5 +1,6 @@
 import { and, asc, count, eq, ne, or, sql } from 'drizzle-orm';
 import {
+  kgToGrams,
   tfoMachineInputSchema,
   warpingQualityInputSchema,
   yarnPartyInputSchema,
@@ -130,6 +131,7 @@ const qualityColumns = {
   denier: yarnQualities.denier,
   filament: yarnQualities.filament,
   notes: yarnQualities.notes,
+  minG: yarnQualities.minG,
   createdAt: yarnQualities.createdAt,
   updatedAt: yarnQualities.updatedAt,
 };
@@ -184,15 +186,21 @@ async function assertQualityName(name: string, exceptId?: number) {
   if (row) throw conflict(`A yarn quality named "${row.name}" already exists`, 'name');
 }
 
+/** The columns of a quality form (Sprint 25: minimum kg → yarn units). */
+function qualityValues(input: unknown) {
+  const { minKg, ...rest } = yarnQualityInputSchema.parse(input);
+  return { ...rest, minG: minKg === null ? null : kgToGrams(minKg) };
+}
+
 export async function createYarnQuality(input: unknown): Promise<YarnQuality> {
-  const data = yarnQualityInputSchema.parse(input);
+  const data = qualityValues(input);
   await assertQualityName(data.name);
   const [row] = await db.insert(yarnQualities).values(data).returning(qualityColumns);
   return row;
 }
 
 export async function updateYarnQuality(id: number, input: unknown): Promise<YarnQuality> {
-  const data = yarnQualityInputSchema.parse(input);
+  const data = qualityValues(input);
   await getYarnQuality(id);
   await assertQualityName(data.name, id);
   const [row] = await db.update(yarnQualities).set(data).where(and(eq(yarnQualities.id, id), eq(yarnQualities.isDeleted, false))).returning(qualityColumns);

@@ -200,6 +200,8 @@ export function OrderHeader({
         ]
       : []),
     { label: "Order date", value: formatDate(order.orderDate) },
+    // Sprint 25: the date promised to the client (when set).
+    ...(order.promisedDate ? [{ label: "Promised date", value: formatDate(order.promisedDate) }] : []),
     ...("rate" in order
       ? [{ label: "Rate", value: formatMoney(order.rate) }]
       : []),

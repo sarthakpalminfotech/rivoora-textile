@@ -74,6 +74,8 @@ export const yarnQualityInputSchema = z.object({
   denier: optText(30),
   filament: optText(30),
   notes: optText(1000),
+  /** Sprint 25: optional minimum available kg — below it the quality shows on the Low yarn card. */
+  minKg: kg('Enter the minimum kg').nullish().transform((v) => v ?? null),
 });
 export type YarnQualityInput = z.input<typeof yarnQualityInputSchema>;
 

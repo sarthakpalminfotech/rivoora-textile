@@ -12,6 +12,7 @@ import { buttaQcRouter } from './routes/butta-qc';
 import { partyReturnsRouter } from './routes/party-returns';
 import { alertsRouter } from './routes/alerts';
 import { loginLimitsRouter } from './routes/login-limits';
+import { dashboardRouter, dashboardSettingsRouter } from './routes/dashboard';
 import { qcCorrectionsRouter } from './routes/qc-corrections';
 import { millQcRouter } from './routes/mill-qc';
 import { challansRouter } from './routes/challans';
@@ -85,6 +86,9 @@ api.use('/butta-qc', buttaQcRouter);
 api.use('/qc-corrections', qcCorrectionsRouter);
 api.use('/alerts', alertsRouter);
 api.use('/login-limits', loginLimitsRouter);
+// Sprint 25: insight dashboards (read-only cards, arranged layouts) + their settings.
+api.use('/dashboard', dashboardRouter);
+api.use('/dashboard-settings', dashboardSettingsRouter);
 api.use('/party-returns', partyReturnsRouter);
 api.use('/mill-qc', millQcRouter);
 api.use('/godown', godownRouter);

@@ -46,6 +46,7 @@ function PoCard({ po, canManage, canReceive, onEdit }: { po: OutsidePoCard; canM
           </p>
           <p className="text-sm text-slate-500">
             {po.quality.name} · {formatDate(po.poDate)}
+            {po.dueDate ? ` · due ${formatDate(po.dueDate)}` : ''}
             {po.rate != null && ` · ${formatMoney(po.rate)}`}
           </p>
         </div>

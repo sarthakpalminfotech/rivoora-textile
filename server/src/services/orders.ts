@@ -240,6 +240,7 @@ export async function getOrder(role: RoleKey, id: number): Promise<OrderDetail> 
         designThumbUrl: designs.thumbUrl,
         isOutsideOrder: orders.isOutsideOrder,
         outsidePartyName: orders.outsidePartyName,
+        promisedDate: orders.promisedDate,
       })
       .from(orders)
       .innerJoin(customers, eq(customers.id, orders.customerId))
@@ -300,6 +301,7 @@ export async function getOrder(role: RoleKey, id: number): Promise<OrderDetail> 
         : null,
     isOutsideOrder: r.isOutsideOrder,
     outsidePartyName: can(role, 'canSeeClient') ? r.outsidePartyName : null,
+    promisedDate: r.promisedDate,
     noteImages,
     history,
     isOnHold: r.isOnHold,
@@ -403,6 +405,7 @@ export async function createOrder(role: RoleKey, input: unknown): Promise<{ id: 
         unit: data.unit,
         rate: data.rate,
         orderDate: data.orderDate,
+        promisedDate: data.promisedDate,
         notes: data.notes,
         status: STATUS.PENDING_PRODUCTION,
         // Sprint 16: the steps that happen in our system (all three on a new order unless unticked).
@@ -506,6 +509,8 @@ export async function updateOrder(role: RoleKey, id: number, input: unknown): Pr
         unit: data.unit,
         rate: can(role, 'canSeeRate') ? data.rate : current.rate,
         orderDate: data.orderDate,
+        // Sprint 25: omitted = keep the promised date.
+        ...(data.promisedDate !== undefined ? { promisedDate: data.promisedDate } : {}),
         notes: data.notes,
       })
       .where(eq(orders.id, id));
