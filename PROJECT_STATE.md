@@ -1171,3 +1171,13 @@ Phase A: every automatic number restarts each financial year (1 April, IST) — 
 - Bug found and fixed by the FY simulation: Drizzle used the constant `fy` DDL default before the FY function, so new rows would have stayed 2026-27 after April 2027 (fixed once in `server/src/db/client.ts`).
 - **Turso**: migrations `0024_easy_red_hulk.sql` (backfill `fy` + DROP / recreate 13 unique indexes as per-FY) and `0025_tiresome_tarot.sql` (additive) — apply after 0022 and 0023. Export a backup first. Not applied.
 - Not done: real-phone GPS check of the QC login; screenshot pass of the Settings screen at 360 / 820 / 1180 / 1440 px.
+
+### Sprint 24 (built on branch `sprint-24`, on top of main = Sprint 23, not deployed) — current as of 2026-11-12
+
+Yarn changes CR-16 … CR-25 (CR-22 was already built): the same lot received on several challans is ONE lot (another quality is refused); Withdraw in every zone with a required purpose (Sell: party + optional rate, rates only for `canSeeRate`; Use in-house); Transfer / Withdraw box pickers grouped by TFO program (or quality); TFO Hold (rolls made / left, sections freed) → Resume on any sections, Complete made part (boxes now, program goes on), Stop · enter boxes later → Box details pending → Save boxes; warping denier at Start and at Mark done kg used = meters × denier × taar ÷ 9,000,000, the remaining kg split over the last two programs as "Remaining" box rows in Warping (or back to the input lots); Palti section (leftover yarn → a new numbered box in any zone, waste recorded); box stickers 50 × 25 mm / A4 3 × 8 with "15 (26-27)", gross / net kg and a QR. Details: "Sprint 24" in CLAUDE.md and `docs/plans/sprint-24-plan.md`.
+
+- Verified on a local file DB: `npm run typecheck` clean, `npm test` 493 passing, `npm run build` OK; `node scripts/check-sprint24.mjs` 57 checks pass; `check-sprint17`, `check-sprint20` (updated for the purpose / denier rules) and `check-sprint23` pass on the same DB.
+- **Turso**: migration `0026_sprint24_yarn.sql` (additive + one system machine / program row for Palti boxes) — apply after 0022 → 0025. Export a backup first. Not applied.
+- Built in one go at the owner's request (the prompt asked to stop after the plan and after each phase); one commit per phase (E and F share a commit).
+- Not done: screenshot pass at 360 / 820 / 1180 / 1440 px; a real thermal-printer test of the 50 × 25 mm sticker; real-tablet check of the floor screens (Hold / Made part / Palti).
+

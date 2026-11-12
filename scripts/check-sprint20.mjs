@@ -257,12 +257,12 @@ check((await lotAvail('warping', q75.id, lotAId)).reservedG === 550_000, 'cancel
 const pend = await ok('supervisor', 'GET', '/yarn/warping/pending');
 check(pend.some((j) => j.id === job1.id) && !pend.some((j) => j.id === job2.id), 'pending list: job 1, not the cancelled one');
 
-const started = await ok('yarn', 'POST', `/yarn/warping/pending/${job1.id}/start`);
+const started = await ok('yarn', 'POST', `/yarn/warping/pending/${job1.id}/start`, { denier: 1000 }); // Sprint 24: denier at start
 check(started.status === 'in_process' && started.fullMeter && started.taar === 4800 && started.inputs.length === 2, 'supervisor starts the job → In process (WJ-n)', started);
 w = await lotAvail('warping', q75.id, lotAId);
 check(w.reservedG === 0 && w.availableG === 450_000, 'start: the inputs left Warping stock', w);
 check(!(await boxIn('warping', bx(1))) && (await ok('jemish', 'GET', `/yarn/boxes?status=used&search=${encodeURIComponent(bx(1))}`)).some((b) => b.boxNo === bx(1)), 'the whole box is now Used');
-check((await call('supervisor', 'POST', `/yarn/warping/pending/${job1.id}/start`)).status === 409, 'a started job cannot start again');
+check((await call('supervisor', 'POST', `/yarn/warping/pending/${job1.id}/start`, { denier: 1000 })).status === 409, 'a started job cannot start again');
 
 check((await call('supervisor', 'POST', `/yarn/warping/jobs/${started.id}/done`, { beams: [{ warpingQualityId: stopQ.id, taar: 4800, panna: 52 }] })).status === 400, 'meters are required per beam (Full meter)');
 const done = await ok('supervisor', 'POST', `/yarn/warping/jobs/${started.id}/done`, {
@@ -275,9 +275,9 @@ const done = await ok('supervisor', 'POST', `/yarn/warping/jobs/${started.id}/do
 const codes = done.beams.map((b) => b.beamCode);
 check(done.beams.length === 2 && codes.every((c) => /^\d+$/.test(c)) && Number(codes[1]) > Number(codes[0]) && done.beams.every((b) => b.zone === 'warping'), 'Mark done → 2 beams with system numbers, both kept in Warping', done);
 const code = (n) => codes[n - 1];
-const job2nd = await ok('jemish', 'POST', '/yarn/warping/pending', { taar: 1, panna: 1, meters: 1, inputs: [{ kind: 'raw', qualityId: q75.id, lotId: lotAId, qtyKg: 1 }] });
-const run2 = await ok('jemish', 'POST', `/yarn/warping/pending/${job2nd.id}/start`);
-const done2 = await ok('jemish', 'POST', `/yarn/warping/jobs/${run2.id}/done`, { beams: [{ warpingQualityId: stopQ.id, taar: 1, panna: 1, meters: 1 }] });
+const job2nd = await ok('jemish', 'POST', '/yarn/warping/pending', { taar: 100, panna: 1, meters: 100, inputs: [{ kind: 'raw', qualityId: q75.id, lotId: lotAId, qtyKg: 1 }] });
+const run2 = await ok('jemish', 'POST', `/yarn/warping/pending/${job2nd.id}/start`, { denier: 100000 });
+const done2 = await ok('jemish', 'POST', `/yarn/warping/jobs/${run2.id}/done`, { beams: [{ warpingQualityId: stopQ.id, taar: 100, panna: 1, meters: 100 }] });
 check(!codes.includes(done2.beams[0].beamCode), 'the next job gets the next free number', done2.beams);
 const warpBeams = await ok('jemish', 'GET', '/yarn/beams?zone=warping');
 const bm1 = warpBeams.find((b) => b.beamCode === code(1));

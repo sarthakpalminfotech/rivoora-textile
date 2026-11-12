@@ -262,7 +262,7 @@ const pjob = await ok('jemish', 'POST', '/yarn/warping/pending', {
   note: 'job note',
 });
 await reconcile('pending warping job (reserve only)');
-const job = await ok('supervisor', 'POST', `/yarn/warping/pending/${pjob.id}/start`);
+const job = await ok('supervisor', 'POST', `/yarn/warping/pending/${pjob.id}/start`, { denier: 1000 }); // Sprint 24: denier at start (used > issued → nothing comes back)
 add('warping', 'raw', q75.id, -400_000);
 add('warping', 'twisted', `w${wqOut.id}`, -355_000);
 add('warping', 'raw', q150.id, -100_000);

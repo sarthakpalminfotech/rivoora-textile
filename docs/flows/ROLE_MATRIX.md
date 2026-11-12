@@ -172,6 +172,11 @@ Sprint 20: **Y** = Yarn inventory supervisor (same yarn rights as S, nothing els
 | YRN-20 | Create TFO programs / warping jobs (Pending; reserves stock) — `canPlanYarn` | ✅ | ✅ | ✖ | ✖ | ✖ | ✖ | ✖ | ✖ |
 | YRN-21 | Edit / cancel / start pending programs and jobs; stop with boxes; done with beams | ✅ | ✅ | ✅ | ✅ | ✖ | ✖ | ✖ | ✖ |
 | YRN-22 | Manual add / remove stock — `canAdjustYarnStock` | ✅ | ✅ | ✖ | ✖ | ✖ | ✖ | ✖ | ✖ |
+| YRN-30 | Sprint 24: Withdraw in every zone with a purpose (Sell / Use in-house); rate entered by all four, **seen** in lists only by J, G (S, Y see "rate entered") | ✅ | ✅ | ✅ | ✅ | ✖ | ✖ | ✖ | ✖ |
+| YRN-31 | Sprint 24: TFO Hold / Resume / Complete made part / Stop · boxes later / Save boxes | ✅ | ✅ | ✅ | ✅ | ✖ | ✖ | ✖ | ✖ |
+| YRN-32 | Sprint 24: warping denier at Start; kg used / remaining at Mark done | ✅ | ✅ | ✅ | ✅ | ✖ | ✖ | ✖ | ✖ |
+| YRN-33 | Sprint 24: Palti — list + New Palti box | ✅ | ✅ | ✅ | ✅ | ✖ | ✖ | ✖ | ✖ |
+| YRN-34 | Sprint 24: box stickers (print) and the sticker QR | ✅ | ✅ | ✅ | ✅ | ✖ | ✖ | ✖ | ✖ |
 
 ### Other
 | Op | Description | J | G | S | T | Q | GS | D |
