@@ -3,6 +3,7 @@ import type {
   BeamZone,
   BoxStatus,
   MoveKind,
+  TfoProgramStatus,
   TfoSection,
   TwistDirection,
   WarpingInputKind,
@@ -228,6 +229,23 @@ export interface YarnMove extends YarnActor {
   box: { id: number; boxNo: string } | null;
 }
 
+/**
+ * Sprint 20 → 24 (CR-16) — GET /yarn/lots/check. `available` = no lot with this no. for the party yet (a new lot);
+ * otherwise `lot` is the existing one — a challan line of the SAME quality adds to it, another quality is refused.
+ */
+export interface YarnLotCheck {
+  available: boolean;
+  lot: {
+    id: number;
+    lotNo: string;
+    quality: { id: number; name: string };
+    /** Everything received on this lot so far. */
+    receivedG: number;
+    /** Challan numbers it was received on, oldest first. */
+    challans: string[];
+  } | null;
+}
+
 /** Sprint 20 — a raw-yarn lot's stock in one zone, for the lot picker (null id = "No lot"). */
 export interface YarnLotStock {
   id: number | null;
@@ -350,7 +368,8 @@ export interface TfoProgram {
   tpm: number;
   direction: TwistDirection;
   note: string | null;
-  status: 'running' | 'completed';
+  /** Sprint 24: + on_hold, box_pending. */
+  status: TfoProgramStatus;
   startedAt: string;
   startedBy: YarnActor;
   stoppedAt: string | null;

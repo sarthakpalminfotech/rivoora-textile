@@ -27,6 +27,7 @@ import {
   type YarnBox,
   type YarnBoxProgram,
   type YarnItem,
+  type YarnLotCheck,
   type YarnLotStock,
   type YarnMove,
   type YarnMovesQuery,
@@ -54,6 +55,7 @@ import {
   yarnParties,
   yarnPos,
   yarnQualities,
+  yarnReceiptLines,
   yarnReceipts,
   yarnStockMoves,
   yarnTransfers,
@@ -275,14 +277,34 @@ export async function yarnZone(zone: YarnZone): Promise<YarnZoneData> {
 /* Sprint 20: lots + boxes                                              */
 /* ------------------------------------------------------------------ */
 
-/** GET /yarn/lots/check — the live "lot no. is free for this party" check (lots are never edited or deleted). */
-export async function checkLotNo(partyId: number, lotNo: string): Promise<{ available: boolean }> {
+/**
+ * GET /yarn/lots/check — Sprint 24 (CR-16): the lot this party already has under that no. (any case), with its quality and
+ * what was received on it so far; `available` = a new lot. Lots are never edited or deleted.
+ */
+export async function checkLotNo(partyId: number, lotNo: string): Promise<YarnLotCheck> {
   const [row] = await db
-    .select({ id: yarnLots.id })
+    .select({ id: yarnLots.id, lotNo: yarnLots.lotNo, qualityId: yarnLots.qualityId, qualityName: yarnQualities.name })
     .from(yarnLots)
+    .innerJoin(yarnQualities, eq(yarnQualities.id, yarnLots.qualityId))
     .where(and(eq(yarnLots.partyId, partyId), sql`lower(${yarnLots.lotNo}) = lower(${lotNo})`))
     .limit(1);
-  return { available: !row };
+  if (!row) return { available: true, lot: null };
+  const lines = await db
+    .select({ qtyG: yarnReceiptLines.qtyG, challanNo: yarnReceipts.challanNo })
+    .from(yarnReceiptLines)
+    .innerJoin(yarnReceipts, eq(yarnReceipts.id, yarnReceiptLines.receiptId))
+    .where(eq(yarnReceiptLines.lotId, row.id))
+    .orderBy(yarnReceipts.id);
+  return {
+    available: false,
+    lot: {
+      id: row.id,
+      lotNo: row.lotNo,
+      quality: { id: row.qualityId, name: row.qualityName },
+      receivedG: lines.reduce((s, l) => s + l.qtyG, 0),
+      challans: [...new Set(lines.map((l) => l.challanNo))],
+    },
+  };
 }
 
 /** Reserved raw grams per lot (null = "No lot") of one quality in a zone — pending programs (TFO) / jobs (Warping). */

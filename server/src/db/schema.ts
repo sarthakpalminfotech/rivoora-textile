@@ -46,6 +46,10 @@ import type {
   YarnRefType,
   YarnStockWhat,
   YarnZone,
+  TfoProgramStatus,
+  TfoProgramEventKind,
+  WithdrawPurpose,
+  YarnBoxKind,
 } from '@rivoora/shared';
 
 const nowIso = sql`(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`;
@@ -1445,6 +1449,17 @@ export const yarnBoxes = sqliteTable(
     fy: text('fy').notNull().default('2026-27').$defaultFn(() => currentFyNow()),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
+    /**
+     * Sprint 24: `tfo` (a TFO stop / part completion), `palti` (leftover yarn re-wound — `program_id` then points at the
+     * one system program) or `remaining` (warping leftover kg of a program, rolls 0, gross = net).
+     */
+    kind: text('kind').$type<YarnBoxKind>().notNull().default('tfo'),
+    /** Sprint 24: the stop / part completion (`tfo_program_events`) that made a TFO box. */
+    programEventId: integer('program_event_id'),
+    /** Sprint 24: the warping job a `remaining` row came from. */
+    sourceJobId: integer('source_job_id'),
+    /** Sprint 24: the Palti run that made a `palti` box. */
+    paltiRunId: integer('palti_run_id'),
   },
   (t) => [
     uniqueIndex('yarn_boxes_box_no_unique').on(t.fy, sql`lower(${t.boxNo})`),
@@ -1616,6 +1631,11 @@ export const yarnWithdrawals = sqliteTable('yarn_withdrawals', {
   role: text('role').$type<RoleKey>(),
   userId: integer('user_id'),
   createdAt: createdAt(),
+  /** Sprint 24 (CR-17): Sell or Use in-house (older withdrawals = in-house). */
+  purpose: text('purpose').$type<WithdrawPurpose>().notNull().default('in_house'),
+  /** Sprint 24: Sell only — who bought it, and the optional rate (paise per kg). */
+  partyName: text('party_name'),
+  ratePaise: integer('rate_paise'),
 });
 
 /**
@@ -1678,6 +1698,11 @@ export const warpingJobs = sqliteTable(
     fy: text('fy').notNull().default('2026-27').$defaultFn(() => currentFyNow()),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
+    /** Sprint 24 (CR-24): entered at start (older jobs: at Mark done). */
+    denier: real('denier'),
+    /** Sprint 24: kg used = meters × denier × taar ÷ 9,000,000 and the remaining kg, worked out at Mark done (yarn units). */
+    usedG: integer('used_g'),
+    leftoverG: integer('leftover_g'),
   },
   (t) => [uniqueIndex('warping_jobs_job_no_unique').on(t.fy, t.jobNo), index('warping_jobs_status_idx').on(t.status)],
 );
@@ -1830,7 +1855,8 @@ export const tfoPrograms = sqliteTable(
     tpm: real('tpm').notNull(),
     direction: text('direction').$type<TwistDirection>().notNull(),
     note: text('note'),
-    status: text('status').$type<'running' | 'completed'>().notNull().default('running'),
+    /** Sprint 24: + `on_hold`, `box_pending` (stopped, boxes to enter) and the one `system` row Palti boxes point to. */
+    status: text('status').$type<TfoProgramStatus | 'system'>().notNull().default('running'),
     startedAt: text('started_at').notNull(),
     startedByUserId: integer('started_by_user_id'),
     startedRole: text('started_role').$type<RoleKey>(),
@@ -1852,6 +1878,11 @@ export const tfoPrograms = sqliteTable(
     rollWeightG: integer('roll_weight_g'),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
+    /** Sprint 24 (CR-20): rolls made so far, as entered at the last Hold. */
+    rollsMade: integer('rolls_made'),
+    /** Sprint 24: rolls already completed with boxes ("Complete made part"). */
+    rollsDone: integer('rolls_done').notNull().default(0),
+    heldAt: text('held_at'),
   },
   (t) => [
     uniqueIndex('tfo_programs_running_unique').on(t.machineId, t.section).where(sql`${t.status} = 'running'`),
@@ -1917,4 +1948,67 @@ export const tfoProgramSections = sqliteTable(
     uniqueIndex('tfo_program_sections_running_unique').on(t.machineId, t.section).where(sql`${t.isRunning} = 1`),
     index('tfo_program_sections_program_idx').on(t.programId),
   ],
+);
+
+/** Sprint 24 (CR-20/21) — TFO program activity: hold / resume / part completion / stop later / boxes saved / stopped. */
+export const tfoProgramEvents = sqliteTable(
+  'tfo_program_events',
+  {
+    id: id(),
+    programId: integer('program_id')
+      .notNull()
+      .references(() => tfoPrograms.id),
+    kind: text('kind').$type<TfoProgramEventKind>().notNull(),
+    rollsMade: integer('rolls_made'),
+    rollsLeft: integer('rolls_left'),
+    /** Rolls boxed by this event (part completion / stop). */
+    rolls: integer('rolls'),
+    twistedG: integer('twisted_g'),
+    /** "3A, 3B" — the sections freed (hold) or taken (resume). */
+    sections: text('sections'),
+    note: text('note'),
+    role: text('role').$type<RoleKey>(),
+    userId: integer('user_id'),
+    createdAt: createdAt(),
+  },
+  (t) => [index('tfo_program_events_program_idx').on(t.programId)],
+);
+
+/** Sprint 24 (CR-25) — one Palti box made from leftover yarn (inputs in `palti_run_inputs`). */
+export const paltiRuns = sqliteTable(
+  'palti_runs',
+  {
+    id: id(),
+    /** yyyy-MM-dd */
+    runDate: text('run_date').notNull(),
+    boxId: integer('box_id'),
+    inputG: integer('input_g').notNull(),
+    /** Inputs − net, when net is less than what went in. */
+    wasteG: integer('waste_g').notNull().default(0),
+    note: text('note'),
+    role: text('role').$type<RoleKey>(),
+    userId: integer('user_id'),
+    createdAt: createdAt(),
+  },
+  (t) => [index('palti_runs_date_idx').on(t.runDate)],
+);
+
+export const paltiRunInputs = sqliteTable(
+  'palti_run_inputs',
+  {
+    id: id(),
+    runId: integer('run_id')
+      .notNull()
+      .references(() => paltiRuns.id),
+    zone: text('zone').$type<YarnZone>().notNull(),
+    item: text('item').$type<YarnItem>().notNull(),
+    qualityId: integer('quality_id')
+      .notNull()
+      .references(() => yarnQualities.id),
+    qtyG: integer('qty_g').notNull(),
+    lotId: integer('lot_id').references(() => yarnLots.id),
+    boxId: integer('box_id').references(() => yarnBoxes.id),
+    warpingQualityId: integer('warping_quality_id').references(() => warpingQualities.id),
+  },
+  (t) => [index('palti_run_inputs_run_idx').on(t.runId)],
 );

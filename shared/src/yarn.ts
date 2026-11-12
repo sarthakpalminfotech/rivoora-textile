@@ -101,6 +101,10 @@ export const YARN_MOVE_KINDS = [
   // Sprint 20: owners' manual corrections (remark kept in `note`).
   'manual_add',
   'manual_remove',
+  // Sprint 24: Palti (leftover yarn re-wound into a new box) and warping leftover kg back into stock.
+  'palti_issue',
+  'palti_output',
+  'warping_leftover',
 ] as const;
 export type YarnMoveKind = (typeof YARN_MOVE_KINDS)[number];
 
@@ -124,6 +128,9 @@ export const MOVE_KIND_LABEL: Record<MoveKind, string> = {
   manual_add: 'Added manually',
   manual_remove: 'Removed manually',
   removed: 'Removed manually',
+  palti_issue: 'Palti input',
+  palti_output: 'Palti box',
+  warping_leftover: 'Warping remaining',
 };
 
 /** The sign a kind always has (receipts / outputs add, issues / withdraws take away). */
@@ -138,13 +145,16 @@ export const MOVE_KIND_SIGN: Record<YarnMoveKind, 1 | -1> = {
   warping_issue: -1,
   manual_add: 1,
   manual_remove: -1,
+  palti_issue: -1,
+  palti_output: 1,
+  warping_leftover: 1,
 };
 
 /** Beam history kinds that take a beam out of a zone (shown as −1 beam). */
 export const BEAM_OUT_KINDS: readonly BeamMoveKind[] = ['transfer_out', 'consumed', 'removed'];
 
 /** Movement filter types on the zone screen → the ledger kinds they cover (yarn + beam rows). */
-export const MOVE_FILTERS = ['receipt', 'transfer_in', 'transfer_out', 'withdraw', 'tfo', 'warping', 'manual'] as const;
+export const MOVE_FILTERS = ['receipt', 'transfer_in', 'transfer_out', 'withdraw', 'tfo', 'warping', 'palti', 'manual'] as const;
 export type MoveFilter = (typeof MOVE_FILTERS)[number];
 export const MOVE_FILTER_LABEL: Record<MoveFilter, string> = {
   receipt: 'Receipt',
@@ -153,6 +163,7 @@ export const MOVE_FILTER_LABEL: Record<MoveFilter, string> = {
   withdraw: 'Withdraw',
   tfo: 'TFO',
   warping: 'Warping',
+  palti: 'Palti',
   manual: 'Manual',
 };
 export const MOVE_FILTER_KINDS: Record<MoveFilter, MoveKind[]> = {
@@ -161,7 +172,8 @@ export const MOVE_FILTER_KINDS: Record<MoveFilter, MoveKind[]> = {
   transfer_out: ['transfer_out'],
   withdraw: ['withdraw', 'consumed'],
   tfo: ['tfo_issue', 'tfo_output', 'tfo_return'],
-  warping: ['warping_issue', 'beam_created'],
+  warping: ['warping_issue', 'beam_created', 'warping_leftover'],
+  palti: ['palti_issue', 'palti_output'],
   manual: ['manual_add', 'manual_remove', 'removed'],
 };
 export const isMoveFilter = (v: string): v is MoveFilter => (MOVE_FILTERS as readonly string[]).includes(v);
@@ -172,7 +184,7 @@ export function kindsForFilters(filters: readonly MoveFilter[]): MoveKind[] {
 }
 
 /** What a ledger row points at (`ref_type`). */
-export const YARN_REF_TYPES = ['receipt', 'transfer', 'withdrawal', 'program', 'job', 'adjustment'] as const;
+export const YARN_REF_TYPES = ['receipt', 'transfer', 'withdrawal', 'program', 'job', 'adjustment', 'palti'] as const;
 
 /** Sprint 20: manual add / remove actions are numbered by this counter (rows of one action share the ref). */
 export const YARN_ADJUSTMENT_COUNTER = 'yarn_adjustment_no';
@@ -348,12 +360,21 @@ function checkBeams(ids: readonly number[], inZone?: ReadonlySet<number>): 'no_b
   return null;
 }
 
-/** Sprint 20c: Withdraw is open in Direct consumption (yarn, boxes, beams) and TFO (raw yarn, whole boxes). */
-export const WITHDRAW_ZONES = ['direct', 'tfo'] as const;
+/**
+ * Sprint 20c → 24 (CR-17): Withdraw is open in every zone — Direct consumption (yarn, part of a box, beams), TFO (raw
+ * yarn, whole boxes) and Warping (raw yarn, whole boxes, beams).
+ */
+export const WITHDRAW_ZONES = ['direct', 'tfo', 'warping'] as const;
 export type WithdrawZone = (typeof WITHDRAW_ZONES)[number];
 export const isWithdrawZone = (z: string): z is WithdrawZone => (WITHDRAW_ZONES as readonly string[]).includes(z);
-/** In TFO a box is always withdrawn whole; in Direct consumption part of a box may be taken. */
-export const withdrawWholeBoxes = (zone: YarnZone) => zone === 'tfo';
+/** In TFO and Warping a box is always withdrawn whole; in Direct consumption part of a box may be taken. */
+export const withdrawWholeBoxes = (zone: YarnZone) => zone !== 'direct';
+
+/** Sprint 24 (CR-17): every withdraw says why — sold to a party, or used in-house (older withdrawals = in-house). */
+export const WITHDRAW_PURPOSES = ['sell', 'in_house'] as const;
+export type WithdrawPurpose = (typeof WITHDRAW_PURPOSES)[number];
+export const WITHDRAW_PURPOSE_LABEL: Record<WithdrawPurpose, string> = { sell: 'Sell', in_house: 'Use in-house' };
+export const isWithdrawPurpose = (v: string): v is WithdrawPurpose => (WITHDRAW_PURPOSES as readonly string[]).includes(v);
 
 /** Withdraw (Direct consumption): yarn within the balance, or in-stock beams of the zone. */
 export function validateWithdraw(p: {
@@ -798,3 +819,173 @@ export const YARN_PO_EVENT_LABEL: Record<YarnPoEventKind, string> = {
   closed: 'PO closed',
   cancelled: 'PO cancelled',
 };
+
+/* ------------------------------------------------------------------ */
+/* Sprint 24 — boxes with the FY, TFO hold, warping leftover, Palti     */
+/* ------------------------------------------------------------------ */
+
+/**
+ * What a `yarn_boxes` row is: `tfo` (made at a TFO stop / part completion), `palti` (leftover yarn re-wound by hand into a
+ * new box) or `remaining` (warping leftover kg of a program — rolls 0, gross = net). All of them behave like boxes.
+ */
+/** Sprint 24 (CR-16): a lot no. this party already has, typed against a PO line of another quality. */
+export const lotQualityClashText = (lotNo: string, qualityName: string) => `Lot ${lotNo} of this party is ${qualityName} — check the quality or the lot number`;
+
+export const YARN_BOX_KINDS = ['tfo', 'palti', 'remaining'] as const;
+export type YarnBoxKind = (typeof YARN_BOX_KINDS)[number];
+export const YARN_BOX_KIND_LABEL: Record<YarnBoxKind, string> = { tfo: 'TFO box', palti: 'Palti box', remaining: 'Remaining' };
+export const PALTI_LABEL = 'Palti';
+
+/** "P-12" — a TFO program (programs have no number of their own; the id is shown). */
+export const tfoProgramLabel = (id: number) => `P-${id}`;
+
+/** "2026-27" → "26-27" (kept here so yarn.ts stays free of imports; same rule as `fyShort`). */
+const fyShortText = (fy: string) => (/^\d{4}-\d{2}$/.test(fy) ? `${fy.slice(2, 4)}-${fy.slice(5, 7)}` : fy);
+
+/**
+ * Sprint 24 (CR-18): box numbers show the FY in brackets — "15 (26-27)" — on stickers, box lists and pickers only (every
+ * other number stays without the year).
+ */
+export const boxNoWithFy = (boxNo: string, fy: string | null | undefined) => (fy ? `${boxNo} (${fyShortText(fy)})` : boxNo);
+
+/** How a picker groups boxes: by the TFO program they came from (remaining rows under their program, Palti boxes under "Palti"). */
+export const boxGroupKey = (b: { kind: YarnBoxKind; programId: number }) => (b.kind === 'palti' ? 'palti' : `p-${b.programId}`);
+
+/**
+ * TFO program statuses (`tfo_programs.status`): Pending (a `tfo_pending_programs` row) → Running ⇄ On hold → Box details
+ * pending (stopped, boxes not entered yet) → Completed.
+ */
+export const TFO_PROGRAM_STATUSES = ['running', 'on_hold', 'box_pending', 'completed'] as const;
+export type TfoProgramStatus = (typeof TFO_PROGRAM_STATUSES)[number];
+export const TFO_PROGRAM_STATUS_CONFIG: Record<TfoProgramStatus, { label: string; badge: { bg: string; text: string; dot: string } }> = {
+  running: { label: 'Running', badge: { bg: '#EDE9FE', text: '#5B21B6', dot: '#7C3AED' } },
+  on_hold: { label: 'On hold', badge: { bg: '#FEF3C7', text: '#92400E', dot: '#F59E0B' } },
+  box_pending: { label: 'Box details pending', badge: { bg: '#E0F2FE', text: '#075985', dot: '#0284C7' } },
+  completed: { label: 'Completed', badge: { bg: '#DCFCE7', text: '#166534', dot: '#22C55E' } },
+};
+
+/** `tfo_program_events.kind`. */
+export const TFO_PROGRAM_EVENT_KINDS = ['hold', 'resume', 'part_done', 'stop_later', 'boxes_saved', 'stopped'] as const;
+export type TfoProgramEventKind = (typeof TFO_PROGRAM_EVENT_KINDS)[number];
+export const TFO_PROGRAM_EVENT_LABEL: Record<TfoProgramEventKind, string> = {
+  hold: 'Put on hold',
+  resume: 'Resumed',
+  part_done: 'Made part completed',
+  stop_later: 'Stopped · boxes pending',
+  boxes_saved: 'Boxes saved',
+  stopped: 'Stopped',
+};
+
+/** Hold: rolls made so far + rolls left = the rolls started; made can't be less than the rolls already boxed. */
+export type HoldRollsError = 'whole' | 'sum' | 'below_done';
+export const HOLD_ROLLS_ERROR_TEXT: Record<HoldRollsError, string> = {
+  whole: 'Rolls are whole numbers (0 or more)',
+  sum: 'Rolls made + rolls left must equal the rolls started',
+  below_done: 'Rolls made can’t be less than the rolls already completed with boxes',
+};
+export function checkHoldRolls(p: { started: number; done: number; made: number; left: number }): HoldRollsError | null {
+  if (![p.made, p.left].every((n) => Number.isInteger(n) && n >= 0)) return 'whole';
+  if (p.made + p.left !== p.started) return 'sum';
+  if (p.made < p.done) return 'below_done';
+  return null;
+}
+
+/**
+ * "Complete made part": the most rolls that can be boxed now — On hold: rolls made − rolls already boxed; Running (after a
+ * resume): rolls started − rolls already boxed. null = the program has no rolls (older programs): no limit.
+ */
+export function partRollsLimit(p: { status: string; rolls: number | null; rollsMade: number | null; rollsDone: number }): number | null {
+  if (p.rolls === null) return null;
+  const upTo = p.status === 'on_hold' && p.rollsMade !== null ? p.rollsMade : p.rolls;
+  return Math.max(0, upTo - p.rollsDone);
+}
+
+/** "6 / 12 rolls made · 6 left" */
+export function holdRollsText(p: { rolls: number | null; rollsMade: number | null }): string | null {
+  if (p.rolls === null || p.rollsMade === null) return null;
+  return `${p.rollsMade} / ${p.rolls} rolls made · ${p.rolls - p.rollsMade} left`;
+}
+
+/* ---------- warping: kg used and remaining (CR-24) ---------- */
+
+/** kg used = meters × denier × taar ÷ 9,000,000. */
+export const WARPING_KG_DIVISOR = 9_000_000;
+export const warpingKgUsed = (meters: number, denier: number, taar: number) => (meters * denier * taar) / WARPING_KG_DIVISOR;
+
+export interface WarpingLeftoverInput {
+  /** Total metres of all the job's beams. */
+  meters: number;
+  denier: number;
+  taar: number;
+  /** Total of the job's inputs (yarn units). */
+  issuedG: number;
+  /** The TFO programs whose boxes were inputs (any order; `stoppedAt` null = still open). */
+  programs: { id: number; stoppedAt: string | null }[];
+  /** The job's inputs (yarn units) — the split when no program is involved. */
+  inputs: { g: number }[];
+}
+
+export type WarpingLeftoverSplit = { kind: 'program'; programId: number; g: number } | { kind: 'input'; index: number; g: number };
+
+export interface WarpingLeftover {
+  usedG: number;
+  issuedG: number;
+  /** issued − used, never below 0. */
+  remainingG: number;
+  /** used − issued when more was used than issued (the amber warning), else 0. */
+  overG: number;
+  splits: WarpingLeftoverSplit[];
+}
+
+/**
+ * Sprint 24 (CR-24) — the remaining kg of a finished warping job: half and half over the LAST TWO TFO programs whose boxes
+ * were inputs (latest stop first; the odd unit goes to the latest); one program → all of it; no program (raw yarn only)
+ * → back to the inputs, split by their kg. Pure; the server and the Mark done screen both use it.
+ */
+export function warpingLeftover(p: WarpingLeftoverInput): WarpingLeftover {
+  const usedG = Math.round(warpingKgUsed(p.meters, p.denier, p.taar) * UNITS_PER_KG);
+  const diff = p.issuedG - usedG;
+  const remainingG = Math.max(0, diff);
+  const overG = Math.max(0, -diff);
+  const splits: WarpingLeftoverSplit[] = [];
+  if (remainingG > 0) {
+    const programs = [...new Map(p.programs.map((x) => [x.id, x])).values()]
+      .sort((a, b) => (b.stoppedAt ?? '9999').localeCompare(a.stoppedAt ?? '9999') || b.id - a.id)
+      .slice(0, 2);
+    if (programs.length === 2) {
+      const second = Math.floor(remainingG / 2);
+      splits.push({ kind: 'program', programId: programs[0].id, g: remainingG - second }, { kind: 'program', programId: programs[1].id, g: second });
+    } else if (programs.length === 1) {
+      splits.push({ kind: 'program', programId: programs[0].id, g: remainingG });
+    } else {
+      const total = p.inputs.reduce((s, i) => s + Math.max(0, i.g), 0);
+      let given = 0;
+      p.inputs.forEach((inp, index) => {
+        if (inp.g <= 0 || total <= 0) return;
+        const g = Math.floor((remainingG * inp.g) / total);
+        splits.push({ kind: 'input', index, g });
+        given += g;
+      });
+      // Rounding: whatever is left over goes to the last input.
+      const last = splits.length - 1;
+      if (last >= 0) splits[last] = { ...splits[last], g: splits[last].g + (remainingG - given) };
+    }
+  }
+  return { usedG, issuedG: p.issuedG, remainingG, overG, splits: splits.filter((s) => s.g > 0) };
+}
+
+/** "(1,200 m × 75 denier × 2,400 taar) ÷ 90,00,000 = 24 kg" */
+export function warpingFormulaText(meters: number, denier: number, taar: number): string {
+  const n = (v: number) => v.toLocaleString('en-IN', { maximumFractionDigits: 4 });
+  return `(${n(meters)} m × ${n(denier)} denier × ${n(taar)} taar) ÷ ${n(WARPING_KG_DIVISOR)} = ${formatKg(Math.round(warpingKgUsed(meters, denier, taar) * UNITS_PER_KG))}`;
+}
+
+/* ---------- Palti (CR-25) ---------- */
+
+export const MAX_PALTI_INPUTS = 30;
+
+/** Net of a Palti box vs what went in: waste = inputs − net (≥ 0); net may not be more than the inputs. */
+export function paltiTotals(inputsG: readonly number[], netG: number): { inputG: number; wasteG: number; overG: number } {
+  const inputG = inputsG.reduce((s, g) => s + Math.max(0, g), 0);
+  return { inputG, wasteG: Math.max(0, inputG - netG), overG: Math.max(0, netG - inputG) };
+}

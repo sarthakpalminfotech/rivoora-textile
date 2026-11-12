@@ -25,6 +25,7 @@ import type {
   WarpingQualityInput,
   WarpingStatus,
   YarnBox,
+  YarnLotCheck,
   YarnLotStock,
   YarnMove,
   YarnParty,
@@ -202,11 +203,11 @@ export const useCancelYarnPo = (id: number) => useYarnMutation(() => api.post<Ya
 export const useReceiveYarn = (id: number) =>
   useYarnMutation((data: YarnReceiptInput) => api.post<YarnReceiptResult>(`/yarn-pos/${id}/receipts`, data), { silentFieldErrors: true });
 
-/** Sprint 20 — live "lot no. is free for this party" check on the Receive screen. */
+/** Sprint 20 → 24 — live lot no. check on the Receive screen: a new lot, or the party's existing lot (quality + kg received). */
 export function useCheckLotNo(partyId: number | null, lotNo: string, enabled = true) {
   return useQuery({
     queryKey: ['yarn', 'lot-no-check', partyId ?? 0, lotNo],
-    queryFn: ({ signal }) => api.get<{ available: boolean }>('/yarn/lots/check', { partyId, lotNo }, signal),
+    queryFn: ({ signal }) => api.get<YarnLotCheck>('/yarn/lots/check', { partyId, lotNo }, signal),
     enabled: enabled && !!partyId && lotNo.trim().length > 0,
     staleTime: 5_000,
   });

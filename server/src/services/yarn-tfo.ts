@@ -25,6 +25,7 @@ import {
   type TfoBoard,
   type TfoPendingProgram,
   type TfoProgram,
+  type TfoProgramStatus,
   type TfoSection,
 } from '@rivoora/shared';
 import { db, type DbOrTx, type Tx } from '../db/client';
@@ -157,7 +158,7 @@ async function toPrograms(tx: DbOrTx, rows: ProgramRow[]): Promise<TfoProgram[]>
       tpm: r.tpm,
       direction: r.direction,
       note: r.note,
-      status: r.status,
+      status: r.status as TfoProgramStatus,
       startedAt: r.startedAt,
       startedBy: { role: r.startedRole, userName: r.startedByName },
       stoppedAt: r.stoppedAt,

@@ -3,6 +3,7 @@ import {
   can,
   formatKg,
   kgToGrams,
+  lotQualityClashText,
   ratePaise,
   YARN_ZONE_CONFIG,
   yarnPoCanCancel,
@@ -386,30 +387,38 @@ async function setStatus(role: RoleKey, id: number, to: 'closed' | 'cancelled'):
 export const closeYarnPo = (role: RoleKey, id: number) => setStatus(role, id, 'closed');
 export const cancelYarnPo = (role: RoleKey, id: number) => setStatus(role, id, 'cancelled');
 
-/** 409 when a typed lot no. is already used by this party (lots are never edited or deleted). */
-async function assertLotNosFree(tx: DbOrTx, partyId: number, entries: { lotNo: string; i: number }[]) {
+/**
+ * Sprint 24 (CR-16): the lots of a challan — an entry whose party + lot no. match an existing lot (lot no. compared without
+ * case, otherwise exactly: "245a" = "245A", "245" ≠ "245A" ≠ "245-A") ADDS to that lot when the quality is the same, and is
+ * refused (400 on the field) when it is another quality. Returns the existing lot id per entry (null = a new lot). The same
+ * lot twice in ONE challan is still refused.
+ */
+async function matchLots(tx: DbOrTx, partyId: number, entries: { lotNo: string; qualityId: number; i: number }[]): Promise<(number | null)[]> {
   const seen = new Map<string, number>();
   for (const e of entries) {
     const key = e.lotNo.toLowerCase();
     if (seen.has(key)) throw conflict(`Lot "${e.lotNo}" is used twice in this challan`, `lots.${e.i}.lotNo`);
     seen.set(key, e.i);
   }
-  if (!entries.length) return;
+  if (!entries.length) return [];
   const existing = await tx
-    .select({ lotNo: yarnLots.lotNo })
+    .select({ id: yarnLots.id, lotNo: yarnLots.lotNo, qualityId: yarnLots.qualityId, qualityName: yarnQualities.name })
     .from(yarnLots)
+    .innerJoin(yarnQualities, eq(yarnQualities.id, yarnLots.qualityId))
     .where(and(eq(yarnLots.partyId, partyId), inArray(sql`lower(${yarnLots.lotNo})`, [...seen.keys()])));
-  if (existing.length) {
-    const first = existing[0];
-    const i = seen.get(first.lotNo.toLowerCase())!;
-    throw conflict(`Lot "${first.lotNo}" already exists for this party`, `lots.${i}.lotNo`);
-  }
+  return entries.map((e) => {
+    const lot = existing.find((l) => l.lotNo.toLowerCase() === e.lotNo.toLowerCase());
+    if (!lot) return null;
+    if (lot.qualityId !== e.qualityId) throw badRequest(lotQualityClashText(lot.lotNo, lot.qualityName), `lots.${e.i}.lotNo`);
+    return lot.id;
+  });
 }
 
 /**
- * POST /yarn-pos/:id/receipts — Sprint 20: one transaction per challan — a receipt, one NEW lot per entry (unique per
- * party), its receipt line (with that lot), and its allocation rows (any kg not explicitly allocated goes to Direct
- * consumption). One ledger `receipt` row per allocation, tagged with the lot. Over-receipt is allowed (the screen warns).
+ * POST /yarn-pos/:id/receipts — Sprint 20: one transaction per challan — a receipt, one lot per entry (Sprint 24: a lot
+ * this party already has — same lot no., same quality — is reused, so its kg add up), its receipt line (with that lot),
+ * and its allocation rows (any kg not explicitly allocated goes to Direct consumption). One ledger `receipt` row per
+ * allocation, tagged with the lot. Over-receipt is allowed (the screen warns).
  */
 export async function receiveYarn(role: RoleKey, poId: number, input: unknown): Promise<YarnReceiptResult> {
   const data = yarnReceiptInputSchema.parse(input);
@@ -423,7 +432,11 @@ export async function receiveYarn(role: RoleKey, poId: number, input: unknown): 
     data.lots.forEach((lot, i) => {
       if (!byLineId.has(lot.poLineId)) throw badRequest('A line is not on this PO — refresh and try again', `lots.${i}.poLineId`);
     });
-    await assertLotNosFree(tx, po.partyId, data.lots.map((l, i) => ({ lotNo: l.lotNo, i })));
+    const lotIds = await matchLots(
+      tx,
+      po.partyId,
+      data.lots.map((l, i) => ({ lotNo: l.lotNo, qualityId: byLineId.get(l.poLineId)!.qualityId, i })),
+    );
 
     const [receipt] = await tx
       .insert(yarnReceipts)
@@ -434,10 +447,13 @@ export async function receiveYarn(role: RoleKey, poId: number, input: unknown): 
     const totalByZone = new Map<YarnZone, number>();
     let totalG = 0;
 
-    for (const lot of data.lots) {
+    for (const [i, lot] of data.lots.entries()) {
       const qualityId = byLineId.get(lot.poLineId)!.qualityId;
       const lotTotalG = kgToGrams(lot.qtyKg);
-      const [newLot] = await tx.insert(yarnLots).values({ lotNo: lot.lotNo, partyId: po.partyId, qualityId, createdByUserId: actor(role).userId }).returning({ id: yarnLots.id });
+      const newLot =
+        lotIds[i] !== null
+          ? { id: lotIds[i]! }
+          : (await tx.insert(yarnLots).values({ lotNo: lot.lotNo, partyId: po.partyId, qualityId, createdByUserId: actor(role).userId }).returning({ id: yarnLots.id }))[0];
       const [receiptLine] = await tx
         .insert(yarnReceiptLines)
         .values({ receiptId: receipt.id, poLineId: lot.poLineId, qualityId, qtyG: lotTotalG, boxes: lot.boxes, lotId: newLot.id })

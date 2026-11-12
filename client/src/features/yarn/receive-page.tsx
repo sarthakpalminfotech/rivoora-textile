@@ -2,7 +2,7 @@ import { AlertTriangle, CheckCircle2, Loader2, Plus, Trash2, XCircle } from 'luc
 import { useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
-import { formatKg, overReceiptText, parseKgText, YARN_ZONES, type YarnZone, gramsToKg } from '@rivoora/shared';
+import { formatKg, lotQualityClashText, overReceiptText, parseKgText, YARN_ZONES, type YarnZone, gramsToKg } from '@rivoora/shared';
 import { usePageTitle } from '@/components/layout/page-title';
 import { ErrorState } from '@/components/list-parts';
 import { Button } from '@/components/ui/button';
@@ -36,15 +36,46 @@ let rowKey = 0;
 const newAllocation = (): AllocationRow => ({ key: ++rowKey, zone: null, kg: '' });
 const newLot = (): LotRow => ({ key: ++rowKey, poLineId: null, lotNo: '', kg: '', boxes: '', allocations: [] });
 
-/** The live "lot no. is free" check — debounced, shown as a status icon beside the field. */
-function LotNoCheck({ partyId, lotNo }: { partyId: number; lotNo: string }) {
+/**
+ * Sprint 24 (CR-16) — the live lot no. check (debounced): "New lot", or "Existing lot · 600 kg received earlier (challan
+ * 77)" when this party already has it (the kg are added to it), or the quality clash when the PO line is another quality.
+ * `icon` = the status icon beside the field, else the line under it.
+ */
+function useLotNoState(partyId: number, lotNo: string, qualityId: number | null) {
   const debounced = useDebounce(lotNo.trim(), 300);
   const check = useCheckLotNo(partyId, debounced);
   if (!debounced) return null;
-  if (check.isFetching || debounced !== lotNo.trim()) return <Loader2 className="size-4 animate-spin text-slate-400" aria-label="Checking" />;
-  if (check.data?.available) return <CheckCircle2 className="size-5 text-emerald-600" aria-label="Available" />;
-  if (check.data) return <XCircle className="size-5 text-destructive" aria-label="Already used" />;
-  return null;
+  if (check.isFetching || debounced !== lotNo.trim()) return { kind: 'checking' as const };
+  const d = check.data;
+  if (!d) return null;
+  if (d.available || !d.lot) return { kind: 'new' as const };
+  if (qualityId && d.lot.quality.id !== qualityId) return { kind: 'clash' as const, text: lotQualityClashText(d.lot.lotNo, d.lot.quality.name) };
+  const challans = d.lot.challans.length ? ` (challan ${d.lot.challans.join(', ')})` : '';
+  return { kind: 'existing' as const, text: `Existing lot · ${formatKg(d.lot.receivedG)} received earlier${challans}` };
+}
+
+function LotNoIcon({ state }: { state: ReturnType<typeof useLotNoState> }) {
+  if (!state) return null;
+  if (state.kind === 'checking') return <Loader2 className="size-4 animate-spin text-slate-400" aria-label="Checking" />;
+  if (state.kind === 'clash') return <XCircle className="size-5 text-destructive" aria-label="Another quality" />;
+  return <CheckCircle2 className={cn('size-5', state.kind === 'existing' ? 'text-sky-600' : 'text-emerald-600')} aria-label={state.kind === 'existing' ? 'Existing lot' : 'New lot'} />;
+}
+
+/** The line under the lot no.: New lot / Existing lot · kg received (challans). */
+function lotNoHint(state: ReturnType<typeof useLotNoState>) {
+  if (!state || state.kind === 'checking' || state.kind === 'clash') return undefined;
+  return state.kind === 'new' ? <span className="font-medium text-emerald-700">New lot</span> : <span className="font-medium text-sky-700">{state.text} — the kg are added to it</span>;
+}
+
+/** One lot no. field with its live check. */
+function LotNoField({ partyId, lot, qualityId, error, onChange }: { partyId: number; lot: LotRow; qualityId: number | null; error?: string; onChange: (v: string) => void }) {
+  const state = useLotNoState(partyId, lot.lotNo, qualityId);
+  const clash = state?.kind === 'clash' ? state.text : undefined;
+  return (
+    <Field label="Lot no." required error={error ?? clash} hint={lotNoHint(state)}>
+      <Input autoComplete="off" maxLength={40} value={lot.lotNo} onChange={(ev) => onChange(ev.target.value)} invalid={!!error || !!clash} suffix={<LotNoIcon state={state} />} aria-label="Lot no." />
+    </Field>
+  );
 }
 
 /** `parseKgText` already returns grams — no further scaling needed anywhere these figures are used. */
@@ -253,17 +284,13 @@ export default function YarnReceivePage() {
                     <Field label="PO line / quality" required error={tried ? e.poLineId : undefined}>
                       <Select value={lot.poLineId} onChange={(v) => setLot(lot.key, { poLineId: v })} options={poLineOptions} placeholder="Select line" invalid={tried && !!e.poLineId} aria-label="PO line" />
                     </Field>
-                    <Field label="Lot no." required error={(tried ? e.lotNo : undefined) ?? (dup ? 'This lot no. is used twice' : undefined)}>
-                      <Input
-                        autoComplete="off"
-                        maxLength={40}
-                        value={lot.lotNo}
-                        onChange={(ev) => setLot(lot.key, { lotNo: ev.target.value })}
-                        invalid={(tried && !!e.lotNo) || dup}
-                        suffix={po.party.id ? <LotNoCheck partyId={po.party.id} lotNo={lot.lotNo} /> : undefined}
-                        aria-label="Lot no."
-                      />
-                    </Field>
+                    <LotNoField
+                      partyId={po.party.id}
+                      lot={lot}
+                      qualityId={poLines.find((l) => l.id === lot.poLineId)?.quality.id ?? null}
+                      error={(tried ? e.lotNo : undefined) ?? (dup ? 'This lot no. is used twice' : undefined) ?? (serverErr?.field === `lots.${i}.lotNo` ? serverErr.message : undefined)}
+                      onChange={(v) => setLot(lot.key, { lotNo: v })}
+                    />
                     <Field label="Kg" required error={tried ? e.kg : undefined}>
                       <KgInput value={lot.kg} onValueChange={(v) => setLot(lot.key, { kg: v })} invalid={tried && !!e.kg} aria-label="Lot kg" />
                     </Field>
