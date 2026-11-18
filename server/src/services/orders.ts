@@ -137,10 +137,10 @@ export async function listOrders(role: RoleKey, q: OrderListQuery): Promise<Pagi
     }
     // Sprint 16: a weaver's taka number (the physical taka may carry only that) and PO numbers.
     if (/^\d+([-/]\d+)*[A-Z]?$/i.test(term)) {
-      parts.push(sql`EXISTS (SELECT 1 FROM takas wt WHERE wt.is_deleted = 0 AND COALESCE(wt.allocated_order_id, wt.order_id) = "orders"."id" AND wt.weaver_taka_no = ${term.toUpperCase()})`);
+      parts.push(sql`EXISTS (SELECT 1 FROM takas wt WHERE wt.is_deleted = 0 AND (wt.allocated_order_id = "orders"."id" OR (wt.allocated_order_id IS NULL AND wt.order_id = "orders"."id")) AND wt.weaver_taka_no = ${term.toUpperCase()})`);
     } else if (/^[A-Z]{1,4}\d+([-/]\d+)*[A-Z]?$/i.test(term)) {
       // "S1101": an outside taka's system number (weaver code + number).
-      parts.push(sql`EXISTS (SELECT 1 FROM takas wt WHERE wt.is_deleted = 0 AND COALESCE(wt.allocated_order_id, wt.order_id) = "orders"."id" AND wt.taka_no = ${term.toUpperCase()})`);
+      parts.push(sql`EXISTS (SELECT 1 FROM takas wt WHERE wt.is_deleted = 0 AND (wt.allocated_order_id = "orders"."id" OR (wt.allocated_order_id IS NULL AND wt.order_id = "orders"."id")) AND wt.taka_no = ${term.toUpperCase()})`);
     }
     const poNo = parsePoNo(term);
     if (poNo !== null && /^po/i.test(term)) parts.push(sql`EXISTS (SELECT 1 FROM outside_pos op WHERE op.order_id = "orders"."id" AND op.po_no = ${poNo})`);

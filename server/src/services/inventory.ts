@@ -557,7 +557,7 @@ export async function listDispatchedItemOrders(role: RoleKey, key: string): Prom
       orderDate: orders.orderDate,
       quantity: orders.quantity,
       blouseOption: orders.blouseOption,
-      dispatchedPcs: sql<number>`COALESCE((SELECT SUM(COALESCE(t.actual_pcs, t.pcs, 0)) FROM takas t WHERE COALESCE(t.allocated_order_id, t.order_id) = "orders"."id" AND t.is_free_stock = 0 AND t.is_deleted = 0 AND t.stage = 'dispatched'), 0)`,
+      dispatchedPcs: sql<number>`COALESCE((SELECT SUM(COALESCE(t.actual_pcs, t.pcs, 0)) FROM takas t WHERE +t.is_free_stock = 0 AND (t.allocated_order_id = "orders"."id" OR (t.allocated_order_id IS NULL AND t.order_id = "orders"."id")) AND t.is_deleted = 0 AND +t.stage = 'dispatched'), 0)`,
       lastDispatchDate: sql<string | null>`(SELECT MAX(c.challan_date) FROM ${dispatchChallans} c WHERE c.status <> 'cancelled' AND c.order_id = "orders"."id")`,
       challanCount: sql<number>`(SELECT COUNT(DISTINCT c.challan_no) FROM ${dispatchChallans} c WHERE c.status <> 'cancelled' AND c.order_id = "orders"."id")`,
     })

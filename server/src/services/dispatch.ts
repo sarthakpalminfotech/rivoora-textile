@@ -257,7 +257,7 @@ export async function getDispatchChallan(id: number): Promise<DispatchChallanDet
 /* Dispatched module                                                    */
 /* ------------------------------------------------------------------ */
 
-const orderDispatchedPcs = sql<number>`COALESCE((SELECT SUM(COALESCE(t.actual_pcs, t.pcs, 0)) FROM takas t WHERE ${takaInOrderRaw('t', '"orders"."id"')} AND t.is_deleted = 0 AND t.stage = 'dispatched'), 0)`;
+const orderDispatchedPcs = sql<number>`COALESCE((SELECT SUM(COALESCE(t.actual_pcs, t.pcs, 0)) FROM takas t WHERE ${takaInOrderRaw('t', '"orders"."id"')} AND t.is_deleted = 0 AND +t.stage = 'dispatched'), 0)`;
 const latestChallanId = sql<number>`(SELECT MAX(c.id) FROM dispatch_challans c WHERE c.order_id = "orders"."id")`;
 
 /** GET /dispatched — orders that have dispatch challans, newest dispatch first. Server-side search. */

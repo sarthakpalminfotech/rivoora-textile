@@ -26,7 +26,21 @@ export interface AlertsResult {
   total: number;
 }
 
-export async function listAlerts(role: RoleKey, type?: AlertType): Promise<AlertsResult> {
+const ALERTS_TTL_MS = 60_000;
+const alertsCache = new Map<string, { at: number; value: Promise<AlertsResult> }>();
+
+/** Cached for a minute per role + type: the nav badge and the page ask often, the data moves in hours. */
+export function listAlerts(role: RoleKey, type?: AlertType): Promise<AlertsResult> {
+  const key = `${role}:${type ?? ''}`;
+  const hit = alertsCache.get(key);
+  if (hit && Date.now() - hit.at < ALERTS_TTL_MS) return hit.value;
+  const value = loadAlerts(role, type);
+  alertsCache.set(key, { at: Date.now(), value });
+  value.catch(() => alertsCache.delete(key));
+  return value;
+}
+
+async function loadAlerts(role: RoleKey, type?: AlertType): Promise<AlertsResult> {
   const designCode = sql<string | null>`${designs.code}`;
   const notPaused = and(eq(orders.isOnHold, false), eq(orders.isClosed, false));
 
@@ -81,7 +95,7 @@ export async function listAlerts(role: RoleKey, type?: AlertType): Promise<Alert
         unit: orders.unit,
         ordered: orders.quantity,
         firstStartedAt: sql<string | null>`(SELECT MIN(j.started_at) FROM jobsheets j WHERE j.order_id = "orders"."id" AND j.is_deleted = 0 AND j.is_external = 0 AND j.started_at IS NOT NULL)`,
-        dispatched: sql<number>`COALESCE((SELECT SUM(CASE WHEN "orders"."unit" = 'meters' THEN COALESCE(t.actual_meters, t.meters, 0) ELSE COALESCE(t.actual_pcs, t.pcs, 0) END) FROM takas t WHERE ${takaInOrderRaw('t', '"orders"."id"')} AND t.is_deleted = 0 AND t.stage = 'dispatched'), 0)`,
+        dispatched: sql<number>`COALESCE((SELECT SUM(CASE WHEN "orders"."unit" = 'meters' THEN COALESCE(t.actual_meters, t.meters, 0) ELSE COALESCE(t.actual_pcs, t.pcs, 0) END) FROM takas t WHERE ${takaInOrderRaw('t', '"orders"."id"')} AND t.is_deleted = 0 AND +t.stage = 'dispatched'), 0)`,
       })
       .from(orders)
       .leftJoin(designs, eq(designs.id, orders.designId))

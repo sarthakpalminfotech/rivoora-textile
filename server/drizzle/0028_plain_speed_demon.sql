@@ -1,0 +1,2 @@
+CREATE INDEX `takas_order_stage_idx` ON `takas` (`order_id`,`is_free_stock`,`is_deleted`,`stage`);--> statement-breakpoint
+CREATE INDEX `takas_allocated_stage_idx` ON `takas` (`allocated_order_id`,`is_free_stock`,`is_deleted`,`stage`);

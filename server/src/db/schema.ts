@@ -592,6 +592,8 @@ export const takas = sqliteTable(
     index('takas_stage_idx').on(t.stage),
     index('takas_free_stock_idx').on(t.isFreeStock),
     index('takas_allocated_order_idx').on(t.allocatedOrderId),
+    index('takas_order_stage_idx').on(t.orderId, t.isFreeStock, t.isDeleted, t.stage),
+    index('takas_allocated_stage_idx').on(t.allocatedOrderId, t.isFreeStock, t.isDeleted, t.stage),
     index('takas_damage_idx').on(t.damageId),
     uniqueIndex('takas_taka_no_active_unique').on(t.fy, t.takaNo).where(sql`${t.isDeleted} = 0`),
   ],

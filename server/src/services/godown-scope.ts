@@ -20,7 +20,7 @@ export const isGodownOrdersOnly = (role: RoleKey): boolean => can(role, 'canView
 const stageList = sql.raw(GODOWN_ORDER_STAGES.map((s) => `'${s}'`).join(', '));
 
 /** Drizzle condition on a query over `orders`: it has an active taka (not free stock) at the butta stage or later. */
-export const orderHasGodownTakas = sql`EXISTS (SELECT 1 FROM takas gt WHERE gt.is_deleted = 0 AND gt.is_free_stock = 0 AND COALESCE(gt.allocated_order_id, gt.order_id) = "orders"."id" AND gt.stage IN (${stageList}))`;
+export const orderHasGodownTakas = sql`EXISTS (SELECT 1 FROM takas gt WHERE gt.is_deleted = 0 AND gt.is_free_stock = 0 AND (gt.allocated_order_id = "orders"."id" OR (gt.allocated_order_id IS NULL AND gt.order_id = "orders"."id")) AND gt.stage IN (${stageList}))`;
 
 /** Does this order qualify (detail reads)? */
 export async function orderInGodownScope(orderId: number): Promise<boolean> {

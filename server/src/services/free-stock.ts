@@ -15,7 +15,7 @@ export const takaOrderId = sql<number>`COALESCE(${takas.allocatedOrderId}, ${tak
 export const takaNotFree = eq(takas.isFreeStock, false);
 
 /** Drizzle: the taka counts for exactly this order (not free stock, allocated to it or made for it). */
-export const takaInOrder = (orderId: number): SQL => and(takaNotFree, sql`COALESCE(${takas.allocatedOrderId}, ${takas.orderId}) = ${orderId}`)!;
+export const takaInOrder = (orderId: number): SQL => and(takaNotFree, sql`(${takas.allocatedOrderId} = ${orderId} OR (${takas.allocatedOrderId} IS NULL AND ${takas.orderId} = ${orderId}))`)!;
 
 /** Drizzle: the taka is free stock. */
 export const takaIsFree = eq(takas.isFreeStock, true);
@@ -25,7 +25,7 @@ export const takaIsFree = eq(takas.isFreeStock, true);
  * (e.g. `"orders"."id"`). Both arguments are code constants, never user input.
  */
 export const takaInOrderRaw = (alias: string, orderCol: string): SQL =>
-  sql.raw(`${alias}.is_free_stock = 0 AND COALESCE(${alias}.allocated_order_id, ${alias}.order_id) = ${orderCol}`);
+  sql.raw(`+${alias}.is_free_stock = 0 AND (${alias}.allocated_order_id = ${orderCol} OR (${alias}.allocated_order_id IS NULL AND ${alias}.order_id = ${orderCol}))`);
 
 /** The columns that turn a taka into free stock (its `order_id` stays the origin order; an allocation is dropped). */
 export const freeStockFields = (role: RoleKey, at: string, reason: FreeStockReason) =>
