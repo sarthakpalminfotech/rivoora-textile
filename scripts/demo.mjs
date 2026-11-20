@@ -17,7 +17,7 @@ import { fileURLToPath } from 'node:url';
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const DEMO_DB = resolve(ROOT, 'server', '.data', 'demo.db');
 const mode = process.argv[2];
-if (mode !== 'seed' && mode !== 'dev') {
+if (mode !== 'seed' && mode !== 'seed-lite' && mode !== 'yarn-lite' && mode !== 'dev') {
   console.error('Usage: node scripts/demo.mjs seed|dev');
   process.exit(1);
 }
@@ -30,7 +30,8 @@ const env = {
   CLOUDINARY_CLOUD_NAME: '',
   CLOUDINARY_API_KEY: '',
   CLOUDINARY_API_SECRET: '',
-  ...(mode === 'seed' ? { ALLOW_DEMO_SEED: '1' } : {}),
+  ...(mode !== 'dev' ? { ALLOW_DEMO_SEED: '1' } : {}),
+  ...(mode === 'seed-lite' ? { DEMO_LITE: '1' } : {}),
 };
 
 const run = (cmd, args, cwd) =>
@@ -39,9 +40,9 @@ const run = (cmd, args, cwd) =>
     child.on('exit', (code) => done(code ?? 1));
   });
 
-if (mode === 'seed') {
+if (mode !== 'dev') {
   console.log(`[demo] Demo database: ${DEMO_DB}`);
-  process.exit(await run(process.execPath, ['--import', 'tsx', 'src/db/demo-seed.ts'], resolve(ROOT, 'server')));
+  process.exit(await run(process.execPath, ['--import', 'tsx', mode === 'yarn-lite' ? 'src/db/demo-yarn-lite.ts' : 'src/db/demo-seed.ts'], resolve(ROOT, 'server')));
 } else {
   console.log(`[demo] Running the app on the demo database ${DEMO_DB}`);
   process.exit(await run('npm', ['run', 'dev'], ROOT));

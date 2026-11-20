@@ -5,7 +5,6 @@ import { Field } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import { errorMessage } from '@/lib/api';
 import { authStore } from '@/lib/auth-store';
-import { DemoRibbon } from '@/components/layout/demo-ribbon';
 import { login } from './api';
 
 /**
@@ -50,7 +49,6 @@ export default function LoginPage() {
   return (
     <div className="relative flex min-h-[100dvh] items-center justify-center bg-background px-4 py-10">
       <div className="absolute inset-x-0 top-0">
-        <DemoRibbon />
       </div>
       <div className="w-full max-w-[400px]">
         <div className="mb-6 flex flex-col items-center gap-3 text-center">

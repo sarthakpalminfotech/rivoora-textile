@@ -32,13 +32,15 @@ const migrate = spawnSync(process.execPath, ['--import', 'tsx', 'src/db/migrate.
 if (migrate.status !== 0) refuse(`the migrations failed on the demo file (exit ${migrate.status})`);
 
 const started = Date.now();
+const lite = process.env.DEMO_LITE === '1';
 const { buildDemo } = await import('./demo/run');
+const { buildLiteDemo } = await import('./demo/run-lite');
 const { checkCards, statusCorrections } = await import('./demo/verify');
 const { libsql } = await import('./client');
 const { defaultPassword } = await import('@rivoora/shared');
 
 console.log('[demo:seed] Building 14 months of demo data…');
-const result = await buildDemo();
+const result = lite ? await buildLiteDemo() : await buildDemo();
 console.log(`[demo:seed] Written in ${((Date.now() - started) / 1000).toFixed(1)} s:`);
 for (const [k, v] of Object.entries(result.counts)) console.log(`  ${k.padEnd(34)} ${v.toLocaleString('en-IN')}`);
 for (const n of result.notes) console.log(`  · ${n}`);
@@ -62,6 +64,10 @@ console.log('\n[demo:seed] Logins (the default users):');
 for (const u of result.logins) console.log(`  ${u.role.padEnd(18)} ${u.name.padEnd(18)} ${u.phone}  ${defaultPassword(u.phone)}`);
 libsql.close();
 
+if (lite && !fixes.length) {
+  console.log(`\n[demo:seed] Lite demo done (${failed} dashboard cards have no data — expected for a small data set). Start with: npm run demo:dev`);
+  process.exit(0);
+}
 if (failed || fixes.length) {
   console.error(`\n[demo:seed] FAILED: ${failed} card(s) without data, ${fixes.length} status correction(s).`);
   process.exit(1);

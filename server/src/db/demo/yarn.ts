@@ -12,6 +12,8 @@ import type { Sink } from './sink';
  */
 
 const kg = (n: number) => Math.round(n * UNITS_PER_KG);
+/** Rounds yarn units to a whole kg (the demo keeps every quantity a whole number of kg). */
+const wk = (g: number) => Math.round(g / UNITS_PER_KG) * UNITS_PER_KG;
 
 interface Bucket {
   zone: 'direct' | 'tfo' | 'warping';
@@ -108,7 +110,7 @@ export class YarnSim {
         this.sink.add('yarn_receipts', { id: rid, po_id: id, challan_no: String(r.int(1000, 9999)), receipt_date: this.clock.day(rx), zone: 'tfo', notes: null, received_by: 'yarn_supervisor', received_by_user_id: this.users.yarn_supervisor }, this.iso(rx));
         lines.forEach((l, i) => {
           const share = kind === 'partly' ? r.u(0.4, 0.7) : challans === 2 ? (c === 0 ? 0.55 : 0.45) : 1;
-          const g = kg(Math.round(l.kgs * share));
+          const g = wk(kg(l.kgs * share));
           // the second challan of a combined lot adds to the SAME lot (same party + lot no. + quality)
           let lot = c > 0 && combineLot ? this.lots.find((lt) => lt.no === lotNos[i] && lt.partyId === partyId && lt.qualityId === l.qualityId) : undefined;
           if (!lot) {
@@ -118,8 +120,8 @@ export class YarnSim {
           }
           const lineId = this.sink.add('yarn_receipt_lines', { receipt_id: rid, po_line_id: lineIds[i], quality_id: l.qualityId, qty_g: g, boxes: r.int(8, 40), lot_id: lot.id }, this.iso(rx));
           const isZari = (YARN_QUALITIES[this.refs.qualityIds.indexOf(l.qualityId)]?.[0] ?? '').startsWith('Zari');
-          const tfo = isZari ? 0 : Math.round(g * r.u(0.35, 0.5));
-          const warp = isZari ? Math.round(g * 0.3) : Math.round((g - tfo) * r.u(0.5, 0.7));
+          const tfo = isZari ? 0 : wk(g * r.u(0.35, 0.5));
+          const warp = isZari ? wk(g * 0.3) : wk((g - tfo) * r.u(0.5, 0.7));
           const direct = g - tfo - warp;
           for (const [zone, q] of [['tfo', tfo], ['warping', warp], ['direct', direct]] as const) {
             if (q <= 0) continue;
@@ -155,7 +157,7 @@ export class YarnSim {
     const lots = this.available('tfo', 'raw');
     if (!lots.length) return;
     const src = r.pick(lots);
-    const winding = r.u(1.8, 3.2);
+    const winding = r.pick([2, 3]);
     const maxRolls = Math.floor(src.g / kg(winding));
     if (maxRolls < 6) return;
     const rolls = Math.min(maxRolls, r.int(16, 48));
@@ -179,8 +181,8 @@ export class YarnSim {
     const qIdx = this.refs.qualityIds.indexOf(src.b.qualityId);
     const yq = YARN_QUALITIES[qIdx];
     this.move({ ...src.b }, -raw, 'tfo_issue', x, { type: 'program', id }, 'supervisor');
-    const twisted = Math.round(raw * r.u(0.95, 0.985));
-    const rollWeight = kg(r.u(0.18, 0.26));
+    const twisted = wk(raw * r.u(0.95, 0.985));
+    const rollWeight = kg(1);
     const madeRolls = status === 'on_hold' ? Math.floor(rolls * r.u(0.3, 0.6)) : rolls;
     const heldAt = status === 'on_hold' ? x + runDays * 0.5 : null;
     this.sink.add('tfo_programs', {
@@ -199,7 +201,7 @@ export class YarnSim {
     const wq = this.refs.wqIds[(qIdx + (direction === 'Z' ? 1 : 0)) % this.refs.wqIds.length];
     let left = twisted;
     for (let b = 0; b < nBoxes; b++) {
-      const net = b === nBoxes - 1 ? left : Math.round(twisted / nBoxes);
+      const net = b === nBoxes - 1 ? left : wk(twisted / nBoxes);
       left -= net;
       const boxRolls = Math.max(1, Math.round(rolls / nBoxes));
       const box: Box = { id: this.sink.reserve('yarn_boxes'), no: ++this.seq.box, programId: id, lotId: src.b.lotId, wqId: wq, rawQualityId: src.b.qualityId, netG: net, zone: 'tfo', used: false, x: end };
@@ -238,7 +240,7 @@ export class YarnSim {
     for (const b of boxes) inputs.push({ b: { zone: 'warping', item: 'twisted', qualityId: this.refs.systemQualityId, lotId: b.lotId, boxId: b.id, wqId: b.wqId }, g: b.netG, box: b });
     if (raws.length && (r.chance(0.6) || !inputs.length)) {
       const src = r.pick(raws);
-      inputs.push({ b: { ...src.b }, g: Math.min(src.g, kg(r.u(120, 380))) });
+      inputs.push({ b: { ...src.b }, g: Math.min(src.g, kg(r.int(120, 380))) });
     }
     const issued = inputs.reduce((s, i) => s + i.g, 0);
     for (const i of inputs) {
@@ -249,7 +251,7 @@ export class YarnSim {
     }
     const end = x + r.u(1, 3);
     const denier = r.pick([75, 100, 150]);
-    const usedG = done ? Math.round(issued * r.u(0.9, 0.985)) : null;
+    const usedG = done ? wk(issued * r.u(0.9, 0.985)) : null;
     const leftover = usedG !== null ? issued - usedG : null;
     this.sink.add('warping_jobs', {
       id, job_no: ++this.seq.job, status: done ? 'done' : 'in_process', note: null, started_at: this.iso(x), started_by_user_id: this.users.supervisor, started_role: 'supervisor',
@@ -293,7 +295,7 @@ export class YarnSim {
     const lots = this.available('direct', 'raw');
     if (!lots.length) return;
     const src = r.pick(lots);
-    const g = Math.min(src.g, kg(r.u(25, purpose === 'sell' ? 180 : 90)));
+    const g = Math.min(src.g, kg(r.int(25, purpose === 'sell' ? 180 : 90)));
     const id = this.sink.add('yarn_withdrawals', {
       zone: 'direct', what: 'raw', note: purpose === 'sell' ? 'Sold extra yarn' : 'For sampling looms', role: 'supervisor', user_id: this.users.supervisor, purpose,
       party_name: purpose === 'sell' ? r.pick(['Kamdhenu Weavers', 'Shiv Shakti Looms', 'Ambika Textiles']) : null, rate_paise: purpose === 'sell' ? Math.round(r.u(180, 380)) * 100 : null,
@@ -307,7 +309,7 @@ export class YarnSim {
     if (inputs.length < 2) return;
     const runId = this.sink.reserve('palti_runs');
     const total = inputs.reduce((s, b) => s + b.netG, 0);
-    const net = Math.round(total * r.u(0.96, 0.99));
+    const net = wk(total * r.u(0.96, 0.99));
     const box: Box = { id: this.sink.reserve('yarn_boxes'), no: ++this.seq.box, programId: this.refs.paltiProgramId, lotId: null, wqId: inputs[0].wqId, rawQualityId: inputs[0].rawQualityId, netG: net, zone: 'warping', used: false, x };
     this.sink.add('palti_runs', { id: runId, run_date: this.clock.day(x), box_id: box.id, input_g: total, waste_g: total - net, note: 'Two half boxes made into one', role: 'supervisor', user_id: this.users.supervisor }, this.iso(x));
     for (const b of inputs) {
@@ -316,7 +318,7 @@ export class YarnSim {
       b.used = true;
       this.sink.rows('yarn_boxes').find((row) => row.id === b.id)!.status = 'used';
     }
-    this.sink.add('yarn_boxes', { id: box.id, box_no: String(box.no), program_id: this.refs.paltiProgramId, lot_id: null, warping_quality_id: box.wqId, rolls: r.int(4, 8), gross_g: net + kg(1.2), net_g: net, avg_g: 0, zone: 'warping', status: 'in_stock', created_by_user_id: this.users.supervisor, fy: fyOf(this.iso(x)), kind: 'palti', palti_run_id: runId }, this.iso(x));
+    this.sink.add('yarn_boxes', { id: box.id, box_no: String(box.no), program_id: this.refs.paltiProgramId, lot_id: null, warping_quality_id: box.wqId, rolls: r.int(4, 8), gross_g: net + kg(1), net_g: net, avg_g: 0, zone: 'warping', status: 'in_stock', created_by_user_id: this.users.supervisor, fy: fyOf(this.iso(x)), kind: 'palti', palti_run_id: runId }, this.iso(x));
     this.boxes.push(box);
     this.move({ zone: 'warping', item: 'twisted', qualityId: this.refs.systemQualityId, lotId: null, boxId: box.id, wqId: box.wqId }, net, 'palti_output', x, { type: 'palti', id: runId }, 'supervisor');
   }
@@ -356,6 +358,35 @@ export class YarnSim {
     this.minimums();
   }
 
+  /** Small data set (DEMO_LITE): a few POs, ~6 finished programs, a handful running / pending, 2 warping jobs, one Palti. */
+  runLite() {
+    const r = this.rng;
+    const { H } = this.clock;
+    const q = this.refs.qualityIds;
+    const pos: [number, 'full' | 'partly' | 'open' | 'closed' | 'cancelled', boolean][] = [[4, 'full', false], [12, 'full', true], [24, 'full', false], [34, 'cancelled', false], [46, 'partly', false], [58, 'full', false], [66, 'open', false]];
+    pos.forEach(([x, kind, combine], i) => {
+      const lines = r.sample(q.slice(0, 6), r.int(1, 2)).map((qualityId) => ({ qualityId, kgs: r.int(5, 14) * 100 }));
+      this.po(x, this.refs.partyIds[i % this.refs.partyIds.length], lines, kind, combine);
+    });
+    for (const x of [15, 21, 28, 35, 43, 51]) {
+      this.program(x, { status: 'completed' });
+      if (x === 21 || x === 35 || x === 51) this.transferBoxes(x + 0.6);
+      if (x === 28 || x === 43) this.warping(x + 1, true);
+      if (x === 35) this.withdraw(x + 0.7, 'in_house');
+      if (x === 43) this.withdraw(x + 0.7, 'sell');
+    }
+    this.palti(H - 20);
+    this.program(H - 6, { status: 'box_pending' });
+    this.program(H - 5, { status: 'on_hold' });
+    for (let i = 0; i < 3; i++) this.program(H - r.u(0.5, 3), { status: 'running' });
+    this.transferBoxes(H - 2);
+    this.warping(H - 1, false);
+    this.withdraw(H - 0.4, 'in_house');
+    this.pendingWork();
+    this.manualAdjustments();
+    this.minimums();
+  }
+
   /** Pending TFO programs and warping jobs (they reserve stock). */
   private pendingWork() {
     const r = this.rng;
@@ -364,7 +395,7 @@ export class YarnSim {
       const lots = this.available('tfo', 'raw');
       if (!lots.length) break;
       const src = r.pick(lots);
-      const winding = kg(r.u(2, 3));
+      const winding = kg(r.pick([2, 3]));
       const rolls = Math.min(Math.floor((src.g * 0.5) / winding), r.int(12, 30));
       if (rolls < 4) continue;
       this.sink.add('tfo_pending_programs', {
@@ -382,7 +413,7 @@ export class YarnSim {
       }
       if (raws.length) {
         const src = r.pick(raws);
-        this.sink.add('warping_pending_job_inputs', { job_id: jobId, item: 'raw', quality_id: src.b.qualityId, qty_g: Math.round(src.g * 0.3), lot_id: src.b.lotId, box_id: null, warping_quality_id: null }, this.clock.iso(H - 1));
+        this.sink.add('warping_pending_job_inputs', { job_id: jobId, item: 'raw', quality_id: src.b.qualityId, qty_g: wk(src.g * 0.3), lot_id: src.b.lotId, box_id: null, warping_quality_id: null }, this.clock.iso(H - 1));
       }
     }
   }
@@ -391,7 +422,7 @@ export class YarnSim {
     const { H } = this.clock;
     const lots = this.available('direct', 'raw');
     const ref = { type: 'adjustment', id: ++this.seq.adj };
-    this.move({ zone: 'direct', item: 'raw', qualityId: this.refs.qualityIds[13], lotId: null, boxId: null, wqId: null }, kg(42.5), 'manual_add', H - 40, ref, 'jemish', 'Old stock found in the store');
+    this.move({ zone: 'direct', item: 'raw', qualityId: this.refs.qualityIds[13], lotId: null, boxId: null, wqId: null }, kg(43), 'manual_add', H - 40, ref, 'jemish', 'Old stock found in the store');
     if (lots.length) this.move({ ...lots[0].b }, -Math.min(lots[0].g, kg(12)), 'manual_remove', H - 12, { type: 'adjustment', id: ++this.seq.adj }, 'jemish', 'Wet cones thrown away');
   }
 
@@ -403,7 +434,7 @@ export class YarnSim {
       const qid = this.refs.qualityIds[i];
       const stock = stockOf(qid);
       const low = i % 2 === 0; // 75D, 100D, 30s cotton, zari gold are low; 150D and 50D nylon are fine
-      const min = low ? Math.max(kg(y[3]), Math.round(stock * 1.4)) : Math.min(kg(y[3]), Math.round(stock * 0.4));
+      const min = low ? Math.max(kg(y[3]), wk(stock * 1.4)) : Math.min(kg(y[3]), wk(stock * 0.4));
       if (low) this.lowQualities.push(qid);
       const row = this.sink.rows('yarn_qualities').find((q) => q.id === qid);
       if (row) row.min_g = Math.max(kg(10), min);
